@@ -60,6 +60,10 @@ public sealed class LeakTriageAnalyzerTests
         // Near miss: a typed catch does not cover every exception type, so it stays a candidate.
         AssertCandidate(result, nameof(ArrayPoolLeakFixtures.RentCrossCallTypedCatchReturn), "exception-path-leak-candidate");
 
+        // Near miss: a sibling typed catch precedes the catch-all and can handle an exception
+        // without releasing, so the catch-all must not be credited - stays a candidate.
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.RentCrossCallSiblingTypedThenCatchAllReturn), "exception-path-leak-candidate");
+
         // The fix is measurement-only: it changes no finding.
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn)));
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchExceptionReturn)));
@@ -719,6 +723,29 @@ internal sealed class ArrayPoolLeakFixtures
             ArrayPool<byte>.Shared.Return(buffer);
         }
         catch (InvalidOperationException)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    // Near miss: a sibling typed catch precedes the catch-all. An InvalidOperationException is
+    // handled by the FIRST catch, which does NOT return, so the buffer leaks - the catch-all must
+    // NOT be credited, and this MUST still be an exception-path-leak-candidate.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RentCrossCallSiblingTypedThenCatchAllReturn()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            Sink(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
         {
             ArrayPool<byte>.Shared.Return(buffer);
             throw;

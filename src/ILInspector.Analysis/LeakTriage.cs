@@ -94,16 +94,30 @@ public static class LeakTriageAnalyzer
         MethodIdentity method,
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        Func<int, MemberRef> resolveMethod)
+        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, null).Findings;
+
+    public static ImmutableArray<LeakTriageFinding> AnalyzeMethod(
+        MethodIdentity method,
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod,
-        Func<int, TypeRef?>? resolveCatchType = null)
+        Func<int, TypeRef?>? resolveCatchType)
         => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, resolveCatchType).Findings;
 
     public static LeakTriageResult AnalyzeMethodDetailed(
         MethodIdentity method,
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        Func<int, MemberRef> resolveMethod)
+        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, null);
+
+    public static LeakTriageResult AnalyzeMethodDetailed(
+        MethodIdentity method,
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod,
-        Func<int, TypeRef?>? resolveCatchType = null)
+        Func<int, TypeRef?>? resolveCatchType)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(il);
@@ -130,7 +144,7 @@ public static class LeakTriageAnalyzer
             if (!reaching.IsComplete)
                 return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
 
-            var catchAllCleanupHandlers = ComputeCatchAllCleanupHandlers(exceptionRegions, resolveCatchType);
+            var catchAllCleanup = ComputeCreditableCatchCleanup(exceptionRegions, resolveCatchType);
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
             var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
             if (rents.Length == 0)
@@ -138,7 +152,7 @@ public static class LeakTriageAnalyzer
 
             var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
             foreach (var rent in rents)
-                AnalyzeRent(method, instructions, graph, reaching, calls, exceptionRegions, catchAllCleanupHandlers, rent, findings, candidates);
+                AnalyzeRent(method, instructions, graph, reaching, calls, exceptionRegions, catchAllCleanup, rent, findings, candidates);
 
             return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
         }
@@ -162,7 +176,7 @@ public static class LeakTriageAnalyzer
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        IReadOnlySet<int> catchAllCleanupHandlers,
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         RentedLocal rent,
         ImmutableArray<LeakTriageFinding>.Builder findings,
         ImmutableArray<LeakTriageCandidate>.Builder candidates)
@@ -212,7 +226,7 @@ public static class LeakTriageAnalyzer
         if (firstAmbiguous is { } ambiguous)
         {
             if (ambiguous.Shape == "cross-method-suppressed"
-                && FirstUnprotectedThrowingBoundary(graph, exceptionRegions, catchAllCleanupHandlers, releaseOffsets, throwingBoundaries.ToImmutable()) is { } throwingBoundary)
+                && FirstUnprotectedThrowingBoundary(graph, exceptionRegions, catchAllCleanup, releaseOffsets, throwingBoundaries.ToImmutable()) is { } throwingBoundary)
             {
                 AddCandidate(
                     candidates,
@@ -394,14 +408,14 @@ public static class LeakTriageAnalyzer
     static int? FirstUnprotectedThrowingBoundary(
         BlockGraph graph,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        IReadOnlySet<int> catchAllCleanupHandlers,
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         ImmutableArray<int> releases,
         ImmutableArray<int> throwingBoundaries)
     {
         foreach (int boundary in throwingBoundaries)
         {
             if (!ReleasedBeforeUseInSameBlock(graph, releases, boundary)
-                && !HasCleanupReleaseForUse(exceptionRegions, catchAllCleanupHandlers, releases, boundary))
+                && !HasCleanupReleaseForUse(exceptionRegions, catchAllCleanup, releases, boundary))
             {
                 return boundary;
             }
@@ -412,19 +426,21 @@ public static class LeakTriageAnalyzer
 
     static bool HasCleanupReleaseForUse(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
-        IReadOnlySet<int> catchAllCleanupHandlers,
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         ImmutableArray<int> releases,
         int useOffset)
     {
         foreach (var region in exceptionRegions)
         {
-            // A `finally`/`fault` always runs on the exception path; a catch-all
-            // (`catch {}` / `catch (Exception)`) also runs for every exception type, so a release
-            // inside either handler protects an in-try throwing boundary against a leak. A more
-            // specific typed catch is not credited: an exception of another type would bypass it
-            // and leak.
+            // A `finally`/`fault` always runs on the exception path; a *sole* catch-all
+            // (`catch {}` / `catch (Exception)`) also runs for every exception from its try, so a
+            // release inside either handler protects an in-try throwing boundary against a leak.
+            // Only a catch-all that is the sole handler for its try is credited: a sibling typed
+            // or filter catch could handle an exception first without releasing, and a more
+            // specific typed catch lets other exception types bypass it.
             bool isCleanupHandler = region.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault
-                || (region.Kind is ExceptionRegionKind.Catch && catchAllCleanupHandlers.Contains(region.HandlerOffset));
+                || (region.Kind is ExceptionRegionKind.Catch
+                    && catchAllCleanup.Contains((region.TryOffset, region.TryLength, region.HandlerOffset)));
             if (!isCleanupHandler)
                 continue;
             if (!ContainsOffset(region.TryOffset, region.TryLength, useOffset))
@@ -436,35 +452,60 @@ public static class LeakTriageAnalyzer
         return false;
     }
 
-    // Handler offsets of catch-all regions - a catch that runs for every exception type, so the
-    // only catch shape that can credit exception-path protection. `catch (System.Object)` (bare
-    // `catch {}`) and `catch (System.Exception)` both qualify: in managed code every throwable
-    // derives from Exception, and non-CLS throws are wrapped as RuntimeWrappedException by the
-    // default RuntimeCompatibility(WrapNonExceptionThrows=true), so both catch every exception.
-    // A more specific typed catch is deliberately excluded - another exception type would bypass
-    // it and leak. Empty when no catch-type resolver is supplied (e.g. direct AnalyzeMethod
-    // callers), preserving the prior finally/fault-only behavior.
-    static IReadOnlySet<int> ComputeCatchAllCleanupHandlers(
+    // Try-range/handler identity of catch clauses that can credit exception-path protection: a
+    // catch-all (`catch {}` = `System.Object`, or `catch (Exception)`) that is the SOLE handler
+    // for its try. Both catch every managed exception (non-CLS throws are wrapped as
+    // RuntimeWrappedException by the default RuntimeCompatibility(WrapNonExceptionThrows=true)),
+    // so with no sibling handler on the same try the catch runs for every exception from it. A
+    // catch-all preceded by a sibling typed/filter catch is NOT credited: that sibling could
+    // handle an exception first without releasing, so the leak would be real. Empty when no
+    // catch-type resolver is supplied (e.g. direct AnalyzeMethod callers), preserving the prior
+    // finally/fault-only behavior. Conditional releases inside the handler are credited at the
+    // same fidelity as the existing finally/fault check (containment, not post-domination).
+    static IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> ComputeCreditableCatchCleanup(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, TypeRef?>? resolveCatchType)
     {
         if (resolveCatchType is null)
-            return ImmutableHashSet<int>.Empty;
+            return EmptyCatchCleanup;
 
-        HashSet<int>? handlers = null;
+        HashSet<(int, int, int)>? creditable = null;
         foreach (var region in exceptionRegions)
         {
             if (region.Kind is not ExceptionRegionKind.Catch || region.CatchType.IsNil)
                 continue;
             var catchType = resolveCatchType(MetadataTokens.GetToken(region.CatchType));
-            if (catchType is not null
-                && (FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
+            if (catchType is null
+                || !(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
                     || FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Exception")))
-                (handlers ??= []).Add(region.HandlerOffset);
+                continue;
+            if (HasSiblingHandler(exceptionRegions, region))
+                continue;
+            (creditable ??= []).Add((region.TryOffset, region.TryLength, region.HandlerOffset));
         }
 
-        return handlers is null ? ImmutableHashSet<int>.Empty : handlers;
+        return creditable is null ? EmptyCatchCleanup : creditable;
     }
+
+    // Another catch/filter clause guarding the exact same try range (a sibling handler that could
+    // handle an exception before the catch-all runs).
+    static bool HasSiblingHandler(IReadOnlyCollection<ExceptionRegion> exceptionRegions, ExceptionRegion region)
+    {
+        foreach (var other in exceptionRegions)
+        {
+            if (other.Kind is not (ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
+                continue;
+            if (other.TryOffset != region.TryOffset || other.TryLength != region.TryLength)
+                continue;
+            if (other.HandlerOffset != region.HandlerOffset)
+                return true;
+        }
+
+        return false;
+    }
+
+    static readonly IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> EmptyCatchCleanup =
+        ImmutableHashSet<(int, int, int)>.Empty;
 
     static TypeRef? ResolveCatchTypeRef(MetadataReader reader, EntityHandle handle, GenericScope scope) => handle.Kind switch
     {
