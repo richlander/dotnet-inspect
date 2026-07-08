@@ -138,6 +138,18 @@ jobs:
             --max-examples 10 \
             2>&1 | tee artifacts/deep-inspect/return-address-census.txt
 
+      - name: Run not-my-type equivalence census
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t assemblies < corpus-assemblies.txt
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-not-my-type-snapshot artifacts/deep-inspect/not-my-type-snapshot.json \
+            --diff-not-my-type-baseline tools/DecompilerHarness/corpus/not-my-type-baseline.json \
+            --max-examples 10 \
+            2>&1 | tee artifacts/deep-inspect/not-my-type-census.txt
+
       - name: Run validity predicate scan
         shell: bash
         run: |

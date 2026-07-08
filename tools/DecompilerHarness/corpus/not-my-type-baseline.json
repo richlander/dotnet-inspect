@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "description": "#2548 Not My Type type-shape equivalence census: same-assembly agreement between the product oracle (MetadataSource.ClassifyType) and the legacy base-name classifier the harness sites re-derive, plus cross-assembly reference recovery. Same-assembly agreement is a hard 100% floor; recovery is informational.",
+  "generatedUtc": "2026-07-08T22:06:57.4282544+00:00",
+  "tolerances": {
+    "agreeRateDropBasisPoints": 0
+  },
+  "definitions": 8472,
+  "agree": 8472,
+  "diverge": 0,
+  "crossRefs": 4660,
+  "recovered": 4587,
+  "agreeBasisPoints": 10000,
+  "assemblies": [
+    {
+      "assembly": "DotnetInspector.Core.dll",
+      "definitions": 41,
+      "agree": 41,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "DotnetInspector.Packages.dll",
+      "definitions": 58,
+      "agree": 58,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "DotnetInspector.Services.dll",
+      "definitions": 79,
+      "agree": 79,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "ILInspector.Analysis.dll",
+      "definitions": 66,
+      "agree": 66,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "ILInspector.Decompiler.dll",
+      "definitions": 654,
+      "agree": 654,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "ILInspector.Metadata.dll",
+      "definitions": 164,
+      "agree": 164,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "ILInspector.MetadataPrimitives.dll",
+      "definitions": 9,
+      "agree": 9,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "Microsoft.ApplicationInsights.dll",
+      "definitions": 379,
+      "agree": 379,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "Microsoft.CodeAnalysis.CSharp.dll",
+      "definitions": 2752,
+      "agree": 2752,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "Microsoft.CodeAnalysis.dll",
+      "definitions": 2371,
+      "agree": 2371,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "Newtonsoft.Json.dll",
+      "definitions": 501,
+      "agree": 501,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "NuGet.Versioning.dll",
+      "definitions": 41,
+      "agree": 41,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "System.CommandLine.dll",
+      "definitions": 149,
+      "agree": 149,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    },
+    {
+      "assembly": "dotnet-inspect.dll",
+      "definitions": 1208,
+      "agree": 1208,
+      "diverge": 0,
+      "agreeBasisPoints": 10000
+    }
+  ]
+}
