@@ -787,6 +787,13 @@ static class ReturnToSenderSourceProbe
         }
 
         var shape = SourceDifferenceShape(expected, actual);
+        if (status == FidelityCheck.CompileBackStatus.Exact
+            && TryKnownExactDifference(expected, actual, shape, out var knownReason, out var knownDetail))
+        {
+            detail = knownDetail;
+            return knownReason;
+        }
+
         string statusId = status == FidelityCheck.CompileBackStatus.OpcodeDiff
             ? "opcode_diff"
             : status == FidelityCheck.CompileBackStatus.Exact
@@ -800,6 +807,83 @@ static class ReturnToSenderSourceProbe
                 : $"valid_different.{shape}.{statusId}";
         detail = $"decompiled body is Roslyn-valid but differs from the fixture source slice; classification={shape}; compile-back={status}";
         return reason;
+    }
+
+    static bool TryKnownExactDifference(string expected, string actual, string shape, out string reason, out string detail)
+    {
+        switch (shape)
+        {
+            case "source_shape_frontier.checked_context" when !ContainsCommentTrivia(expected)
+                && !ContainsCommentTrivia(actual)
+                && ContextStrippedBodiesMatch(expected, actual):
+                reason = "valid_different.known_compiler_option.checked_context";
+                detail = "decompiled body is Roslyn-valid and compile-back exact; the source delta is an intentional checked-context spelling caused by standalone compile-back losing the fixture project's checked arithmetic option";
+                return true;
+            default:
+                reason = "";
+                detail = "";
+                return false;
+        }
+    }
+
+    static bool ContainsCommentTrivia(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText("class __Probe { void __M() {" + Environment.NewLine + body + Environment.NewLine + "} }");
+        return tree.GetCompilationUnitRoot()
+            .DescendantTrivia(descendIntoTrivia: true)
+            .Any(trivia =>
+                trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                || trivia.IsKind(SyntaxKind.MultiLineCommentTrivia)
+                || trivia.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+                || trivia.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia));
+    }
+
+    static bool ContextStrippedBodiesMatch(string expected, string actual)
+        => NormalizeBody(CheckedContextStrippedBody(expected)) == NormalizeBody(CheckedContextStrippedBody(actual));
+
+    static string CheckedContextStrippedBody(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText("class __Probe { void __M() {" + Environment.NewLine + body + Environment.NewLine + "} }");
+        var method = tree.GetCompilationUnitRoot()
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .FirstOrDefault();
+        if (method?.Body is not { } methodBody)
+            return body;
+
+        var rewrittenBody = new CheckedContextRemover().Visit(methodBody) as BlockSyntax;
+        return rewrittenBody is null
+            ? body
+            : string.Join(Environment.NewLine, rewrittenBody.Statements.Select(statement => statement.ToFullString()));
+    }
+
+    sealed class CheckedContextRemover : CSharpSyntaxRewriter
+    {
+        static readonly SyntaxAnnotation s_unwrappedCheckedBlock = new("unwrapped-checked-block");
+
+        public override SyntaxNode? VisitBlock(BlockSyntax node)
+        {
+            var visited = (BlockSyntax)base.VisitBlock(node)!;
+            var statements = new List<StatementSyntax>(visited.Statements.Count);
+            foreach (var statement in visited.Statements)
+            {
+                if (statement is BlockSyntax block && block.HasAnnotation(s_unwrappedCheckedBlock))
+                    statements.AddRange(block.Statements);
+                else
+                    statements.Add(statement);
+            }
+
+            return visited.WithStatements(SyntaxFactory.List(statements));
+        }
+
+        public override SyntaxNode? VisitCheckedStatement(CheckedStatementSyntax node)
+        {
+            var visited = (BlockSyntax)Visit(node.Block)!;
+            return visited.WithAdditionalAnnotations(s_unwrappedCheckedBlock);
+        }
+
+        public override SyntaxNode? VisitCheckedExpression(CheckedExpressionSyntax node)
+            => Visit(node.Expression) ?? node.Expression;
     }
 
     static string SourceDifferenceShape(string expected, string actual)
