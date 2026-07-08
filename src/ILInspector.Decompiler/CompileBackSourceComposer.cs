@@ -438,7 +438,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef),
+                ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
@@ -611,7 +611,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef),
+                ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
@@ -730,7 +730,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef),
+                ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
                 primaryConstructor,
                 targetFacts)
@@ -2666,8 +2666,8 @@ public static class CompileBackSourceComposer
                 }
 
                 var identity = CompileBackTypeIdentity.FromDefinition(reader, nestedDef);
-                var kind = ShellKind(reader, nestedDef);
                 requirementsByMetadataName.TryGetValue(identity.MetadataFullName, out var requirement);
+                var kind = requirement?.RequiredKind ?? ShellKind(reader, nestedDef);
                 requirement ??= new CompileBackTypeRequirement(
                     identity,
                     kind,

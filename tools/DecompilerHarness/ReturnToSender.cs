@@ -1545,8 +1545,6 @@ static class ReturnToSender
             if (TryResolveHandle(definition) is not { } handle)
                 return;
             var root = TopLevelRootOf(reader, handle);
-            if (root == targetRoot)
-                return;
             closureRoots.Add(root);
             AddClosureFact(
                 closureFacts,
