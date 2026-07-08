@@ -847,27 +847,37 @@ static class ReturnToSenderSourceProbe
         if (method?.Body is not { } methodBody)
             return body;
 
-        return string.Join(Environment.NewLine, FlattenCheckedStatements(methodBody.Statements).Select(statement => statement.ToFullString()));
+        var rewrittenBody = new CheckedContextRemover().Visit(methodBody) as BlockSyntax;
+        return rewrittenBody is null
+            ? body
+            : string.Join(Environment.NewLine, rewrittenBody.Statements.Select(statement => statement.ToFullString()));
     }
 
-    static IEnumerable<StatementSyntax> FlattenCheckedStatements(SyntaxList<StatementSyntax> statements)
+    sealed class CheckedContextRemover : CSharpSyntaxRewriter
     {
-        var checkedRewriter = new CheckedExpressionRemover();
-        foreach (var statement in statements)
+        static readonly SyntaxAnnotation s_unwrappedCheckedBlock = new("unwrapped-checked-block");
+
+        public override SyntaxNode? VisitBlock(BlockSyntax node)
         {
-            if (statement is CheckedStatementSyntax checkedStatement)
+            var visited = (BlockSyntax)base.VisitBlock(node)!;
+            var statements = new List<StatementSyntax>(visited.Statements.Count);
+            foreach (var statement in visited.Statements)
             {
-                foreach (var inner in FlattenCheckedStatements(checkedStatement.Block.Statements))
-                    yield return inner;
-                continue;
+                if (statement is BlockSyntax block && block.HasAnnotation(s_unwrappedCheckedBlock))
+                    statements.AddRange(block.Statements);
+                else
+                    statements.Add(statement);
             }
 
-            yield return (StatementSyntax)(checkedRewriter.Visit(statement) ?? statement);
+            return visited.WithStatements(SyntaxFactory.List(statements));
         }
-    }
 
-    sealed class CheckedExpressionRemover : CSharpSyntaxRewriter
-    {
+        public override SyntaxNode? VisitCheckedStatement(CheckedStatementSyntax node)
+        {
+            var visited = (BlockSyntax)Visit(node.Block)!;
+            return visited.WithAdditionalAnnotations(s_unwrappedCheckedBlock);
+        }
+
         public override SyntaxNode? VisitCheckedExpression(CheckedExpressionSyntax node)
             => Visit(node.Expression) ?? node.Expression;
     }

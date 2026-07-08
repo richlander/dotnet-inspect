@@ -210,6 +210,35 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_StripsNestedCheckedStatementForKnownCompilerOption()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            """
+            if (value > 0)
+            {
+                value += 1;
+            }
+            return value;
+            """,
+            """
+            if (value > 0)
+            {
+                checked
+                {
+                    value += 1;
+                }
+            }
+            return value;
+            """,
+            FidelityCheck.CompileBackStatus.Exact,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.known_compiler_option.checked_context", reason);
+        Assert.Contains("checked arithmetic option", detail);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesIteratorCompilerLowering()
     {
         var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
