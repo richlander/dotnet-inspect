@@ -258,6 +258,18 @@ public class ReturnToSenderFixtureCatalogTests
 
         Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
         Assert.DoesNotContain("CS8858", result.Detail, StringComparison.Ordinal);
+
+        var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.Program",
+                    "Shift",
+                    Overload: 0),
+            ]));
+
+        Assert.Contains("return point with { X = point.X + dx };", compileBack.Source);
+        Assert.Contains("public record Point", compileBack.Source);
     }
 
     [Fact]

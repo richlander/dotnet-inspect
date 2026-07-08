@@ -656,6 +656,8 @@ static class ReturnToSender
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
+        // PrintRaised mutates the imported function in place, so raised evidence
+        // such as WithExpression is available to typed shell seeding here.
         SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
