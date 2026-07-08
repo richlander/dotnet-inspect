@@ -21,12 +21,6 @@ public static class ResearchReturnToSenderShells
         FieldRef field)
         => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, typeHandle, field);
 
-    public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
-        MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
-        string memberName)
-        => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, typeHandle, memberName);
-
     public static CompileBackSourceResult ComposePropertyGetter(
         string assemblyPath,
         MetadataReader reader,

@@ -1995,15 +1995,21 @@ public sealed class ObjectInitializerExpression : IrExpression
         AddChild(creation);
         var members = ImmutableArray.CreateBuilder<string?>();
         var argumentCounts = ImmutableArray.CreateBuilder<int>();
+        var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
+        var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
         foreach (var entry in entries)
         {
             members.Add(entry.Member);
             argumentCounts.Add(entry.Arguments.Count);
+            consumedMethods.Add(entry.ConsumedMethod);
+            consumedFields.Add(entry.ConsumedField);
             foreach (var argument in entry.Arguments)
                 AddChild(argument);
         }
         Members = members.ToImmutable();
         ArgumentCounts = argumentCounts.ToImmutable();
+        ConsumedMethods = consumedMethods.ToImmutable();
+        ConsumedFields = consumedFields.ToImmutable();
     }
 
     /// <summary>Collection-initializer (<c>{ e0, e1 }</c> / <c>{ {k, v} }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> / <c>{ [k] = v }</c> via member or indexer stores).</summary>
@@ -2018,8 +2024,14 @@ public sealed class ObjectInitializerExpression : IrExpression
     /// <summary>The number of child expressions each entry owns, parallel to <see cref="Members"/>.</summary>
     public ImmutableArray<int> ArgumentCounts { get; }
 
+    /// <summary>Consumed setter/Add method evidence per entry, when a raised initializer entry came from a method call.</summary>
+    public ImmutableArray<MethodRef?> ConsumedMethods { get; }
+
+    /// <summary>Consumed field evidence per entry, when a raised initializer entry came from a field store.</summary>
+    public ImmutableArray<FieldRef?> ConsumedFields { get; }
+
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts);
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts, ConsumedMethods, ConsumedFields);
 
     public override TypeRef? ResultType => Creation.ResultType;
 
@@ -2061,7 +2073,13 @@ public sealed class WithExpression : IrExpression
     public IrExpression Receiver => (IrExpression)Children[0];
     public ImmutableArray<string> Members { get; }
     public IReadOnlyList<InitializerEntry> Entries
-        => InitializerEntry.Slice(Children, 1, [.. Members.Select(m => (string?)m)], [.. Members.Select(_ => 1)]);
+        => InitializerEntry.Slice(
+            Children,
+            1,
+            [.. Members.Select(m => (string?)m)],
+            [.. Members.Select(_ => 1)],
+            [.. Members.Select(_ => (MethodRef?)null)],
+            [.. Members.Select(_ => (FieldRef?)null)]);
     public override TypeRef? ResultType => Receiver.ResultType;
     public override string Describe()
         => $"WithExpression ({Members.Length} members)";
@@ -2090,15 +2108,21 @@ public sealed class InitializerBlock : IrExpression
         IsCollection = isCollection;
         var members = ImmutableArray.CreateBuilder<string?>();
         var argumentCounts = ImmutableArray.CreateBuilder<int>();
+        var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
+        var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
         foreach (var entry in entries)
         {
             members.Add(entry.Member);
             argumentCounts.Add(entry.Arguments.Count);
+            consumedMethods.Add(entry.ConsumedMethod);
+            consumedFields.Add(entry.ConsumedField);
             foreach (var argument in entry.Arguments)
                 AddChild(argument);
         }
         Members = members.ToImmutable();
         ArgumentCounts = argumentCounts.ToImmutable();
+        ConsumedMethods = consumedMethods.ToImmutable();
+        ConsumedFields = consumedFields.ToImmutable();
     }
 
     /// <summary>Collection body (<c>{ e0, e1 }</c> via <c>Add</c>) vs object body (<c>{ X = a }</c> via member stores).</summary>
@@ -2110,8 +2134,14 @@ public sealed class InitializerBlock : IrExpression
     /// <summary>The number of child expressions each entry owns, parallel to <see cref="Members"/>.</summary>
     public ImmutableArray<int> ArgumentCounts { get; }
 
+    /// <summary>Consumed setter/Add method evidence per entry, when a raised initializer entry came from a method call.</summary>
+    public ImmutableArray<MethodRef?> ConsumedMethods { get; }
+
+    /// <summary>Consumed field evidence per entry, when a raised initializer entry came from a field store.</summary>
+    public ImmutableArray<FieldRef?> ConsumedFields { get; }
+
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts);
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts, ConsumedMethods, ConsumedFields);
 
     /// <summary>A nested body initializes an existing member in place; it has no standalone result type.</summary>
     public override TypeRef? ResultType => null;
@@ -2132,7 +2162,11 @@ public sealed class InitializerBlock : IrExpression
 /// A nested member entry (<c>Inner = { ... }</c>) is a named member whose single
 /// argument is an <see cref="InitializerBlock"/>.
 /// </summary>
-public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression> Arguments)
+public sealed record InitializerEntry(
+    string? Member,
+    IReadOnlyList<IrExpression> Arguments,
+    MethodRef? ConsumedMethod = null,
+    FieldRef? ConsumedField = null)
 {
     /// <summary>
     /// Reconstructs the entries from a node's flat children: the run starting at
@@ -2142,7 +2176,12 @@ public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression
     /// <see cref="InitializerBlock"/> (start 0).
     /// </summary>
     internal static IReadOnlyList<InitializerEntry> Slice(
-        IReadOnlyList<IrNode> children, int start, ImmutableArray<string?> members, ImmutableArray<int> argumentCounts)
+        IReadOnlyList<IrNode> children,
+        int start,
+        ImmutableArray<string?> members,
+        ImmutableArray<int> argumentCounts,
+        ImmutableArray<MethodRef?> consumedMethods,
+        ImmutableArray<FieldRef?> consumedFields)
     {
         var entries = new List<InitializerEntry>(members.Length);
         int index = start;
@@ -2153,7 +2192,7 @@ public sealed record InitializerEntry(string? Member, IReadOnlyList<IrExpression
             for (int j = 0; j < count; j++)
                 arguments[j] = (IrExpression)children[index + j];
             index += count;
-            entries.Add(new InitializerEntry(members[e], arguments));
+            entries.Add(new InitializerEntry(members[e], arguments, consumedMethods[e], consumedFields[e]));
         }
         return entries;
     }
