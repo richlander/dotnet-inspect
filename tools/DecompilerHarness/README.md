@@ -713,6 +713,39 @@ never fail; re-emit the baseline to raise the floor. `matched`/`unmatched` count
 drift with corpus composition (framework/NuGet version bumps), so they are
 reported in the card for triage but not gated.
 
+### Malformed-metadata signature fuzzer (`--fuzz-signatures`)
+
+`--fuzz-signatures` runs a self-contained fuzzer (#2499) over the signature-decode
+hardening. It generates adversarial signature blobs — deep wrapper chains, wide and
+huge declared counts, adversarial array shapes, function pointers, truncation, and
+random bytes — across all five `SignatureBlobGuard.Kind` shapes, and for each blob:
+
+1. runs `SignatureBlobGuard.IsSafeToDecode`, then
+2. when the guard reports the blob safe, runs a **real** SRM signature decode.
+
+The guard's contract is that a *safe* verdict implies SRM can decode the blob without
+an uncatchable `StackOverflowException` or an unbounded pre-allocation. A blob that
+violates that contract aborts the process — which is the fuzzing signal — so
+**finishing all iterations is the pass**. The decode uses a trivial provider because
+the StackOverflow (native `DecodeType` recursion) and the count-driven pre-allocation
+both live inside SRM's decoder, independent of the provider.
+
+```bash
+# Deterministic run; a crash reproduces with the same --fuzz-seed.
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --fuzz-signatures --fuzz-iterations 1000000 --fuzz-seed 1 --fuzz-log-every 50000
+
+# Positive control: skip the guard so a deep/huge blob decodes directly. Expected to
+# abort (StackOverflow/OOM) — this demonstrates the guard is necessary and the fuzzer
+# generates genuinely crashing inputs.
+dotnet run --project tools/DecompilerHarness -c Release -- --fuzz-unguarded
+```
+
+Each blob is logged to stderr (kind, iteration, hex) every `--fuzz-log-every` iterations
+so a process abort leaves the culprit as the last line; the run is deterministic given
+`--fuzz-seed`, so a crash is reproduced by re-running the same seed. A bounded run
+(1,000,000 iterations) runs in the opt-in Deep Inspect **census lane**.
+
 ## Usage
 
 ```bash
