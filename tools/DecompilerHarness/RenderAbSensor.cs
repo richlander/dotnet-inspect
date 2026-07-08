@@ -33,7 +33,7 @@ internal static class RenderAbSensor
         {
             var json = JsonSerializer.Serialize(ToBodyDictionary(current), new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(emitPath, json);
-            Console.WriteLine($"Wrote baseline to {emitPath} ({current.Count} methods).");
+            HarnessLog.Status($"Wrote baseline to {emitPath} ({current.Count} methods).");
             if (diffPath is null)
                 return 0;
         }

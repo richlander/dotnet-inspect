@@ -303,7 +303,7 @@ static class Program
         if (emitInverseLedger is not null)
         {
             File.WriteAllText(emitInverseLedger, ILInspector.Decompiler.Tests.InverseArchitecture.InverseLedger.RenderMarkdown(typeof(IrFunction).Assembly));
-            Console.WriteLine($"Wrote inverse ledger to {emitInverseLedger}");
+            HarnessLog.Status($"Wrote inverse ledger to {emitInverseLedger}");
             return 0;
         }
 

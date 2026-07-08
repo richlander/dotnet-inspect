@@ -2,6 +2,10 @@
 
 The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — the asmdiffs analog for the decompiler. It inventories the pipeline's health, scores the real-gap completeness, validates output two ways, and dumps a single method through every pipeline stage. This is the invocation reference for the modes; the strategy they serve — which check proves what, what gates CI, the corpus-sweep plan — is [docs/decompiler-quality.md](../../docs/decompiler-quality.md).
 
+## Output discipline
+
+**stdout = data, stderr = diagnostics.** A sensor's data — reports, cards, and `--json`/`--jsonl`/`--tsv` payloads — goes to stdout; status, progress, gate, and emit-confirmation messages (e.g. "Wrote …: `<path>`") go to stderr. This keeps structured stdout parseable (a `--jsonl` stream stays valid; a teed quality card stays free of stray status lines). Route status through `HarnessLog.Status(...)` rather than `Console.WriteLine` so new sensors follow the convention by default.
+
 ## Modes
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.

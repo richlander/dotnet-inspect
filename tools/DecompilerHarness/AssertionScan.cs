@@ -858,7 +858,7 @@ internal static class AssertionScan
         var snapshot = AssertionViolationSnapshot.FromResult(result);
         File.WriteAllText(path, JsonSerializer.Serialize(snapshot, JsonOptions()));
         Console.WriteLine();
-        Console.WriteLine($"Wrote assertion-violation map for {snapshot.Methods.Count} methods to {path}");
+        HarnessLog.Status($"Wrote assertion-violation map for {snapshot.Methods.Count} methods to {path}");
     }
 
     static void DiffViolations(string baselinePath, Result result)
