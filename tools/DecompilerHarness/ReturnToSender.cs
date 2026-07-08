@@ -34,7 +34,11 @@ static class ReturnToSender
         IlDiffDisplayResult? IlDiffDiagnostic = null,
         IlMemberDiffResult? IlDiff = null,
         MemberAnchor? MemberAnchor = null,
-        IReadOnlyList<DecompilerDecision>? Decisions = null);
+        IReadOnlyList<DecompilerDecision>? Decisions = null,
+        FidelityCheck.CompileBackResult? CompileBackFloor = null)
+    {
+        public bool UsedCompileBackFloor => CompileBackFloor is not null;
+    }
 
     public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
 
@@ -57,7 +61,7 @@ static class ReturnToSender
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
         int total = 0, exact = 0, opcodeDiff = 0, recompileFail = 0, contextFail = 0;
-        int closureRoots = 0, closureMembers = 0;
+        int closureRoots = 0, closureMembers = 0, compileBackFloor = 0;
         var planningDiagnostics = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var examples = new List<string>();
 
@@ -94,6 +98,8 @@ static class ReturnToSender
                 closureMembers += result.Plan.Types
                     .Skip(1)
                     .Sum(type => type.Members.Count);
+                if (result.UsedCompileBackFloor)
+                    compileBackFloor++;
                 foreach (var diagnostic in result.Plan.Diagnostics)
                 {
                     string key = $"{diagnostic.Layer}/{diagnostic.Reason}";
@@ -139,6 +145,7 @@ static class ReturnToSender
         Console.WriteLine("Plan layers:");
         Console.WriteLine($"  closure roots   : {closureRoots}");
         Console.WriteLine($"  closure members : {closureMembers}");
+        Console.WriteLine($"  compile-back floor: {compileBackFloor}");
         if (planningDiagnostics.Count == 0)
         {
             Console.WriteLine("  diagnostics     : 0");
@@ -174,7 +181,7 @@ static class ReturnToSender
             IReadOnlyList<Result> rtsResults;
             try
             {
-                rtsResults = CompileBackPropertyGetters(assemblyPath, cap - total);
+                rtsResults = CompileBackPropertyGetters(assemblyPath, cap - total, applyCompileBackFloor: false);
             }
             catch (NoSupportedReturnToSenderTargetsException)
             {
@@ -204,6 +211,7 @@ static class ReturnToSender
                 current = FidelityCheck.EvaluateTargets([assemblyPath], currentTargets)
                     .GroupBy(CurrentKey, StringComparer.Ordinal)
                     .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+                rtsResults = ApplyCompileBackFloor(assemblyPath, rtsResults, current.Values);
             }
             catch (Exception ex) when (ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -279,6 +287,12 @@ static class ReturnToSender
     static string ReturnToSenderKey(Result result)
         => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}";
 
+    static string FloorKey(FidelityCheck.CompileBackResult result)
+        => $"{result.Type}::{result.Method}::{result.Overload}::{result.Signature}";
+
+    static string FloorKey(Result result)
+        => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}::{result.Plan.TargetMethod.Signature}";
+
     static ComparisonDelta ClassifyDelta(FidelityCheck.CompileBackResult? current, Result rts)
     {
         if (current is null)
@@ -319,6 +333,8 @@ static class ReturnToSender
 
     static (string Layer, string Detail) ExampleLayerAndDetail(Result result)
     {
+        if (result.UsedCompileBackFloor)
+            return ("compile-back floor", result.Detail ?? result.CompileBackFloor!.Status.ToString());
         if (result.Plan.Diagnostics.FirstOrDefault() is { } diagnostic)
             return (diagnostic.Layer, $"{diagnostic.Reason}: {diagnostic.Detail}");
         if (!string.IsNullOrWhiteSpace(result.Detail))
@@ -332,6 +348,9 @@ static class ReturnToSender
         => CompileBackPropertyGetters(assemblyPath, maxTargets: 1).First();
 
     public static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets = int.MaxValue)
+        => CompileBackPropertyGetters(assemblyPath, maxTargets, applyCompileBackFloor: true);
+
+    static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets, bool applyCompileBackFloor)
     {
         if (maxTargets <= 0)
             return [];
@@ -396,13 +415,13 @@ static class ReturnToSender
                     accessors.Getter,
                     MemberAnchorFor(memberAnchors, accessors.Getter)));
                 if (results.Count >= maxTargets)
-                    return results;
+                    return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
             }
         }
 
         if (results.Count == 0)
             throw new NoSupportedReturnToSenderTargetsException("No supported property getter with a method body was found.");
-        return results;
+        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
     }
 
     public static IReadOnlyList<Result> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
@@ -480,7 +499,69 @@ static class ReturnToSender
             }
         }
 
-        return results;
+        return ApplyCompileBackFloor(assemblyPath, results);
+    }
+
+    static IReadOnlyList<Result> ApplyCompileBackFloor(
+        string assemblyPath,
+        IReadOnlyList<Result> results,
+        IEnumerable<FidelityCheck.CompileBackResult>? compileBackResults = null)
+    {
+        if (results.Count == 0 || !results.Any(NeedsCompileBackFloor))
+            return results;
+
+        var floorRows = compileBackResults?.ToArray()
+            ?? FidelityCheck.EvaluateTargets(
+                [assemblyPath],
+                results
+                    .Where(NeedsCompileBackFloor)
+                    .Select(result => new FidelityCheck.CompileBackTarget(
+                        assemblyPath,
+                        result.Plan.TargetMethod.Type,
+                        result.Plan.TargetMethod.Method,
+                        result.Plan.TargetMethod.Overload,
+                        result.Plan.TargetMethod.Signature))
+                    .Distinct()
+                    .ToArray());
+        var floorByTarget = floorRows
+            .Where(row => row.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff)
+            .GroupBy(FloorKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        if (floorByTarget.Count == 0)
+            return results;
+
+        var adjusted = new Result[results.Count];
+        for (int i = 0; i < results.Count; i++)
+        {
+            var result = results[i];
+            adjusted[i] = NeedsCompileBackFloor(result)
+                && floorByTarget.TryGetValue(FloorKey(result), out var floor)
+                    ? WithCompileBackFloor(result, floor)
+                    : result;
+        }
+
+        return adjusted;
+    }
+
+    static bool NeedsCompileBackFloor(Result result)
+        => result.Status is FidelityCheck.CompileBackStatus.RecompileFail or FidelityCheck.CompileBackStatus.ContextFail;
+
+    static Result WithCompileBackFloor(Result result, FidelityCheck.CompileBackResult floor)
+    {
+        string originalFailure = string.IsNullOrWhiteSpace(result.Detail)
+            ? result.Status.ToString()
+            : $"{result.Status}: {result.Detail}";
+        string floorDetail = string.IsNullOrWhiteSpace(floor.Detail)
+            ? $"compile-back-floor: {originalFailure}"
+            : $"compile-back-floor: {floor.Detail}; rts: {originalFailure}";
+        return result with
+        {
+            Status = floor.Status,
+            OriginalOpcodes = floor.OriginalOpcodes,
+            RecompiledOpcodes = floor.RecompiledOpcodes,
+            Detail = floorDetail,
+            CompileBackFloor = floor,
+        };
     }
 
     static (PropertyDefinitionHandle Property, MethodDefinitionHandle Getter)? TryFindPropertyGetter(
