@@ -189,11 +189,13 @@ internal static class SignatureFuzzer
         }
     }
 
-    // Emits a Type blob. Iterative (no generator-side recursion), with adversarial strategies.
+    // Emits a Type blob. Iterative (no generator-side recursion), with adversarial strategies —
+    // including *recursively* nested shapes (deep inside FNPTR return / GENERICINST arg / ARRAY
+    // element), emitted as a flat byte sequence so the generator's own stack is never at risk.
     static List<byte> GenerateType(Random rng)
     {
         var blob = new List<byte>();
-        switch (rng.Next(0, 8))
+        switch (rng.Next(0, 11))
         {
             case 0: // deep wrapper chain (StackOverflow probe)
             {
@@ -247,6 +249,45 @@ internal static class SignatureFuzzer
                 int n = rng.Next(1, 4_000);
                 for (int i = 0; i < n; i++)
                     blob.Add((byte)rng.Next(0, 256));
+                break;
+            }
+            case 7: // deep FNPTR-return chain: FNPTR() -> FNPTR() -> ... -> I4
+            {
+                int depth = rng.Next(1, 60_000);
+                for (int i = 0; i < depth; i++)
+                {
+                    blob.Add(0x1b); // FNPTR
+                    blob.Add(0x00); // default calling convention
+                    blob.Add(0x00); // 0 parameters; the return type continues the chain
+                }
+                blob.Add(0x08); // I4 return type at the bottom
+                break;
+            }
+            case 8: // deep GENERICINST single-arg chain: G<G<...<I4>>>
+            {
+                int depth = rng.Next(1, 60_000);
+                for (int i = 0; i < depth; i++)
+                {
+                    blob.Add(0x15); // GENERICINST
+                    blob.Add(0x12); // CLASS
+                    blob.Add(0x06); // generic type token
+                    blob.Add(0x01); // one argument, which continues the chain
+                }
+                blob.Add(0x08);
+                break;
+            }
+            case 9: // deep ARRAY-element chain: I4[]...[] (shapes trail in the blob)
+            {
+                int depth = rng.Next(1, 60_000);
+                for (int i = 0; i < depth; i++)
+                    blob.Add(0x14); // ARRAY
+                blob.Add(0x08);     // innermost element I4
+                for (int i = 0; i < depth; i++)
+                {
+                    blob.Add(0x01); // rank 1
+                    blob.Add(0x00); // 0 sizes
+                    blob.Add(0x00); // 0 lower bounds
+                }
                 break;
             }
             default: // a simple leaf
