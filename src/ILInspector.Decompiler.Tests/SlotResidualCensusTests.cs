@@ -63,46 +63,75 @@ public class SlotResidualCensusTests
     }
 
     [Fact]
-    public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtBaseTarget()
+    public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtObjectTarget()
     {
-        var baseReader = TypeRef.Definition("Synthetic", "Samples", "JsonReader", ValueTypeHint.ReferenceType);
-        var traceReader = TypeRef.Definition("Synthetic", "Samples", "TraceJsonReader", ValueTypeHint.ReferenceType);
+        var obj = TypeRef.CoreLib("System", "Object");
+        var str = TypeRef.CoreLib("System", "String");
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
         var voidType = TypeRef.CoreLib("System", "Void");
 
         var block = new Block();
         block.Add(new StoreStackSlot(0, new Coalesce(
-            new LoadLocal(0, traceReader),
-            new LoadArgument(0, "reader", baseReader))));
+            new LoadLocal(0, str),
+            new LoadArgument(0, "fallback", obj))));
         block.Add(new ExpressionStatement(new Call(
-            new MethodRef(owner, "Use", voidType, [baseReader], HasThis: false),
+            new MethodRef(owner, "Use", voidType, [obj], HasThis: false),
             isVirtual: false,
-            [new LoadStackSlot(0, baseReader)])));
+            [new LoadStackSlot(0, obj)])));
         var body = new BlockContainer();
         body.Add(block);
         var function = new IrFunction(
             "M",
             owner,
             new MethodSignature(voidType, [
-                new Parameter("reader", baseReader),
+                new Parameter("fallback", obj),
             ], HasThis: false, GenericParameterCount: 0),
-            [traceReader],
-            body)
-        {
-            TypeShapes = new Dictionary<TypeRef, TypeShape>
-            {
-                [baseReader] = TypeShape.Reference,
-                [traceReader] = TypeShape.Reference,
-            },
-        };
+            [str],
+            body);
 
         var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
         var output = CSharpPrinter.Print(function).Output;
 
         Assert.Equal(0, telemetry.UnunifiedSplitSlots);
         Assert.DoesNotContain("S_0_1", output);
-        Assert.Contains("JsonReader S_0 = V_0 ?? reader;", output);
+        Assert.Contains("object S_0 = V_0 ?? fallback;", output);
         Assert.Contains("Use(S_0);", output);
+    }
+
+    [Fact]
+    public void StackSlotUnifierTelemetry_DoesNotUnifyObjectCoalesceToStringTarget()
+    {
+        var obj = TypeRef.CoreLib("System", "Object");
+        var str = TypeRef.CoreLib("System", "String");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadArgument(0, "left", obj),
+            new LoadArgument(1, "right", str))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [str], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, str)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("left", obj),
+                new Parameter("right", str),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Contains("object S_0 = left ?? right;", output);
+        Assert.Contains("Use(S_0_1);", output);
     }
 
     static string CaptureConsole(Func<int> action)
