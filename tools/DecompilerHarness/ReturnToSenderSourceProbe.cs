@@ -899,6 +899,7 @@ static class ReturnToSenderSourceProbe
                 ? "exact"
                 : status.ToString().ToLowerInvariant();
         if (status == FidelityCheck.CompileBackStatus.OpcodeDiff
+            && AllowsDynamicCallSiteClassification(shape)
             && IsDynamicCallSiteLowering(actual))
         {
             detail = "decompiled body is Roslyn-valid and compile-back opcode-different; classification=compiler_lowering.dynamic_callsite; compile-back=OpcodeDiff";
@@ -1044,6 +1045,12 @@ static class ReturnToSenderSourceProbe
         => actual.Contains("CallSite<", StringComparison.Ordinal)
             && actual.Contains("Binder.", StringComparison.Ordinal)
             && actual.Contains("CSharpArgumentInfo", StringComparison.Ordinal);
+
+    static bool AllowsDynamicCallSiteClassification(string shape)
+        => shape is
+            "source_shape_frontier.syntax" or
+            "source_shape_frontier.checked_context" or
+            "source_shape_frontier.dynamic";
 
     static string ShapeLeaf(string shape)
     {

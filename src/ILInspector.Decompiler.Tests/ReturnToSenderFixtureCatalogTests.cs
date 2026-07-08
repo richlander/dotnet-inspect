@@ -484,6 +484,31 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.DoesNotContain("dynamic_callsite", detail);
     }
 
+    [Theory]
+    [InlineData("yield return value;", "valid_different.compiler_lowering.iterator.opcode_diff")]
+    [InlineData("unsafe { int* p = null; return *p; }", "valid_different.semantic_opcode_diff.unsafe_residual")]
+    [InlineData("Func<int> next = () => value + 1; return next();", "valid_different.semantic_opcode_diff.closure")]
+    public void ReturnToSenderSourceProbe_DynamicCallSiteClassifierPreservesHigherPriorityShapes(
+        string expected,
+        string reason)
+    {
+        var actual = """
+            CSharpArgumentInfo[] infos;
+            ___o__0.___p__0 = CallSite<Func<CallSite, object, object, object>>.Create(Binder.BinaryOperation((CSharpBinderFlags)0, ExpressionType.Add, typeof(C), infos));
+            return ___o__0.___p__0.Target.Invoke(___o__0.___p__0, left, right);
+            """;
+
+        var actualReason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            expected,
+            actual,
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal(reason, actualReason);
+        Assert.DoesNotContain("dynamic_callsite", detail);
+    }
+
     [Fact]
     public void ReturnToSenderSourceProbe_CompilesGeneratedDynamicDelegateCallSites()
     {
