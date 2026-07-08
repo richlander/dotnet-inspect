@@ -228,11 +228,10 @@ internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool i
 
     bool ModifierMatches(string ns, string name)
     {
-        var rendered = modifier.Render();
-        // Match the fully-qualified name, or a bare name when the modifier rendered
-        // without a namespace (an unqualified/unresolved reference). Do NOT match a
-        // *different* namespace that merely ends in ".name": Foo.IsVolatile is not
-        // System.Runtime.CompilerServices.IsVolatile — a suffix match is not type identity.
-        return rendered == $"{ns}.{name}" || rendered == name;
+        // A custom modifier is identified by its exact full type name. IL TypeReferences
+        // always carry their namespace, so a real modreq renders fully qualified; a bare
+        // render is the global namespace — a different type. No suffix or bare-name fallback:
+        // Foo.IsVolatile and (global) IsVolatile are not System.Runtime.CompilerServices.IsVolatile.
+        return modifier.Render() == (string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}");
     }
 }

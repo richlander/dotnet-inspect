@@ -175,9 +175,12 @@ public sealed class MetadataDeclarationQueryTests
             new NamedTypeNode("System.Runtime.CompilerServices.IsVolatile", isReferenceType: true), inner, isRequired: true);
         var wrongNamespace = new ModifiedTypeNode(
             new NamedTypeNode("Other.Namespace.IsVolatile", isReferenceType: true), inner, isRequired: true);
+        var globalNamespace = new ModifiedTypeNode(
+            new NamedTypeNode("IsVolatile", isReferenceType: true), inner, isRequired: true);
 
         Assert.True(exact.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
         Assert.False(wrongNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+        Assert.False(globalNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
     }
 
     static TypeDefinition GetTypeDefinition(Type type)
