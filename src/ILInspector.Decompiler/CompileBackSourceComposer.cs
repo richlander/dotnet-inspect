@@ -2160,9 +2160,11 @@ public static class CompileBackSourceComposer
 
         if (baseName == "System.Enum")
             return CompileBackTypeKind.Enum;
+        if (baseName == "System.ValueType")
+            return CompileBackTypeKind.Struct;
         if (facts?.Any(fact => fact.Producer == "metadata" && fact.Id == "record-shell") == true)
             return CompileBackTypeKind.Record;
-        return baseName == "System.ValueType" ? CompileBackTypeKind.Struct : CompileBackTypeKind.Class;
+        return CompileBackTypeKind.Class;
     }
 
     static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
