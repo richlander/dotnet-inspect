@@ -64,6 +64,10 @@ public sealed class LeakTriageAnalyzerTests
         // without releasing, so the catch-all must not be credited - stays a candidate.
         AssertCandidate(result, nameof(ArrayPoolLeakFixtures.RentCrossCallSiblingTypedThenCatchAllReturn), "exception-path-leak-candidate");
 
+        // Near miss: an inner typed catch on a nested try intercepts and swallows before the outer
+        // catch-all, so the catch-all must not be credited - stays a candidate.
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.RentNestedInnerCatchSwallowThenCatchAll), "exception-path-leak-candidate");
+
         // The fix is measurement-only: it changes no finding.
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn)));
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchExceptionReturn)));
@@ -744,6 +748,32 @@ internal sealed class ArrayPoolLeakFixtures
         catch (InvalidOperationException)
         {
             throw;
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    // Near miss: an INNER typed catch on a nested try intercepts the boundary's exception first
+    // and swallows it without releasing, so the outer catch-all never runs for that exception -
+    // the array leaks. The outer catch-all must NOT be credited (reviewers, PR #2521).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RentNestedInnerCatchSwallowThenCatchAll()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            try
+            {
+                Sink(buffer);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+            ArrayPool<byte>.Shared.Return(buffer);
         }
         catch
         {

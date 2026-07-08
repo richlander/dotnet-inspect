@@ -430,38 +430,49 @@ public static class LeakTriageAnalyzer
         ImmutableArray<int> releases,
         int useOffset)
     {
+        // Exception regions are ordered innermost-first (ECMA-335 II.19: most-nested clauses
+        // precede enclosing ones), which is also EH search order. Walk the handlers that cover the
+        // boundary in that order: a `finally`/`fault` always runs, so a release inside one protects
+        // the boundary. A catch-all (`catch {}` / `catch (Exception)`) protects the boundary only
+        // if it is the FIRST catch/filter that covers it - any earlier catch/filter (a sibling
+        // typed catch, or an inner catch on a nested try) would handle the exception first and, if
+        // it does not release, the array still leaks.
+        bool interceptingCatchSeen = false;
         foreach (var region in exceptionRegions)
         {
-            // A `finally`/`fault` always runs on the exception path; a *sole* catch-all
-            // (`catch {}` / `catch (Exception)`) also runs for every exception from its try, so a
-            // release inside either handler protects an in-try throwing boundary against a leak.
-            // Only a catch-all that is the sole handler for its try is credited: a sibling typed
-            // or filter catch could handle an exception first without releasing, and a more
-            // specific typed catch lets other exception types bypass it.
-            bool isCleanupHandler = region.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault
-                || (region.Kind is ExceptionRegionKind.Catch
-                    && catchAllCleanup.Contains((region.TryOffset, region.TryLength, region.HandlerOffset)));
-            if (!isCleanupHandler)
-                continue;
             if (!ContainsOffset(region.TryOffset, region.TryLength, useOffset))
                 continue;
-            if (releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
+
+            if (region.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
+            {
+                if (releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
+                    return true;
+                continue;
+            }
+
+            if (region.Kind is not (ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
+                continue;
+
+            if (!interceptingCatchSeen
+                && catchAllCleanup.Contains((region.TryOffset, region.TryLength, region.HandlerOffset))
+                && releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
                 return true;
+
+            interceptingCatchSeen = true;
         }
 
         return false;
     }
 
-    // Try-range/handler identity of catch clauses that can credit exception-path protection: a
-    // catch-all (`catch {}` = `System.Object`, or `catch (Exception)`) that is the SOLE handler
-    // for its try. Both catch every managed exception (non-CLS throws are wrapped as
-    // RuntimeWrappedException by the default RuntimeCompatibility(WrapNonExceptionThrows=true)),
-    // so with no sibling handler on the same try the catch runs for every exception from it. A
-    // catch-all preceded by a sibling typed/filter catch is NOT credited: that sibling could
-    // handle an exception first without releasing, so the leak would be real. Empty when no
-    // catch-type resolver is supplied (e.g. direct AnalyzeMethod callers), preserving the prior
-    // finally/fault-only behavior. Conditional releases inside the handler are credited at the
-    // same fidelity as the existing finally/fault check (containment, not post-domination).
+    // Try-range/handler identity of catch-all clauses (`catch {}` = `System.Object`, or
+    // `catch (Exception)`) - the catch shapes that catch every managed exception (non-CLS throws
+    // are wrapped as RuntimeWrappedException by the default
+    // RuntimeCompatibility(WrapNonExceptionThrows=true)). Whether such a clause actually protects a
+    // given boundary is decided per-boundary in HasCleanupReleaseForUse, which fails closed if an
+    // earlier catch/filter could intercept the exception first. Empty when no catch-type resolver
+    // is supplied (e.g. direct AnalyzeMethod callers), preserving the prior finally/fault-only
+    // behavior. Conditional releases inside the handler are credited at the same fidelity as the
+    // existing finally/fault check (containment, not post-domination).
     static IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> ComputeCreditableCatchCleanup(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, TypeRef?>? resolveCatchType)
@@ -479,29 +490,10 @@ public static class LeakTriageAnalyzer
                 || !(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
                     || FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Exception")))
                 continue;
-            if (HasSiblingHandler(exceptionRegions, region))
-                continue;
             (creditable ??= []).Add((region.TryOffset, region.TryLength, region.HandlerOffset));
         }
 
         return creditable is null ? EmptyCatchCleanup : creditable;
-    }
-
-    // Another catch/filter clause guarding the exact same try range (a sibling handler that could
-    // handle an exception before the catch-all runs).
-    static bool HasSiblingHandler(IReadOnlyCollection<ExceptionRegion> exceptionRegions, ExceptionRegion region)
-    {
-        foreach (var other in exceptionRegions)
-        {
-            if (other.Kind is not (ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
-                continue;
-            if (other.TryOffset != region.TryOffset || other.TryLength != region.TryLength)
-                continue;
-            if (other.HandlerOffset != region.HandlerOffset)
-                return true;
-        }
-
-        return false;
     }
 
     static readonly IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> EmptyCatchCleanup =
