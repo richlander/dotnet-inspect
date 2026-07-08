@@ -70,7 +70,7 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
 
     static bool TryFoldLazyFieldGetter(IrFunction function, Stepper stepper)
     {
-        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        foreach (var block in CoercionSinks.ScopeNodes(function.Body).OfType<Block>().ToList())
         {
             var children = block.Children;
             for (int i = 0; i + 3 < children.Count; i++)
@@ -137,10 +137,11 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
         if (value is null)
             return null;
 
-        if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == loadStore.Slot) != 1
-            || function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == loadStore.Slot) != 2
-            || function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == initialResult.Slot) != 2
-            || function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == initialResult.Slot) != 1)
+        var scopeNodes = CoercionSinks.ScopeNodes(function.Body).ToList();
+        if (scopeNodes.OfType<StoreStackSlot>().Count(s => s.Slot == loadStore.Slot) != 1
+            || scopeNodes.OfType<LoadStackSlot>().Count(l => l.Slot == loadStore.Slot) != 2
+            || scopeNodes.OfType<StoreStackSlot>().Count(s => s.Slot == initialResult.Slot) != 2
+            || scopeNodes.OfType<LoadStackSlot>().Count(l => l.Slot == initialResult.Slot) != 1)
         {
             return null;
         }
@@ -311,17 +312,18 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
                 return null;
         }
 
+        var scopeNodes = CoercionSinks.ScopeNodes(function.Body).ToList();
         foreach (int local in allowedResultLocals)
         {
-            if (function.Descendants.OfType<LoadLocal>().Any(load =>
+            if (scopeNodes.OfType<LoadLocal>().Any(load =>
                     load.Index == local && !ReferenceEquals(load, resultStore.Value)))
             {
                 return null;
             }
         }
 
-        if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot.Slot) != 1
-            || function.Descendants.OfType<LoadStackSlot>().Any(load =>
+        if (scopeNodes.OfType<StoreStackSlot>().Count(s => s.Slot == slot.Slot) != 1
+            || scopeNodes.OfType<LoadStackSlot>().Any(load =>
                 load.Slot == slot.Slot && load.Parent is not StoreLocal and not StoreField and not StoreStackSlot))
         {
             return null;

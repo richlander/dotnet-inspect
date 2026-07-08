@@ -95,6 +95,13 @@ static class DefiniteAssignment
                     CheckReads(coalesce.Right, rightSet);
                     return;
                 }
+                case NullCoalescingFieldAssignmentExpression assignment:
+                {
+                    CheckReads(assignment.Instance, assigned);
+                    var rightSet = new HashSet<int>(assigned);
+                    CheckReads(assignment.Value, rightSet);
+                    return;
+                }
                 case SwitchExpression switchExpression:
                 {
                     CheckReads(switchExpression.Value, assigned);
@@ -377,6 +384,11 @@ static class DefiniteAssignment
                             var cfgFieldCoalesceSet = new HashSet<int>(running);
                             CheckReads(assignment.Value, cfgFieldCoalesceSet);
                             break;
+                        case ExpressionStatement { Expression: NullCoalescingFieldAssignmentExpression assignment }:
+                            CheckReads(assignment.Instance, running);
+                            var cfgFieldCoalesceExpressionSet = new HashSet<int>(running);
+                            CheckReads(assignment.Value, cfgFieldCoalesceExpressionSet);
+                            break;
                         case DeconstructionAssignment deconstruction:
                             CheckReads(deconstruction.Source, running);
                             foreach (var target in deconstruction.Targets)
@@ -428,6 +440,11 @@ static class DefiniteAssignment
                     CheckReads(assignment.Instance, assigned);
                     var fieldCoalesceSet = new HashSet<int>(assigned);
                     CheckReads(assignment.Value, fieldCoalesceSet);
+                    return DefiniteFlow.FallThrough;
+                case ExpressionStatement { Expression: NullCoalescingFieldAssignmentExpression assignment }:
+                    CheckReads(assignment.Instance, assigned);
+                    var fieldCoalesceExpressionSet = new HashSet<int>(assigned);
+                    CheckReads(assignment.Value, fieldCoalesceExpressionSet);
                     return DefiniteFlow.FallThrough;
                 case DeconstructionAssignment deconstruction:
                     CheckReads(deconstruction.Source, assigned);

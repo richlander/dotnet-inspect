@@ -213,6 +213,9 @@ public static class CoercionSinks
                 case NullCoalescingFieldAssignment { Value: { } value, Field.Type: { } type }:
                     yield return new(value, type);
                     break;
+                case NullCoalescingFieldAssignmentExpression { Value: { } value, Field.Type: { } type }:
+                    yield return new(value, type);
+                    break;
                 case NullCoalescingPropertyAssignment { Value: { } value, PropertyType: { } type }:
                     yield return new(value, type);
                     break;
