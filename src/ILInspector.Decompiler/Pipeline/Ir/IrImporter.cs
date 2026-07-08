@@ -394,7 +394,10 @@ public static class IrImporter
         var container = new BlockContainer();
         container.Add(block);
         var signature = new MethodSignature(TypeRef.Unsupported("import failed"), [], false, 0);
-        var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container);
+        var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container)
+        {
+            MethodKind = ClassifyMethodKind(methodName),
+        };
         block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
