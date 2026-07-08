@@ -312,6 +312,7 @@ public static class CSharpBodyDiff
         {
             var type = reader.GetTypeDefinition(typeHandle);
             string typeFullName = reader.GetFullTypeName(type);
+            string typeKey = TypeIdentityKey(reader, typeHandle);
             if (!includeNonPublic && !IsVisibleSurfaceType(reader, typeHandle, typeDefinitionsByName))
                 continue;
             if (!MatchesTypeFilters(typeFullName, typeFilters))
@@ -329,7 +330,7 @@ public static class CSharpBodyDiff
                 if (!includeNonPublic && !IsPublicSurface(method) && !explicitImplementationBodies.Contains(methodHandle))
                     continue;
 
-                yield return CreateMethodEntry(source, typeHandle, methodHandle, stableAssemblyKey);
+                yield return CreateMethodEntry(source, typeHandle, methodHandle, stableAssemblyKey, typeFullName, typeKey, overloadIndex);
             }
         }
     }
@@ -338,13 +339,16 @@ public static class CSharpBodyDiff
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
-        string stableAssemblyKey)
+        string stableAssemblyKey,
+        string? typeFullName = null,
+        string? typeKey = null,
+        int? overloadIndex = null)
     {
         var reader = source.Reader;
         var type = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
-        string typeFullName = reader.GetFullTypeName(type);
-        string typeKey = TypeIdentityKey(reader, typeHandle);
+        typeFullName ??= reader.GetFullTypeName(type);
+        typeKey ??= TypeIdentityKey(reader, typeHandle);
         string methodName = reader.GetString(method.Name);
         var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
         string returnType = CanonicalTypeName(signature.ReturnType);
@@ -369,7 +373,7 @@ public static class CSharpBodyDiff
             display,
             typeFullName,
             methodName,
-            OverloadIndex(reader, type, methodHandle, methodName),
+            overloadIndex ?? OverloadIndex(reader, type, methodHandle, methodName),
             method.RelativeVirtualAddress != 0,
             BodyFingerprint(source, method));
     }

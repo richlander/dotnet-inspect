@@ -1389,7 +1389,8 @@ static class ReturnToSender
         byte[] recompiledAssembly,
         string fullType,
         string methodName,
-        int overload)
+        int overload,
+        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.IlBody)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
@@ -1411,7 +1412,8 @@ static class ReturnToSender
             originalSource,
             originalMethod,
             recompiledSource,
-            recompiled.Handle);
+            recompiled.Handle,
+            mechanisms);
     }
 
     static IlDiffDisplayResult? ToDisplayDiagnostic(IlMemberDiffResult? diff)

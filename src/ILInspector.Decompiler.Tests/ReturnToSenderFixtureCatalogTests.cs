@@ -8,6 +8,7 @@ using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -151,7 +152,8 @@ public class ReturnToSenderFixtureCatalogTests
             File.ReadAllBytes(assemblyPath),
             fullType,
             nameof(DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions),
-            overload: 0);
+            overload: 0,
+            ImplementationDiffMechanism.All);
 
         Assert.NotNull(diff);
         Assert.True(diff!.HasCSharpEvidence);
