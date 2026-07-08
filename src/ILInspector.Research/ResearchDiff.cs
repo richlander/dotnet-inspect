@@ -297,7 +297,7 @@ public static class ResearchDiff
             AddIlBodyDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.CSharp))
-            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters);
+            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
 
         return builder.ToResult();
     }
@@ -678,18 +678,29 @@ public static class ResearchDiff
             IlDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(failure)));
     }
 
-    static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    static void AddCSharpDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
+        IReadOnlySet<string>? memberTargetIdentities)
     {
         if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
             return;
 
         var diff = CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters);
         foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
-            AddCSharpFailureEvidence(builder, failure);
+        {
+            var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
+            if (MatchesMemberTargets(subject, memberTargetIdentities))
+                AddCSharpFailureEvidence(builder, subject, failure);
+        }
 
         foreach (var row in diff.Rows)
         {
             var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member);
+            if (!MatchesMemberTargets(subject, memberTargetIdentities))
+                continue;
             var direction = row.Kind switch
             {
                 CSharpDiffKind.Add => ResearchDiffDirection.Added,
@@ -710,9 +721,8 @@ public static class ResearchDiff
         }
     }
 
-    static void AddCSharpFailureEvidence(ResultBuilder builder, CSharpDiffFailureRow failure)
+    static void AddCSharpFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, CSharpDiffFailureRow failure)
     {
-        var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
         var direction = failure.Kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
