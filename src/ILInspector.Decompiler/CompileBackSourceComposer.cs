@@ -64,7 +64,7 @@ static class CompileBackCSharpNames
                     && type[i] == '*'
                     && (type[i + 1] == '<' || char.IsWhiteSpace(type[i + 1]));
                 bool bareSpelling = ((word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment)
-                    || (word == "readonly" && !qualifiedSegment && PreviousWordIsRef(type, start))
+                    || (word == "readonly" && !qualifiedSegment && PreviousWordIsRef(type, start) && HasFollowingWord(type, i))
                     || functionPointerKeyword;
                 if (!alreadyEscaped && !bareSpelling && IsCSharpKeyword(word))
                     sb.Append('@');
@@ -89,6 +89,14 @@ static class CompileBackCSharpNames
         while (i >= 0 && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
             i--;
         return end > i + 1 && text[(i + 1)..end] == "ref";
+    }
+
+    static bool HasFollowingWord(string text, int wordEnd)
+    {
+        int i = wordEnd;
+        while (i < text.Length && char.IsWhiteSpace(text[i]))
+            i++;
+        return i < text.Length && (char.IsLetter(text[i]) || text[i] == '_' || text[i] == '@');
     }
 
     static bool IsPrimitiveTypeName(string name)
@@ -1202,8 +1210,7 @@ public static class CompileBackSourceComposer
             method).Signature.ReturnAttributes;
 
     static string MethodReturnType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
-        => MetadataDeclarationQuery.GetMethod(reader, typeDef, method).Signature.ReturnType
-            ?? method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method)).ReturnType;
+        => MetadataDeclarationQuery.GetMethodReturnType(reader, typeDef, method);
 
     static CompileBackMemberRequirement? EqualityOperatorSibling(
         MetadataReader reader,

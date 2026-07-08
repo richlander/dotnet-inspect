@@ -192,6 +192,15 @@ public static class MetadataDeclarationQuery
         return GetMethod(reader, typeDef, method, signature);
     }
 
+    public static string GetMethodReturnType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+        return FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters());
+    }
+
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -501,10 +510,7 @@ public static class MetadataDeclarationQuery
         foreach (var handle in handles)
         {
             if (reader.GetParameter(handle).SequenceNumber == 0)
-                return AttributeReader.RenderParameterAttributes(reader, handle)
-                    .Where(attribute => attribute is not "System.Runtime.CompilerServices.IsReadOnlyAttribute"
-                        and not "System.Runtime.CompilerServices.RequiresLocationAttribute")
-                    .ToArray();
+                return AttributeReader.RenderParameterAttributes(reader, handle);
         }
 
         return [];

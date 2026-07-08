@@ -145,7 +145,6 @@ public class LadderRung4GateTests
 
         var readOnlyReturn = Assert.Single(type.Members, m => m.Name == "SelectReadonlyRef");
         Assert.Equal("ref readonly int SelectReadonlyRef(bool useLeft, in int left, in int right)", readOnlyReturn.Signature);
-        Assert.Empty(readOnlyReturn.SignatureModel?.ReturnAttributes ?? []);
     }
 
     [Fact]

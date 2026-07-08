@@ -145,6 +145,14 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void CompileBackCSharpNames_PreservesReadonlyOnlyInRefReadonlyModifier()
+    {
+        Assert.Equal("ref readonly int", CompileBackCSharpNames.Clean("ref readonly int"));
+        Assert.Equal("ref @readonly", CompileBackCSharpNames.Clean("ref readonly"));
+        Assert.Equal("ref Example.@readonly", CompileBackCSharpNames.Clean("ref Example.readonly"));
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
