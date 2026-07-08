@@ -363,12 +363,27 @@ public static class MetadataDeclarationQuery
     {
         var clauses = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var parameter in TypeParameters(reader, typeDef.GetGenericParameters(), GenericContext.ForType(reader, typeDef)))
-            if (parameter.ConstraintsSummary is { } summary)
-                clauses[parameter.Name] = summary;
+            if (SpellableConstraintClause(parameter) is { } clause)
+                clauses[parameter.Name] = clause;
         foreach (var parameter in MethodTypeParameters(reader, typeDef, method))
-            if (parameter.ConstraintsSummary is { } summary)
-                clauses.TryAdd(parameter.Name, summary);
+            if (SpellableConstraintClause(parameter) is { } clause)
+                clauses.TryAdd(parameter.Name, clause);
         return clauses;
+    }
+
+    /// <summary>
+    /// The spellable <c>where</c> clause body for a parameter, or null when nothing
+    /// remains to spell. C# forbids an explicit <c>System.Object</c> constraint
+    /// (<c>CS0702: Constraint cannot be special class 'object'</c>) — and it is
+    /// semantically vacuous — so it is dropped. Non-C# compilers can emit it even
+    /// though Roslyn does not.
+    /// </summary>
+    internal static string? SpellableConstraintClause(TypeParameter parameter)
+    {
+        var spellable = parameter.Constraints
+            .Where(constraint => constraint is not ("System.Object" or "Object" or "object"))
+            .ToList();
+        return spellable.Count > 0 ? string.Join(", ", spellable) : null;
     }
 
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
