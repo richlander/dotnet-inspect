@@ -229,6 +229,10 @@ internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool i
     bool ModifierMatches(string ns, string name)
     {
         var rendered = modifier.Render();
-        return rendered == $"{ns}.{name}" || rendered == name || rendered.EndsWith("." + name, StringComparison.Ordinal);
+        // Match the fully-qualified name, or a bare name when the modifier rendered
+        // without a namespace (an unqualified/unresolved reference). Do NOT match a
+        // *different* namespace that merely ends in ".name": Foo.IsVolatile is not
+        // System.Runtime.CompilerServices.IsVolatile — a suffix match is not type identity.
+        return rendered == $"{ns}.{name}" || rendered == name;
     }
 }

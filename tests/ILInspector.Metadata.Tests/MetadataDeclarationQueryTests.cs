@@ -167,6 +167,19 @@ public sealed class MetadataDeclarationQueryTests
         Assert.False(MetadataDeclarationQuery.IsVolatileField(GetField(type, "PlainField"), context));
     }
 
+    [Fact]
+    public void HasRequiredModifier_RequiresExactNamespace_NotSuffix()
+    {
+        var inner = new NamedTypeNode("System.Int32", isReferenceType: false);
+        var exact = new ModifiedTypeNode(
+            new NamedTypeNode("System.Runtime.CompilerServices.IsVolatile", isReferenceType: true), inner, isRequired: true);
+        var wrongNamespace = new ModifiedTypeNode(
+            new NamedTypeNode("Other.Namespace.IsVolatile", isReferenceType: true), inner, isRequired: true);
+
+        Assert.True(exact.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+        Assert.False(wrongNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
