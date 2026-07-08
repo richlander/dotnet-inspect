@@ -788,7 +788,7 @@ static class ReturnToSenderSourceProbe
 
         var shape = SourceDifferenceShape(expected, actual);
         if (status == FidelityCheck.CompileBackStatus.Exact
-            && TryKnownExactDifference(shape, out var knownReason, out var knownDetail))
+            && TryKnownExactDifference(expected, actual, shape, out var knownReason, out var knownDetail))
         {
             detail = knownDetail;
             return knownReason;
@@ -809,23 +809,57 @@ static class ReturnToSenderSourceProbe
         return reason;
     }
 
-    static bool TryKnownExactDifference(string shape, out string reason, out string detail)
+    static bool TryKnownExactDifference(string expected, string actual, string shape, out string reason, out string detail)
     {
         switch (shape)
         {
-            case "source_shape_frontier.checked_context":
+            case "source_shape_frontier.checked_context" when ContextStrippedBodiesMatch(expected, actual):
                 reason = "valid_different.known_compiler_option.checked_context";
                 detail = "decompiled body is Roslyn-valid and compile-back exact; the source delta is an intentional checked-context spelling caused by standalone compile-back losing the fixture project's checked arithmetic option";
-                return true;
-            case "source_shape_frontier.unsafe_residual":
-                reason = "valid_different.known_standalone_context.unsafe_residual";
-                detail = "decompiled body is Roslyn-valid and compile-back exact; the source delta is an intentional standalone-context spelling for unsafe or residual operations required by the reconstructed compile-back unit";
                 return true;
             default:
                 reason = "";
                 detail = "";
                 return false;
         }
+    }
+
+    static bool ContextStrippedBodiesMatch(string expected, string actual)
+        => NormalizeBody(CheckedContextStrippedBody(expected)) == NormalizeBody(CheckedContextStrippedBody(actual));
+
+    static string CheckedContextStrippedBody(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText("class __Probe { void __M() {" + Environment.NewLine + body + Environment.NewLine + "} }");
+        var method = tree.GetCompilationUnitRoot()
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .FirstOrDefault();
+        if (method?.Body is not { } methodBody)
+            return body;
+
+        return string.Join(Environment.NewLine, FlattenCheckedStatements(methodBody.Statements).Select(statement => statement.ToFullString()));
+    }
+
+    static IEnumerable<StatementSyntax> FlattenCheckedStatements(SyntaxList<StatementSyntax> statements)
+    {
+        var checkedRewriter = new CheckedExpressionRemover();
+        foreach (var statement in statements)
+        {
+            if (statement is CheckedStatementSyntax checkedStatement)
+            {
+                foreach (var inner in FlattenCheckedStatements(checkedStatement.Block.Statements))
+                    yield return inner;
+                continue;
+            }
+
+            yield return (StatementSyntax)(checkedRewriter.Visit(statement) ?? statement);
+        }
+    }
+
+    sealed class CheckedExpressionRemover : CSharpSyntaxRewriter
+    {
+        public override SyntaxNode? VisitCheckedExpression(CheckedExpressionSyntax node)
+            => Visit(node.Expression) ?? node.Expression;
     }
 
     static string SourceDifferenceShape(string expected, string actual)

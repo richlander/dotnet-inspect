@@ -142,33 +142,31 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesUnsafeResidualExactAsKnownStandaloneContext()
+    public void ReturnToSenderSourceProbe_DoesNotHideResidualInsideCheckedContext()
     {
         var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
-            "int* p = null;\nreturn *p;",
-            "unsafe\n{\n    int* p = null;\n    return *p;\n}",
+            """
+            checked
+            {
+                int value = 1;
+                return value;
+            }
+            """,
+            """
+            checked
+            {
+                int value = 1;
+                /* residual */
+                return value;
+            }
+            """,
             FidelityCheck.CompileBackStatus.Exact,
             decisions: [],
             out var detail);
 
-        Assert.Equal("valid_different.known_standalone_context.unsafe_residual", reason);
-        Assert.Contains("standalone-context", detail);
-        Assert.Contains("compile-back exact", detail);
-    }
-
-    [Fact]
-    public void ReturnToSenderSourceProbe_KeepsUnsafeResidualOpcodeDiffActionable()
-    {
-        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
-            "int* p = null;\nreturn *p;",
-            "unsafe\n{\n    int* p = null;\n    return *p;\n}",
-            FidelityCheck.CompileBackStatus.OpcodeDiff,
-            decisions: [],
-            out var detail);
-
-        Assert.Equal("valid_different.semantic_opcode_diff.unsafe_residual", reason);
-        Assert.Contains("unsafe_residual", detail);
-        Assert.Contains("OpcodeDiff", detail);
+        Assert.Equal("valid_different.source_shape_frontier.checked_context.exact", reason);
+        Assert.DoesNotContain("known_compiler_option", reason);
+        Assert.Contains("checked_context", detail);
     }
 
     [Fact]
