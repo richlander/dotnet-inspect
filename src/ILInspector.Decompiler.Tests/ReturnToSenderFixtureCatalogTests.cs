@@ -17,11 +17,6 @@ namespace ILInspector.Decompiler.Tests;
 
 public class ReturnToSenderFixtureCatalogTests
 {
-    public abstract class BodylessDiagnosticFixture
-    {
-        public abstract int MissingBody();
-    }
-
     [Fact]
     public void ReturnToSenderCandidates_ProvideBuiltAssemblyInputs()
     {
@@ -35,6 +30,11 @@ public class ReturnToSenderFixtureCatalogTests
             Assert.True(peReader.HasMetadata);
             Assert.NotEmpty(peReader.GetMetadataReader().MethodDefinitions);
         });
+    }
+
+    public abstract class BodylessDiagnosticFixture
+    {
+        public abstract int MissingBody();
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class ReturnToSenderFixtureCatalogTests
         using var pe = new PEReader(stream);
         var reader = pe.GetMetadataReader();
         string fullType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
-        var bodyless = FindMethod(reader, typeof(BodylessDiagnosticFixture).FullName!, nameof(BodylessDiagnosticFixture.MissingBody));
+        var bodyless = FindMethod(reader, MetadataFullName(typeof(BodylessDiagnosticFixture)), nameof(BodylessDiagnosticFixture.MissingBody));
 
         var display = ReturnToSender.BuildIlDiffDiagnostic(
             pe,
@@ -1575,6 +1575,9 @@ public class ReturnToSenderFixtureCatalogTests
         => text is null
             ? null
             : string.Concat(text.Where(c => !char.IsWhiteSpace(c)));
+
+    static string MetadataFullName(Type type)
+        => type.FullName!.Replace('+', '.');
 
     static MethodDefinitionHandle FindMethod(MetadataReader reader, string fullType, string methodName)
     {
