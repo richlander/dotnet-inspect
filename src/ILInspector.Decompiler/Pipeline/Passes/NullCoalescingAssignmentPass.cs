@@ -25,6 +25,10 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        while (TryFoldLazyFieldGetter(function, context.Stepper))
+        {
+        }
+
         foreach (var statement in function.Descendants.OfType<IfStatement>().ToList())
         {
             if (TryMatchLocal(function, statement) is { } local)
@@ -62,6 +66,86 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
                 statement.ReplaceWith(replacement);
             }
         }
+    }
+
+    static bool TryFoldLazyFieldGetter(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 3 < children.Count; i++)
+            {
+                if (children[i] is StoreStackSlot loadStore
+                    && children[i + 1] is StoreStackSlot initialResult
+                    && children[i + 2] is IfStatement statement
+                    && children[i + 3] is Return finalReturn
+                    && TryMatchLazyFieldGetter(function, loadStore, initialResult, statement, finalReturn) is { } match)
+                {
+                    var loadedChildren = loadStore.DetachChildren();
+                    var loaded = (LoadField)loadedChildren[0];
+                    IrExpression? instance = null;
+                    if (loaded.Instance is not null)
+                    {
+                        var loadChildren = loaded.DetachChildren();
+                        instance = (IrExpression)loadChildren[0];
+                    }
+
+                    match.Value.Detach();
+                    var replacement = new Return(new NullCoalescingFieldAssignmentExpression(match.Store.Field, instance, match.Value));
+                    stepper.StepOver("raise lazy field null check assignment to expression ??=", statement);
+                    loadStore.ReplaceWith(replacement);
+                    initialResult.Detach();
+                    statement.Detach();
+                    finalReturn.Detach();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    sealed record LazyFieldGetterMatch(StoreField Store, IrExpression Value);
+
+    static LazyFieldGetterMatch? TryMatchLazyFieldGetter(
+        IrFunction function,
+        StoreStackSlot loadStore,
+        StoreStackSlot initialResult,
+        IfStatement statement,
+        Return finalReturn)
+    {
+        if (statement.HasElse
+            || loadStore.Value is not LoadField loaded
+            || initialResult.Value is not LoadStackSlot initialLoad
+            || initialLoad.Slot != loadStore.Slot
+            || NullTested(statement.Condition) is not LoadStackSlot tested
+            || tested.Slot != loadStore.Slot
+            || finalReturn.Value is not LoadStackSlot returned
+            || returned.Slot != initialResult.Slot
+            || statement.Then.Children is not [StoreStackSlot spill, .., StoreField store, StoreStackSlot resultStore]
+            || !SameField(loaded.Field, store.Field)
+            || !SameReceiver(loaded.Instance, store.Instance)
+            || resultStore.Slot != initialResult.Slot)
+        {
+            return null;
+        }
+
+        if (IsNonNullableValue(function, store.Field.Type))
+            return null;
+
+        var value = RecoverSpilledFieldExpressionValue(function, statement.Then, store, spill, resultStore);
+        if (value is null)
+            return null;
+
+        if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == loadStore.Slot) != 1
+            || function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == loadStore.Slot) != 2
+            || function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == initialResult.Slot) != 2
+            || function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == initialResult.Slot) != 1)
+        {
+            return null;
+        }
+
+        return new LazyFieldGetterMatch(store, value);
     }
 
     sealed record LocalMatch(LoadLocal Local, StoreLocal Store);
@@ -191,6 +275,54 @@ public sealed class NullCoalescingAssignmentPass : IIrPass
         int expectedLoads = children.Count - 1;
         if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot.Slot) != 1
             || function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == slot.Slot) != expectedLoads)
+        {
+            return null;
+        }
+
+        return spill.Value;
+    }
+
+    static IrExpression? RecoverSpilledFieldExpressionValue(
+        IrFunction function,
+        Block then,
+        StoreField store,
+        StoreStackSlot spill,
+        StoreStackSlot resultStore)
+    {
+        if (store.Value is not LoadStackSlot slot || slot.Slot != spill.Slot)
+            return null;
+
+        var children = then.Children;
+        var allowedResultLocals = new HashSet<int>();
+        for (int i = 1; i < children.Count - 2; i++)
+        {
+            if (children[i] is not StoreLocal { Value: LoadStackSlot read } dead || read.Slot != slot.Slot)
+                return null;
+            allowedResultLocals.Add(dead.Index);
+        }
+
+        switch (resultStore.Value)
+        {
+            case LoadStackSlot resultSlot when resultSlot.Slot == slot.Slot:
+                break;
+            case LoadLocal resultLocal when allowedResultLocals.Contains(resultLocal.Index):
+                break;
+            default:
+                return null;
+        }
+
+        foreach (int local in allowedResultLocals)
+        {
+            if (function.Descendants.OfType<LoadLocal>().Any(load =>
+                    load.Index == local && !ReferenceEquals(load, resultStore.Value)))
+            {
+                return null;
+            }
+        }
+
+        if (function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot.Slot) != 1
+            || function.Descendants.OfType<LoadStackSlot>().Any(load =>
+                load.Slot == slot.Slot && load.Parent is not StoreLocal and not StoreField and not StoreStackSlot))
         {
             return null;
         }

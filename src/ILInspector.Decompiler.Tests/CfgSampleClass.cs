@@ -2888,6 +2888,13 @@ public class CfgSampleClass
         return holder.Cache;
     }
 
+    public string? LazyFieldCache;
+
+    public string LazyFieldGetter(string fallback)
+    {
+        return LazyFieldCache ??= fallback;
+    }
+
     public static string NullCoalescingAssignFieldWithExtraThenStatement(CacheHolder holder, string fallback)
     {
         if (holder.Cache == null)

@@ -1114,6 +1114,33 @@ public sealed class NullCoalescingFieldAssignment : IrNode
 }
 
 /// <summary>
+/// A field null-coalescing assignment used as an expression (<c>obj.field ??= fallback</c>).
+/// Produced from csc's lazy field-initializing getter lowering, where the
+/// assignment result is returned through a compiler result slot.
+/// </summary>
+public sealed class NullCoalescingFieldAssignmentExpression : IrExpression
+{
+    public NullCoalescingFieldAssignmentExpression(FieldRef field, IrExpression? instance, IrExpression value)
+    {
+        Field = field;
+        HasInstance = instance is not null;
+        if (instance is not null)
+            AddChild(instance);
+        AddChild(value);
+    }
+
+    public FieldRef Field { get; }
+    public bool HasInstance { get; }
+    public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
+    public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public override TypeRef? ResultType => Field.Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
+
+    public override string Describe()
+        => $"NullCoalescingFieldAssignmentExpression {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
+}
+
+/// <summary>
 /// A raised property null-coalescing assignment (<c>obj.Prop ??= fallback</c>, or
 /// <c>Type.Prop ??= fallback</c> for a static property), or an indexer form
 /// (<c>d[k] ??= fallback</c>). Produced from csc's property null-test diamond:

@@ -67,6 +67,7 @@ public static class CSharpPrecedence
     {
         // Loosest structural forms first.
         Conditional or SwitchExpression or UnionSwitchExpression => Precedence.Conditional,
+        NullCoalescingFieldAssignmentExpression => Precedence.Assignment,
         Coalesce => Precedence.NullCoalescing,
         LogicalBinary { Kind: LogicalKind.Or } => Precedence.ConditionalOr,
         LogicalBinary => Precedence.ConditionalAnd,
