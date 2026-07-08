@@ -68,7 +68,7 @@ internal static class CorpusSensor
             if (!qualityDiffCard)
             {
                 Console.WriteLine();
-                Console.WriteLine($"Wrote corpus baseline: {emitBaseline}");
+                HarnessLog.Status($"Wrote corpus baseline: {emitBaseline}");
             }
         }
 
@@ -84,7 +84,7 @@ internal static class CorpusSensor
             if (!qualityDiffCard)
             {
                 Console.WriteLine();
-                Console.WriteLine($"Wrote per-method corpus delta: {emitDelta}");
+                HarnessLog.Status($"Wrote per-method corpus delta: {emitDelta}");
             }
         }
         if (qualityDiffCard)

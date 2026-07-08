@@ -332,7 +332,7 @@ static class ValidityCheck
         foreach (var (method, codes) in map.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             writer.WriteLine($"{method}\t{string.Join(",", codes)}");
         Console.WriteLine();
-        Console.WriteLine($"Wrote per-method defects for {map.Count} methods to {path}");
+        HarnessLog.Status($"Wrote per-method defects for {map.Count} methods to {path}");
     }
 
     /// <summary>
