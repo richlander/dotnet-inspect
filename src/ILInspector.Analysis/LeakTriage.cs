@@ -74,7 +74,8 @@ public static class LeakTriageAnalyzer
                         method,
                         body.GetILBytes() ?? [],
                         body.ExceptionRegions,
-                        token => MemberResolver.ResolveMethod(reader, MetadataTokens.EntityHandle(token), scope));
+                        token => MemberResolver.ResolveMethod(reader, MetadataTokens.EntityHandle(token), scope),
+                        token => ResolveCatchTypeRef(reader, MetadataTokens.EntityHandle(token), scope));
                     findings.AddRange(result.Findings);
                     candidates.AddRange(result.Candidates);
                 }
@@ -94,13 +95,29 @@ public static class LeakTriageAnalyzer
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod)
-        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod).Findings;
+        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, null).Findings;
+
+    public static ImmutableArray<LeakTriageFinding> AnalyzeMethod(
+        MethodIdentity method,
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        Func<int, MemberRef> resolveMethod,
+        Func<int, TypeRef?>? resolveCatchType)
+        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, resolveCatchType).Findings;
 
     public static LeakTriageResult AnalyzeMethodDetailed(
         MethodIdentity method,
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         Func<int, MemberRef> resolveMethod)
+        => AnalyzeMethodDetailed(method, il, exceptionRegions, resolveMethod, null);
+
+    public static LeakTriageResult AnalyzeMethodDetailed(
+        MethodIdentity method,
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        Func<int, MemberRef> resolveMethod,
+        Func<int, TypeRef?>? resolveCatchType)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(il);
@@ -127,6 +144,7 @@ public static class LeakTriageAnalyzer
             if (!reaching.IsComplete)
                 return Suppressed(method, "incomplete-cfg-or-rd-suppressed", reaching.IncompleteReason ?? "Incomplete CFG/RD evidence.", null, null);
 
+            var catchAllCleanup = ComputeCreditableCatchCleanup(exceptionRegions, resolveCatchType);
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
             var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
             if (rents.Length == 0)
@@ -134,7 +152,7 @@ public static class LeakTriageAnalyzer
 
             var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
             foreach (var rent in rents)
-                AnalyzeRent(method, instructions, graph, reaching, calls, exceptionRegions, rent, findings, candidates);
+                AnalyzeRent(method, instructions, graph, reaching, calls, exceptionRegions, catchAllCleanup, rent, findings, candidates);
 
             return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
         }
@@ -158,6 +176,7 @@ public static class LeakTriageAnalyzer
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         RentedLocal rent,
         ImmutableArray<LeakTriageFinding>.Builder findings,
         ImmutableArray<LeakTriageCandidate>.Builder candidates)
@@ -207,7 +226,7 @@ public static class LeakTriageAnalyzer
         if (firstAmbiguous is { } ambiguous)
         {
             if (ambiguous.Shape == "cross-method-suppressed"
-                && FirstUnprotectedThrowingBoundary(graph, exceptionRegions, releaseOffsets, throwingBoundaries.ToImmutable()) is { } throwingBoundary)
+                && FirstUnprotectedThrowingBoundary(graph, exceptionRegions, catchAllCleanup, releaseOffsets, throwingBoundaries.ToImmutable()) is { } throwingBoundary)
             {
                 AddCandidate(
                     candidates,
@@ -389,13 +408,14 @@ public static class LeakTriageAnalyzer
     static int? FirstUnprotectedThrowingBoundary(
         BlockGraph graph,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         ImmutableArray<int> releases,
         ImmutableArray<int> throwingBoundaries)
     {
         foreach (int boundary in throwingBoundaries)
         {
             if (!ReleasedBeforeUseInSameBlock(graph, releases, boundary)
-                && !HasCleanupReleaseForUse(exceptionRegions, releases, boundary))
+                && !HasCleanupReleaseForUse(exceptionRegions, catchAllCleanup, releases, boundary))
             {
                 return boundary;
             }
@@ -406,21 +426,86 @@ public static class LeakTriageAnalyzer
 
     static bool HasCleanupReleaseForUse(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         ImmutableArray<int> releases,
         int useOffset)
     {
+        // Exception regions are ordered innermost-first (ECMA-335 II.19: most-nested clauses
+        // precede enclosing ones), which is also EH search order. Walk the handlers that cover the
+        // boundary in that order: a `finally`/`fault` always runs, so a release inside one protects
+        // the boundary. A catch-all (`catch {}` / `catch (Exception)`) protects the boundary only
+        // if it is the FIRST catch/filter that covers it - any earlier catch/filter (a sibling
+        // typed catch, or an inner catch on a nested try) would handle the exception first and, if
+        // it does not release, the array still leaks.
+        bool interceptingCatchSeen = false;
         foreach (var region in exceptionRegions)
         {
-            if (region.Kind is not (ExceptionRegionKind.Finally or ExceptionRegionKind.Fault))
-                continue;
             if (!ContainsOffset(region.TryOffset, region.TryLength, useOffset))
                 continue;
-            if (releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
+
+            if (region.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
+            {
+                if (releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
+                    return true;
+                continue;
+            }
+
+            if (region.Kind is not (ExceptionRegionKind.Catch or ExceptionRegionKind.Filter))
+                continue;
+
+            if (!interceptingCatchSeen
+                && catchAllCleanup.Contains((region.TryOffset, region.TryLength, region.HandlerOffset))
+                && releases.Any(release => ContainsOffset(region.HandlerOffset, region.HandlerLength, release)))
                 return true;
+
+            interceptingCatchSeen = true;
         }
 
         return false;
     }
+
+    // Try-range/handler identity of catch-all clauses (`catch {}` = `System.Object`, or
+    // `catch (Exception)`) - the catch shapes that catch every managed exception (non-CLS throws
+    // are wrapped as RuntimeWrappedException by the default
+    // RuntimeCompatibility(WrapNonExceptionThrows=true)). Whether such a clause actually protects a
+    // given boundary is decided per-boundary in HasCleanupReleaseForUse, which fails closed if an
+    // earlier catch/filter could intercept the exception first. Empty when no catch-type resolver
+    // is supplied (e.g. direct AnalyzeMethod callers), preserving the prior finally/fault-only
+    // behavior. Conditional releases inside the handler are credited at the same fidelity as the
+    // existing finally/fault check (containment, not post-domination).
+    static IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> ComputeCreditableCatchCleanup(
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        Func<int, TypeRef?>? resolveCatchType)
+    {
+        if (resolveCatchType is null)
+            return EmptyCatchCleanup;
+
+        HashSet<(int, int, int)>? creditable = null;
+        foreach (var region in exceptionRegions)
+        {
+            if (region.Kind is not ExceptionRegionKind.Catch || region.CatchType.IsNil)
+                continue;
+            var catchType = resolveCatchType(MetadataTokens.GetToken(region.CatchType));
+            if (catchType is null
+                || !(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
+                    || FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Exception")))
+                continue;
+            (creditable ??= []).Add((region.TryOffset, region.TryLength, region.HandlerOffset));
+        }
+
+        return creditable is null ? EmptyCatchCleanup : creditable;
+    }
+
+    static readonly IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> EmptyCatchCleanup =
+        ImmutableHashSet<(int, int, int)>.Empty;
+
+    static TypeRef? ResolveCatchTypeRef(MetadataReader reader, EntityHandle handle, GenericScope scope) => handle.Kind switch
+    {
+        HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
+        HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
+        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, scope, (TypeSpecificationHandle)handle, 0),
+        _ => null,
+    };
 
     static bool ContainsOffset(int start, int length, int offset)
         => offset >= start && offset < start + length;
