@@ -2066,6 +2066,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     string Reason,
     string? Detail,
     IlDiffDisplayResult? IlDiffDiagnostic,
+    IlMemberDiffResult? IlDiff,
     MemberAnchor? MemberAnchor,
     ReturnToSenderClosureEvidence? ClosureEvidence,
     bool IsFrontier,
@@ -2201,6 +2202,7 @@ internal static class GeneratedFixtureRunner
                                 ? $"missing expected target body fragment: {missingTargetBodyFragment}"
                                 : actual.Detail,
                         actual.IlDiffDiagnostic,
+                        actual.IlDiff,
                         actual.MemberAnchor,
                         ReturnToSenderClosureEvidenceBuilder.FromPlan(actual.Plan),
                         target.IsFrontier,
@@ -2237,6 +2239,7 @@ internal static class GeneratedFixtureRunner
             reason,
             Detail: null,
             IlDiffDiagnostic: null,
+            IlDiff: null,
             MemberAnchor: null,
             ClosureEvidence: null,
             target.IsFrontier,
@@ -2364,6 +2367,7 @@ internal static class GeneratedFixtureRunner
             result.Reason,
             result.Detail,
             IlDiffDiagnostic = SerializableIlDiffDisplayResult(result.IlDiffDiagnostic),
+            IlDiff = SerializableIlMemberDiff(result.IlDiff),
             result.MemberAnchor,
             result.ClosureEvidence,
             result.IsFrontier,
@@ -2379,7 +2383,19 @@ internal static class GeneratedFixtureRunner
                 result.Failure,
                 Rows = result.Rows.IsDefault ? Array.Empty<IlDiffDisplayRow>() : result.Rows.ToArray(),
                 FailureRows = result.FailureRows.IsDefault ? Array.Empty<IlDiffDisplayFailureRow>() : result.FailureRows.ToArray(),
-                result.IsEmpty,
+            };
+
+    static object? SerializableIlMemberDiff(IlMemberDiffResult? result)
+        => result is null
+            ? null
+            : new
+            {
+                result.Old,
+                result.New,
+                result.Diff.IsExact,
+                result.Diff.Failure,
+                Rows = result.Diff.Rows.IsDefault ? Array.Empty<IlDiffRow>() : result.Diff.Rows.ToArray(),
+                FailureRows = result.Diff.FailureRows.IsDefault ? Array.Empty<IlDiffFailureRow>() : result.Diff.FailureRows.ToArray(),
             };
 
     static object SerializableResearchDiff(ResearchDiffResult research)
@@ -2429,6 +2445,7 @@ internal static class GeneratedFixtureRunner
             evidence.InLoop,
             IlDisplayRows = evidence.IlDisplayRows.IsDefault ? Array.Empty<IlDiffDisplayRow>() : evidence.IlDisplayRows.ToArray(),
             evidence.IlDisplayFailureRow,
+            IlMemberDiff = SerializableIlMemberDiff(evidence.IlMemberDiff),
         };
 
     public static string FormatList(IReadOnlyList<GeneratedFixtureDefinition> fixtures)

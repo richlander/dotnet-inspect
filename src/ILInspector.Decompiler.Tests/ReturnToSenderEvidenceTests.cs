@@ -24,6 +24,9 @@ public class ReturnToSenderEvidenceTests
         Assert.NotNull(row.Anchor);
         Assert.StartsWith("Method1~", row.Anchor.StableSelector, StringComparison.Ordinal);
         Assert.Null(row.IlDiffDiagnostic);
+        Assert.NotNull(row.IlDiff);
+        Assert.True(row.IlDiff.Diff.IsExact);
+        Assert.Equal(row.IlDiff.Old.Identity, row.IlDiff.New.Identity);
 
         var research = ReturnToSenderEvidence.ToResearchDiff(evidence);
         var subject = Assert.Single(research.MembersWhere(member => member.Subject.Id == row.Anchor.StableSelector));
@@ -43,6 +46,30 @@ public class ReturnToSenderEvidenceTests
             "abcdef1234",
             "TestType",
             "Method1");
+        var typedDiff = new IlMemberDiffResult(
+            new IlMemberDiffSubject("old-id", "old-label"),
+            new IlMemberDiffSubject("new-id", "new-label"),
+            new IlBodyDiffResult(
+                IsExact: false,
+                Failure: null,
+                Rows:
+                [
+                    new IlDiffRow(
+                        0,
+                        IlDiffKind.Context,
+                        new CanonicalIlOperation(0, "nop", Operand: null),
+                        "Unchanged IL operation 'nop'"),
+                    new IlDiffRow(
+                        1,
+                        IlDiffKind.Remove,
+                        new CanonicalIlOperation(1, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "1")),
+                        "Removed IL operation 'ldc.i4 1'"),
+                    new IlDiffRow(
+                        1,
+                        IlDiffKind.Add,
+                        new CanonicalIlOperation(1, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "2")),
+                        "Added IL operation 'ldc.i4 2'"),
+                ]));
         var evidence = new ReturnToSenderEvidenceRow(
             anchor,
             "TestType",
@@ -52,44 +79,8 @@ public class ReturnToSenderEvidenceTests
             FidelityCheck.CompileBackStatus.OpcodeDiff,
             "opcode-diff",
             Detail: null,
-            IlDiffDiagnostic: new IlDiffDisplayResult(
-                Failure: null,
-                Rows:
-                [
-                    new IlDiffDisplayRow(
-                        0,
-                        IlDiffKind.Context,
-                        " ",
-                        0,
-                        "IL_0000",
-                        "nop",
-                        OperandKind: null,
-                        OperandValue: null,
-                        "nop",
-                        "Unchanged IL operation 'nop'"),
-                    new IlDiffDisplayRow(
-                        1,
-                        IlDiffKind.Remove,
-                        "-",
-                        1,
-                        "IL_0001",
-                        "ldc.i4",
-                        IlOperandIdentityKind.Immediate,
-                        "1",
-                        "ldc.i4 1",
-                        "Removed IL operation 'ldc.i4 1'"),
-                    new IlDiffDisplayRow(
-                        1,
-                        IlDiffKind.Add,
-                        "+",
-                        1,
-                        "IL_0001",
-                        "ldc.i4",
-                        IlOperandIdentityKind.Immediate,
-                        "2",
-                        "ldc.i4 2",
-                        "Added IL operation 'ldc.i4 2'"),
-                ]));
+            IlDiffDiagnostic: null,
+            IlDiff: typedDiff);
 
         var research = ReturnToSenderEvidence.ToResearchDiff([evidence]);
 
@@ -106,6 +97,7 @@ public class ReturnToSenderEvidenceTests
             && item.ChangeId == "il.operation.removed"
             && item.OldValue == "ldc.i4 1"
             && item.OldIlOffset == 1
+            && item.IlMemberDiff == typedDiff
             && item.IlDisplayRows.Length == 1
             && item.IlDisplayRows[0].UnifiedLine == "h1 - IL_0001 ldc.i4 1");
         Assert.Contains(subject.Evidence, item =>
@@ -113,6 +105,7 @@ public class ReturnToSenderEvidenceTests
             && item.ChangeId == "il.operation.added"
             && item.NewValue == "ldc.i4 2"
             && item.NewIlOffset == 1
+            && item.IlMemberDiff == typedDiff
             && item.IlDisplayRows.Length == 1
             && item.IlDisplayRows[0].UnifiedLine == "h1 + IL_0001 ldc.i4 2");
         Assert.DoesNotContain(subject.Evidence, item => item.ChangeId == "il.operation.context");
@@ -144,7 +137,8 @@ public class ReturnToSenderEvidenceTests
             IlDiffDiagnostic: new IlDiffDisplayResult(
                 Failure: failure.UnifiedLine,
                 Rows: [],
-                FailureRows: [failure]));
+                FailureRows: [failure]),
+            IlDiff: null);
 
         var research = ReturnToSenderEvidence.ToResearchDiff([evidence]);
 

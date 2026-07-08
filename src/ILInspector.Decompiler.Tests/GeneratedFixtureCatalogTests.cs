@@ -1151,6 +1151,7 @@ public class GeneratedFixtureCatalogTests
                                 "ldc.i4 2",
                                 "Added IL operation 'ldc.i4 2'"),
                         ]),
+                    IlDiff: null,
                     MemberAnchor: new MemberAnchor(
                         "Method1~abcdef1234",
                         "M:TestType.Method1()",
@@ -1269,6 +1270,7 @@ public class GeneratedFixtureCatalogTests
                         Failure: failure.UnifiedLine,
                         Rows: [],
                         FailureRows: [failure]),
+                    IlDiff: null,
                     MemberAnchor: new MemberAnchor(
                         "Method1~abcdef1234",
                         "M:TestType.Method1()",
