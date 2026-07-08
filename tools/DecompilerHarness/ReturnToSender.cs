@@ -1504,7 +1504,7 @@ static class ReturnToSender
             AddMemberRequirement(
                 field.DeclaringType,
                 root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, field),
-                allowTargetRoot: false);
+                allowTargetRoot: true);
         }
 
         void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)

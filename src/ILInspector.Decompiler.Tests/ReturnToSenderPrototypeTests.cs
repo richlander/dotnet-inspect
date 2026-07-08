@@ -311,6 +311,60 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_UsesTypedTargetFieldForUnqualifiedFieldAccess()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                private readonly int _value = 42;
+
+                public int Value => _value;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(type.Members, member =>
+                member.Name == "_value"
+                && member.Kind == CompileBackMemberKind.Field
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-field" && fact.Detail == "_value"));
+            Assert.Contains("public int _value;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_DoesNotEmitGeneratedBackingFieldRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value { get; } = 42;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.Members, member => member.Name.Contains('<', StringComparison.Ordinal));
+            Assert.DoesNotContain(result.Source, "<Value>", StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_KeepsTypeResolvedCs0117PropertyFallback()
     {
         var assemblyPath = CompileFixture("""
