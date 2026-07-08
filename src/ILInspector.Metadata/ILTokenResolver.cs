@@ -110,7 +110,7 @@ public static class ILTokenResolver
 
         try
         {
-            var sig = method.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+            var sig = GuardedSignatureText.MethodText(reader, method, context: null);
             return $"{baseName}({string.Join(", ", sig.ParameterTypes)})";
         }
         catch
@@ -131,7 +131,7 @@ public static class ILTokenResolver
             if (memberRef.GetKind() == MemberReferenceKind.Method)
             {
                 var genericCtx = BuildGenericContext(reader, memberRef);
-                var sig = memberRef.DecodeMethodSignature(SignatureDecoder.Instance, genericCtx);
+                var sig = GuardedSignatureText.MemberRefMethodText(reader, memberRef, genericCtx);
                 return $"{baseName}({string.Join(", ", sig.ParameterTypes)})";
             }
         }
@@ -155,7 +155,7 @@ public static class ILTokenResolver
 
         try
         {
-            var typeArgs = spec.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+            var typeArgs = GuardedSignatureText.MethodSpecTypeArgs(reader, spec, context: null);
             return $"{baseName}<{string.Join(", ", typeArgs)}>";
         }
         catch
@@ -182,8 +182,7 @@ public static class ILTokenResolver
         {
             if (memberRef.Parent.Kind == HandleKind.TypeSpecification)
             {
-                var typeSpec = reader.GetTypeSpecification((TypeSpecificationHandle)memberRef.Parent);
-                var parentType = typeSpec.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+                var parentType = GuardedSignatureText.TypeSpecText(reader, (TypeSpecificationHandle)memberRef.Parent, context: null);
                 var typeArgs = ExtractGenericArguments(parentType);
                 if (typeArgs.Count > 0)
                     return new GenericContext(typeArgs, []);

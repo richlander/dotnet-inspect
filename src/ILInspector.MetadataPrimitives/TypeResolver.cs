@@ -49,10 +49,18 @@ public static class TypeResolver
 
     /// <summary>
     /// Gets the type name from a TypeSpecification handle (generic instantiations).
+    /// A TypeSpec blob is inspected (untrusted) metadata, so a malformed deeply-nested or
+    /// huge-count signature would overflow SRM's native-recursive decoder (an uncatchable
+    /// <see cref="System.StackOverflowException"/>) or trigger a huge pre-allocation. This is a
+    /// *top-level* decode (SignatureDecoder's own re-entry guard only sees nested TypeSpecs
+    /// reached by handle), so prescan with <see cref="SignatureBlobGuard"/> and fail closed to a
+    /// parseable placeholder type instead of crashing.
     /// </summary>
     public static string GetTypeNameFromSpecification(MetadataReader reader, TypeSpecificationHandle handle, GenericContext? context = null)
     {
         var typeSpec = reader.GetTypeSpecification(handle);
+        if (!SignatureBlobGuard.IsSafeToDecode(reader, typeSpec.Signature, SignatureBlobGuard.Kind.TypeSpecification))
+            return "object";
         return typeSpec.DecodeSignature(SignatureDecoder.Instance, context);
     }
 
