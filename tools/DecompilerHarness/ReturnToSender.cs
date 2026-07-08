@@ -1653,101 +1653,14 @@ static class ReturnToSender
 
         void AddTypedClosureMemberFacts(IrNode node)
         {
-            switch (node)
+            foreach (var evidence in ConsumedMemberEvidence.From(node))
             {
-                case Call call:
-                    AddMethodFact(call.Callee);
-                    break;
-                case NewObject creation:
-                    AddMethodFact(creation.Constructor, allowTargetRootOverride: true);
-                    break;
-                case LoadProperty load:
-                    AddMethodFact(load.Accessor);
-                    break;
-                case StoreProperty store:
-                    AddMethodFact(store.Accessor);
-                    break;
-                case EventSubscription subscription:
-                    AddMethodFact(subscription.Accessor);
-                    break;
-                case LoadFunctionPointer load:
-                    AddMethodFact(load.Method);
-                    break;
-                case AddressOfMethod address:
-                    AddMethodFact(address.Method);
-                    break;
-                case DelegateCreation creation:
-                    AddMethodFact(creation.Method);
-                    break;
-                case IncrementDecrement { ConsumedMethod: { } operatorMethod }:
-                    AddMethodFact(operatorMethod);
-                    break;
-                case RecursivePropertyDeclarationPattern pattern:
-                    AddMethodFact(pattern.Accessor);
-                    break;
-                case NullCoalescingPropertyAssignment assignment:
-                    AddMethodFact(assignment.Setter);
-                    break;
-                case DeconstructionAssignment deconstruction:
-                    if (deconstruction.ConsumedDeconstructMethod is { } deconstruct)
-                        AddMethodFact(deconstruct);
-                    foreach (var target in deconstruction.Targets)
-                    {
-                        if (target.Accessor is { } accessor)
-                            AddMethodFact(accessor);
-                        if (target.Field is { } field)
-                            AddFieldFact(field);
-                    }
-                    break;
-                case ForeachStatement foreachStatement:
-                    foreach (var method in foreachStatement.ConsumedMemberRefs)
-                        AddMethodFact(method);
-                    break;
-                case UsingStatement usingStatement:
-                    foreach (var method in usingStatement.ConsumedMemberRefs)
-                        AddMethodFact(method);
-                    break;
-                case LoadField load:
-                    AddFieldFact(load.Field);
-                    break;
-                case StoreField store:
-                    AddFieldFact(store.Field);
-                    break;
-                case LoadFieldAddress address:
-                    AddFieldFact(address.Field);
-                    break;
-                case NullCoalescingFieldAssignment assignment:
-                    AddFieldFact(assignment.Field);
-                    break;
-                case NullCoalescingFieldAssignmentExpression assignment:
-                    AddFieldFact(assignment.Field);
-                    break;
-                case ObjectInitializerExpression initializer:
-                    AddObjectInitializerFacts(initializer);
-                    break;
-                case WithExpression withExpression:
-                    AddRecordShellFact(withExpression.ResultType);
-                    AddInitializerEntryFacts(withExpression.Entries);
-                    break;
-            }
-        }
-
-        void AddObjectInitializerFacts(ObjectInitializerExpression initializer)
-        {
-            AddMethodFact(initializer.Creation.Constructor, allowTargetRootOverride: true);
-            AddInitializerEntryFacts(initializer.Entries);
-        }
-
-        void AddInitializerEntryFacts(IEnumerable<InitializerEntry> entries)
-        {
-            foreach (var entry in entries)
-            {
-                if (entry.ConsumedMethod is { } method)
-                    AddMethodFact(method, allowTargetRootOverride: true);
-                if (entry.ConsumedField is { } field)
+                if (evidence.Method is { } method)
+                    AddMethodFact(method, evidence.AllowTargetRoot);
+                if (evidence.Field is { } field)
                     AddFieldFact(field);
-                foreach (var block in entry.Arguments.OfType<InitializerBlock>())
-                    AddInitializerEntryFacts(block.Entries);
+                if (evidence.RecordShellType is { } recordShell)
+                    AddRecordShellFact(recordShell);
             }
         }
     }
