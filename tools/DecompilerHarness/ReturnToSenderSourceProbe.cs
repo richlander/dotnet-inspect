@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using DotnetInspector.Fixtures;
@@ -42,7 +43,7 @@ static class ReturnToSenderSourceProbe
 {
     internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json)
     {
         var results = Evaluate(assemblies, cap);
         int passed = results.Count(result => result.Passed);
@@ -54,6 +55,12 @@ static class ReturnToSenderSourceProbe
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .ToArray();
+
+        if (json)
+        {
+            WriteJson(results, buckets, passed, different, failed, skipped);
+            return failed == 0 ? 0 : 1;
+        }
 
         Console.WriteLine($"RETURNTOSENDER SOURCE PROBE over {results.Count} target(s)");
         Console.WriteLine();
@@ -252,22 +259,72 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
-            var decisions = result.Decisions ?? [];
-            string reason = TryKnownTasteDifference(expected, actual, decisions, out var tasteDetail)
-                ? "valid_different.known_taste"
-                : "valid_different.unclassified";
+            string reason = ClassifyValidDifference(
+                expected,
+                actual,
+                result.Status,
+                result.Decisions ?? [],
+                out var classificationDetail);
             results.Add(new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
                 result.Status,
                 reason,
-                Detail: tasteDetail ?? "decompiled body is Roslyn-valid but differs from the fixture source slice",
+                Detail: classificationDetail,
                 sourceMember.SourcePath,
                 expected,
                 actual));
         }
 
         return results;
+    }
+
+    static void WriteJson(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results,
+        IReadOnlyList<IGrouping<string, ReturnToSenderSourceProbeResult>> buckets,
+        int passed,
+        int different,
+        int failed,
+        int skipped)
+    {
+        var payload = new
+        {
+            summary = new
+            {
+                total = results.Count,
+                valid_match = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch),
+                valid_different = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent),
+                invalid = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid),
+                source_unavailable = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable),
+                unsupported_target = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget),
+                passed,
+                different,
+                failed,
+                skipped,
+            },
+            buckets = buckets.Select(bucket => new
+            {
+                reason = bucket.Key,
+                count = bucket.Count(),
+            }),
+            results = results.Select(result => new
+            {
+                target = new
+                {
+                    type = result.Target.Type,
+                    method = result.Target.Method,
+                    overload = result.Target.Overload,
+                },
+                outcome = OutcomeId(result.Outcome),
+                compile_back_status = result.CompileBackStatus?.ToString(),
+                reason = result.Reason,
+                detail = result.Detail,
+                source_path = result.SourcePath,
+                expected_body = result.ExpectedBody,
+                actual_body = result.ActualBody,
+            }),
+        };
+        Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     static void AddBodylessSourceResult(
@@ -714,6 +771,92 @@ static class ReturnToSenderSourceProbe
 
         detail = null;
         return false;
+    }
+
+    internal static string ClassifyValidDifference(
+        string expected,
+        string actual,
+        FidelityCheck.CompileBackStatus status,
+        IReadOnlyList<DecompilerDecision> decisions,
+        out string detail)
+    {
+        if (TryKnownTasteDifference(expected, actual, decisions, out var tasteDetail))
+        {
+            detail = tasteDetail ?? "documented product taste decision accounts for the source delta";
+            return "valid_different.known_taste";
+        }
+
+        var shape = SourceDifferenceShape(expected, actual);
+        string statusId = status == FidelityCheck.CompileBackStatus.OpcodeDiff
+            ? "opcode_diff"
+            : status == FidelityCheck.CompileBackStatus.Exact
+                ? "exact"
+                : status.ToString().ToLowerInvariant();
+
+        string reason = shape.StartsWith("compiler_lowering.", StringComparison.Ordinal)
+            ? $"valid_different.{shape}.{statusId}"
+            : status == FidelityCheck.CompileBackStatus.OpcodeDiff
+                ? $"valid_different.semantic_opcode_diff.{ShapeLeaf(shape)}"
+                : $"valid_different.{shape}.{statusId}";
+        detail = $"decompiled body is Roslyn-valid but differs from the fixture source slice; classification={shape}; compile-back={status}";
+        return reason;
+    }
+
+    static string SourceDifferenceShape(string expected, string actual)
+    {
+        var expectedNodes = ParseBodyNodes(expected);
+        var actualNodes = ParseBodyNodes(actual);
+
+        if (expectedNodes.Any(node => node is YieldStatementSyntax))
+            return "compiler_lowering.iterator";
+        if (expectedNodes.Any(node => node is AwaitExpressionSyntax))
+            return "compiler_lowering.async";
+        if (ContainsCheckedContext(expectedNodes, actualNodes))
+            return "source_shape_frontier.checked_context";
+        if (ContainsUnsafeResidual(expectedNodes, actualNodes))
+            return "source_shape_frontier.unsafe_residual";
+        if (expectedNodes.Any(node => node is WithExpressionSyntax) || actualNodes.Any(node => node is WithExpressionSyntax))
+            return "source_shape_frontier.record_with";
+        if (expectedNodes.Any(node => node is AnonymousFunctionExpressionSyntax))
+            return "source_shape_frontier.closure";
+        if (ContainsDynamic(expectedNodes) || ContainsDynamic(actualNodes))
+            return "source_shape_frontier.dynamic";
+        if (actual.Contains("/*", StringComparison.Ordinal))
+            return "source_shape_frontier.residual";
+        return "source_shape_frontier.syntax";
+    }
+
+    static IReadOnlyList<SyntaxNode> ParseBodyNodes(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText("class __Probe { void __M() {" + Environment.NewLine + body + Environment.NewLine + "} }");
+        return tree.GetCompilationUnitRoot().DescendantNodes().ToArray();
+    }
+
+    static bool ContainsCheckedContext(IReadOnlyList<SyntaxNode> expectedNodes, IReadOnlyList<SyntaxNode> actualNodes)
+        => expectedNodes.Any(node => node is CheckedExpressionSyntax or CheckedStatementSyntax)
+            || actualNodes.Any(node => node is CheckedExpressionSyntax or CheckedStatementSyntax);
+
+    static bool ContainsUnsafeResidual(IReadOnlyList<SyntaxNode> expectedNodes, IReadOnlyList<SyntaxNode> actualNodes)
+        => expectedNodes.Concat(actualNodes).Any(node =>
+            node is FixedStatementSyntax
+                or PointerTypeSyntax
+                or StackAllocArrayCreationExpressionSyntax
+                or ImplicitStackAllocArrayCreationExpressionSyntax
+                or FunctionPointerTypeSyntax
+                or FunctionPointerParameterSyntax
+                or FunctionPointerParameterListSyntax
+                or FunctionPointerCallingConventionSyntax
+                or FunctionPointerUnmanagedCallingConventionListSyntax);
+
+    static bool ContainsDynamic(IReadOnlyList<SyntaxNode> nodes)
+        => nodes.Any(node => node is IdentifierNameSyntax identifier && identifier.Identifier.ValueText == "dynamic");
+
+    static string ShapeLeaf(string shape)
+    {
+        const string prefix = "source_shape_frontier.";
+        return shape.StartsWith(prefix, StringComparison.Ordinal)
+            ? shape[prefix.Length..]
+            : shape.Replace('.', '_');
     }
 
     sealed record FrameworkTypeRewrite(string FullName, string SimpleName, DecompilerDecision Decision);
