@@ -461,6 +461,35 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void IrImporter_ClassifiesConstructorMethodKinds()
+    {
+        // Typed constructor evidence (migration 3): the importer decodes the
+        // reserved metadata method name into IrFunction.MethodKind so compile-back
+        // composition routes it instead of re-matching ".ctor"/".cctor" strings.
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                static Class1() { Value = 42; }
+                public Class1(int other) { Other = other; }
+                public void M() { }
+                public static int Value { get; }
+                public int Other { get; }
+            }
+            """);
+        try
+        {
+            using var source = MetadataSource.Open(assemblyPath);
+            Assert.Equal(IrMethodKind.StaticConstructor, IrImporter.Import(source, "Class1", ".cctor", publicOnly: false)!.MethodKind);
+            Assert.Equal(IrMethodKind.Constructor, IrImporter.Import(source, "Class1", ".ctor", publicOnly: false)!.MethodKind);
+            Assert.Equal(IrMethodKind.Method, IrImporter.Import(source, "Class1", "M", publicOnly: false)!.MethodKind);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_SeedsTargetInterfaceRoot()
     {
         var assemblyPath = CompileFixture("""
