@@ -656,7 +656,7 @@ static class ReturnToSender
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
-        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
+        SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -815,7 +815,7 @@ static class ReturnToSender
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
-        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
+        SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -973,7 +973,7 @@ static class ReturnToSender
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
-        SeedTypedClosureRoots(reader, function, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
+        SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -1400,6 +1400,7 @@ static class ReturnToSender
     static void SeedTypedClosureRoots(
         MetadataReader reader,
         IrFunction function,
+        TypeDefinitionHandle targetType,
         TypeDefinitionHandle targetRoot,
         HashSet<TypeDefinitionHandle> closureRoots,
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
@@ -1407,6 +1408,7 @@ static class ReturnToSender
     {
         string assemblyName = reader.GetString(reader.GetAssemblyDefinition().Name);
         var definitions = TypeDefinitionsByTypeRefIdentity(reader);
+        AddTargetInterfaceRoots(targetType);
         foreach (var node in function.Descendants.Prepend(function))
         {
             foreach (var type in node.DirectTypes)
@@ -1445,6 +1447,32 @@ static class ReturnToSender
                     foreach (var argument in type.TypeArguments)
                         AddTypedClosureRoot(argument);
                     break;
+            }
+        }
+
+        void AddTargetInterfaceRoots(TypeDefinitionHandle handle)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+            {
+                var implementation = reader.GetInterfaceImplementation(implementationHandle);
+                if (implementation.Interface.Kind != HandleKind.TypeDefinition)
+                    continue;
+
+                var interfaceHandle = (TypeDefinitionHandle)implementation.Interface;
+                var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+                if (!IsSupportedClosureRoot(reader, interfaceDef))
+                    continue;
+
+                var root = TopLevelRootOf(reader, interfaceHandle);
+                if (root == targetRoot)
+                    continue;
+
+                closureRoots.Add(root);
+                AddClosureFact(
+                    closureFacts,
+                    root,
+                    new CompileBackFact("metadata", "target-interface", reader.GetFullTypeName(interfaceDef)));
             }
         }
 
@@ -1505,6 +1533,14 @@ static class ReturnToSender
                 field.DeclaringType,
                 root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, field),
                 allowTargetRoot: true);
+        }
+
+        void AddNamedMemberRequirement(TypeRef declaringType, string memberName)
+        {
+            AddMemberRequirement(
+                declaringType,
+                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, memberName),
+                allowTargetRoot: false);
         }
 
         void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
@@ -1600,6 +1636,22 @@ static class ReturnToSender
                 case NullCoalescingFieldAssignment assignment:
                     AddFieldFact(assignment.Field);
                     break;
+                case ObjectInitializerExpression initializer:
+                    AddObjectInitializerFacts(initializer);
+                    break;
+            }
+        }
+
+        void AddObjectInitializerFacts(ObjectInitializerExpression initializer)
+        {
+            AddMethodFact(initializer.Creation.Constructor, allowTargetRootOverride: true);
+            if (initializer.IsCollection)
+                return;
+
+            foreach (var entry in initializer.Entries)
+            {
+                if (entry.Member is { } memberName)
+                    AddNamedMemberRequirement(initializer.Creation.Constructor.DeclaringType, memberName);
             }
         }
 

@@ -324,6 +324,12 @@ public static class CompileBackSourceComposer
         FieldRef field)
         => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, field);
 
+    public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string memberName)
+        => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, memberName);
+
     public static CompileBackSourceResult ComposePropertyGetter(
         string assemblyPath,
         MetadataReader reader,
@@ -657,6 +663,8 @@ public static class CompileBackSourceComposer
         ];
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
+        if (isConstructor)
+            targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function));
         if (!isConstructor
             && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
         {
@@ -1910,6 +1918,62 @@ public static class CompileBackSourceComposer
             yield return address.Field;
     }
 
+    static IReadOnlyList<CompileBackMemberRequirement> TargetBackingFieldWriteMembers(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity targetIdentity,
+        IrFunction function)
+    {
+        var members = new List<CompileBackMemberRequirement>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var store in function.Descendants.OfType<StoreField>())
+        {
+            if (store is not { HasInstance: true, Instance: LoadArgument { Index: 0 } })
+                continue;
+            var fieldRef = store.Field;
+            if (fieldRef.BackingPropertyName is not { Length: > 0 } propertyName)
+                continue;
+            if (!IsSelfType(fieldRef.DeclaringType, targetIdentity))
+                continue;
+            if (AutoPropertyNameForBackingField(reader, typeDef, fieldRef.Name) != propertyName)
+                continue;
+            if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
+                continue;
+
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (!MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                continue;
+
+            string memberName = Identifier(propertyName);
+            if (!seen.Add(memberName))
+                continue;
+
+            string fieldType;
+            try
+            {
+                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+
+            members.Add(new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(targetIdentity.FullName, memberName, 0, $"property {fieldType}"),
+                CompileBackMemberKind.PropertyGet,
+                IsStatic: false,
+                Parameters: [],
+                CompileBackTypeSignature.Display(fieldType),
+                TypeParameters: [],
+                CompileBackStubBodyKind.AutoProperty,
+                TargetBody: null,
+                [new CompileBackFact("metadata", "target-backing-field-write", fieldRef.Name)]));
+        }
+
+        return members;
+    }
+
     static string? AutoPropertyNameForBackingField(MetadataReader reader, TypeDefinition typeDef, string fieldName)
     {
         if (!fieldName.StartsWith("<", StringComparison.Ordinal) || !fieldName.EndsWith(">k__BackingField", StringComparison.Ordinal))
@@ -2160,6 +2224,36 @@ public static class CompileBackSourceComposer
             var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
             if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
                 return null;
+            return FieldRequirement(reader, typeDef, typeIdentity, fieldHandle);
+        }
+
+        public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            string memberName)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            if (TryFindPropertyByName(reader, typeDef, memberName) is { } propertyHandle)
+            {
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                var setter = property.GetAccessors().Setter;
+                if (!setter.IsNil)
+                    return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, $"set_{memberName}");
+            }
+
+            if (FindField(reader, typeDef, memberName) is { } fieldHandle)
+                return FieldRequirement(reader, typeDef, typeIdentity, fieldHandle);
+
+            return null;
+        }
+
+        static CompileBackMemberRequirement? FieldRequirement(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            CompileBackTypeIdentity typeIdentity,
+            FieldDefinitionHandle fieldHandle)
+        {
             var field = reader.GetFieldDefinition(fieldHandle);
             string fieldType;
             try
@@ -2261,6 +2355,22 @@ public static class CompileBackSourceComposer
             }
 
             return null;
+        }
+
+        static PropertyDefinitionHandle? TryFindPropertyByName(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            string propertyName)
+        {
+            var matches = new List<PropertyDefinitionHandle>();
+            foreach (var propertyHandle in typeDef.GetProperties())
+            {
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                if (reader.GetString(property.Name) == propertyName)
+                    matches.Add(propertyHandle);
+            }
+
+            return matches.Count == 1 ? matches[0] : null;
         }
 
         static MethodDefinitionHandle? TryFindMethod(
