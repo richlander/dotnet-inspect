@@ -24,8 +24,13 @@ public class CSharpNamingTests
     [InlineData("class", "@class")]
     [InlineData("class`1", "@class")]
     [InlineData("Normal`1", "Normal")]
+    [InlineData("<>c__DisplayClass0_0", "___c__DisplayClass0_0")]
     public void TypeNameSegment_StripsArityAndEscapesKeywords(string metadataName, string expected)
         => Assert.Equal(expected, CSharpNaming.TypeNameSegment(metadataName));
+
+    [Fact]
+    public void SafeIdentifier_PreservesAstralPlaneIdentifiers()
+        => Assert.Equal("\U0001d4cd", CSharpNaming.SafeIdentifier("\U0001d4cd"));
 
     [Theory]
     [InlineData("<seed>P", "seed")]                 // C# 12 primary-ctor capture

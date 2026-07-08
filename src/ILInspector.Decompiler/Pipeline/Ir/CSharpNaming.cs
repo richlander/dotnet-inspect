@@ -40,11 +40,17 @@ internal static class CSharpNaming
     public static string EscapeIdentifier(string name)
         => RequiresEscape(name) ? "@" + name : name;
 
+    public static string SafeIdentifier(string name)
+        => IsIdentifierLike(name) ? EscapeIdentifier(name) : SanitizeUnspellableIdentifier(name);
+
     public static string SourceMethodName(string metadataName)
-        => EscapeIdentifier(MethodName(metadataName));
+    {
+        string sourceName = MethodName(metadataName);
+        return sourceName == metadataName ? EscapeIdentifier(sourceName) : SafeIdentifier(sourceName);
+    }
 
     public static string TypeNameSegment(string metadataName)
-        => EscapeIdentifier(StripArity(metadataName));
+        => SafeIdentifier(StripArity(metadataName));
 
     static bool RequiresEscape(string name)
         => ReservedKeywords.Contains(name) || name == "await";
@@ -156,5 +162,15 @@ internal static class CSharpNaming
     {
         int tick = name.IndexOf('`');
         return tick < 0 ? name : name[..tick];
+    }
+
+    static string SanitizeUnspellableIdentifier(string name)
+    {
+        var sb = new System.Text.StringBuilder(name.Length + 1);
+        if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_'))
+            sb.Append('_');
+        foreach (char c in name)
+            sb.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
+        return RequiresEscape(sb.ToString()) ? "@" + sb : sb.ToString();
     }
 }

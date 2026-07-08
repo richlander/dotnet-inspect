@@ -153,6 +153,64 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void CompileBackCSharpNames_SanitizesGeneratedTypeSegmentsWithoutBreakingGenerics()
+    {
+        Assert.Equal("System.Threading.Tasks.Task<int>", CompileBackCSharpNames.Clean("System.Threading.Tasks.Task<int>"));
+        Assert.Equal(
+            "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.__Data_e__FixedBuffer",
+            CompileBackCSharpNames.Clean("ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.<Data>e__FixedBuffer"));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_CompilesGeneratedDynamicClosureShells()
+    {
+        var results = ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
+                new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "CapturedExpressionTree", Overload: 0),
+            ]);
+
+        Assert.All(results, result =>
+        {
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS1525", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS0234", result.Detail, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_CompilesFixedBufferResidualShells()
+    {
+        var results = new[]
+        {
+            Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "Sum",
+                        Overload: 0),
+                ])),
+            Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "Sum",
+                        Overload: 0),
+                ])),
+        };
+
+        Assert.All(results, result =>
+        {
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS1525", result.Detail, StringComparison.Ordinal);
+            Assert.Contains("Unsafe.Add", result.ActualBody, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
