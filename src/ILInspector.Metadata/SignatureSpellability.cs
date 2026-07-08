@@ -58,7 +58,7 @@ public sealed class SignatureSpellability
         if (_nonPublicTypes.TryGetValue(reference, out var cached))
             return cached;
 
-        if (_resolver.Resolve(reference.Identity, reference.Scope) is not { } resolved)
+        if (Resolve(reference) is not { } resolved)
         {
             _nonPublicTypes[reference] = null;
             return null;
@@ -96,6 +96,15 @@ public sealed class SignatureSpellability
         return types;
     }
 
+    ResolvedAssemblyReference? Resolve(ReferenceKey reference)
+    {
+        if (_resolver.Resolve(reference.Identity, reference.Scope) is { } exact)
+            return exact;
+
+        var relaxed = reference.Identity with { Version = null };
+        return _resolver.Resolve(relaxed, reference.Scope);
+    }
+
     static bool IsExternallyVisible(MetadataReader reader, TypeDefinitionHandle handle)
     {
         var typeDef = reader.GetTypeDefinition(handle);
@@ -124,25 +133,10 @@ public sealed class SignatureSpellability
         public static ReferenceKey From(MetadataReader reader, AssemblyReferenceHandle handle)
         {
             var identity = AssemblyReferenceIdentity.From(reader, handle);
-            var reference = reader.GetAssemblyReference(handle);
-            var scope = PlatformKeys.IsPlatform(ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken)))
+            var scope = PlatformKeys.IsPlatform(identity.PublicKeyToken)
                 ? AssemblyResolutionScope.Platform
                 : AssemblyResolutionScope.Any;
             return new ReferenceKey(identity, scope);
-        }
-
-        static string? ToHex(byte[] bytes)
-        {
-            if (bytes.Length == 0)
-                return null;
-
-            var chars = new char[bytes.Length * 2];
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                chars[i * 2] = "0123456789abcdef"[bytes[i] >> 4];
-                chars[i * 2 + 1] = "0123456789abcdef"[bytes[i] & 0xF];
-            }
-            return new string(chars);
         }
     }
 

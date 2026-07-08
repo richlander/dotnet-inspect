@@ -52,13 +52,24 @@ public sealed class SignatureSpellabilityTests
             GenericContext.ForMethod(fixture.Reader, fixture.Type, GetMethod(fixture.Reader, fixture.Type, "VisibleMethod"))));
     }
 
-    static Fixture OpenFixture()
+    [Fact]
+    public void CanSpellField_RelaxesVersionWhenResolverUnifiesReferences()
+    {
+        using var fixture = OpenFixture(new VersionRelaxingResolver(typeof(VisibleReferenceType).Assembly.Location));
+
+        Assert.False(fixture.Spellability.CanSpellField(
+            fixture.Reader,
+            GetField(fixture.Reader, fixture.Type, "HiddenField"),
+            GenericContext.ForType(fixture.Reader, fixture.Type)));
+    }
+
+    static Fixture OpenFixture(IAssemblyReferenceResolver? resolver = null)
     {
         var stream = File.OpenRead(typeof(SignatureSpellabilityConsumerFixtures).Assembly.Location);
         var pe = new PEReader(stream);
         var reader = pe.GetMetadataReader();
         var type = GetTypeDefinition(reader, typeof(SignatureSpellabilityConsumerFixtures));
-        var resolver = new MapResolver(typeof(VisibleReferenceType).Assembly.Location);
+        resolver ??= new MapResolver(typeof(VisibleReferenceType).Assembly.Location);
         return new Fixture(stream, pe, reader, type, new SignatureSpellability(resolver));
     }
 
@@ -121,6 +132,17 @@ public sealed class SignatureSpellabilityTests
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
             => _paths.TryGetValue(identity.Name, out var path)
                 ? new ResolvedAssemblyReference(identity, path, () => File.OpenRead(path), "TestMap")
+                : null;
+    }
+
+    sealed class VersionRelaxingResolver(string path) : IAssemblyReferenceResolver
+    {
+        readonly string _assemblyName = Path.GetFileNameWithoutExtension(path);
+        readonly string _path = Path.GetFullPath(path);
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => identity.Version is null && identity.Name.Equals(_assemblyName, StringComparison.OrdinalIgnoreCase)
+                ? new ResolvedAssemblyReference(identity, _path, () => File.OpenRead(_path), "VersionRelaxing")
                 : null;
     }
 
