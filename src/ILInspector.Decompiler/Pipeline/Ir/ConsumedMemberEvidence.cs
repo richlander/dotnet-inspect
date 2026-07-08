@@ -11,6 +11,24 @@ public readonly record struct ConsumedMemberEvidence(
     TypeRef? RecordShellType = null,
     bool AllowTargetRoot = false)
 {
+    /// <summary>
+    /// Whether this consumed member may seed a closure member requirement on the
+    /// target root itself. Construction/initialization contexts set
+    /// <see cref="AllowTargetRoot"/> directly (a constructor or initializer setter
+    /// is legitimately re-seeded there); otherwise membership follows the member
+    /// kind — constructors (reserved metadata names) and property accessors
+    /// (<see cref="MethodRef.AccessorKind"/>) are owned by their type/property and
+    /// are not re-seeded, every other member is. Member kind comes from typed
+    /// metadata evidence, so consumers such as ReturnToSender need no C#
+    /// name-prefix sniffing.
+    /// </summary>
+    public bool EffectiveAllowTargetRoot
+        => AllowTargetRoot || (Method is { } method && AllowsTargetRootMember(method));
+
+    static bool AllowsTargetRootMember(MethodRef method)
+        => method.Name is not ".ctor" and not ".cctor"
+            && method.AccessorKind is not AccessorKind.PropertyGet and not AccessorKind.PropertySet;
+
     public static void AddFrom(IrNode node, List<ConsumedMemberEvidence> evidence)
     {
         switch (node)

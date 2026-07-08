@@ -1621,23 +1621,20 @@ static class ReturnToSender
                 new CompileBackFact("metadata", "typed-member-ref", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
         }
 
-        void AddMethodFact(MethodRef method, bool allowTargetRootOverride = false)
+        void AddMethodFact(MethodRef method, bool allowTargetRoot = false)
         {
-            AddSingleMethodFact(method, allowTargetRootOverride);
+            AddSingleMethodFact(method, allowTargetRoot);
             if (OperatorNames.UncheckedOperator(method.Name) is { } siblingName)
-                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRootOverride);
+                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRoot);
         }
 
-        void AddSingleMethodFact(MethodRef method, bool allowTargetRootOverride)
+        void AddSingleMethodFact(MethodRef method, bool allowTargetRoot)
         {
             AddMemberFact(method.DeclaringType, "method", method.Name);
             AddMemberRequirement(
                 method.DeclaringType,
                 root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, method),
-                allowTargetRoot: allowTargetRootOverride
-                    || method.Name is not ".ctor" and not ".cctor"
-                    && !method.Name.StartsWith("get_", StringComparison.Ordinal)
-                    && !method.Name.StartsWith("set_", StringComparison.Ordinal));
+                allowTargetRoot);
         }
 
         void AddFieldFact(FieldRef field)
@@ -1690,7 +1687,7 @@ static class ReturnToSender
             foreach (var evidence in consumedMemberEvidence)
             {
                 if (evidence.Method is { } method)
-                    AddMethodFact(method, evidence.AllowTargetRoot);
+                    AddMethodFact(method, evidence.EffectiveAllowTargetRoot);
                 if (evidence.Field is { } field)
                     AddFieldFact(field);
                 if (evidence.RecordShellType is { } recordShell)
