@@ -344,6 +344,48 @@ public static class MetadataDeclarationQuery
             RenderMemberAttributes(reader, field.GetCustomAttributes()));
     }
 
+    /// <summary>
+    /// The C# generic-constraint clause body for each in-scope generic parameter of
+    /// <paramref name="method"/> — its own parameters and its declaring type's —
+    /// keyed by parameter name (for example <c>"TOther"</c> to
+    /// <c>"INumberBase&lt;TOther&gt;"</c>). Each body already honors the C# ordering
+    /// and redundancy rules (<c>class</c>/<c>struct</c>, then base/interface
+    /// constraints, then <c>new()</c>; <c>struct</c> implies <c>new()</c> and drops
+    /// the <c>ValueType</c> base). Type parameters win over method parameters on a
+    /// name clash, since both share one scope inside a method shell. A parameter with
+    /// no constraints is omitted. This is the product-owned source of constraint
+    /// declaration facts, so consumers do not re-derive the C# rules from metadata.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GetGenericConstraintClauses(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var clauses = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var parameter in TypeParameters(reader, typeDef.GetGenericParameters(), GenericContext.ForType(reader, typeDef)))
+            if (SpellableConstraintClause(parameter) is { } clause)
+                clauses[parameter.Name] = clause;
+        foreach (var parameter in MethodTypeParameters(reader, typeDef, method))
+            if (SpellableConstraintClause(parameter) is { } clause)
+                clauses.TryAdd(parameter.Name, clause);
+        return clauses;
+    }
+
+    /// <summary>
+    /// The spellable <c>where</c> clause body for a parameter, or null when nothing
+    /// remains to spell. C# forbids an explicit <c>System.Object</c> constraint
+    /// (<c>CS0702: Constraint cannot be special class 'object'</c>) — and it is
+    /// semantically vacuous — so it is dropped. Non-C# compilers can emit it even
+    /// though Roslyn does not.
+    /// </summary>
+    internal static string? SpellableConstraintClause(TypeParameter parameter)
+    {
+        var spellable = parameter.Constraints
+            .Where(constraint => constraint is not ("System.Object" or "Object" or "object"))
+            .ToList();
+        return spellable.Count > 0 ? string.Join(", ", spellable) : null;
+    }
+
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
     {
         var metadataFullName = TypeResolver.GetFullName(reader, typeDef);

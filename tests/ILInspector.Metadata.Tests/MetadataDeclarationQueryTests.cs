@@ -131,6 +131,33 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Equal("ILInspector.Metadata.Tests.MetadataDeclarationQueryFixtures.Container<T>.Row<U>", signature);
     }
 
+    [Fact]
+    public void GetGenericConstraintClauses_RendersSpecialConstraints()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+
+        var structClauses = MetadataDeclarationQuery.GetGenericConstraintClauses(
+            Reader, type, GetMethod(type, nameof(MetadataDeclarationQueryFixtures.StructConstraint)));
+        Assert.Equal("struct", Assert.Contains("T", structClauses));
+
+        var classClauses = MetadataDeclarationQuery.GetGenericConstraintClauses(
+            Reader, type, GetMethod(type, nameof(MetadataDeclarationQueryFixtures.ClassNewConstraint)));
+        Assert.Equal("class, new()", Assert.Contains("T", classClauses));
+    }
+
+    [Fact]
+    public void SpellableConstraintClause_DropsExplicitObjectConstraint()
+    {
+        // C# forbids `where T : object` (CS0702); it must be dropped even though
+        // Roslyn never emits it (non-C# compilers can).
+        Assert.Null(MetadataDeclarationQuery.SpellableConstraintClause(
+            new TypeParameter { Name = "T", Constraints = { "System.Object" } }));
+        Assert.Equal("System.IComparable", MetadataDeclarationQuery.SpellableConstraintClause(
+            new TypeParameter { Name = "T", Constraints = { "System.Object", "System.IComparable" } }));
+        Assert.Equal("class, new()", MetadataDeclarationQuery.SpellableConstraintClause(
+            new TypeParameter { Name = "T", Constraints = { "class", "new()" } }));
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -206,6 +233,10 @@ public class MetadataDeclarationQueryFixtures
     public int @while { get; set; }
 
     public int @event = 1;
+
+    public void StructConstraint<T>() where T : struct { }
+
+    public void ClassNewConstraint<T>() where T : class, new() { }
 
     public abstract class AbstractBase
     {
