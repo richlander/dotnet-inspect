@@ -41,7 +41,7 @@ internal static class CSharpNaming
         => RequiresEscape(name) ? "@" + name : name;
 
     public static string SafeIdentifier(string name)
-        => IsEscapableIdentifier(name) ? EscapeIdentifier(name) : SanitizeUnspellableIdentifier(name);
+        => IsIdentifierLike(name) ? EscapeIdentifier(name) : SanitizeUnspellableIdentifier(name);
 
     public static string SourceMethodName(string metadataName)
     {

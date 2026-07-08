@@ -2898,10 +2898,13 @@ public static class CompileBackSourceComposer
         }
 
         static bool IsUnsupportedSurfaceSignature(string signature)
-            => signature.Contains("delegate*", StringComparison.Ordinal)
-                || signature.Contains("@delegate*", StringComparison.Ordinal)
-                || signature.Contains("<>", StringComparison.Ordinal)
-                || signature.Contains('{', StringComparison.Ordinal);
+        {
+            string displayName = CompileBackTypeSignature.Display(signature).DisplayName;
+            return displayName.Contains("delegate*", StringComparison.Ordinal)
+                || displayName.Contains("@delegate*", StringComparison.Ordinal)
+                || displayName.Contains("<>", StringComparison.Ordinal)
+                || displayName.Contains('{', StringComparison.Ordinal);
+        }
 
         static bool IsGeneratedMetadataName(string name)
             => name.Contains('<', StringComparison.Ordinal) || name.Contains('>', StringComparison.Ordinal);
