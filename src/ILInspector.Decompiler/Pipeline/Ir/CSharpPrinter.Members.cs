@@ -40,7 +40,7 @@ public sealed partial class CSharpPrinter
                 _ => $"{ReceiverText(instance)}.{captured}",
             };
         }
-        string fieldName = CSharpNaming.EscapeIdentifier(field.Name);
+        string fieldName = CSharpNaming.SafeIdentifier(field.Name);
         return instance switch
         {
             null => $"{TypeText(field.DeclaringType)}.{fieldName}",

@@ -15,6 +15,8 @@ static class CompileBackCSharpNames
         if (type.Contains('!'))
             return "object";
 
+        type = SanitizeGeneratedTypeSegments(type);
+
         type = type.Replace("modreq(", "", StringComparison.Ordinal)
             .Replace("modopt(", "", StringComparison.Ordinal)
             .Replace(")", "", StringComparison.Ordinal)
@@ -31,13 +33,57 @@ static class CompileBackCSharpNames
         return EscapeTypeKeywords(type);
     }
 
+    static string SanitizeGeneratedTypeSegments(string type)
+    {
+        var sb = new StringBuilder(type.Length);
+        int i = 0;
+        while (i < type.Length)
+        {
+            if (type[i] == '<' && IsGeneratedSegmentStart(type, i))
+            {
+                int close = i + 1;
+                while (close < type.Length && IsGeneratedTypeSegmentChar(type[close]))
+                    close++;
+                if (close < type.Length && type[close] == '>')
+                {
+                    int end = close + 1;
+                    while (end < type.Length && IsGeneratedTypeSuffixChar(type[end]))
+                        end++;
+                    sb.Append(CSharpNaming.SafeIdentifier(type[i..end]));
+                    i = end;
+                    continue;
+                }
+            }
+
+            sb.Append(type[i]);
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    static bool IsGeneratedTypeSegmentChar(char c)
+        => c != '>'
+            && c != '.'
+            && c != ','
+            && c != '['
+            && c != ']'
+            && c != '*'
+            && !char.IsWhiteSpace(c);
+
+    static bool IsGeneratedTypeSuffixChar(char c)
+        => char.IsLetterOrDigit(c) || c == '_';
+
+    static bool IsGeneratedSegmentStart(string text, int index)
+        => index == 0 || text[index - 1] is '.' or '+';
+
     public static string StripArity(string name)
     {
         int tick = name.IndexOf('`');
         return tick >= 0 ? name[..tick] : name;
     }
 
-    public static string Identifier(string name) => IsCSharpKeyword(name) ? "@" + name : name;
+    public static string Identifier(string name) => CSharpNaming.SafeIdentifier(name);
 
     public static string EscapeNamespace(string ns)
         => string.Join(".", ns.Split('.').Select(Identifier));
@@ -988,7 +1034,7 @@ public static class CompileBackSourceComposer
         => new()
         {
             Namespace = type.Namespace,
-            Name = type.Identity.MetadataName,
+            Name = type.Name,
             Kind = type.Kind switch
             {
                 CompileBackTypeKind.Class => "class",
@@ -2175,8 +2221,7 @@ public static class CompileBackSourceComposer
                 return null;
 
             string fieldName = reader.GetString(field.Name);
-            if (fieldName.Contains('<', StringComparison.Ordinal)
-                || fieldName.Contains('.', StringComparison.Ordinal))
+            if (fieldName.Contains('.', StringComparison.Ordinal))
             {
                 return null;
             }
@@ -2376,7 +2421,8 @@ public static class CompileBackSourceComposer
             string name = reader.GetString(method.Name);
             bool isConstructor = name == ".ctor";
             if (name == ".cctor"
-                || name.Contains('<', StringComparison.Ordinal)
+                || (name.Contains('<', StringComparison.Ordinal)
+                    && CSharpNaming.MethodName(name) == name)
                 || (!isConstructor && name.Contains('.', StringComparison.Ordinal)))
                 return null;
 
@@ -2397,30 +2443,38 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
-            var parameters = ToCompileBackParameters(methodDeclaration.Signature.Parameters);
-            if (methodDeclaration.Signature.ReturnType is not { } methodReturnType
+            var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
+            var methodDeclaration = generatedLocalFunction
+                ? null
+                : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+            var parameters = generatedLocalFunction
+                ? Parameters(reader, method, signature)
+                : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);
+            var methodReturnType = generatedLocalFunction
+                ? signature.ReturnType
+                : methodDeclaration!.Signature.ReturnType;
+            if (methodReturnType is null
                 || IsUnsupportedSurfaceSignature(methodReturnType)
                 || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName)))
             {
                 return null;
             }
 
-            string identifierName = Identifier(name);
+            string identifierName = CSharpNaming.SourceMethodName(name);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, identifierName, DeclaringOverloadIndex(reader, typeDef, methodHandle, name), MethodSignatureText(identifierName, signature)),
                 isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 parameters,
                 isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
-                ToCompileBackTypeParameters(methodDeclaration.Signature.TypeParameters),
+                generatedLocalFunction ? [] : ToCompileBackTypeParameters(methodDeclaration!.Signature.TypeParameters),
                 (typeDef.Attributes & TypeAttributes.Interface) != 0 || IsAbstractMethod(method)
                     ? CompileBackStubBodyKind.None
                     : CompileBackStubBodyKind.Throw,
                 null,
                 [new CompileBackFact("metadata", isConstructor ? "typed-closure-constructor" : "typed-closure-method", name)],
-                isConstructor ? null : methodDeclaration.Attributes,
-                isConstructor ? null : methodDeclaration.Signature.ReturnAttributes,
+                isConstructor ? null : methodDeclaration?.Attributes,
+                isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
@@ -2526,8 +2580,7 @@ public static class CompileBackSourceComposer
             {
                 var nestedDef = reader.GetTypeDefinition(nestedHandle);
                 string name = reader.GetString(nestedDef.Name);
-                if (name.Contains('<', StringComparison.Ordinal)
-                    || IsDelegate(reader, nestedDef))
+                if (IsDelegate(reader, nestedDef))
                 {
                     continue;
                 }
@@ -2543,7 +2596,8 @@ public static class CompileBackSourceComposer
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
                 var members = RequiredMemberDeclarations(requirement);
                 bool includeNestedMemberSurface = includeMemberSurface
-                    || requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
+                    || requirement.SourceFacts.Any(fact => fact.Id == "closure-member")
+                    || IsGeneratedMetadataName(name);
                 if (includeNestedMemberSurface)
                     AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics, allowUnsafeSurface: true);
                 nestedTypes.Add(new CompileBackTypeDeclaration(
@@ -2629,9 +2683,7 @@ public static class CompileBackSourceComposer
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 string fieldName = reader.GetString(field.Name);
-                if (fieldName.Contains('<', StringComparison.Ordinal)
-                    || fieldName.Contains('>', StringComparison.Ordinal)
-                    || fieldName.Contains('.', StringComparison.Ordinal))
+                if (fieldName.Contains('.', StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -2751,14 +2803,15 @@ public static class CompileBackSourceComposer
                 string name = reader.GetString(method.Name);
                 if (accessorMethods.Contains(methodHandle)
                     || name == ".cctor"
-                    || name.Contains('<', StringComparison.Ordinal)
+                    || (name.Contains('<', StringComparison.Ordinal)
+                        && CSharpNaming.MethodName(name) == name)
                     || name.Contains('.', StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 bool isConstructor = name == ".ctor";
-                string identifierName = Identifier(name);
+                string identifierName = CSharpNaming.SourceMethodName(name);
                 if (members.Any(member =>
                         member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
                         && member.Name == identifierName))
@@ -2784,9 +2837,17 @@ public static class CompileBackSourceComposer
                     continue;
                 }
 
-                var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
-                var parameters = ToCompileBackParameters(methodDeclaration.Signature.Parameters);
-                if (methodDeclaration.Signature.ReturnType is not { } methodReturnType
+                var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
+                var methodDeclaration = generatedLocalFunction
+                    ? null
+                    : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+                var parameters = generatedLocalFunction
+                    ? Parameters(reader, method, signature)
+                    : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);
+                var methodReturnType = generatedLocalFunction
+                    ? signature.ReturnType
+                    : methodDeclaration!.Signature.ReturnType;
+                if (methodReturnType is null
                     || IsUnsupportedSurfaceSignature(methodReturnType)
                     || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName))
                     || (!allowUnsafeSurface
@@ -2802,14 +2863,14 @@ public static class CompileBackSourceComposer
                     method.Attributes.HasFlag(MethodAttributes.Static),
                     isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
                     parameters,
-                    ToCompileBackTypeParameters(methodDeclaration.Signature.TypeParameters),
+                    generatedLocalFunction ? [] : ToCompileBackTypeParameters(methodDeclaration!.Signature.TypeParameters),
                     requirement.RequiredKind == CompileBackTypeKind.Interface || IsAbstractMethod(method)
                         ? CompileBackStubBodyKind.None
                         : CompileBackStubBodyKind.Throw,
                     TargetBody: null,
                     [new CompileBackFact("metadata", isConstructor ? "closure-constructor" : "closure-method", name)],
-                    isConstructor ? null : methodDeclaration.Attributes,
-                    isConstructor ? null : methodDeclaration.Signature.ReturnAttributes,
+                    isConstructor ? null : methodDeclaration?.Attributes,
+                    isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                     IsAbstract: !isConstructor && IsAbstractMethod(method),
                     IsVirtual: !isConstructor && IsVirtualMethod(method),
                     IsOverride: false,
@@ -2817,6 +2878,7 @@ public static class CompileBackSourceComposer
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class
+                && !IsStaticType(typeDef)
                 && requirement.PrimaryConstructor is null
                 && !members.Any(member => member.Kind == CompileBackMemberKind.Constructor && member.Parameters.Count == 0)
                 && !HasParameterlessInstanceConstructor(reader, typeDef))
@@ -2837,7 +2899,15 @@ public static class CompileBackSourceComposer
 
         static bool IsUnsupportedSurfaceSignature(string signature)
             => signature.Contains("delegate*", StringComparison.Ordinal)
-                || signature.Contains("@delegate*", StringComparison.Ordinal);
+                || signature.Contains("@delegate*", StringComparison.Ordinal)
+                || signature.Contains("<>", StringComparison.Ordinal)
+                || signature.Contains('{', StringComparison.Ordinal);
+
+        static bool IsGeneratedMetadataName(string name)
+            => name.Contains('<', StringComparison.Ordinal) || name.Contains('>', StringComparison.Ordinal);
+
+        static bool IsGeneratedLocalFunctionName(string name)
+            => name.Contains('<', StringComparison.Ordinal) && CSharpNaming.MethodName(name) != name;
 
         static bool IsPointerSignature(string signature)
             => signature.Contains('*', StringComparison.Ordinal);
