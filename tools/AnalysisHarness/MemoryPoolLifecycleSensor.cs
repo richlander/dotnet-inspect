@@ -167,7 +167,7 @@ public static class MemoryPoolLifecycleSensor
             if (!IsCall(instructions[i].OpCode))
                 continue;
             var (type, member) = HarnessMemberResolution.ResolveToken(reader, unchecked((int)instructions[i].OperandValue));
-            if (member == "Rent" && ShortName(type) == "MemoryPool")
+            if (member == "Rent" && IsMemoryPoolType(type))
                 (rentIndices ??= []).Add(i);
         }
         if (rentIndices is null)
@@ -216,10 +216,14 @@ public static class MemoryPoolLifecycleSensor
             return (NormalPathLeak, "Rent result is popped and discarded.");
         if (IsCall(next.OpCode))
         {
-            var (t, m) = HarnessMemberResolution.ResolveToken(reader, unchecked((int)next.OperandValue));
-            return m == "Dispose"
-                ? (ExceptionPathLeak, $"Owner is disposed immediately with no covering handler ({ShortName(t)}::{m}).")
-                : (OwnershipTransfer, $"Owner is passed directly to {ShortName(t)}::{m}.");
+            int token = unchecked((int)next.OperandValue);
+            var (t, m) = HarnessMemberResolution.ResolveToken(reader, token);
+            // A parameterless instance Dispose() / receiver read consumes the owner (as receiver)
+            // immediately, with no throwing gap between Rent and the call - not a clean scope, so
+            // suppress. Anything else takes the owner as an argument: an ownership escape.
+            return HarnessMemberResolution.ClassifyReceiverCall(reader, token) == HarnessMemberResolution.ReceiverCallKind.Other
+                ? (OwnershipTransfer, $"Owner is passed directly to {ShortName(t)}::{m}.")
+                : (Ambiguous, $"Owner is consumed directly off the stack by {ShortName(t)}::{m} (no scope).");
         }
 
         if (!TryGetStoreSlot(next.OpCode, next, out int ownerSlot))
@@ -237,7 +241,7 @@ public static class MemoryPoolLifecycleSensor
         if (uses.Any(u => u.Address))
             return (Ambiguous, "Owner slot is address-taken.");
 
-        bool disposedProtected = false, disposedNormal = false, escaped = false, hasUse = false;
+        bool disposedProtected = false, disposedInCatch = false, disposedNormal = false, escaped = false, hasUse = false;
         int ownerReadyOffset = next.NextOffset;
         foreach (var use in uses)
         {
@@ -245,38 +249,53 @@ public static class MemoryPoolLifecycleSensor
             switch (ConsumerOf(reader, instructions, use.Offset))
             {
                 case (UseDisposition.Dispose, int disposeOffset):
-                    if (DisposeProtects(regions, ownerReadyOffset, disposeOffset))
-                        disposedProtected = true;
-                    else
-                        disposedNormal = true;
+                    switch (DisposeLocation(regions, ownerReadyOffset, disposeOffset))
+                    {
+                        case DisposeSite.Protected: disposedProtected = true; break;
+                        case DisposeSite.InCatch: disposedInCatch = true; break;
+                        default: disposedNormal = true; break;
+                    }
                     break;
                 case (UseDisposition.Escape, _):
                     escaped = true;
                     break;
+                case (UseDisposition.Read, _):
+                    // Non-consuming receiver read (e.g. owner.Memory): owner stays owned locally.
+                    break;
                 default:
-                    // Unmodeled consumer (e.g. a null-check branch, or passed as a call argument
-                    // through intermediate stack ops): treat as an escape and suppress.
+                    // Unmodeled consumer (e.g. a null-check branch, or the owner passed as a call
+                    // argument through intermediate stack ops): treat as an escape and suppress.
                     escaped = true;
                     break;
             }
         }
 
+        // Precedence is fail-closed. A finally/fault dispose is exception-safe (using). An escape
+        // beats a normal-path dispose because the callee may take ownership (disposing here would
+        // then be ambiguous, not a clean leak). A dispose inside a catch handler means the
+        // exception path is handled somewhere, so we do not accuse a leak. A dispose solely on the
+        // normal path, with no handler and no escape, is an exception-path leak. An owner that is
+        // only read (or never used) and never disposed or escaped leaks on the normal path.
         if (disposedProtected)
-            return (DisposedInScope, "Owner is disposed in a finally/fault handler covering Rent.");
-        if (disposedNormal)
-            return (ExceptionPathLeak, "Owner is disposed only on the normal path (no covering handler).");
+            return (DisposedInScope, "Owner is disposed in a finally/fault handler covering the acquisition.");
         if (escaped)
             return (OwnershipTransfer, "Owner escapes (returned, stored, or passed onward).");
-        if (!hasUse)
-            return (NormalPathLeak, "Rented owner is stored but never used or disposed.");
-        return (Ambiguous, "Owner disposition could not be determined.");
+        if (disposedInCatch)
+            return (Ambiguous, "Owner is disposed inside a catch/filter handler; exception coverage is unmodeled.");
+        if (disposedNormal)
+            return (ExceptionPathLeak, "Owner is disposed only on the normal path (no covering handler).");
+        return (NormalPathLeak, hasUse
+            ? "Owner is used but never disposed and never escapes."
+            : "Rented owner is stored but never used or disposed.");
     }
 
-    enum UseDisposition { Unknown, Dispose, Escape }
+    enum UseDisposition { Unknown, Dispose, Escape, Read }
+
+    enum DisposeSite { Normal, Protected, InCatch }
 
     // Classify how the load at useOffset feeds the following instruction. Immediate-consumer only:
-    // exact for the dominant `ldloc; callvirt Dispose` / `ldloc; ret` / `ldloc; stfld` shapes, and
-    // fail-closed (Unknown) otherwise.
+    // exact for the dominant `ldloc; callvirt Dispose` / `ldloc; ret` / `ldloc; stfld` /
+    // `ldloc; callvirt get_Memory` shapes, and fail-closed (Unknown) otherwise.
     static (UseDisposition, int) ConsumerOf(MetadataReader reader, ImmutableArray<DecodedInstruction> instructions, int useOffset)
     {
         int idx = IndexOfOffset(instructions, useOffset);
@@ -289,32 +308,53 @@ public static class MemoryPoolLifecycleSensor
             return (UseDisposition.Escape, consumer.Offset);
         if (IsCall(consumer.OpCode))
         {
-            var (_, member) = HarnessMemberResolution.ResolveToken(reader, unchecked((int)consumer.OperandValue));
-            return member == "Dispose"
-                ? (UseDisposition.Dispose, consumer.Offset)
-                : (UseDisposition.Escape, consumer.Offset);
+            int token = unchecked((int)consumer.OperandValue);
+            return HarnessMemberResolution.ClassifyReceiverCall(reader, token) switch
+            {
+                // Only a parameterless instance Dispose() disposes the owner (as receiver).
+                HarnessMemberResolution.ReceiverCallKind.Dispose => (UseDisposition.Dispose, consumer.Offset),
+                // A parameterless instance read (owner.Memory / owner.Span) keeps local ownership.
+                HarnessMemberResolution.ReceiverCallKind.ReceiverRead => (UseDisposition.Read, consumer.Offset),
+                // Owner passed as an argument / static call: potential ownership transfer.
+                _ => (UseDisposition.Escape, consumer.Offset),
+            };
         }
         return (UseDisposition.Unknown, 0);
     }
 
-    // True when disposeOffset sits inside a finally/fault handler whose protected try covers the
-    // point right after the owner is established (ownerReadyOffset). The `using` idiom acquires the
-    // owner, stores it, then opens the try - so the try starts at the owner-ready offset, not at the
-    // Rent itself. Requiring coverage of ownerReadyOffset (rather than the Rent) both credits the
-    // `using` shape and still declines credit when risky work sits between acquisition and the try.
-    static bool DisposeProtects(ImmutableArray<ExceptionRegion> regions, int ownerReadyOffset, int disposeOffset)
+    // Where a Dispose call sits relative to the owner's acquisition:
+    //  - Protected: inside a finally/fault handler whose try covers the point right after the owner
+    //    is established (ownerReadyOffset). The `using` idiom acquires the owner, stores it, then
+    //    opens the try - so the try starts at the owner-ready offset, not at the Rent itself.
+    //    Requiring coverage of ownerReadyOffset (not the Rent) credits the `using` shape and still
+    //    declines credit when risky work sits between acquisition and the try.
+    //  - InCatch: inside a catch/filter handler covering the owner - the exception path is handled,
+    //    but proving full coverage needs more than this sensor models, so it is treated as unknown.
+    //  - Normal: anywhere else (a plain normal-path Dispose).
+    static DisposeSite DisposeLocation(ImmutableArray<ExceptionRegion> regions, int ownerReadyOffset, int disposeOffset)
     {
+        bool inCatch = false;
         foreach (var er in regions)
         {
-            if (er.Kind is not (ExceptionRegionKind.Finally or ExceptionRegionKind.Fault))
-                continue;
             bool disposeInHandler = er.HandlerOffset <= disposeOffset && disposeOffset < er.HandlerOffset + er.HandlerLength;
+            if (!disposeInHandler)
+                continue;
             bool tryCoversOwner = er.TryOffset <= ownerReadyOffset && ownerReadyOffset < er.TryOffset + er.TryLength;
-            if (disposeInHandler && tryCoversOwner)
-                return true;
+            if (!tryCoversOwner)
+                continue;
+            if (er.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
+                return DisposeSite.Protected;
+            if (er.Kind is ExceptionRegionKind.Catch or ExceptionRegionKind.Filter)
+                inCatch = true;
         }
-        return false;
+        return inCatch ? DisposeSite.InCatch : DisposeSite.Normal;
     }
+
+    // MemoryPool<T>.Rent - the acquire. Match the full System.Buffers.MemoryPool identity (the
+    // resolved declaring type of a generic instance is "System.Buffers.MemoryPool`1") rather than a
+    // bare "MemoryPool" short name, so a user type coincidentally named MemoryPool is not counted.
+    static bool IsMemoryPoolType(string type)
+        => type is "System.Buffers.MemoryPool`1" or "System.Buffers.MemoryPool";
 
     static int ArgumentSlotCount(MetadataReader reader, MethodDefinition methodDef)
     {

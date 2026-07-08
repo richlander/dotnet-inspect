@@ -47,6 +47,72 @@ internal static class HarnessMemberResolution
         }
     }
 
+    /// <summary>How a call consumes the owner value loaded immediately before it.</summary>
+    public enum ReceiverCallKind
+    {
+        /// <summary>Owner is an argument, or the call shape is unmodeled: treat as an escape.</summary>
+        Other,
+        /// <summary>Parameterless instance call with the owner as receiver, not <c>Dispose</c>
+        /// (e.g. <c>get_Memory</c>/<c>get_Span</c>): a non-consuming read - the owner stays owned.</summary>
+        ReceiverRead,
+        /// <summary>Parameterless instance <c>Dispose()</c> with the owner as receiver.</summary>
+        Dispose,
+    }
+
+    /// <summary>
+    /// Classify a call whose single relevant stack input is the owner value loaded right before it.
+    /// A parameterless <b>instance</b> method has the owner as its receiver: <c>Dispose()</c>
+    /// disposes it, any other parameterless instance call merely reads it (the owner stays owned).
+    /// A static or multi-arg call takes the owner as an argument (potential ownership transfer), so
+    /// it is <see cref="ReceiverCallKind.Other"/>. Fails closed to <see cref="ReceiverCallKind.Other"/>.
+    /// </summary>
+    public static ReceiverCallKind ClassifyReceiverCall(MetadataReader reader, int token)
+    {
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind == HandleKind.MethodSpecification)
+                handle = reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method;
+
+            string name;
+            SignatureHeader header;
+            int parameterCount;
+            switch (handle.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                {
+                    var md = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+                    var sig = md.DecodeSignature(SignatureTypeNameProvider.Instance, genericContext: null);
+                    name = reader.GetString(md.Name);
+                    header = sig.Header;
+                    parameterCount = sig.ParameterTypes.Length;
+                    break;
+                }
+                case HandleKind.MemberReference:
+                {
+                    var mr = reader.GetMemberReference((MemberReferenceHandle)handle);
+                    if (mr.GetKind() != MemberReferenceKind.Method)
+                        return ReceiverCallKind.Other;
+                    var sig = mr.DecodeMethodSignature(SignatureTypeNameProvider.Instance, genericContext: null);
+                    name = reader.GetString(mr.Name);
+                    header = sig.Header;
+                    parameterCount = sig.ParameterTypes.Length;
+                    break;
+                }
+                default:
+                    return ReceiverCallKind.Other;
+            }
+
+            if (!header.IsInstance || parameterCount != 0)
+                return ReceiverCallKind.Other;
+            return name == "Dispose" ? ReceiverCallKind.Dispose : ReceiverCallKind.ReceiverRead;
+        }
+        catch
+        {
+            return ReceiverCallKind.Other;
+        }
+    }
+
     static (string Type, string Name) ResolveMethodDef(MetadataReader reader, MethodDefinitionHandle handle)
     {
         var md = reader.GetMethodDefinition(handle);
