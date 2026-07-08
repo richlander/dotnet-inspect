@@ -103,6 +103,9 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.CompileBackFloor.Status);
             Assert.Contains("compile-back-floor", result.Detail);
             Assert.Contains("CS0641", result.Detail);
+            Assert.Contains("return true;", result.TargetBody);
+            Assert.Contains("return true;", result.Source);
+            Assert.NotNull(result.MemberAnchor);
         }
         finally
         {

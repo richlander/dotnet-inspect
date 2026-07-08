@@ -828,7 +828,10 @@ static class ReturnToSender
                     FidelityCheck.CompileBackStatus.ContextFail,
                     string.Join(" ", originalOps),
                     "",
-                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
+                    TargetBody: printed.Output,
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
 
             string unit = sourceResult.Source;
@@ -856,7 +859,10 @@ static class ReturnToSender
                         FidelityCheck.CompileBackStatus.ContextFail,
                         string.Join(" ", originalOps),
                         "",
-                        "method-not-found");
+                        "method-not-found",
+                        TargetBody: printed.Output,
+                        MemberAnchor: memberAnchor,
+                        Decisions: printed.Decisions);
                 }
 
                 return new Result(
@@ -888,7 +894,10 @@ static class ReturnToSender
                     FidelityCheck.CompileBackStatus.RecompileFail,
                     string.Join(" ", originalOps),
                     "",
-                    $"{reason}: {FormatDiagnostic(error)}");
+                    $"{reason}: {FormatDiagnostic(error)}",
+                    TargetBody: printed.Output,
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
         }
 
@@ -915,7 +924,10 @@ static class ReturnToSender
                 FidelityCheck.CompileBackStatus.RecompileFail,
                 string.Join(" ", originalOps),
                 "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
+                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
+                TargetBody: printed.Output,
+                MemberAnchor: memberAnchor,
+                Decisions: printed.Decisions);
         }
     }
 
@@ -990,7 +1002,10 @@ static class ReturnToSender
                     FidelityCheck.CompileBackStatus.ContextFail,
                     string.Join(" ", originalOps),
                     "",
-                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
+                    TargetBody: printed.Output,
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
 
             string unit = sourceResult.Source;
@@ -1018,7 +1033,10 @@ static class ReturnToSender
                         FidelityCheck.CompileBackStatus.ContextFail,
                         string.Join(" ", originalOps),
                         "",
-                        "method-not-found");
+                        "method-not-found",
+                        TargetBody: printed.Output,
+                        MemberAnchor: memberAnchor,
+                        Decisions: printed.Decisions);
                 }
 
                 return new Result(
@@ -1050,7 +1068,10 @@ static class ReturnToSender
                     FidelityCheck.CompileBackStatus.RecompileFail,
                     string.Join(" ", originalOps),
                     "",
-                    $"{reason}: {FormatDiagnostic(error)}");
+                    $"{reason}: {FormatDiagnostic(error)}",
+                    TargetBody: printed.Output,
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
         }
 
@@ -1076,7 +1097,10 @@ static class ReturnToSender
                 FidelityCheck.CompileBackStatus.RecompileFail,
                 string.Join(" ", originalOps),
                 "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
+                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
+                TargetBody: printed.Output,
+                MemberAnchor: memberAnchor,
+                Decisions: printed.Decisions);
         }
     }
 
@@ -1153,7 +1177,10 @@ static class ReturnToSender
                     FidelityCheck.CompileBackStatus.ContextFail,
                     string.Join(" ", originalOps),
                     "",
-                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}");
+                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
+                    TargetBody: printed.Output,
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
 
             string unit = sourceResult.Source;
@@ -1181,7 +1208,10 @@ static class ReturnToSender
                         FidelityCheck.CompileBackStatus.ContextFail,
                         string.Join(" ", originalOps),
                         "",
-                        "method-not-found");
+                        "method-not-found",
+                        TargetBody: printed.Output,
+                        MemberAnchor: memberAnchor,
+                        Decisions: printed.Decisions);
                 }
 
                 return new Result(
@@ -1213,7 +1243,10 @@ static class ReturnToSender
                     FidelityCheck.CompileBackStatus.RecompileFail,
                     string.Join(" ", originalOps),
                     "",
-                    $"{reason}: {FormatDiagnostic(error)}");
+                    $"{reason}: {FormatDiagnostic(error)}",
+                    TargetBody: printed.Output,
+                    MemberAnchor: memberAnchor,
+                    Decisions: printed.Decisions);
             }
         }
 
@@ -1240,7 +1273,10 @@ static class ReturnToSender
                 FidelityCheck.CompileBackStatus.RecompileFail,
                 string.Join(" ", originalOps),
                 "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}");
+                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
+                TargetBody: printed.Output,
+                MemberAnchor: memberAnchor,
+                Decisions: printed.Decisions);
         }
     }
 
