@@ -1305,12 +1305,19 @@ public sealed class AwaitExpression : IrExpression
     witness: "IncrementDecrementPassTests, corpus compile-back")]
 public sealed class IncrementDecrement : IrExpression
 {
-    public IncrementDecrement(IrExpression target, bool isIncrement, bool isPrefix, bool isUserDefined = false, bool isChecked = false)
+    public IncrementDecrement(
+        IrExpression target,
+        bool isIncrement,
+        bool isPrefix,
+        bool isUserDefined = false,
+        bool isChecked = false,
+        IEnumerable<MethodRef>? consumedMethods = null)
     {
         IsIncrement = isIncrement;
         IsPrefix = isPrefix;
         IsUserDefined = isUserDefined;
         IsChecked = isChecked;
+        ConsumedMethods = consumedMethods is null ? [] : [.. consumedMethods];
         AddChild(target);
     }
 
@@ -1320,6 +1327,8 @@ public sealed class IncrementDecrement : IrExpression
     public bool IsUserDefined { get; }
     /// <summary>True when folded from a user-defined <c>op_CheckedIncrement</c>/<c>op_CheckedDecrement</c> call, so the use must render in a <c>checked(...)</c> context.</summary>
     public bool IsChecked { get; }
+    /// <summary>Typed operator methods consumed by this raised increment/decrement node.</summary>
+    public ImmutableArray<MethodRef> ConsumedMethods { get; }
     /// <summary>The incremented place — a local or argument load.</summary>
     public IrExpression Target => (IrExpression)Children[0];
     public override TypeRef? ResultType => Target.ResultType;

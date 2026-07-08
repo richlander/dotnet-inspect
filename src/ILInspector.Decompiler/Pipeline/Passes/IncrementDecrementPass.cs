@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -101,24 +103,21 @@ public sealed class IncrementDecrementPass : IIrPass
 
         bool isPrefix;
         IrExpression lvalueLoad;
-        bool isIncrement;
-        bool isChecked;
+        IncrementOp op;
 
         if (AsIncrementCall(updateValue) is { } postOp && isTempLoad(postOp.Operand) && WritesSamePlaceAsRead(update, captureValue))
         {
             // V = lvalue; lvalue = op_Increment(V);  →  lvalue++
             isPrefix = false;
             lvalueLoad = captureValue;
-            isIncrement = postOp.IsIncrement;
-            isChecked = postOp.IsChecked;
+            op = postOp;
         }
         else if (AsIncrementCall(captureValue) is { } preOp && isTempLoad(updateValue) && WritesSamePlaceAsRead(update, preOp.Operand))
         {
             // V = op_Increment(lvalue); lvalue = V;  →  ++lvalue
             isPrefix = true;
             lvalueLoad = preOp.Operand;
-            isIncrement = preOp.IsIncrement;
-            isChecked = preOp.IsChecked;
+            op = preOp;
         }
         else
         {
@@ -169,8 +168,8 @@ public sealed class IncrementDecrementPass : IIrPass
             return false;
 
         lvalueLoad.Detach();
-        var increment = new IncrementDecrement(lvalueLoad, isIncrement, isPrefix, isUserDefined: true, isChecked: isChecked);
-        stepper.StepOver($"fold user-defined {(isIncrement ? "++" : "--")} value form into operator", useLoad);
+        var increment = UserDefinedIncrement(lvalueLoad, isPrefix, op);
+        stepper.StepOver($"fold user-defined {(op.IsIncrement ? "++" : "--")} value form into operator", useLoad);
         useLoad.ReplaceWith(increment);
         update.Detach();
         capture.Detach();
@@ -283,14 +282,14 @@ public sealed class IncrementDecrementPass : IIrPass
             if (store.Parent is null || SelfIncrement(store) is not { } fold)
                 continue;
             fold.Target.Detach();
-            var increment = new IncrementDecrement(fold.Target, fold.IsIncrement, isPrefix: false, isUserDefined: true, isChecked: fold.IsChecked);
+            var increment = UserDefinedIncrement(fold.Target, isPrefix: false, fold.Operator);
             stepper.StepOver($"fold user-defined {(fold.IsIncrement ? "++" : "--")} self-update into operator", store);
             store.ReplaceWith(new ExpressionStatement(increment));
         }
     }
 
     /// <summary>A <c>lvalue = op_Increment(lvalue)</c> store (any place whose re-read is side-effect-free), or null. The target expression is the operand load, reused as the <c>++</c> target.</summary>
-    static (IrExpression Target, bool IsIncrement, bool IsChecked)? SelfIncrement(IrNode store)
+    static (IrExpression Target, bool IsIncrement, IncrementOp Operator)? SelfIncrement(IrNode store)
     {
         IrExpression? value = store switch
         {
@@ -302,7 +301,7 @@ public sealed class IncrementDecrementPass : IIrPass
             _ => null,
         };
         return value is not null && AsIncrementCall(value) is { } op && WritesSamePlaceAsRead(store, op.Operand)
-            ? (op.Operand, op.IsIncrement, op.IsChecked)
+            ? (op.Operand, op.IsIncrement, op)
             : null;
     }
 
@@ -357,7 +356,7 @@ public sealed class IncrementDecrementPass : IIrPass
         bool isIncrement;
         bool isPrefix;
         bool isUserDefined = false;
-        bool isChecked = false;
+        IncrementOp? consumedOperator = null;
 
         if (IsPlaceLoad(slotStore.Value, place)
             && updateValue is Binary { IsChecked: false, Kind: var postKind } post
@@ -387,7 +386,7 @@ public sealed class IncrementDecrementPass : IIrPass
             isPrefix = false;
             isIncrement = postOp.IsIncrement;
             isUserDefined = true;
-            isChecked = postOp.IsChecked;
+            consumedOperator = postOp;
         }
         else if (AsIncrementCall(slotStore.Value) is { } preOp
             && IsPlaceLoad(preOp.Operand, place)
@@ -397,7 +396,7 @@ public sealed class IncrementDecrementPass : IIrPass
             isPrefix = true;
             isIncrement = preOp.IsIncrement;
             isUserDefined = true;
-            isChecked = preOp.IsChecked;
+            consumedOperator = preOp;
         }
         else
         {
@@ -438,7 +437,10 @@ public sealed class IncrementDecrementPass : IIrPass
         }
 
         stepper.StepOver($"fold dup {(isIncrement ? "++" : "--")} idiom into operator", useLoad);
-        useLoad.ReplaceWith(new IncrementDecrement(ClonePlace(place), isIncrement, isPrefix, isUserDefined, isChecked));
+        var target = ClonePlace(place);
+        useLoad.ReplaceWith(consumedOperator is { } op
+            ? UserDefinedIncrement(target, isPrefix, op)
+            : new IncrementDecrement(target, isIncrement, isPrefix, isUserDefined: false));
         update.Detach();
         slotStore.Detach();
         return true;
@@ -697,7 +699,7 @@ public sealed class IncrementDecrementPass : IIrPass
         ? expression is LoadLocal local && local.Index == place.Index
         : expression is LoadArgument argument && argument.Index == place.Index;
 
-    readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand);
+    readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand, MethodRef Method);
 
     /// <summary>A user-defined increment/decrement operator call (<c>op_Increment</c>, <c>op_Decrement</c>, and their <c>op_Checked*</c> variants) on a single operand, or null. Requires operator metadata evidence so an ordinary method that happens to be named <c>op_Increment</c> is not mistaken for the operator.</summary>
     static IncrementOp? AsIncrementCall(IrExpression value)
@@ -711,8 +713,37 @@ public sealed class IncrementDecrementPass : IIrPass
                 "op_CheckedDecrement" => (false, true),
                 _ => ((bool IsIncrement, bool IsChecked)?)null,
             } is { } kind
-            ? new IncrementOp(kind.IsIncrement, kind.IsChecked, operand)
+            ? new IncrementOp(kind.IsIncrement, kind.IsChecked, operand, callee)
             : null;
+
+    static IncrementDecrement UserDefinedIncrement(IrExpression target, bool isPrefix, IncrementOp op)
+        => new(
+            target,
+            op.IsIncrement,
+            isPrefix,
+            isUserDefined: true,
+            isChecked: op.IsChecked,
+            consumedMethods: ConsumedOperatorMethods(op.Method));
+
+    static IEnumerable<MethodRef> ConsumedOperatorMethods(MethodRef method)
+    {
+        yield return method;
+        if (UncheckedOperatorName(method.Name) is { } sibling)
+            yield return method with { Name = sibling };
+    }
+
+    static string? UncheckedOperatorName(string methodName)
+    {
+        if (methodName is "op_CheckedExplicit")
+            return "op_Explicit";
+        if (methodName is "op_CheckedImplicit")
+            return "op_Implicit";
+        if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+            return null;
+
+        string inner = methodName["op_Checked".Length..];
+        return OperatorNames.MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
+    }
 
     static IrExpression ClonePlace(PlaceRef place) => place.IsLocal
         ? new LoadLocal(place.Index, place.Type)
