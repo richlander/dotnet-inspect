@@ -122,7 +122,7 @@ jobs:
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
-            --compile-cap 25 \
+            --compile-cap 4000 \
             --corpus-fidelity-cap 3 \
             --max-examples 3
 
