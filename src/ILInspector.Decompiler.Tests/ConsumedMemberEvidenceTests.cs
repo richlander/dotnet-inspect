@@ -45,4 +45,19 @@ public class ConsumedMemberEvidenceTests
     public void MemberKindIsTyped_NotNamePrefix()
         // A plain method named like an accessor is not one: kind comes from AccessorKind, not the name prefix.
         => Assert.True(new ConsumedMemberEvidence(Method: Method("get_NotAnAccessor", AccessorKind.None)).EffectiveAllowTargetRoot);
+
+    [Fact]
+    public void UnresolvedAccessor_FallsBackToNamePrefix()
+    {
+        // When metadata is unresolved (AccessorKind.Unknown) the member kind is not
+        // known, so the reserved get_/set_ prefixes are honored — an unresolved
+        // accessor is not re-seeded on the target root (matches the pre-refactor check).
+        Assert.False(new ConsumedMemberEvidence(Method: Method("get_Value", AccessorKind.Unknown)).EffectiveAllowTargetRoot);
+        Assert.False(new ConsumedMemberEvidence(Method: Method("set_Value", AccessorKind.Unknown)).EffectiveAllowTargetRoot);
+    }
+
+    [Fact]
+    public void UnresolvedOrdinaryMethod_SeedsTargetRoot()
+        // Unknown kind + a non-accessor name is still an ordinary member.
+        => Assert.True(new ConsumedMemberEvidence(Method: Method("Compute", AccessorKind.Unknown)).EffectiveAllowTargetRoot);
 }

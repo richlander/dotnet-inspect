@@ -26,8 +26,18 @@ public readonly record struct ConsumedMemberEvidence(
         => AllowTargetRoot || (Method is { } method && AllowsTargetRootMember(method));
 
     static bool AllowsTargetRootMember(MethodRef method)
-        => method.Name is not ".ctor" and not ".cctor"
-            && method.AccessorKind is not AccessorKind.PropertyGet and not AccessorKind.PropertySet;
+        => method.Name is not ".ctor" and not ".cctor" && !IsPropertyAccessor(method);
+
+    // Typed accessor evidence is authoritative. Only when metadata is unresolved
+    // (AccessorKind.Unknown) fall back to the reserved get_/set_ name prefixes,
+    // mirroring PropertySugarPass's accessor-evidence handling — so an unresolved
+    // cross-assembly accessor is not misclassified as an ordinary member and
+    // re-seeded on the target root.
+    static bool IsPropertyAccessor(MethodRef method)
+        => method.AccessorKind is AccessorKind.PropertyGet or AccessorKind.PropertySet
+            || (method.AccessorKind is AccessorKind.Unknown
+                && (method.Name.StartsWith("get_", StringComparison.Ordinal)
+                    || method.Name.StartsWith("set_", StringComparison.Ordinal)));
 
     public static void AddFrom(IrNode node, List<ConsumedMemberEvidence> evidence)
     {
