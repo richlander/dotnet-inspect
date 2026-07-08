@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Fixtures/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
@@ -21,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
+    <ProjectReference Include="Fixtures/SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <!-- New-rules unsafe fixture: a member declared `unsafe` with no pointer in
          its signature is stamped [RequiresUnsafeAttribute]; used to verify the
          API surface marks it unsafe. -->
