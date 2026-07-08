@@ -132,7 +132,7 @@ public class LadderRung6GateTests
         Assert.Contains("*(int*)(&value)", NewBody("DerefPointer"));
         Assert.Contains("ConsumePointer((int*)(&value))", NewBody("PassAddress"));
         Assert.Contains("callback(x);", FirstUnsafeBlockBody(NewBody("InvokeFunctionPointer")));
-        Assert.Contains("UnsafeFixtures.Risky()", FirstUnsafeBlockBody(NewBody("CallRisky")));
+        Assert.Contains("Risky()", FirstUnsafeBlockBody(NewBody("CallRisky")));
         Assert.Contains("NativeMemory.Free(p);", FirstUnsafeBlockBody(NewBody("FreePointer")));
 
         var skipInit = NewBody("StackAllocSkipInit");
@@ -168,10 +168,14 @@ public class LadderRung6GateTests
         var derefBody = members.Single(m => m.Name == "DerefPointer").Body;
         var passAddressBody = members.Single(m => m.Name == "PassAddress").Body;
 
-        var derefDiagnostics = RecompileNewRules("static int M(int value)", derefBody);
+        var derefDiagnostics = RecompileNewRules(
+            "static int M(int value)",
+            derefBody,
+            $"using static {NewUnsafeType};");
         var passAddressDiagnostics = RecompileNewRules(
             "static int M(int value)",
             passAddressBody,
+            $"using static {NewUnsafeType};",
             MetadataReference.CreateFromFile(NewUnsafePath));
 
         AssertNoErrors(derefDiagnostics, derefBody);

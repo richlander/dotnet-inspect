@@ -1603,7 +1603,7 @@ public class CSharpPrinterTests
             [new Parameter("a", uintType)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("F", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        Assert.Contains("T.M((int)a);", CSharpPrinter.Print(function).Output!);
+        Assert.Contains("M((int)a);", CSharpPrinter.Print(function).Output!);
     }
 
     [Fact]
@@ -1926,7 +1926,7 @@ public class CSharpPrinterTests
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("ReadOnlySpan<char> V_0 = MemoryExtensions.Trim(item);", output);
-        Assert.Contains("T.GetItems()[i] = V_0.ToString();", output);
+        Assert.Contains("GetItems()[i] = V_0.ToString();", output);
     }
 
     [Fact]
@@ -1961,7 +1961,7 @@ public class CSharpPrinterTests
 
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
-        Assert.Contains("ReadOnlySpan<char> V_0 = T.Next(i);", output);
+        Assert.Contains("ReadOnlySpan<char> V_0 = Next(i);", output);
         Assert.Contains("items[i] = V_0.ToString();", output);
     }
 
@@ -2525,7 +2525,7 @@ public class RaisingPassTests
 
         Assert.Equal(1, output.Split("RecordIndex()", StringSplitOptions.None).Length - 1);
         Assert.Contains("ref int", output);
-        Assert.Contains("= ref a[CfgSampleClass.RecordIndex()];", output);
+        Assert.Contains("= ref a[RecordIndex()];", output);
         Assert.Contains("+ v;", output);
     }
 
@@ -2878,9 +2878,9 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("ref int V_0 = ref T.A();", output);
-        Assert.Contains("V_0 = ref T.B();", output);
-        Assert.DoesNotContain("V_0 = T.A();", output);
+        Assert.Contains("ref int V_0 = ref A();", output);
+        Assert.Contains("V_0 = ref B();", output);
+        Assert.DoesNotContain("V_0 = A();", output);
     }
 
     [Fact]
@@ -2911,7 +2911,7 @@ public class RaisingPassTests
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [refInt], container);
 
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("ref int V_0 = ref T.A();", output);
+        Assert.Contains("ref int V_0 = ref A();", output);
         Assert.DoesNotContain("Unsafe.NullRef", output);
         AssertRefLocalBodyCompiles(output);
     }
@@ -2946,7 +2946,7 @@ public class RaisingPassTests
 
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
-        Assert.Contains("V_0 = ref T.A();", output);
+        Assert.Contains("V_0 = ref A();", output);
         AssertRefLocalBodyCompiles(output);
     }
 
@@ -2978,7 +2978,7 @@ public class RaisingPassTests
 
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
-        Assert.Contains("V_0 = ref T.A();", output);
+        Assert.Contains("V_0 = ref A();", output);
         AssertRefLocalBodyCompiles(output);
     }
 
@@ -3004,7 +3004,7 @@ public class RaisingPassTests
 
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("ref int V_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
-        Assert.Contains("V_0 = ref T.A(ref V_0);", output);
+        Assert.Contains("V_0 = ref A(ref V_0);", output);
         AssertRefLocalBodyCompiles(output);
     }
 
@@ -3950,7 +3950,7 @@ public class RaisingPassTests
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
         Assert.Contains("if (node is Call c)", output);
-        Assert.Contains("return c.Callee.RequiresUnsafe ? true : CSharpPrinter.SignatureRequiresUnsafe(c.Callee);", output);
+        Assert.Contains("return c.Callee.RequiresUnsafe ? true : SignatureRequiresUnsafe(c.Callee);", output);
     }
 
     [Fact]

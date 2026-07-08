@@ -35,20 +35,62 @@ public class SelfQualifyPrinterTests
     [Fact]
     public void ShadowedStaticCall_StaysQualified()
     {
-        // A local that shadows the static method name means an unqualified call
-        // would bind to the local, so the type qualifier is retained.
+        // A local/parameter that shadows the static method name means an
+        // unqualified call would bind to it, so the type qualifier is retained.
         string body = RenderFixture(typeof(SelfQualifyShadow), nameof(SelfQualifyShadow.CallsShadowed));
 
         Assert.Contains("SelfQualifyShadow.Ping(Ping)", body);
         Assert.DoesNotContain("return Ping(Ping)", body);
     }
 
+    [Fact]
+    public void KeywordShadowedStaticCall_StaysQualified()
+    {
+        // The shadowing check compares escaped C# spellings, so a keyword-named
+        // parameter (@event) still shadows the same-named static method.
+        string body = RenderFixture(typeof(SelfQualifyKeywordShadow), nameof(SelfQualifyKeywordShadow.Call));
+
+        Assert.Contains("SelfQualifyKeywordShadow.@event(@event)", body);
+    }
+
+    [Fact]
+    public void LambdaParameterShadowedStaticCall_StaysQualified()
+    {
+        // A nested lambda parameter that shadows the static method name keeps the
+        // call qualified (the shadow scope includes nested lambda parameters).
+        string body = RenderAnyFidelity(typeof(SelfQualifyLambdaShadow), nameof(SelfQualifyLambdaShadow.Uses));
+
+        Assert.Contains("SelfQualifyLambdaShadow.Op(Op)", body);
+        Assert.DoesNotContain("=> Op(Op)", body);
+    }
+
     static string RenderFixture(System.Type type, string methodName)
     {
-        using var source = MetadataSource.Open(type.Assembly.Location);
+        var (function, source) = Import(type, methodName);
+        using (source)
+        {
+            Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+            return Render(function, source);
+        }
+    }
+
+    static string RenderAnyFidelity(System.Type type, string methodName)
+    {
+        var (function, source) = Import(type, methodName);
+        using (source)
+            return Render(function, source);
+    }
+
+    static (IrFunction Function, MetadataSource Source) Import(System.Type type, string methodName)
+    {
+        var source = MetadataSource.Open(type.Assembly.Location);
         var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
-        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        return (function!, source);
+    }
+
+    static string Render(IrFunction function, MetadataSource source)
+    {
         var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
         Assert.NotNull(result.Output);
         return result.Output!;
@@ -88,4 +130,22 @@ public class SelfQualifyShadow
     // Ping(...) would be CS0149 (or bind to the parameter); the type qualifier
     // must be retained.
     public int CallsShadowed(int Ping) => SelfQualifyShadow.Ping(Ping);
+}
+
+public class SelfQualifyKeywordShadow
+{
+    public static int @event(int value) => value + 1;
+
+    public int Call(int @event) => SelfQualifyKeywordShadow.@event(@event);
+}
+
+public class SelfQualifyLambdaShadow
+{
+    public static int Op(int x) => x + 1;
+
+    public int Uses(int seed)
+    {
+        System.Func<int, int> f = Op => SelfQualifyLambdaShadow.Op(Op);
+        return f(seed);
+    }
 }

@@ -343,7 +343,7 @@ public class ForeachStatementPassTests
 
     [Theory]
     [InlineData(nameof(CfgSampleClass.ForeachStringField), "CfgSampleClass.s_text")]
-    [InlineData(nameof(CfgSampleClass.ForeachStringMethodResult), "CfgSampleClass.GetText()")]
+    [InlineData(nameof(CfgSampleClass.ForeachStringMethodResult), "GetText()")]
     [InlineData(nameof(CfgSampleClass.ForeachStringLiteral), "\"literal\"")]
     public void StringForeach_OverNonLocalReceiver_RaisesWithReceiverRestored(string method, string receiver)
     {

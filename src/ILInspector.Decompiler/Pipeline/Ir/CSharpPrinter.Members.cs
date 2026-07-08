@@ -309,7 +309,7 @@ public sealed partial class CSharpPrinter
             string sourceName = CSharpNaming.SourceMethodName(call.Callee.Name);
             string staticName = $"{sourceName}{typeArguments}";
             string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-            return IsCurrentStaticScope(call.Callee.DeclaringType) && !IsShadowedByLocal(sourceName)
+            return IsCurrentStaticScope(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
                 ? $"{staticName}({staticArgs})"
                 : $"{TypeText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
         }

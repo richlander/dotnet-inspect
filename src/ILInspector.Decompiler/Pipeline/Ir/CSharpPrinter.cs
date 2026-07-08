@@ -3530,6 +3530,37 @@ public sealed partial class CSharpPrinter
         return _localScopeNames.Contains(fieldName);
     }
 
+    HashSet<string>? _staticScopeShadowNames;
+
+    /// <summary>
+    /// True when the escaped source spelling of a static-call name is captured by
+    /// a parameter or local in scope — including nested lambda and local-function
+    /// parameters — so an unqualified call would bind to that local rather than the
+    /// static method. Names are compared in their escaped C# spelling (a keyword
+    /// carries the leading <c>@</c>), matching the rendered call name.
+    /// </summary>
+    bool IsStaticCallNameShadowed(string escapedName)
+    {
+        if (_staticScopeShadowNames is null)
+        {
+            _staticScopeShadowNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var parameter in _function.Signature.Parameters)
+                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
+            for (int i = 0; i < _function.Locals.Length; i++)
+                _staticScopeShadowNames.Add(LocalName(i));
+            foreach (var lambda in _function.Descendants.OfType<Lambda>())
+                foreach (var parameter in lambda.Parameters)
+                    _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
+            foreach (var localFunction in _function.Descendants.OfType<LocalFunctionStatement>())
+            {
+                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(localFunction.Name));
+                foreach (var parameter in localFunction.Parameters)
+                    _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
+            }
+        }
+        return _staticScopeShadowNames.Contains(escapedName);
+    }
+
     string IncrementDecrementText(IncrementDecrement id)
     {
         string op = id.IsIncrement ? "++" : "--";

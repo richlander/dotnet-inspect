@@ -191,7 +191,7 @@ public class TupleBinaryOperatorPassTests
         var output = CSharpPrinter.Print(function).Output;
         // Elements stay in source order; the fidelity gate proves the spill order
         // round-trips (a reorder would recompile to a different opcode stream).
-        Assert.Contains("Tick(a), CfgSampleClass.Tick(b)) == (CfgSampleClass.Tick(c), CfgSampleClass.Tick(d)", output);
+        Assert.Contains("Tick(a), Tick(b)) == (Tick(c), Tick(d)", output);
     }
 
     [Fact]
@@ -292,7 +292,7 @@ public class TupleBinaryOperatorPassTests
         var tupleBinary = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
         Assert.Equal(2, ((TupleExpression)tupleBinary.Left).Elements.Count);
         var output = CSharpPrinter.Print(function).Output;
-        Assert.Contains("if (TupleBinaryAdversarialSamples.SideEffect(e) == TupleBinaryAdversarialSamples.SideEffect(f))", output);
+        Assert.Contains("if (SideEffect(e) == SideEffect(f))", output);
         Assert.Contains("return (a, b) == (c, d);", output);
         Assert.DoesNotContain("(e, (a, b))", output);
         Assert.DoesNotContain("(f, (c, d))", output);

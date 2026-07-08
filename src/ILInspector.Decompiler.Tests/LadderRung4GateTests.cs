@@ -108,7 +108,7 @@ public class LadderRung4GateTests
 
         var refLocal = Body("RefLocalUpdate");
         Assert.Contains("ref int ", refLocal);
-        Assert.Contains(" = ref CSharp7LocalSyntax.SelectRef(useLeft, ref left, ref right);", refLocal);
+        Assert.Contains(" = ref SelectRef(useLeft, ref left, ref right);", refLocal);
         Assert.Contains("+ 10;", refLocal);
 
         var refReturn = Body("SelectRef");

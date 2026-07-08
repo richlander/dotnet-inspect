@@ -204,10 +204,10 @@ public class CSharpBodyDiffTests
             .OrderBy(row => row.Line)
             .ToArray();
         Assert.Equal(2, rows.Length);
-        Assert.Equal("DiffSample.Sink(value)", rows[0].OldValue);
-        Assert.Equal("DiffSample.MaybeThrow(value)", rows[0].NewValue);
-        Assert.Equal("DiffSample.Sink(value + 1)", rows[1].OldValue);
-        Assert.Equal("DiffSample.MaybeThrow(value + 1)", rows[1].NewValue);
+        Assert.Equal("Sink(value)", rows[0].OldValue);
+        Assert.Equal("MaybeThrow(value)", rows[0].NewValue);
+        Assert.Equal("Sink(value + 1)", rows[1].OldValue);
+        Assert.Equal("MaybeThrow(value + 1)", rows[1].NewValue);
     }
 
     [Fact]
