@@ -187,7 +187,14 @@ internal static class ReturnToSenderCatalogReport
             row.MemberAnchor?.CanonicalSignature,
             closure,
             row.Detail,
-            row.IlDiffDiagnostic is null ? [] : [.. IlDiffPrinter.ToUnifiedLines(row.IlDiffDiagnostic)]);
+            IlDiffLines(row));
+    }
+
+    static List<string> IlDiffLines(GeneratedFixtureReturnToSenderResult row)
+    {
+        if (row.IlDiff is { } typed)
+            return [.. IlDiffPrinter.ToUnifiedLines(typed.Diff)];
+        return row.IlDiffDiagnostic is null ? [] : [.. IlDiffPrinter.ToUnifiedLines(row.IlDiffDiagnostic)];
     }
 
     static IReadOnlyList<ReturnToSenderCatalogReportBucket> Buckets(IEnumerable<GeneratedFixtureReturnToSenderResult> rows)

@@ -119,6 +119,7 @@ public sealed record ResearchDiffEvidence(
     bool InLoop = false,
     ImmutableArray<IlDiffDisplayRow> IlDisplayRows = default,
     IlDiffDisplayFailureRow? IlDisplayFailureRow = null,
+    IlMemberDiffResult? IlMemberDiff = null,
     CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow = null)
 {
     public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; init; } = default;

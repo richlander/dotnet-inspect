@@ -32,6 +32,7 @@ static class ReturnToSender
         string? Detail,
         string TargetBody = "",
         IlDiffDisplayResult? IlDiffDiagnostic = null,
+        IlMemberDiffResult? IlDiff = null,
         MemberAnchor? MemberAnchor = null,
         IReadOnlyList<DecompilerDecision>? Decisions = null);
 
@@ -705,7 +706,8 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiffDiagnostic = BuildIlDiffDiagnostic(pe, reader, getterHandle, recompiled, fullType, methodName, overload: 0);
+                var ilDiff = BuildIlDiff(pe, reader, getterHandle, recompiled, fullType, methodName, overload: 0);
+                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
 
                 if (recompiledOps is null)
                 {
@@ -729,6 +731,7 @@ static class ReturnToSender
                     null,
                     TargetBody: printed.Output,
                     IlDiffDiagnostic: ilDiffDiagnostic,
+                    IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
                     Decisions: printed.Decisions);
             }
@@ -863,7 +866,8 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiffDiagnostic = BuildIlDiffDiagnostic(pe, reader, methodHandle, recompiled, fullType, methodName, overload: 0);
+                var ilDiff = BuildIlDiff(pe, reader, methodHandle, recompiled, fullType, methodName, overload: 0);
+                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
 
                 if (recompiledOps is null)
                 {
@@ -887,6 +891,7 @@ static class ReturnToSender
                     null,
                     TargetBody: printed.Output,
                     IlDiffDiagnostic: ilDiffDiagnostic,
+                    IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
                     Decisions: printed.Decisions);
             }
@@ -1022,7 +1027,8 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiffDiagnostic = BuildIlDiffDiagnostic(pe, reader, setterHandle, recompiled, fullType, methodName, overload: 0);
+                var ilDiff = BuildIlDiff(pe, reader, setterHandle, recompiled, fullType, methodName, overload: 0);
+                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
 
                 if (recompiledOps is null)
                 {
@@ -1046,6 +1052,7 @@ static class ReturnToSender
                     null,
                     TargetBody: printed.Output,
                     IlDiffDiagnostic: ilDiffDiagnostic,
+                    IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
                     Decisions: printed.Decisions);
             }
@@ -1331,6 +1338,16 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload)
+        => ToDisplayDiagnostic(BuildIlDiff(originalPe, originalReader, originalMethod, recompiledPe, fullType, methodName, overload));
+
+    internal static IlMemberDiffResult? BuildIlDiff(
+        PEReader originalPe,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
+        PEReader recompiledPe,
+        string fullType,
+        string methodName,
+        int overload)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
@@ -1339,7 +1356,7 @@ static class ReturnToSender
         if (recompiled.Method.RelativeVirtualAddress == 0)
             return null;
 
-        var diff = IlAssemblyDiff.CompareMembers(
+        return IlAssemblyDiff.CompareMembers(
             originalPe,
             originalReader,
             originalMethod,
@@ -1348,6 +1365,12 @@ static class ReturnToSender
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}");
+    }
+
+    static IlDiffDisplayResult? ToDisplayDiagnostic(IlMemberDiffResult? diff)
+    {
+        if (diff is null)
+            return null;
         var display = IlDiffPrinter.ToDisplayResult(diff.Diff);
         return display.IsEmpty ? null : display;
     }

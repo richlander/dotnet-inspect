@@ -13,7 +13,8 @@ internal sealed record ReturnToSenderEvidenceRow(
     FidelityCheck.CompileBackStatus? CompileBackStatus,
     string Reason,
     string? Detail,
-    IlDiffDisplayResult? IlDiffDiagnostic)
+    IlDiffDisplayResult? IlDiffDiagnostic,
+    IlMemberDiffResult? IlDiff)
 {
     public string DisplayMember => $"{Type}::{Method}#{Overload}";
 }
@@ -59,7 +60,8 @@ internal static class ReturnToSenderEvidence
             result.ActualStatus,
             result.Reason,
             result.Detail,
-            result.IlDiffDiagnostic))];
+            result.IlDiffDiagnostic,
+            result.IlDiff))];
     }
 
     public static ResearchDiffResult ToResearchDiff(IEnumerable<ReturnToSenderEvidenceRow> rows)
@@ -172,7 +174,8 @@ internal static class ReturnToSenderEvidence
             Detail: row.Detail ?? row.Reason,
             Category: ResearchDiffChangeCategory.RoundTrip);
 
-        if (row.IlDiffDiagnostic is not { } diagnostic)
+        var diagnostic = Diagnostic(row);
+        if (diagnostic is null)
             yield break;
 
         var failureRows = diagnostic.FailureRows.IsDefault
@@ -186,7 +189,8 @@ internal static class ReturnToSenderEvidence
                 ResearchDiffDirection.Changed,
                 Detail: failureRow.Detail ?? failureRow.Message,
                 Category: ResearchDiffChangeCategory.IlBody,
-                IlDisplayFailureRow: failureRow);
+                IlDisplayFailureRow: failureRow,
+                IlMemberDiff: row.IlDiff);
         }
 
         if (failureRows.IsDefaultOrEmpty && diagnostic.Failure is { Length: > 0 } failure)
@@ -220,9 +224,15 @@ internal static class ReturnToSenderEvidence
                 NewIlOffset: displayRow.Kind == IlDiffKind.Add ? displayRow.RawOffset : null,
                 Detail: displayRow.Message,
                 Category: ResearchDiffChangeCategory.IlBody,
-                IlDisplayRows: [displayRow]);
+                IlDisplayRows: [displayRow],
+                IlMemberDiff: row.IlDiff);
         }
     }
+
+    static IlDiffDisplayResult? Diagnostic(ReturnToSenderEvidenceRow row)
+        => row.IlDiff is { } typed
+            ? IlDiffPrinter.ToDisplayResult(typed.Diff)
+            : row.IlDiffDiagnostic;
 
     static string StatusId(GeneratedFixtureReturnToSenderStatus status)
         => status switch
