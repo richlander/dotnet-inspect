@@ -72,10 +72,10 @@ static class CompileBackCSharpNames
             && !char.IsWhiteSpace(c);
 
     static bool IsGeneratedTypeSuffixChar(char c)
-        => char.IsLetterOrDigit(c) || c == '_';
+        => char.IsLetterOrDigit(c) || c is '_' or '{' or '}';
 
     static bool IsGeneratedSegmentStart(string text, int index)
-        => index == 0 || text[index - 1] is '.' or '+';
+        => index == 0 || text[index - 1] is '.' or '+' or '<';
 
     public static string StripArity(string name)
     {
@@ -217,6 +217,7 @@ public enum CompileBackTypeKind
     Struct,
     Interface,
     Enum,
+    Delegate,
 }
 
 public sealed record CompileBackMemberDeclaration(
@@ -859,6 +860,12 @@ public static class CompileBackSourceComposer
     static void WriteType(StringBuilder sb, CompileBackTypeDeclaration type, int indent)
     {
         string pad = new(' ', indent * 4);
+        if (type.Kind == CompileBackTypeKind.Delegate)
+        {
+            WriteDelegateType(sb, type, indent);
+            return;
+        }
+
         var declaration = CSharpDeclarationWriter.RenderTypeDeclaration(ToApiType(type));
         if (type.PrimaryConstructorParameters is { Length: > 0 } parameters)
             declaration = AddPrimaryConstructorParameters(declaration, parameters);
@@ -869,6 +876,17 @@ public static class CompileBackSourceComposer
         foreach (var nested in type.NestedTypes)
             WriteType(sb, nested, indent + 1);
         sb.AppendLine($"{pad}}}");
+    }
+
+    static void WriteDelegateType(StringBuilder sb, CompileBackTypeDeclaration type, int indent)
+    {
+        string pad = new(' ', indent * 4);
+        var invoke = type.Members.Single(member => member.Name == "Invoke");
+        string typeParameters = type.TypeParameters.Count == 0
+            ? ""
+            : $"<{string.Join(", ", type.TypeParameters.Select(parameter => parameter.Name))}>";
+        string parameters = string.Join(", ", invoke.Parameters.Select(RenderParameter));
+        sb.AppendLine($"{pad}public delegate {invoke.ReturnType?.DisplayName ?? "void"} {type.Name}{typeParameters}({parameters});");
     }
 
     static void WriteMember(StringBuilder sb, CompileBackTypeDeclaration type, CompileBackMemberDeclaration member, int indent)
@@ -1052,6 +1070,7 @@ public static class CompileBackSourceComposer
                 CompileBackTypeKind.Struct => "struct",
                 CompileBackTypeKind.Interface => "interface",
                 CompileBackTypeKind.Enum => "enum",
+                CompileBackTypeKind.Delegate => "delegate",
                 _ => throw new NotSupportedException($"Unsupported type declaration kind '{type.Kind}'."),
             },
             TypeParameters = type.TypeParameters
@@ -2154,6 +2173,8 @@ public static class CompileBackSourceComposer
     {
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
             return CompileBackTypeKind.Interface;
+        if (IsGeneratedDynamicDelegate(reader, typeDef))
+            return CompileBackTypeKind.Delegate;
 
         string baseName = typeDef.BaseType.Kind switch
         {
@@ -2174,6 +2195,9 @@ public static class CompileBackSourceComposer
     static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
     {
         string name = reader.GetString(typeDef.Name);
+        if (IsGeneratedDynamicDelegate(reader, typeDef))
+            return true;
+
         return name is not "<Module>"
             && !name.Contains('<', StringComparison.Ordinal)
             && !name.Contains('`', StringComparison.Ordinal)
@@ -2194,6 +2218,10 @@ public static class CompileBackSourceComposer
 
         return baseName is "System.MulticastDelegate" or "System.Delegate";
     }
+
+    static bool IsGeneratedDynamicDelegate(MetadataReader reader, TypeDefinition typeDef)
+        => IsDelegate(reader, typeDef)
+            && reader.GetString(typeDef.Name).StartsWith("<>A{", StringComparison.Ordinal);
 
     static string FullName(MetadataReader reader, TypeReference type)
     {
@@ -2620,14 +2648,17 @@ public static class CompileBackSourceComposer
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
             var typeDef = reader.GetTypeDefinition(handle);
-            var members = RequiredMemberDeclarations(requirement);
+            var kind = requirement.RequiredKind;
+            var members = kind == CompileBackTypeKind.Delegate
+                ? [DelegateInvokeDeclaration(reader, typeDef, requirement.Type)]
+                : RequiredMemberDeclarations(requirement);
             bool includeMemberSurface = requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
-            if (includeMemberSurface)
+            if (includeMemberSurface && kind != CompileBackTypeKind.Delegate)
                 AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
 
             return new CompileBackTypeDeclaration(
                 requirement.Type,
-                requirement.RequiredKind,
+                kind,
                 CompileBackAccessibility.Public,
                 BaseType: BaseTypeSignature(reader, typeDef),
                 PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
@@ -2645,6 +2676,34 @@ public static class CompileBackSourceComposer
                 IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0,
                 IsSealed: (typeDef.Attributes & TypeAttributes.Sealed) != 0,
                 IsStatic: IsStaticType(typeDef));
+        }
+
+        static CompileBackMemberDeclaration DelegateInvokeDeclaration(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            CompileBackTypeIdentity typeIdentity)
+        {
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != "Invoke")
+                    continue;
+
+                var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                return new CompileBackMemberDeclaration(
+                    new CompileBackMethodIdentity(typeIdentity.FullName, "Invoke", 0, MethodSignatureText("Invoke", signature)),
+                    CompileBackMemberKind.Method,
+                    CompileBackAccessibility.Public,
+                    IsStatic: false,
+                    CompileBackTypeSignature.Display(signature.ReturnType),
+                    Parameters(reader, method, signature),
+                    TypeParameters: [],
+                    CompileBackStubBodyKind.None,
+                    TargetBody: null,
+                    [new CompileBackFact("metadata", "generated-dynamic-delegate-invoke", reader.GetString(typeDef.Name))]);
+            }
+
+            throw new InvalidOperationException($"Generated dynamic delegate '{typeIdentity.MetadataFullName}' has no Invoke method.");
         }
 
         static List<CompileBackMemberDeclaration> RequiredMemberDeclarations(CompileBackTypeRequirement requirement)
@@ -2688,7 +2747,7 @@ public static class CompileBackSourceComposer
             {
                 var nestedDef = reader.GetTypeDefinition(nestedHandle);
                 string name = reader.GetString(nestedDef.Name);
-                if (IsDelegate(reader, nestedDef))
+                if (IsDelegate(reader, nestedDef) && !IsGeneratedDynamicDelegate(reader, nestedDef))
                 {
                     continue;
                 }
@@ -2725,7 +2784,51 @@ public static class CompileBackSourceComposer
                     IsStatic: IsStaticType(nestedDef)));
             }
 
+            if (HasGeneratedCallSiteCache(reader, typeDef))
+            {
+                foreach (var delegateHandle in GeneratedDynamicDelegates(reader))
+                {
+                    var delegateDef = reader.GetTypeDefinition(delegateHandle);
+                    var identity = CompileBackTypeIdentity.FromDefinition(reader, delegateDef);
+                    if (nestedTypes.Any(type => type.Name == identity.DisplayName))
+                        continue;
+
+                    nestedTypes.Add(TypeDeclaration(
+                        reader,
+                        delegateHandle,
+                        new CompileBackTypeRequirement(
+                            identity,
+                            CompileBackTypeKind.Delegate,
+                            RequiredMembers: [],
+                            PrimaryConstructor: null,
+                            SourceFacts: [new CompileBackFact("metadata", "generated-dynamic-delegate", identity.FullName)]),
+                        requirementsByMetadataName,
+                        diagnostics));
+                }
+            }
+
             return nestedTypes;
+        }
+
+        static bool HasGeneratedCallSiteCache(MetadataReader reader, TypeDefinition typeDef)
+        {
+            foreach (var nestedHandle in typeDef.GetNestedTypes())
+            {
+                var nestedDef = reader.GetTypeDefinition(nestedHandle);
+                if (reader.GetString(nestedDef.Name).StartsWith("<>o__", StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static IEnumerable<TypeDefinitionHandle> GeneratedDynamicDelegates(MetadataReader reader)
+        {
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                if (IsGeneratedDynamicDelegate(reader, reader.GetTypeDefinition(handle)))
+                    yield return handle;
+            }
         }
 
         static bool IsStaticType(TypeDefinition typeDef)

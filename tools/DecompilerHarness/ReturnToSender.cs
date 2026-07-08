@@ -1561,6 +1561,7 @@ static class ReturnToSender
 
         void AddFieldFact(FieldRef field)
         {
+            AddTypedClosureRoot(field.Type);
             AddMemberFact(field.DeclaringType, "field", field.Name);
             AddMemberRequirement(
                 field.DeclaringType,
