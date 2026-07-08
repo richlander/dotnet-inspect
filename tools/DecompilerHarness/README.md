@@ -691,7 +691,7 @@ or API-filtered) that have no ApiSurface member, so they are counted for coverag
 but never miscompared. The sweep never crashes on unreadable file inputs — a bad
 path is reported as an unopened assembly.
 
-#### Baseline drift gate (Deep Inspect)
+#### Return Address baseline drift gate (Deep Inspect)
 
 The census runs in the Deep Inspect **census lane** as a committed-baseline drift
 gate, mirroring the real-world corpus sensor:
@@ -716,6 +716,50 @@ that ratchets toward 100% as identity consolidation (#2440) lands — improvemen
 never fail; re-emit the baseline to raise the floor. `matched`/`unmatched` counts
 drift with corpus composition (framework/NuGet version bumps), so they are
 reported in the card for triage but not gated.
+
+### Not My Type equivalence census (`--not-my-type`)
+
+`--not-my-type` runs the Not My Type (NMT) type-shape equivalence census. It
+compares the product type-shape oracle (`MetadataSource.ClassifyType`) with the
+legacy base-name classifier that the harness sites used to re-derive locally.
+It reports two axes:
+
+- **same-assembly agreement** over type definitions, where the oracle and legacy
+  classifier read the same local metadata and therefore must agree; and
+- **cross-assembly reference recovery**, where the corpus-aware product oracle
+  can resolve shapes that a single-assembly legacy walk leaves `Unknown`.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- <assemblies> --not-my-type
+```
+
+Output is a Markout card (Markdown by default; `--tsv` and `--jsonl` select the
+tabular and JSONL renderings). `--max-examples N` caps same-assembly divergence
+rows. The recovery rate is informational; it quantifies the cross-assembly gap
+the product oracle closes.
+
+#### Not My Type baseline drift gate (Deep Inspect)
+
+The census runs in the Deep Inspect **census lane** as a committed-baseline drift
+gate, matching the Return Address pattern:
+
+```bash
+# Refresh the committed baseline (run when the agree rate legitimately improves):
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --emit-not-my-type-snapshot tools/DecompilerHarness/corpus/not-my-type-baseline.json
+
+# Gate against the committed baseline (fails with exit 1 on regression):
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-not-my-type-baseline tools/DecompilerHarness/corpus/not-my-type-baseline.json \
+  --max-examples 10
+```
+
+The baseline is the pinned real-world corpus (`eng/prepare-decompiler-corpus.sh`).
+The gate compares only the **global same-assembly agree rate** (stored in basis
+points). This floor is intentionally hard (`agreeRateDropBasisPoints` defaults to
+0) because same-assembly agreement should be 100%; a drop is a real oracle or
+legacy-classifier divergence, not corpus drift. Re-emit the baseline only when
+the floor legitimately improves or the pinned corpus changes deliberately.
 
 ### Malformed-metadata signature fuzzer (`--fuzz-signatures`)
 
