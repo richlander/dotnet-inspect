@@ -2178,11 +2178,19 @@ public sealed partial class CSharpPrinter
         TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
             ? $"typeof({TypeOfTypeText(t.Type)})"
-            : $"/* {t.Describe()} */",
+            : TokenPlaceholder(t),
         CaughtException => "__exception",
         UnsupportedNode u => $"/* {u.Describe()} */",
         _ => $"/* {node.Describe()} */",
     };
+
+    static string TokenPlaceholder(LoadToken token)
+        => token.Kind switch
+        {
+            RuntimeTokenKind.Field => $"/* {token.Describe()} */ default(System.RuntimeFieldHandle)",
+            RuntimeTokenKind.Method => $"/* {token.Describe()} */ default(System.RuntimeMethodHandle)",
+            _ => $"/* {token.Describe()} */ null",
+        };
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {
@@ -2656,6 +2664,9 @@ public sealed partial class CSharpPrinter
 
     string? PointerElementAccessText(LoadIndirect load)
     {
+        if (FixedBufferElementAccessText(load) is { } fixedBufferAccess)
+            return fixedBufferAccess;
+
         if (load.Type is not { } element
             || load.Address is not Binary { Kind: BinaryKind.Add } address
             || !TrySplitPointerAdd(address, out var pointer, out var offset)
@@ -2668,6 +2679,44 @@ public sealed partial class CSharpPrinter
 
         return $"{Operand(pointer)}[{Expression(index)}]";
     }
+
+    string? FixedBufferElementAccessText(LoadIndirect load)
+    {
+        if (load.Type is not { } element
+            || load.Address is not Binary { Kind: BinaryKind.Add } address
+            || !TrySplitFixedBufferElementAdd(address, out var elementFieldAddress, out var offset)
+            || !elementFieldAddress.Field.Type.Equals(element)
+            || !TryScaledPointerIndex(offset, element, out var index))
+        {
+            return null;
+        }
+
+        return $"System.Runtime.CompilerServices.Unsafe.Add(ref {FieldTarget(elementFieldAddress.Field, elementFieldAddress.Instance)}, {Expression(index)})";
+    }
+
+    static bool TrySplitFixedBufferElementAdd(Binary add, out LoadFieldAddress fieldAddress, out IrExpression offset)
+    {
+        if (add.Left is LoadFieldAddress left && IsFixedBufferElementAddress(left))
+        {
+            fieldAddress = left;
+            offset = add.Right;
+            return true;
+        }
+        if (add.Right is LoadFieldAddress right && IsFixedBufferElementAddress(right))
+        {
+            fieldAddress = right;
+            offset = add.Left;
+            return true;
+        }
+
+        fieldAddress = null!;
+        offset = add.Right;
+        return false;
+    }
+
+    static bool IsFixedBufferElementAddress(LoadFieldAddress address)
+        => address.Field.Name == "FixedElementField"
+            && address.Instance is LoadFieldAddress;
 
     static bool TrySplitPointerAdd(Binary add, out IrExpression pointer, out IrExpression offset)
     {

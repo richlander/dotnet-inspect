@@ -58,7 +58,7 @@ public static class FidelityRemarks
                 ?? ((node as IrExpression)?.ResultType is { ContainsUnsupported: true } rt ? rt : null);
             if (unsupportedType is not null)
                 Add(remarks, DiagnosticIds.UnsupportedType, OffsetOf(node), node,
-                    $"references an unrepresentable type ({unsupportedType.ToDisplayString()})");
+                    $"references an unrepresentable type ({UnrepresentableTypeText(unsupportedType)})");
 
             if (CSharpSpellability.UnrepresentableMetadataNameReason(node) is { } nameReason)
                 Add(remarks, DiagnosticIds.UnrepresentableMetadataName, OffsetOf(node), node, nameReason);
@@ -72,6 +72,26 @@ public static class FidelityRemarks
 
     static void Add(List<Remark> remarks, string code, int offset, IrNode node, string reason)
         => remarks.Add(new Remark(code, offset, node.Describe(), reason));
+
+    static string UnrepresentableTypeText(TypeRef type)
+    {
+        string display = type.ToDisplayString();
+        string raw = RawTypeText(type);
+        return raw == display ? display : $"{display}; metadata: {raw}";
+    }
+
+    static string RawTypeText(TypeRef type)
+        => type.Kind switch
+        {
+            TypeRefKind.Definition => type.Namespace.Length == 0 ? type.Name : $"{type.Namespace}.{type.Name}",
+            TypeRefKind.GenericInstance => $"{RawTypeText(type.ElementType!)}<{string.Join(", ", type.TypeArguments.Select(RawTypeText))}>",
+            TypeRefKind.SzArray => $"{RawTypeText(type.ElementType!)}[]",
+            TypeRefKind.Array => $"{RawTypeText(type.ElementType!)}[{new string(',', type.Rank - 1)}]",
+            TypeRefKind.ByRef => $"ref {RawTypeText(type.ElementType!)}",
+            TypeRefKind.Pointer => $"{RawTypeText(type.ElementType!)}*",
+            TypeRefKind.Pinned => $"pinned {RawTypeText(type.ElementType!)}",
+            _ => type.ToDisplayString(),
+        };
 
     /// <summary>The enclosing block's offset, climbing parents; -1 when the node hangs off the signature.</summary>
     static int OffsetOf(IrNode node)
