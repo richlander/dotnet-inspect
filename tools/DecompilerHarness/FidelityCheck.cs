@@ -366,7 +366,7 @@ static class FidelityCheck
 
                     Parallel.ForEach(reader.TypeDefinitions, options, (typeHandle, state) =>
                     {
-                        if (IsSynthesizedType(reader, typeHandle))
+                        if (ShouldSkipBeforeSampleReservation(reader, typeHandle))
                             return;
 
                         if (Volatile.Read(ref successCount) >= perAssemblyCap)
@@ -416,11 +416,19 @@ static class FidelityCheck
         return results;
     }
 
-    static bool IsSynthesizedType(MetadataReader reader, TypeDefinitionHandle typeHandle)
+    static bool ShouldSkipBeforeSampleReservation(MetadataReader reader, TypeDefinitionHandle typeHandle)
     {
-        var type = reader.GetTypeDefinition(typeHandle);
-        string name = reader.GetString(type.Name);
-        return name.Contains('<', StringComparison.Ordinal) || name == "<Module>";
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
+                return true;
+            return IsGeneratedType(reader, typeDef, reader.GetFullTypeName(typeDef));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     internal static bool IsUsefulCorpusSample(CompileBackResult result)
