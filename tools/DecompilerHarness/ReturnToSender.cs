@@ -701,12 +701,14 @@ static class ReturnToSender
             var emit = compilation.Emit(ms);
             if (emit.Success)
             {
-                ms.Position = 0;
-                using var recompiled = new PEReader(ms);
+                var recompiledBytes = ms.ToArray();
+                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
+                using var recompiled = new PEReader(recompiledStream);
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiff = BuildIlDiff(pe, reader, getterHandle, recompiled, fullType, methodName, overload: 0);
+                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, getterHandle, recompiledBytes, fullType, methodName, overload: 0);
+                var ilDiff = implementationDiff?.IlDiff;
                 var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
 
                 if (recompiledOps is null)
@@ -861,12 +863,14 @@ static class ReturnToSender
             var emit = compilation.Emit(ms);
             if (emit.Success)
             {
-                ms.Position = 0;
-                using var recompiled = new PEReader(ms);
+                var recompiledBytes = ms.ToArray();
+                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
+                using var recompiled = new PEReader(recompiledStream);
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiff = BuildIlDiff(pe, reader, methodHandle, recompiled, fullType, methodName, overload: 0);
+                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+                var ilDiff = implementationDiff?.IlDiff;
                 var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
 
                 if (recompiledOps is null)
@@ -1022,12 +1026,14 @@ static class ReturnToSender
             var emit = compilation.Emit(ms);
             if (emit.Success)
             {
-                ms.Position = 0;
-                using var recompiled = new PEReader(ms);
+                var recompiledBytes = ms.ToArray();
+                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
+                using var recompiled = new PEReader(recompiledStream);
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiff = BuildIlDiff(pe, reader, setterHandle, recompiled, fullType, methodName, overload: 0);
+                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, setterHandle, recompiledBytes, fullType, methodName, overload: 0);
+                var ilDiff = implementationDiff?.IlDiff;
                 var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
 
                 if (recompiledOps is null)
@@ -1309,6 +1315,15 @@ static class ReturnToSender
             return null;
 
         var reader = pe.GetMetadataReader();
+        return FindMethodDefinition(reader, fullType, methodName, overload);
+    }
+
+    static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
+        MetadataReader reader,
+        string fullType,
+        string methodName,
+        int overload)
+    {
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -1365,6 +1380,38 @@ static class ReturnToSender
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}");
+    }
+
+    internal static ImplementationMemberDiffResult? BuildImplementationDiff(
+        string assemblyPath,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
+        byte[] recompiledAssembly,
+        string fullType,
+        string methodName,
+        int overload)
+    {
+        if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
+            return null;
+
+        var recompiledReference = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity("return-to-sender", Version: null, Culture: null, PublicKeyToken: null),
+            Path: null,
+            OpenRead: () => new MemoryStream(recompiledAssembly, writable: false),
+            Provenance: "ReturnToSender");
+        var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
+        using var originalSource = MetadataSource.OpenWithoutSymbols(assemblyPath);
+        using var recompiledSource = MetadataSource.OpenWithoutSymbols(recompiledReference, resolver);
+        if (FindMethodDefinition(recompiledSource.Reader, fullType, methodName, overload) is not { } recompiled)
+            return null;
+        if (recompiled.Method.RelativeVirtualAddress == 0)
+            return null;
+
+        return ImplementationDiff.CompareMembers(
+            originalSource,
+            originalMethod,
+            recompiledSource,
+            recompiled.Handle);
     }
 
     static IlDiffDisplayResult? ToDisplayDiagnostic(IlMemberDiffResult? diff)

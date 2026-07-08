@@ -135,6 +135,32 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderImplementationDiff_ProjectsMemberScopedCSharpAndIlEvidence()
+    {
+        string assemblyPath = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        string fullType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        var original = FindMethod(reader, fullType, nameof(FixtureCatalog_ExposesCheckedInSourcePaths));
+
+        var diff = ReturnToSender.BuildImplementationDiff(
+            assemblyPath,
+            reader,
+            original,
+            File.ReadAllBytes(assemblyPath),
+            fullType,
+            nameof(DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions),
+            overload: 0);
+
+        Assert.NotNull(diff);
+        Assert.True(diff!.HasCSharpEvidence);
+        Assert.True(diff.HasIlEvidence);
+        Assert.NotNull(diff.IlDiff);
+        Assert.False(diff.IlDiff.Diff.IsExact);
+    }
+
+    [Fact]
     public void ReturnToSenderIlDiffDiagnostic_SuppressesBodylessMethods()
     {
         using var stream = File.OpenRead(typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location);
