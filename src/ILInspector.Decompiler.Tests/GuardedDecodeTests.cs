@@ -47,17 +47,51 @@ public class GuardedDecodeTests
         Assert.Empty(locals);
     }
 
+    [Fact]
+    public void GetTypeFromSpecification_HugeArrayShapeCount_DegradesToUnsupported()
+    {
+        // A 7-byte TypeSpec (ARRAY I4 rank=1 sizesCount~536M) is under #2489's 1024-byte length cap,
+        // so only SignatureBlobGuard's count bound stops SRM from pre-allocating gigabytes. Exercises
+        // the guard now applied inside GetTypeFromSpecification (covering its direct callers).
+        byte[] blob = [0x14 /* ARRAY */, 0x08 /* I4 */, 0x01 /* rank */, 0xdf, 0xff, 0xff, 0xff /* sizesCount */];
+        var (reader, handle) = BuildTypeSpec(blob);
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, handle, 0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
+    static (MetadataReader Reader, TypeSpecificationHandle Handle) BuildTypeSpec(byte[] typeBlob)
+    {
+        var md = NewModule();
+        var bb = new BlobBuilder();
+        bb.WriteBytes(typeBlob);
+        var handle = md.AddTypeSpecification(md.GetOrAddBlob(bb));
+        return (Serialize(md), handle);
+    }
+
     static (MetadataReader Reader, StandaloneSignatureHandle Handle) BuildStandaloneSig(BlobBuilder sig)
+    {
+        var md = NewModule();
+        var handle = md.AddStandaloneSignature(md.GetOrAddBlob(sig));
+        return (Serialize(md), handle);
+    }
+
+    static MetadataBuilder NewModule()
     {
         var md = new MetadataBuilder();
         md.AddModule(0, md.GetOrAddString("m.dll"), md.GetOrAddGuid(Guid.NewGuid()), default, default);
         md.AddAssembly(md.GetOrAddString("m"), new Version(1, 0, 0, 0), default, default, default, default);
         md.AddTypeDefinition(default, default, md.GetOrAddString("<Module>"), default,
             MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
-        var handle = md.AddStandaloneSignature(md.GetOrAddBlob(sig));
+        return md;
+    }
+
+    static MetadataReader Serialize(MetadataBuilder md)
+    {
         var root = new MetadataRootBuilder(md, suppressValidation: true);
         var image = new BlobBuilder();
         root.Serialize(image, 0, 0);
-        return (MetadataReaderProvider.FromMetadataImage(ImmutableArray.Create(image.ToArray())).GetMetadataReader(), handle);
+        return MetadataReaderProvider.FromMetadataImage(ImmutableArray.Create(image.ToArray())).GetMetadataReader();
     }
 }

@@ -142,6 +142,13 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (s_recursionDepth >= MaxRecursionDepth)
             return TypeRef.Unsupported("type-specification recursion depth exceeded");
         var spec = reader.GetTypeSpecification(handle);
+        // Bound this blob's structural depth and count-driven allocations before SRM decodes it.
+        // The #2489 blob-length / cumulative caps below bound the cross-blob modreq *cycle*, but a
+        // single short blob with a huge count field (e.g. an array-shape size count) would still
+        // reach SRM and OOM — SignatureBlobGuard rejects those. Covers both direct callers of this
+        // method and SRM's recursive re-entry for a nested TypeSpec.
+        if (!ILInspector.Metadata.SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, ILInspector.Metadata.SignatureBlobGuard.Kind.TypeSpecification))
+            return TypeRef.Unsupported("type-specification signature nesting depth exceeded");
         int blobLength = reader.GetBlobReader(spec.Signature).Length;
         if (blobLength > MaxSignatureBlobLength)
             return TypeRef.Unsupported("type-specification signature blob too large");
