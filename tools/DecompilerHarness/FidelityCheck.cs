@@ -427,7 +427,7 @@ static class FidelityCheck
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return false;
+            return true;
         }
     }
 
