@@ -688,6 +688,140 @@ public class ResearchDiffTests
         Assert.StartsWith("ConstantValue~", changed.Subject.Id, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ImplementationDiff_CompareAssemblies_GroupsCSharpAndIlEvidence()
+    {
+        var diff = ImplementationDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ImplementationDiffOptions(TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changed = Assert.Single(diff.Members, member => member.Subject.MemberName == "ConstantValue");
+
+        Assert.True(changed.HasCSharpEvidence);
+        Assert.True(changed.HasIlEvidence);
+        Assert.Contains(changed.Evidence, evidence =>
+            evidence.Kind == ImplementationDiffEvidenceKind.CSharp
+            && evidence.UnifiedLines.Any(line => line.Contains("return 1", StringComparison.Ordinal)));
+        Assert.Contains(changed.Evidence, evidence =>
+            evidence.Kind == ImplementationDiffEvidenceKind.IlBody
+            && evidence.UnifiedLines.Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void ImplementationDiff_CompareAssemblies_FiltersIlEvidenceByType()
+    {
+        var diff = ImplementationDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ImplementationDiffOptions(TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OperatorSample" }));
+
+        Assert.DoesNotContain(diff.Members, member =>
+            string.Equals(member.Subject.MemberName, "ConstantValue", StringComparison.Ordinal));
+        Assert.Contains(diff.Members, member =>
+            string.Equals(member.Subject.MemberName, "op_Addition", StringComparison.Ordinal)
+            && member.HasCSharpEvidence
+            && member.HasIlEvidence);
+    }
+
+    [Fact]
+    public void ImplementationDiff_CompareAssemblies_FiltersUnderlyingResearchDiffByMemberTarget()
+    {
+        var full = ImplementationDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ImplementationDiffOptions(TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+        var targetId = Assert.Single(full.Members, member => member.Subject.MemberName == "ConstantValue").Subject.Id;
+
+        var scoped = ImplementationDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ImplementationDiffOptions(
+                TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" },
+                MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
+
+        var researchMembers = scoped.ResearchDiff.MembersWhere(member => member.ImplementationChanged);
+        Assert.All(researchMembers, member => Assert.Equal(targetId, member.Subject.Id));
+        var member = Assert.Single(scoped.Members);
+        Assert.Equal(targetId, member.Subject.Id);
+        Assert.True(member.HasCSharpEvidence);
+        Assert.True(member.HasIlEvidence);
+    }
+
+    [Fact]
+    public void ImplementationDiff_ToIlEvidence_ProjectsTypedMemberDiffRows()
+    {
+        var typedDiff = new IlMemberDiffResult(
+            new IlMemberDiffSubject("old-id", "old-label"),
+            new IlMemberDiffSubject("new-id", "new-label"),
+            new IlBodyDiffResult(
+                IsExact: false,
+                Failure: null,
+                Rows:
+                [
+                    new IlDiffRow(
+                        0,
+                        IlDiffKind.Context,
+                        new CanonicalIlOperation(0, "nop", Operand: null),
+                        "Unchanged IL operation 'nop'"),
+                    new IlDiffRow(
+                        1,
+                        IlDiffKind.Remove,
+                        new CanonicalIlOperation(1, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "1")),
+                        "Removed IL operation 'ldc.i4 1'"),
+                    new IlDiffRow(
+                        1,
+                        IlDiffKind.Add,
+                        new CanonicalIlOperation(1, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "2")),
+                        "Added IL operation 'ldc.i4 2'"),
+                ]));
+
+        var evidence = ImplementationDiff.ToIlEvidence(typedDiff);
+
+        Assert.DoesNotContain(evidence, item => item.ChangeId == "il.operation.context");
+        Assert.Contains(evidence, item =>
+            item.ChangeId == "il.operation.removed"
+            && item.OldValue == "ldc.i4 1"
+            && item.OldIlOffset == 1
+            && item.IlMemberDiff == typedDiff
+            && item.IlDisplayRows.Single().UnifiedLine == "h1 - IL_0001 ldc.i4 1");
+        Assert.Contains(evidence, item =>
+            item.ChangeId == "il.operation.added"
+            && item.NewValue == "ldc.i4 2"
+            && item.NewIlOffset == 1
+            && item.IlMemberDiff == typedDiff
+            && item.IlDisplayRows.Single().UnifiedLine == "h1 + IL_0001 ldc.i4 2");
+    }
+
+    [Fact]
+    public void ImplementationDiff_ToIlEvidence_FallsBackWhenTypedDiffHasNoRows()
+    {
+        var typedDiff = new IlMemberDiffResult(
+            new IlMemberDiffSubject("old-id", "old-label"),
+            new IlMemberDiffSubject("new-id", "new-label"),
+            new IlBodyDiffResult(
+                IsExact: true,
+                Failure: null,
+                Rows: []));
+        var failure = new IlDiffDisplayFailureRow(
+            IlDiffFailureKind.NewBodyMissing,
+            "new body missing",
+            Side: "new",
+            Detail: "method has no body");
+        var fallback = new IlDiffDisplayResult(
+            Failure: failure.UnifiedLine,
+            Rows: [],
+            FailureRows: [failure]);
+
+        var evidence = ImplementationDiff.ToIlEvidence(typedDiff, fallback);
+
+        var row = Assert.Single(evidence);
+        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
+        Assert.Equal("method has no body", row.Detail);
+        Assert.Same(failure, row.IlDisplayFailureRow);
+        Assert.Null(row.IlMemberDiff);
+    }
+
     static ApiSurface Surface(string typeName, params ApiMember[] members)
         => new()
         {

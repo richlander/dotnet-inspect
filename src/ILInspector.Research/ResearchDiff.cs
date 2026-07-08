@@ -294,10 +294,10 @@ public static class ResearchDiff
             AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.IlBody))
-            AddIlBodyDiff(builder, oldInput, newInput);
+            AddIlBodyDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
 
         if (options.Mechanisms.HasFlag(ResearchDiffMechanism.CSharp))
-            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters);
+            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
 
         return builder.ToResult();
     }
@@ -569,7 +569,12 @@ public static class ResearchDiff
                 InLoop: inLoop));
     }
 
-    static void AddIlBodyDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput)
+    static void AddIlBodyDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
+        IReadOnlySet<string>? memberTargetIdentities)
     {
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
@@ -584,6 +589,10 @@ public static class ResearchDiff
                 var oldMethod = oldMethods[key];
                 var newMethod = newMethods[key];
                 var subject = SubjectFromMethod(newMethod);
+                if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
+                    continue;
+                if (!MatchesMemberTargets(subject, memberTargetIdentities))
+                    continue;
                 var oldAvailable = oldBodies.TryDecode(oldMethod.MetadataToken, out var oldBody, out var oldReason);
                 var newAvailable = newBodies.TryDecode(newMethod.MetadataToken, out var newBody, out var newReason);
 
@@ -669,18 +678,29 @@ public static class ResearchDiff
             IlDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(failure)));
     }
 
-    static void AddCSharpDiff(ResultBuilder builder, ResearchDiffInput oldInput, ResearchDiffInput newInput, IReadOnlySet<string>? typeFilters)
+    static void AddCSharpDiff(
+        ResultBuilder builder,
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput,
+        IReadOnlySet<string>? typeFilters,
+        IReadOnlySet<string>? memberTargetIdentities)
     {
         if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
             return;
 
         var diff = CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters);
         foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
-            AddCSharpFailureEvidence(builder, failure);
+        {
+            var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
+            if (MatchesMemberTargets(subject, memberTargetIdentities))
+                AddCSharpFailureEvidence(builder, subject, failure);
+        }
 
         foreach (var row in diff.Rows)
         {
             var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member);
+            if (!MatchesMemberTargets(subject, memberTargetIdentities))
+                continue;
             var direction = row.Kind switch
             {
                 CSharpDiffKind.Add => ResearchDiffDirection.Added,
@@ -701,9 +721,8 @@ public static class ResearchDiff
         }
     }
 
-    static void AddCSharpFailureEvidence(ResultBuilder builder, CSharpDiffFailureRow failure)
+    static void AddCSharpFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, CSharpDiffFailureRow failure)
     {
-        var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
         var direction = failure.Kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchDiffDirection.Added,
@@ -914,7 +933,7 @@ public static class ResearchDiff
     static string? FormatOffsets(ImmutableArray<int> offsets)
         => offsets.IsDefaultOrEmpty ? null : string.Join(",", offsets.Select(offset => $"IL_{offset:X4}"));
 
-    static bool MatchesTypeFilters(string typeFullName, IReadOnlySet<string>? filters)
+    internal static bool MatchesTypeFilters(string typeFullName, IReadOnlySet<string>? filters)
         => filters is null || filters.Count == 0 || filters.Any(filter => MatchesDiffTypeFilter(typeFullName, filter));
 
     static bool MatchesDiffTypeFilter(string typeFullName, string filter)

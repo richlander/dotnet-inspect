@@ -174,65 +174,9 @@ internal static class ReturnToSenderEvidence
             Detail: row.Detail ?? row.Reason,
             Category: ResearchDiffChangeCategory.RoundTrip);
 
-        var diagnostic = Diagnostic(row);
-        if (diagnostic is null)
-            yield break;
-
-        var failureRows = diagnostic.FailureRows.IsDefault
-            ? []
-            : diagnostic.FailureRows;
-        foreach (var failureRow in failureRows)
-        {
-            yield return new ResearchDiffEvidence(
-                ResearchDiffMechanism.IlBody,
-                $"il.diff.{ResearchDiff.ToChangeIdPart(failureRow.Kind.ToString())}",
-                ResearchDiffDirection.Changed,
-                Detail: failureRow.Detail ?? failureRow.Message,
-                Category: ResearchDiffChangeCategory.IlBody,
-                IlDisplayFailureRow: failureRow,
-                IlMemberDiff: row.IlDiff);
-        }
-
-        if (failureRows.IsDefaultOrEmpty && diagnostic.Failure is { Length: > 0 } failure)
-        {
-            yield return new ResearchDiffEvidence(
-                ResearchDiffMechanism.IlBody,
-                "il.diff.failed",
-                ResearchDiffDirection.Changed,
-                Detail: failure,
-                Category: ResearchDiffChangeCategory.IlBody);
-        }
-
-        var displayRows = diagnostic.Rows.IsDefault
-            ? []
-            : diagnostic.Rows;
-        foreach (var displayRow in displayRows)
-        {
-            if (displayRow.Kind == IlDiffKind.Context)
-                continue;
-
-            var direction = displayRow.Kind == IlDiffKind.Add
-                ? ResearchDiffDirection.Added
-                : ResearchDiffDirection.Removed;
-            yield return new ResearchDiffEvidence(
-                ResearchDiffMechanism.IlBody,
-                displayRow.Kind == IlDiffKind.Add ? "il.operation.added" : "il.operation.removed",
-                direction,
-                OldValue: displayRow.Kind == IlDiffKind.Remove ? displayRow.Operation : null,
-                NewValue: displayRow.Kind == IlDiffKind.Add ? displayRow.Operation : null,
-                OldIlOffset: displayRow.Kind == IlDiffKind.Remove ? displayRow.RawOffset : null,
-                NewIlOffset: displayRow.Kind == IlDiffKind.Add ? displayRow.RawOffset : null,
-                Detail: displayRow.Message,
-                Category: ResearchDiffChangeCategory.IlBody,
-                IlDisplayRows: [displayRow],
-                IlMemberDiff: row.IlDiff);
-        }
+        foreach (var ilEvidence in ImplementationDiff.ToIlEvidence(row.IlDiff, row.IlDiffDiagnostic))
+            yield return ilEvidence;
     }
-
-    static IlDiffDisplayResult? Diagnostic(ReturnToSenderEvidenceRow row)
-        => row.IlDiff is { } typed
-            ? IlDiffPrinter.ToDisplayResult(typed.Diff)
-            : row.IlDiffDiagnostic;
 
     static string StatusId(GeneratedFixtureReturnToSenderStatus status)
         => status switch
