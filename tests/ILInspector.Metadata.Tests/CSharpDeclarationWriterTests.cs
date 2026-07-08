@@ -5,6 +5,31 @@ namespace ILInspector.Metadata.Tests;
 public sealed class CSharpDeclarationWriterTests
 {
     [Fact]
+    public void TypeDeclaration_PreservesRecordModifiers()
+    {
+        var abstractType = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Shape",
+            Kind = "record",
+            IsAbstract = true,
+        };
+        var sealedType = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "ClosedShape",
+            Kind = "record",
+            IsSealed = true
+        };
+
+        var abstractDeclaration = CSharpDeclarationWriter.RenderTypeDeclaration(abstractType);
+        var sealedDeclaration = CSharpDeclarationWriter.RenderTypeDeclaration(sealedType);
+
+        Assert.Equal("public abstract record Shape", abstractDeclaration);
+        Assert.Equal("public sealed record ClosedShape", sealedDeclaration);
+    }
+
+    [Fact]
     public void QualifiedMemberDeclaration_KeepsFullyQualifiedTypeNames()
     {
         var type = CreateSampleType();

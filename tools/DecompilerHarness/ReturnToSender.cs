@@ -656,6 +656,8 @@ static class ReturnToSender
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
+        // PrintRaised mutates the imported function in place, so raised evidence
+        // such as WithExpression is available to typed shell seeding here.
         SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
@@ -1535,6 +1537,21 @@ static class ReturnToSender
                 allowTargetRoot: true);
         }
 
+        void AddRecordShellFact(TypeRef? type)
+        {
+            var definition = type?.Kind == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+            if (TryResolveHandle(definition) is not { } handle)
+                return;
+            var root = TopLevelRootOf(reader, handle);
+            closureRoots.Add(root);
+            AddClosureFact(
+                closureFacts,
+                handle,
+                new CompileBackFact("metadata", "record-shell", TypeRefIdentityKey(definition!.Namespace, definition.Name, separator: ".")));
+        }
+
         void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
         {
             var definition = declaringType.Kind == TypeRefKind.GenericInstance
@@ -1630,6 +1647,10 @@ static class ReturnToSender
                     break;
                 case ObjectInitializerExpression initializer:
                     AddObjectInitializerFacts(initializer);
+                    break;
+                case WithExpression withExpression:
+                    AddRecordShellFact(withExpression.ResultType);
+                    AddInitializerEntryFacts(withExpression.Entries);
                     break;
             }
         }

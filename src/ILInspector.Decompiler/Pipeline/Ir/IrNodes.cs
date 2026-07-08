@@ -2057,6 +2057,8 @@ public sealed class WithExpression : IrExpression
     {
         AddChild(receiver);
         var members = ImmutableArray.CreateBuilder<string>();
+        var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
+        var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
         foreach (var entry in entries)
         {
             if (entry.Member is null)
@@ -2065,21 +2067,27 @@ public sealed class WithExpression : IrExpression
                 throw new ArgumentException("With-expression entries must contain exactly one value.", nameof(entries));
 
             members.Add(entry.Member);
+            consumedMethods.Add(entry.ConsumedMethod);
+            consumedFields.Add(entry.ConsumedField);
             AddChild(entry.Arguments[0]);
         }
         Members = members.ToImmutable();
+        ConsumedMethods = consumedMethods.ToImmutable();
+        ConsumedFields = consumedFields.ToImmutable();
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
     public ImmutableArray<string> Members { get; }
+    public ImmutableArray<MethodRef?> ConsumedMethods { get; }
+    public ImmutableArray<FieldRef?> ConsumedFields { get; }
     public IReadOnlyList<InitializerEntry> Entries
         => InitializerEntry.Slice(
             Children,
             1,
             [.. Members.Select(m => (string?)m)],
             [.. Members.Select(_ => 1)],
-            [.. Members.Select(_ => (MethodRef?)null)],
-            [.. Members.Select(_ => (FieldRef?)null)]);
+            ConsumedMethods,
+            ConsumedFields);
     public override TypeRef? ResultType => Receiver.ResultType;
     public override string Describe()
         => $"WithExpression ({Members.Length} members)";

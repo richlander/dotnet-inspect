@@ -245,6 +245,249 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_CompilesRecordWithExpressionShell()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.Program",
+                    "Shift",
+                    Overload: 0),
+            ]));
+
+        Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+        Assert.DoesNotContain("CS8858", result.Detail, StringComparison.Ordinal);
+
+        var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget(
+                    "LadderRung5.Program",
+                    "Shift",
+                    Overload: 0),
+            ]));
+
+        Assert.Contains("return point with { X = point.X + dx };", compileBack.Source);
+        Assert.Contains("public record Point", compileBack.Source);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_UsesWithExpressionSetterEvidence()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public Point ShiftY(Point point) => point with { Y = 100 };
+            }
+
+            public record Point(int X, int Y);
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS0117", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS8869", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KeepsStructWithExpressionShellAsStruct()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public Point ShiftY(Point point) => point with { Y = 100 };
+            }
+
+            public struct Point
+            {
+                public int X { get; set; }
+                public int Y { get; set; }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "ShiftY",
+                        Overload: 0),
+                ]));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.Contains("public struct Point", compileBack.Source);
+            Assert.DoesNotContain("public record Point", compileBack.Source);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_CompilesTargetRootRecordWithExpressionShell()
+    {
+        var fixture = CompileSourceFixture(
+            ("Point.cs", """
+            namespace SourceProbe;
+
+            public record Point(int X, int Y)
+            {
+                public Point ShiftY() => this with { Y = 100 };
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Point",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Point",
+                        "ShiftY",
+                        Overload: 0),
+                ]));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.Contains("public record Point", compileBack.Source);
+            Assert.DoesNotContain("public class Point", compileBack.Source);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_CompilesNestedRecordWithExpressionShell()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public Point ShiftY(Point point) => point with { Y = 100 };
+
+                public record Point(int X, int Y);
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "ShiftY",
+                        Overload: 0),
+                ]));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.Contains("public record Point", compileBack.Source);
+            Assert.DoesNotContain("public class Point", compileBack.Source);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_CompilesNestedTargetRecordWithExpressionShell()
+    {
+        var fixture = CompileSourceFixture(
+            ("Outer.cs", """
+            namespace SourceProbe;
+
+            public class Outer
+            {
+                public record Point(int X, int Y)
+                {
+                    public Point ShiftY() => this with { Y = 100 };
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Outer.Point",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Outer.Point",
+                        "ShiftY",
+                        Overload: 0),
+                ]));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.Contains("public record Point", compileBack.Source);
+            Assert.DoesNotContain("public class Point", compileBack.Source);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
