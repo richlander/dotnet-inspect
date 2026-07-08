@@ -62,6 +62,180 @@ public class SlotResidualCensusTests
         Assert.Equal(0, telemetry.MultiCandidateUnifiedSlots);
     }
 
+    [Fact]
+    public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtObjectTarget()
+    {
+        var obj = TypeRef.CoreLib("System", "Object");
+        var str = TypeRef.CoreLib("System", "String");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadLocal(0, str),
+            new LoadArgument(0, "fallback", obj))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [obj], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, obj)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("fallback", obj),
+            ], HasThis: false, GenericParameterCount: 0),
+            [str],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("object S_0 = V_0 ?? fallback;", output);
+        Assert.Contains("Use(S_0);", output);
+    }
+
+    [Fact]
+    public void StackSlotUnifierTelemetry_DoesNotUnifyObjectCoalesceToStringTarget()
+    {
+        var obj = TypeRef.CoreLib("System", "Object");
+        var str = TypeRef.CoreLib("System", "String");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadArgument(0, "left", obj),
+            new LoadArgument(1, "right", str))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [str], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, str)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("left", obj),
+                new Parameter("right", str),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Contains("object S_0 = left ?? right;", output);
+        Assert.Contains("Use(S_0_1);", output);
+    }
+
+    [Fact]
+    public void StackSlotUnifierTelemetry_DoesNotUnifyIncompatibleReferencesToObjectTarget()
+    {
+        var obj = TypeRef.CoreLib("System", "Object");
+        var str = TypeRef.CoreLib("System", "String");
+        var exception = TypeRef.CoreLib("System", "Exception");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadArgument(0, "left", str),
+            new LoadArgument(1, "right", exception))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [obj], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, obj)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("left", str),
+                new Parameter("right", exception),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+        Assert.Contains("string S_0 = left ?? right;", output);
+        Assert.Contains("Use(S_0_1);", output);
+    }
+
+    [Fact]
+    public void StackSlotUnifierTelemetry_DoesNotUnifyNullNullCoalesceToObjectTarget()
+    {
+        var obj = TypeRef.CoreLib("System", "Object");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new Constant(null, obj),
+            new Constant(null, obj))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [obj], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, obj)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+
+        Assert.Equal(1, telemetry.UnunifiedSplitSlots);
+    }
+
+    [Fact]
+    public void StackSlotUnifierTelemetry_UnifiesNullableValueCoalesceAtValueTarget()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var nullableInt32 = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [int32]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Coalesce(
+            new LoadArgument(0, "left", nullableInt32),
+            new Constant(0, int32))));
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [int32], HasThis: false),
+            isVirtual: false,
+            [new LoadStackSlot(0, int32)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [
+                new Parameter("left", nullableInt32),
+            ], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(0, telemetry.UnunifiedSplitSlots);
+        Assert.DoesNotContain("S_0_1", output);
+        Assert.Contains("int S_0 = left ?? 0;", output);
+        Assert.Contains("Use(S_0);", output);
+    }
+
     static string CaptureConsole(Func<int> action)
     {
         lock (ConsoleGate)

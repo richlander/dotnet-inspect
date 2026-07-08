@@ -856,7 +856,39 @@ public sealed partial class CSharpPrinter
                     && CanAssignTo(conditional.WhenTrue, target)
                     && CanAssignTo(conditional.WhenFalse, target))
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
+        if (value is Coalesce coalesce)
+            return CanRenderCoalesceForTarget(coalesce, target)
+                || (coalesce.ResultType is { } coalesceType
+                    && CanAssignType(coalesceType, target)
+                    && !IsReferenceLike(coalesceType));
         return value.ResultType is { } source && CanAssignType(source, target);
+    }
+
+    bool CanRenderCoalesceForTarget(Coalesce coalesce, TypeRef target)
+    {
+        if (!IsProvenReference(target))
+            return false;
+
+        bool leftNull = coalesce.Left is Constant { Value: null };
+        bool rightNull = coalesce.Right is Constant { Value: null };
+        var leftType = EffectiveType(coalesce.Left);
+        var rightType = EffectiveType(coalesce.Right);
+
+        if (leftNull && rightNull)
+            return false;
+        if (leftNull)
+            return rightType is { } right && IsProvenReference(right) && CanAssignType(right, target);
+        if (rightNull)
+            return leftType is { } left && IsProvenReference(left) && CanAssignType(left, target);
+        if (leftType is not { } leftNonNull || rightType is not { } rightNonNull)
+            return false;
+        if (!IsProvenReference(leftNonNull) || !IsProvenReference(rightNonNull))
+            return false;
+        if (CanAssignType(rightNonNull, leftNonNull))
+            return CanAssignType(leftNonNull, target);
+        if (CanAssignType(leftNonNull, rightNonNull))
+            return CanAssignType(rightNonNull, target);
+        return false;
     }
 
     /// <summary>
