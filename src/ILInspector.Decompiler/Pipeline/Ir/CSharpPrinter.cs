@@ -861,6 +861,10 @@ public sealed partial class CSharpPrinter
                 || (coalesce.ResultType is { } coalesceType
                     && CanAssignType(coalesceType, target)
                     && !IsReferenceLike(coalesceType));
+        if (value is Constant { Value: int or long } constant
+            && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
+            && CoercionRendering.CanSpellUnknownEnumConstant(constant.ResultType, target, _function.TypeShapes))
+            return true;
         return value.ResultType is { } source && CanAssignType(source, target);
     }
 
