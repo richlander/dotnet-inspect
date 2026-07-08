@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -131,6 +132,20 @@ public class LadderRung4GateTests
 
         var writableReturn = Assert.Single(type.Members, m => m.Name == "SelectRef");
         Assert.Equal("ref int SelectRef(bool useLeft, ref int left, ref int right)", writableReturn.Signature);
+    }
+
+    [Fact]
+    public void Rung4Fixture_MetadataDeclarationQueryRendersRefReadonlyReturn()
+    {
+        using var pe = new PEReader(File.OpenRead(FixturePath));
+        var reader = pe.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetFullTypeName(reader.GetTypeDefinition(handle)) == FixtureType);
+        var type = MetadataDeclarationQuery.GetTypeSurface(reader, typeHandle, includeNonPublicMembers: true);
+
+        var readOnlyReturn = Assert.Single(type.Members, m => m.Name == "SelectReadonlyRef");
+        Assert.Equal("ref readonly int SelectReadonlyRef(bool useLeft, in int left, in int right)", readOnlyReturn.Signature);
+        Assert.Empty(readOnlyReturn.SignatureModel?.ReturnAttributes ?? []);
     }
 
     [Fact]
