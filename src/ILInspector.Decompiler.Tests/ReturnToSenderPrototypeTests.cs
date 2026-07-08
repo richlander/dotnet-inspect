@@ -365,6 +365,203 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public Class1(string message)
+                {
+                    Method1 = message;
+                }
+
+                public string Method1 { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(type.Members, member =>
+                member.Name == "Method1"
+                && member.Kind == CompileBackMemberKind.PropertyGet
+                && member.SourceFacts.Any(fact => fact.Id == "target-backing-field-write" && fact.Detail == "<Method1>k__BackingField"));
+            Assert.Contains("public string Method1 { get; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotDuplicatePrimaryConstructorAutoPropertyInitializer()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1(int value)
+            {
+                public int Value { get; } = value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain("already contains a definition", result.Detail ?? "", StringComparison.Ordinal);
+            Assert.Equal(1, Assert.Single(result.Plan.Types).Members.Count(member => member.Name == "Value"));
+            Assert.Contains("public int Value", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesTargetBackingFieldWriteForStaticConstructorAssignment()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                static Class1()
+                {
+                    Value = 42;
+                }
+
+                public static int Value { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", ".cctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(type.Members, member =>
+                member.Name == "Value"
+                && member.IsStatic
+                && member.SourceFacts.Any(fact => fact.Id == "target-backing-field-write" && fact.Detail == "<Value>k__BackingField"));
+            Assert.Contains("public static int Value { get; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SeedsTargetInterfaceRoot()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValue
+            {
+                int GetValue();
+            }
+
+            public class Class1 : IValue
+            {
+                public int GetValue() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "GetValue", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "IValue"
+                && type.SourceFacts.Any(fact => fact.Producer == "metadata" && fact.Id == "target-interface"));
+            Assert.DoesNotContain(result.Plan.Types.SelectMany(type => type.SourceFacts), fact =>
+                fact.Producer == "roslyn" && fact.Id == "closure-root");
+            Assert.Contains("public interface IValue", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesTypedObjectInitializerPropertyRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Helper
+            {
+                public int Value { get; set; }
+            }
+
+            public class Class1
+            {
+                public Helper Method1(int value) => new Helper { Value = value };
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var helper = Assert.Single(result.Plan.Types, type => type.Name == "Helper");
+            Assert.DoesNotContain(helper.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(helper.Members, member =>
+                member.Name == "Value"
+                && member.Kind == CompileBackMemberKind.PropertyGet
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-property" && fact.Detail == "set_Value"));
+            Assert.Contains("public int Value { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesTypedTargetObjectInitializerPropertyRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value { get; set; }
+
+                public Class1 Method1(int value) => new Class1 { Value = value };
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
+            Assert.Contains(type.Members, member =>
+                member.Name == "Value"
+                && member.Kind == CompileBackMemberKind.PropertyGet
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-property" && fact.Detail == "set_Value"));
+            Assert.Contains("public int Value { get; set; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_KeepsTypeResolvedCs0117PropertyFallback()
     {
         var assemblyPath = CompileFixture("""
