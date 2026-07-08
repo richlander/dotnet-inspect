@@ -56,7 +56,7 @@ public static class MethodImporter
             ParameterNames(reader, method.GetGenericParameters()));
 
         var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, typeDefHandle, 0);
-        var decoded = method.DecodeSignature(TypeRefDecoder.Instance, scope);
+        var decoded = GuardedDecode.MethodSignature(reader, method, scope);
 
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
         var namesByIndex = new Dictionary<int, string>();
@@ -88,7 +88,7 @@ public static class MethodImporter
         if (!body.LocalSignature.IsNil)
         {
             var localSignature = reader.GetStandaloneSignature(body.LocalSignature);
-            locals = localSignature.DecodeLocalSignature(TypeRefDecoder.Instance, scope);
+            locals = GuardedDecode.LocalTypes(reader, localSignature, scope);
         }
 
         var handlers = ImmutableArray.CreateBuilder<HandlerRegion>(body.ExceptionRegions.Length);

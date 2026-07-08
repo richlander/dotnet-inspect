@@ -350,7 +350,7 @@ public static class CSharpBodyDiff
         typeFullName ??= reader.GetFullTypeName(type);
         typeKey ??= TypeIdentityKey(reader, typeHandle);
         string methodName = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+        var signature = GuardedDecode.MethodSignature(reader, method, GenericScope.Empty);
         string returnType = CanonicalTypeName(signature.ReturnType);
         var parameters = signature.ParameterTypes.Select(CanonicalTypeName).ToImmutableArray();
         int genericArity = method.GetGenericParameters().Count;
@@ -542,7 +542,7 @@ public static class CSharpBodyDiff
         {
             HandleKind.TypeDefinition => $"type-def:{reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)handle))}",
             HandleKind.TypeReference => $"type-ref:{reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)handle))}",
-            HandleKind.TypeSpecification => $"type-spec:{CanonicalTypeName(reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty))}",
+            HandleKind.TypeSpecification => $"type-spec:{CanonicalTypeName(GuardedDecode.TypeSpecification(reader, (TypeSpecificationHandle)handle, GenericScope.Empty))}",
             HandleKind.MethodDefinition => MethodDefinitionFingerprint(reader, (MethodDefinitionHandle)handle),
             HandleKind.MemberReference => MemberReferenceFingerprint(reader, (MemberReferenceHandle)handle),
             HandleKind.MethodSpecification => MethodSpecificationFingerprint(reader, (MethodSpecificationHandle)handle),
@@ -560,22 +560,22 @@ public static class CSharpBodyDiff
     {
         var member = reader.GetMemberReference(handle);
         string signature = member.GetKind() == MemberReferenceKind.Method
-            ? MethodSignatureFingerprint(member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty))
-            : CanonicalTypeName(member.DecodeFieldSignature(TypeRefDecoder.Instance, GenericScope.Empty));
+            ? MethodSignatureFingerprint(GuardedDecode.MethodSignature(reader, member, GenericScope.Empty))
+            : CanonicalTypeName(GuardedDecode.FieldType(reader, member, GenericScope.Empty));
         return $"member-ref:{MemberParentFingerprint(reader, member.Parent)}.{reader.GetString(member.Name)}:{signature}";
     }
 
     static string MethodSpecificationFingerprint(MetadataReader reader, MethodSpecificationHandle handle)
     {
         var spec = reader.GetMethodSpecification(handle);
-        var typeArguments = spec.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+        var typeArguments = GuardedDecode.MethodSpecArguments(reader, spec, GenericScope.Empty);
         return $"method-spec:{EntityFingerprint(reader, spec.Method)}<{string.Join(",", typeArguments.Select(CanonicalTypeName))}>";
     }
 
     static string FieldDefinitionFingerprint(MetadataReader reader, FieldDefinitionHandle handle)
     {
         var field = reader.GetFieldDefinition(handle);
-        return $"field-def:{reader.GetFullTypeName(reader.GetTypeDefinition(field.GetDeclaringType()))}.{reader.GetString(field.Name)}:{CanonicalTypeName(field.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty))}";
+        return $"field-def:{reader.GetFullTypeName(reader.GetTypeDefinition(field.GetDeclaringType()))}.{reader.GetString(field.Name)}:{CanonicalTypeName(GuardedDecode.FieldType(reader, field, GenericScope.Empty))}";
     }
 
     static string MemberParentFingerprint(MetadataReader reader, EntityHandle handle)
@@ -586,7 +586,7 @@ public static class CSharpBodyDiff
         };
 
     static string MethodSignatureFingerprint(MetadataReader reader, MethodDefinition method)
-        => MethodSignatureFingerprint(method.DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty));
+        => MethodSignatureFingerprint(GuardedDecode.MethodSignature(reader, method, GenericScope.Empty));
 
     static string MethodSignatureFingerprint(System.Reflection.Metadata.MethodSignature<TypeRef> signature)
         => $"{(signature.Header.IsInstance ? "instance" : "static")}:{signature.GenericParameterCount}:{CanonicalTypeName(signature.ReturnType)}({string.Join(",", signature.ParameterTypes.Select(CanonicalTypeName))})";
@@ -599,14 +599,14 @@ public static class CSharpBodyDiff
         var signature = reader.GetStandaloneSignature(handle);
         try
         {
-            var locals = signature.DecodeLocalSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+            var locals = GuardedDecode.LocalTypes(reader, signature, GenericScope.Empty);
             return $"locals({string.Join(",", locals.Select(CanonicalTypeName))})";
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
             try
             {
-                return $"method({MethodSignatureFingerprint(signature.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty))})";
+                return $"method({MethodSignatureFingerprint(GuardedDecode.MethodSignature(reader, signature, GenericScope.Empty))})";
             }
             catch (Exception inner) when (inner is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -716,7 +716,7 @@ public static class CSharpBodyDiff
         TypeSpecificationHandle handle,
         IReadOnlyDictionary<string, TypeDefinitionHandle> typeDefinitionsByName)
     {
-        var type = reader.GetTypeSpecification(handle).DecodeSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+        var type = GuardedDecode.TypeSpecification(reader, handle, GenericScope.Empty);
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         if (definition is not { Kind: TypeRefKind.Definition })
             return true;

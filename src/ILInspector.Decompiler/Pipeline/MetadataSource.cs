@@ -562,7 +562,7 @@ public sealed class MetadataSource : IDisposable
         {
             var field = Reader.GetFieldDefinition(fieldHandle);
             if (Reader.GetString(field.Name) == "value__")
-                return field.DecodeSignature(TypeRefDecoder.Instance, scope);
+                return GuardedDecode.FieldType(Reader, field, scope);
         }
         return null;
     }
