@@ -107,7 +107,7 @@ static class SignatureIdentity
         AliasQualifiedNameSyntax alias => SourceTypeToken(alias.Name),
         ArrayTypeSyntax array =>
             SourceTypeToken(array.ElementType)
-                + string.Concat(array.RankSpecifiers.Select(rank => $"[{new string(',', rank.Rank - 1)}]")),
+                + string.Concat(array.RankSpecifiers.Reverse().Select(rank => $"[{new string(',', rank.Rank - 1)}]")),
         PointerTypeSyntax pointer => $"{SourceTypeToken(pointer.ElementType)}*",
         NullableTypeSyntax nullable => $"{SourceTypeToken(nullable.ElementType)}?",
         RefTypeSyntax reference => $"ref {SourceTypeToken(reference.Type)}",

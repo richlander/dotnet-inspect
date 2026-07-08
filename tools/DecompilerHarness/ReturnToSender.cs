@@ -573,6 +573,20 @@ static class ReturnToSender
         return found;
     }
 
+    /// <summary>
+    /// True when <paramref name="signature"/> resolves to exactly <paramref name="expected"/>
+    /// among body-bearing same-name methods. Target discovery uses this to only attach a
+    /// signature that unambiguously round-trips, so a lossy/ambiguous normalized signature
+    /// is dropped and both metadata and source correlation fall back to the ordinal.
+    /// </summary>
+    internal static bool ResolvesUniquelyBySignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string methodName,
+        string signature,
+        MethodDefinitionHandle expected)
+        => TryFindMethodBySignature(reader, typeDef, methodName, signature) == expected;
+
     static MethodDefinitionHandle? TryFindMethod(
         MetadataReader reader,
         TypeDefinition typeDef,

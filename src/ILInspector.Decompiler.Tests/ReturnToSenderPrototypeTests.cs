@@ -1632,6 +1632,132 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void DiscoverTargets_DropsSignatureWhenNormalizationIsAmbiguous()
+    {
+        // A user type named Nullable<T> normalizes to the same `int?` token as
+        // System.Nullable<int> in metadata. The round-trip guard must drop that
+        // ambiguous signature so correlation cannot mis-select the sibling overload.
+        var assemblyPath = CompileFixture("""
+            namespace Sample { public readonly struct Nullable<T> { } }
+
+            public class Class1
+            {
+                public int Pick(Sample.Nullable<int> value) => 1;
+
+                public int Pick(int? value) => 2;
+            }
+            """);
+        try
+        {
+            var pickTargets = ReturnToSenderSourceProbe.DiscoverTargets(assemblyPath, int.MaxValue)
+                .Where(target => target.Target is { Type: "Class1", Method: "Pick" })
+                .ToArray();
+
+            Assert.Equal(2, pickTargets.Length);
+            Assert.All(pickTargets, target => Assert.Null(target.Target.Signature));
+
+            // With the signature dropped, correlation falls back to the ordinal and each
+            // overload still pairs with its own source body (no false ValidDifferent).
+            var results = ReturnToSenderSourceProbe.EvaluateTargets(
+                assemblyPath,
+                pickTargets.Select(target => target.Target).ToArray(),
+                [WriteTempSource(
+                    "NullableCollision.cs",
+                    """
+                    namespace Sample { public readonly struct Nullable<T> { } }
+
+                    public class Class1
+                    {
+                        public int Pick(Sample.Nullable<int> value) => 1;
+
+                        public int Pick(int? value) => 2;
+                    }
+                    """,
+                    out var sourceDirectory)]);
+
+            try
+            {
+                Assert.All(results, result => Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome));
+            }
+            finally
+            {
+                TryDeleteDirectory(sourceDirectory);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_MatchesMixedRankArrayOverloadsBySignature()
+    {
+        // int[][,] and int[,][] must not cross-match: source lists ranks outer-to-inner
+        // while metadata builds them inner-to-outer. With the source slice in reversed
+        // declaration order, only a rank-consistent signature pairs each overload with
+        // its own body.
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Rank(int[][,] value) => value.Length + 1;
+
+                public int Rank(int[,][] value) => value.Length + 2;
+            }
+            """);
+        var reversedSource = WriteTempSource(
+            "MixedRankArrays.cs",
+            """
+            public class Class1
+            {
+                public int Rank(int[,][] value) => value.Length + 2;
+
+                public int Rank(int[][,] value) => value.Length + 1;
+            }
+            """,
+            out var sourceDirectory);
+        try
+        {
+            var targets = ReturnToSenderSourceProbe.DiscoverTargets(assemblyPath, int.MaxValue)
+                .Where(target => target.Target is { Type: "Class1", Method: "Rank" })
+                .Select(target => target.Target)
+                .ToArray();
+
+            Assert.Equal(2, targets.Length);
+            Assert.All(targets, target => Assert.NotNull(target.Signature));
+
+            var results = ReturnToSenderSourceProbe.EvaluateTargets(assemblyPath, targets, [reversedSource]);
+
+            Assert.All(results, result => Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    static string WriteTempSource(string fileName, string source, out string directory)
+    {
+        directory = Path.Combine(Path.GetTempPath(), $"rts-signature-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, fileName);
+        File.WriteAllText(path, source);
+        return path;
+    }
+
+    static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_EmitsNestedTargetMemberRequirement()
     {
         var assemblyPath = CompileFixture("""

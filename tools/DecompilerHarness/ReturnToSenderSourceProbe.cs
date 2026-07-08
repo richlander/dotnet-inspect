@@ -665,7 +665,7 @@ static class ReturnToSenderSourceProbe
                 }
 
                 var overload = OverloadIndex(reader, type, methodHandle, methodName);
-                var signature = SignatureIdentity.ForMetadataMethod(reader, type, methodHandle);
+                var signature = UniqueTargetSignature(reader, type, methodName, methodHandle);
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, method.GetCustomAttributes(), qualifyNames: true)
@@ -693,7 +693,7 @@ static class ReturnToSenderSourceProbe
 
                 var methodName = reader.GetString(getter.Name);
                 var overload = OverloadIndex(reader, type, accessors.Getter, methodName);
-                var signature = SignatureIdentity.ForMetadataMethod(reader, type, accessors.Getter);
+                var signature = UniqueTargetSignature(reader, type, methodName, accessors.Getter);
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, property.GetCustomAttributes(), qualifyNames: true)
@@ -733,6 +733,19 @@ static class ReturnToSenderSourceProbe
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
 
     static string SigKey(string type, string method, string signature) => $"{type}::{method}{signature}";
+
+    // Only carry a signature identity that unambiguously round-trips to this exact
+    // metadata member. A lossy or ambiguous normalized signature is dropped so both
+    // metadata resolution and source correlation fall back to the ordinal.
+    static string? UniqueTargetSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string methodName,
+        MethodDefinitionHandle handle)
+        => SignatureIdentity.ForMetadataMethod(reader, typeDef, handle) is { } signature
+            && ReturnToSender.ResolvesUniquelyBySignature(reader, typeDef, methodName, signature, handle)
+                ? signature
+                : null;
 
     static string OutcomeId(ReturnToSenderSourceOutcome outcome)
         => outcome switch
