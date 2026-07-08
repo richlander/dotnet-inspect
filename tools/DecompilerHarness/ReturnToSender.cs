@@ -703,7 +703,7 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiffDiagnostic = BuildIlDiffDiagnostic(reader, pe, getter, recompiled, fullType, methodName, overload: 0);
+                var ilDiffDiagnostic = BuildIlDiffDiagnostic(pe, reader, getterHandle, recompiled, fullType, methodName, overload: 0);
 
                 if (recompiledOps is null)
                 {
@@ -861,7 +861,7 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiffDiagnostic = BuildIlDiffDiagnostic(reader, pe, method, recompiled, fullType, methodName, overload: 0);
+                var ilDiffDiagnostic = BuildIlDiffDiagnostic(pe, reader, methodHandle, recompiled, fullType, methodName, overload: 0);
 
                 if (recompiledOps is null)
                 {
@@ -1020,7 +1020,7 @@ static class ReturnToSender
                 var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
                     ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
                     .ToArray();
-                var ilDiffDiagnostic = BuildIlDiffDiagnostic(reader, pe, setter, recompiled, fullType, methodName, overload: 0);
+                var ilDiffDiagnostic = BuildIlDiffDiagnostic(pe, reader, setterHandle, recompiled, fullType, methodName, overload: 0);
 
                 if (recompiledOps is null)
                 {
@@ -1290,7 +1290,7 @@ static class ReturnToSender
             ? ILDisassembler.Disassemble(pe, found.Reader, found.Method)
             : null;
 
-    static (MetadataReader Reader, MethodDefinition Method)? FindMethodDefinition(
+    static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
         PEReader pe,
         string fullType,
         string methodName,
@@ -1314,35 +1314,35 @@ static class ReturnToSender
                     continue;
                 if (seen++ != overload)
                     continue;
-                return (reader, method);
+                return (reader, methodHandle, method);
             }
         }
 
         return null;
     }
 
-    static IlDiffDisplayResult? BuildIlDiffDiagnostic(
-        MetadataReader originalReader,
+    internal static IlDiffDisplayResult? BuildIlDiffDiagnostic(
         PEReader originalPe,
-        MethodDefinition originalMethod,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
         PEReader recompiledPe,
         string fullType,
         string methodName,
         int overload)
     {
-        if (originalMethod.RelativeVirtualAddress == 0)
-            return null;
         if (FindMethodDefinition(recompiledPe, fullType, methodName, overload) is not { } recompiled)
             return null;
-        if (recompiled.Method.RelativeVirtualAddress == 0)
-            return null;
 
-        var diff = IlBodyDiff.Compare(
+        var diff = IlAssemblyDiff.CompareMembers(
+            originalPe,
             originalReader,
-            originalPe.GetMethodBody(originalMethod.RelativeVirtualAddress),
+            originalMethod,
+            recompiledPe,
             recompiled.Reader,
-            recompiledPe.GetMethodBody(recompiled.Method.RelativeVirtualAddress));
-        var display = IlDiffPrinter.ToDisplayResult(diff);
+            recompiled.Handle,
+            oldLabel: $"{fullType}::{methodName}",
+            newLabel: $"{fullType}::{methodName}");
+        var display = IlDiffPrinter.ToDisplayResult(diff.Diff);
         return display.IsEmpty ? null : display;
     }
 
