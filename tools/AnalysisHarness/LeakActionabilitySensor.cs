@@ -231,11 +231,23 @@ public static class LeakActionabilitySensor
     // A generic type instance (e.g. Span<byte>, INumberBase<T>) names its declaring type through a
     // TypeSpecification blob; decode it to the underlying generic type name (Span`1, INumberBase`1)
     // so wrapper-skipping and member classification see a real type, not "(typespec)".
+    //
+    // SRM's SignatureDecoder.DecodeType recurses on the NATIVE stack once per nested blob element
+    // (e.g. each SZARRAY prefix) BEFORE any provider callback runs, so a pathologically deep blob
+    // StackOverflows uncatchably and kills the whole process. Blob length bounds that native depth
+    // (each level costs >= 1 byte), so refuse over-long blobs pre-decode. Real single-type TypeSpec
+    // blobs are tiny (CoreLib's largest is 57 bytes), so 1024 only trips on malformed/adversarial
+    // input. Mirrors ILInspector.Analysis.TypeRefDecoder's MaxSignatureBlobLength guard.
+    const int MaxTypeSpecBlobLength = 1024;
+
     static string TypeSpecName(MetadataReader reader, TypeSpecificationHandle handle)
     {
+        var typeSpec = reader.GetTypeSpecification(handle);
+        if (reader.GetBlobReader(typeSpec.Signature).Length > MaxTypeSpecBlobLength)
+            return "(typespec)";
         try
         {
-            return reader.GetTypeSpecification(handle).DecodeSignature(SignatureTypeNameProvider.Instance, genericContext: null);
+            return typeSpec.DecodeSignature(SignatureTypeNameProvider.Instance, genericContext: null);
         }
         catch
         {
@@ -266,7 +278,7 @@ public static class LeakActionabilitySensor
         string type = Short(declaringType);
         if (member is "op_Implicit" or "op_Explicit")
             return true;
-        if (member is ".ctor" && type is "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1")
+        if (member is ".ctor" && type is "Span" or "ReadOnlySpan" or "Memory" or "ReadOnlyMemory")
             return true;
         return member is "AsSpan" or "AsMemory" or "Slice" or "GetPinnableReference" or "GetArrayDataReference";
     }
@@ -279,7 +291,7 @@ public static class LeakActionabilitySensor
 
         // Untrusted: read / decode / parse external input.
         if (IsStreamLike(type) && m.StartsWith("Read")) return Untrusted; // Read/ReadByte/ReadAsync/ReadExactly[Async]/ReadAtLeast[Async]
-        if (type is "Decoder" && m is "GetChars" or "Convert") return Untrusted;
+        if ((type is "Decoder" || type.EndsWith("Decoder")) && m is "GetChars" or "GetString" or "Convert") return Untrusted;
         if ((type is "Encoding" || type.EndsWith("Encoding")) && m is "GetChars" or "GetString") return Untrusted;
         if (type is "Socket" && m.StartsWith("Receive")) return Untrusted;
         if (type is "TextReader" or "StreamReader" or "BinaryReader" && m.StartsWith("Read")) return Untrusted;
@@ -303,7 +315,15 @@ public static class LeakActionabilitySensor
 
     static bool IsStreamLike(string type) => type is "Stream" || type.EndsWith("Stream");
 
-    static string Short(string type) => type.Contains('.') ? type[(type.LastIndexOf('.') + 1)..] : type;
+    // Strip the namespace and any generic-arity backtick suffix so classifier checks (which use bare
+    // names like "Stream"/"Encoding"/"Span") match generic instances too (System.Span`1 -> Span).
+    static string Short(string type)
+    {
+        if (type.Contains('.'))
+            type = type[(type.LastIndexOf('.') + 1)..];
+        int tick = type.IndexOf('`');
+        return tick >= 0 ? type[..tick] : type;
+    }
 
     public static string Format(LeakActionabilityReport report, int maxExamples, LeakActionabilityFormat format)
     {
