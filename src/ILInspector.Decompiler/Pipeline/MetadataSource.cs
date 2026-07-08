@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
@@ -260,6 +261,7 @@ public sealed class MetadataSource : IDisposable
     HashSet<TypeRef>? _interfaces;
     Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
     HashSet<TypeRef>? _unionTypes;
+    HashSet<TypeRef>? _delegates;
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -275,6 +277,76 @@ public sealed class MetadataSource : IDisposable
             return TypeShape.Unknown;
         EnsureTypeMaps();
         return _shapes!.GetValueOrDefault(type, TypeShape.Unknown);
+    }
+
+    /// <summary>
+    /// The full <see cref="TypeShapeKind"/> of a type — class, struct, enum,
+    /// interface, or delegate — resolved same-assembly from the type maps or,
+    /// cross-assembly, through the metadata context. <see cref="TypeShapeKind.Unknown"/>
+    /// when no definition resolves (e.g. a cross-assembly type outside the loaded
+    /// reference closure) or the type is not a named definition. The single product
+    /// entry point that replaces per-consumer base-chain re-derivation; a richer
+    /// projection over the same reads as <see cref="ResolveShape"/>, not a parallel
+    /// resolver.
+    /// </summary>
+    public TypeShapeKind ClassifyType(TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return TypeShapeKind.Class;
+        if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
+            return TypeShapeKind.Unknown;
+
+        if (definition.Assembly == TypeRefDecoder.Canonical(AssemblyName))
+        {
+            EnsureTypeMaps();
+            if (_delegates!.Contains(definition))
+                return TypeShapeKind.Delegate;
+            if (_interfaces!.Contains(definition))
+                return TypeShapeKind.Interface;
+            return _shapes!.GetValueOrDefault(definition, TypeShape.Unknown) switch
+            {
+                TypeShape.Enum => TypeShapeKind.Enum,
+                TypeShape.ValueType => TypeShapeKind.Struct,
+                TypeShape.Reference => TypeShapeKind.Class,
+                _ => TypeShapeKind.Unknown,
+            };
+        }
+
+        return CrossAssembly.ClassifyShape(definition);
+    }
+
+    /// <summary>
+    /// <see cref="ClassifyType(TypeRef)"/> for a raw type handle
+    /// (<c>TypeDefinition</c>/<c>TypeReference</c>/<c>TypeSpecification</c>).
+    /// </summary>
+    public TypeShapeKind ClassifyType(EntityHandle handle)
+    {
+        TypeRef? type = handle.Kind switch
+        {
+            HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(Reader, (TypeDefinitionHandle)handle, 0),
+            HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(Reader, (TypeReferenceHandle)handle, 0),
+            HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(Reader, new GenericScope([], []), (TypeSpecificationHandle)handle, 0),
+            _ => null,
+        };
+        return type is null ? TypeShapeKind.Unknown : ClassifyType(type);
+    }
+
+    /// <summary>
+    /// The <see cref="TypeShapeKind"/> of the type constructed/referenced by a
+    /// constructor token: the declaring type of a <c>MethodDefinition</c> or
+    /// <c>MemberReference</c> token (a <c>newobj</c> target).
+    /// <see cref="TypeShapeKind.Unknown"/> for any other token kind.
+    /// </summary>
+    public TypeShapeKind ClassifyConstructedType(int metadataToken)
+    {
+        var handle = MetadataTokens.EntityHandle(metadataToken);
+        EntityHandle typeHandle = handle.Kind switch
+        {
+            HandleKind.MethodDefinition => Reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
+            HandleKind.MemberReference => Reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
+            _ => default,
+        };
+        return typeHandle.IsNil ? TypeShapeKind.Unknown : ClassifyType(typeHandle);
     }
 
     internal bool IsUnionType(TypeRef type)
@@ -322,6 +394,7 @@ public sealed class MetadataSource : IDisposable
         var interfaces = new HashSet<TypeRef>();
         var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
         var unionTypes = new HashSet<TypeRef>();
+        var delegates = new HashSet<TypeRef>();
         foreach (var handle in Reader.TypeDefinitions)
         {
             var typeDef = Reader.GetTypeDefinition(handle);
@@ -338,6 +411,9 @@ public sealed class MetadataSource : IDisposable
             bases[key] = DecodeBaseType(typeDef.BaseType, scope);
             if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
                 interfaces.Add(key);
+            if (!typeDef.BaseType.IsNil
+                && BaseName(typeDef.BaseType) is ("System", "MulticastDelegate") or ("System", "Delegate"))
+                delegates.Add(key);
             var impls = DecodeInterfaces(typeDef, scope);
             if (MethodDefinitionFacts.HasUnionAttribute(Reader, typeDef)
                 && impls.Any(IsUnionInterface))
@@ -356,6 +432,7 @@ public sealed class MetadataSource : IDisposable
         _interfaces = interfaces;
         _interfaceImpls = interfaceImpls;
         _unionTypes = unionTypes;
+        _delegates = delegates;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
         }
     }
