@@ -1535,12 +1535,12 @@ static class ReturnToSender
                 allowTargetRoot: true);
         }
 
-        void AddNamedMemberRequirement(TypeRef declaringType, string memberName)
+        void AddNamedMemberRequirement(TypeRef declaringType, string memberName, bool allowTargetRoot = false)
         {
             AddMemberRequirement(
                 declaringType,
                 root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, memberName),
-                allowTargetRoot: false);
+                allowTargetRoot);
         }
 
         void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
@@ -1651,7 +1651,7 @@ static class ReturnToSender
             foreach (var entry in initializer.Entries)
             {
                 if (entry.Member is { } memberName)
-                    AddNamedMemberRequirement(initializer.Creation.Constructor.DeclaringType, memberName);
+                    AddNamedMemberRequirement(initializer.Creation.Constructor.DeclaringType, memberName, allowTargetRoot: true);
             }
         }
 

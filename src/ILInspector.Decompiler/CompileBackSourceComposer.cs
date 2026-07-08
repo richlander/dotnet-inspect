@@ -663,8 +663,10 @@ public static class CompileBackSourceComposer
         ];
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
-        if (isConstructor)
-            targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function));
+        if (isConstructor && primaryConstructor is null)
+            targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: false));
+        if (methodName == ".cctor")
+            targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: true));
         if (!isConstructor
             && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
         {
@@ -1922,15 +1924,19 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         TypeDefinition typeDef,
         CompileBackTypeIdentity targetIdentity,
-        IrFunction function)
+        IrFunction function,
+        bool allowStaticStores)
     {
         var members = new List<CompileBackMemberRequirement>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var store in function.Descendants.OfType<StoreField>())
         {
-            if (store is not { HasInstance: true, Instance: LoadArgument { Index: 0 } })
+            if (store is not { HasInstance: true, Instance: LoadArgument { Index: 0 } }
+                && !(allowStaticStores && store is { HasInstance: false }))
+            {
                 continue;
+            }
             var fieldRef = store.Field;
             if (fieldRef.BackingPropertyName is not { Length: > 0 } propertyName)
                 continue;
@@ -1962,7 +1968,7 @@ public static class CompileBackSourceComposer
             members.Add(new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(targetIdentity.FullName, memberName, 0, $"property {fieldType}"),
                 CompileBackMemberKind.PropertyGet,
-                IsStatic: false,
+                field.Attributes.HasFlag(FieldAttributes.Static),
                 Parameters: [],
                 CompileBackTypeSignature.Display(fieldType),
                 TypeParameters: [],
