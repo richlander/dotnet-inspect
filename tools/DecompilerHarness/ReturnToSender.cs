@@ -544,7 +544,12 @@ static class ReturnToSender
     }
 
     static bool NeedsCompileBackFloor(Result result)
-        => result.Status is FidelityCheck.CompileBackStatus.RecompileFail or FidelityCheck.CompileBackStatus.ContextFail;
+        => result.Status is FidelityCheck.CompileBackStatus.RecompileFail or FidelityCheck.CompileBackStatus.ContextFail
+           && HasUsableFloorPayload(result);
+
+    static bool HasUsableFloorPayload(Result result)
+        => !string.IsNullOrWhiteSpace(result.Source)
+           && !string.IsNullOrWhiteSpace(result.TargetBody);
 
     static Result WithCompileBackFloor(Result result, FidelityCheck.CompileBackResult floor)
     {
