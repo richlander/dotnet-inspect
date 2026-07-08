@@ -430,6 +430,24 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ProjectsOpcodeDiffEvidence()
+    {
+        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
+            ]));
+
+        Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.CompileBackStatus);
+        Assert.Equal("valid_different.semantic_opcode_diff.syntax", result.Reason);
+        Assert.False(string.IsNullOrWhiteSpace(result.OriginalOpcodes));
+        Assert.False(string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
+        Assert.NotEmpty(result.IlDiffLines ?? []);
+        Assert.Contains(result.IlDiffLines!, line => line.StartsWith("h", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_CompilesGeneratedDynamicDelegateCallSites()
     {
         var targets = new[]
