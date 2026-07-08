@@ -293,6 +293,28 @@ public sealed class MetadataSource : IDisposable
     {
         if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
             return TypeShapeKind.Class;
+
+        var resolved = ResolveShapeKind(type);
+        if (resolved != TypeShapeKind.Unknown)
+            return resolved;
+
+        // Resolution fails for a cross-assembly type outside the reference closure
+        // (e.g. a TypeSpec-constructed Nullable<int> opened with no platform
+        // resolver). Fall back to the local signature hint the decoded TypeRef
+        // carries — the ELEMENT_TYPE_VALUETYPE/CLASS byte — so this stays at least
+        // as faithful as the legacy single-assembly newobj classifier it replaces.
+        // The byte cannot distinguish enum from struct, so a value-type hint reports
+        // Struct (constructed types are never enums).
+        return type.DeclaredValueTypeHint switch
+        {
+            ValueTypeHint.ValueType => TypeShapeKind.Struct,
+            ValueTypeHint.ReferenceType => TypeShapeKind.Class,
+            _ => TypeShapeKind.Unknown,
+        };
+    }
+
+    TypeShapeKind ResolveShapeKind(TypeRef type)
+    {
         if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
             return TypeShapeKind.Unknown;
 
