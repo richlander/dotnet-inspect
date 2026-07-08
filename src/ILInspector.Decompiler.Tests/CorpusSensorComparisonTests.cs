@@ -63,18 +63,66 @@ public class CorpusSensorComparisonTests
         Assert.Contains(regressions, regression => regression.StartsWith("fully-raised rate (pinned) dropped", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Compare_FidelityCheckedDrop_RemainsAdvisoryWhenCoverageStaysNonZero()
+    {
+        var baseline = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            fidelityCompileCap: 3,
+            fidelityCheckedMethods: 36);
+        var current = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            fidelityCompileCap: 3,
+            fidelityCheckedMethods: 21);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.DoesNotContain(regressions, regression => regression.Contains("fidelity checked methods", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_FidelityCheckedDropToZero_RemainsHardFailure()
+    {
+        var baseline = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            fidelityCompileCap: 3,
+            fidelityCheckedMethods: 36);
+        var current = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            fidelityCompileCap: 3,
+            fidelityCheckedMethods: 0);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(regressions, regression => regression.StartsWith("fidelity checked methods dropped to zero", StringComparison.Ordinal));
+    }
+
     static CorpusSensorSnapshot Snapshot(
         int totalMethods,
         int fullyRaisedMethods,
         int fullyRaisedBasisPoints,
-        IReadOnlyList<CorpusMethodSnapshot> pinnedMethods)
+        IReadOnlyList<CorpusMethodSnapshot> pinnedMethods,
+        int fidelityCompileCap = 0,
+        int fidelityCheckedMethods = 0)
     {
         return new CorpusSensorSnapshot(
             SchemaVersion: 1,
             Description: "test",
             GeneratedUtc: DateTimeOffset.UnixEpoch,
             ValidityCompileCap: 0,
-            FidelityCompileCap: 0,
+            FidelityCompileCap: fidelityCompileCap,
             MethodCap: 100,
             Tolerances: CorpusSensorTolerances.Default,
             Assemblies: [new CorpusAssemblySnapshot("Test", "test.dll", totalMethods)],
@@ -93,7 +141,7 @@ public class CorpusSensorComparisonTests
                 PassBugs: 0,
                 ResidualBuckets: ImmutableDictionary<string, int>.Empty,
                 Structuring: new StructuringSensorMetrics(0, 0, 0, 0, 0, ImmutableDictionary<string, int>.Empty),
-                Fidelity: new FidelitySensorMetrics(0, 0, 0, 0, 0, 0)));
+                Fidelity: new FidelitySensorMetrics(fidelityCheckedMethods, fidelityCheckedMethods, 0, 0, 0, 0)));
     }
 
     static IReadOnlyList<CorpusMethodSnapshot> PinnedMethods(int fullyRaised, int conditional)

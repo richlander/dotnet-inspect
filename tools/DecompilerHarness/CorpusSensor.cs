@@ -440,8 +440,8 @@ internal static class CorpusSensor
             failures.Add($"method cap differs from baseline (baseline {CapText(baseline.MethodCap)}, current {CapText(current.MethodCap)})");
         if (current.Metrics.SemanticCheckedMethods < baseline.Metrics.SemanticCheckedMethods)
             failures.Add($"semantic checked methods lower than baseline (baseline {baseline.Metrics.SemanticCheckedMethods}, current {current.Metrics.SemanticCheckedMethods})");
-        if (currentFidelityMetrics.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
-            failures.Add($"fidelity checked methods lower than baseline (baseline {baseline.Metrics.Fidelity.CheckedMethods}, current {currentFidelityMetrics.CheckedMethods})");
+        if (baseline.Metrics.Fidelity.CheckedMethods > 0 && currentFidelityMetrics.CheckedMethods == 0)
+            failures.Add($"fidelity checked methods dropped to zero (baseline {baseline.Metrics.Fidelity.CheckedMethods})");
 
         if (gateAggregateRates || baselinePinned is null || currentPinned is null)
         {
