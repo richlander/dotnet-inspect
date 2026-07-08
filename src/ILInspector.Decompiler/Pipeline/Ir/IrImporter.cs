@@ -59,6 +59,40 @@ public static class IrImporter
     public static IrFunction? Import(MetadataSource source, MethodRef method)
         => Import(source, ImporterTypeName(method.DeclaringType), method.Name);
 
+    /// <summary>
+    /// Typed evidence for a type's directly-declared interface implementations:
+    /// the <see cref="TypeRef"/> of each interface named in the type's
+    /// InterfaceImpl rows, decoded through the product's signature decoder so
+    /// every handle kind (TypeDef, TypeRef, and generic-instance TypeSpec) is
+    /// spelled uniformly. Compile-back consumers use this to seed target-type
+    /// interface closure roots without reaching into metadata themselves —
+    /// interface discovery is product knowledge, not harness knowledge.
+    /// </summary>
+    public static ImmutableArray<TypeRef> ImportImplementedInterfaces(MetadataReader reader, TypeDefinitionHandle typeHandle)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var implementations = typeDef.GetInterfaceImplementations();
+        if (implementations.Count == 0)
+            return [];
+
+        var builder = ImmutableArray.CreateBuilder<TypeRef>(implementations.Count);
+        foreach (var implementationHandle in implementations)
+        {
+            var implementation = reader.GetInterfaceImplementation(implementationHandle);
+            builder.Add(DecodeInterfaceType(reader, implementation.Interface));
+        }
+
+        return builder.ToImmutable();
+    }
+
+    static TypeRef DecodeInterfaceType(MetadataReader reader, EntityHandle interfaceHandle) => interfaceHandle.Kind switch
+    {
+        HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)interfaceHandle, 0),
+        HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)interfaceHandle, 0),
+        HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, (TypeSpecificationHandle)interfaceHandle, 0),
+        _ => TypeRef.Unsupported($"unsupported interface handle kind {interfaceHandle.Kind}"),
+    };
+
     static string ImporterTypeName(TypeRef type)
     {
         string name = type.Name.Replace('+', '.');

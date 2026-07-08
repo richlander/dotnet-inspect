@@ -1452,22 +1452,22 @@ static class ReturnToSender
 
         void AddTargetInterfaceRoots(TypeDefinitionHandle handle)
         {
-            var typeDef = reader.GetTypeDefinition(handle);
-            foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+            // Interface discovery is product knowledge: the decompiler decodes the
+            // target type's InterfaceImpl rows to typed interface refs. RTS keeps
+            // only closure-root bookkeeping — resolve each same-assembly interface
+            // definition and seed it as a root. Non-definition refs (cross-assembly
+            // TypeRefs, generic-instance TypeSpecs) are not local closure roots and
+            // fall out at TryResolveHandle, matching the prior TypeDefinition-only walk.
+            foreach (var interfaceType in IrImporter.ImportImplementedInterfaces(reader, handle))
             {
-                var implementation = reader.GetInterfaceImplementation(implementationHandle);
-                if (implementation.Interface.Kind != HandleKind.TypeDefinition)
-                    continue;
-
-                var interfaceHandle = (TypeDefinitionHandle)implementation.Interface;
-                var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
-                if (!IsSupportedClosureRoot(reader, interfaceDef))
+                if (TryResolveHandle(interfaceType) is not { } interfaceHandle)
                     continue;
 
                 var root = TopLevelRootOf(reader, interfaceHandle);
                 if (root == targetRoot)
                     continue;
 
+                var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
                 closureRoots.Add(root);
                 AddClosureFact(
                     closureFacts,
