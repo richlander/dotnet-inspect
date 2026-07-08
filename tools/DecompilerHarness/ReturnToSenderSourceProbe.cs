@@ -345,22 +345,32 @@ static class ReturnToSenderSourceProbe
             ActualBody: result.TargetBody));
     }
 
-    sealed record SourceMember(string Type, string Method, int Overload, string SourcePath, string? Body);
+    sealed record SourceMember(string Type, string Method, int Overload, string Signature, string SourcePath, string? Body);
 
     sealed class FixtureSourceIndex
     {
         readonly Dictionary<string, SourceMember> _members;
+        readonly Dictionary<string, SourceMember> _membersBySignature;
+        readonly HashSet<string> _ambiguousSignatures;
         readonly Dictionary<string, RecordSourceInfo> _recordSources;
 
-        FixtureSourceIndex(Dictionary<string, SourceMember> members, Dictionary<string, RecordSourceInfo> recordSources)
+        FixtureSourceIndex(
+            Dictionary<string, SourceMember> members,
+            Dictionary<string, SourceMember> membersBySignature,
+            HashSet<string> ambiguousSignatures,
+            Dictionary<string, RecordSourceInfo> recordSources)
         {
             _members = members;
+            _membersBySignature = membersBySignature;
+            _ambiguousSignatures = ambiguousSignatures;
             _recordSources = recordSources;
         }
 
         public static FixtureSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
         {
             var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
+            var membersBySignature = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
+            var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
             var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
             var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
             var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
@@ -373,9 +383,9 @@ static class ReturnToSenderSourceProbe
 
             var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
             foreach (var sourceFile in sourceFiles)
-                AddSourceFile(members, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+                AddSourceFile(members, membersBySignature, ambiguousSignatures, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
 
-            return new FixtureSourceIndex(members, recordSources);
+            return new FixtureSourceIndex(members, membersBySignature, ambiguousSignatures, recordSources);
         }
 
         public static FixtureSourceIndex? TryCreate(string assemblyPath)
@@ -431,7 +441,19 @@ static class ReturnToSenderSourceProbe
         }
 
         public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
-            => _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
+        {
+            if (target.Signature is { } signature)
+            {
+                var signatureKey = SigKey(target.Type, target.Method, signature);
+                if (!_ambiguousSignatures.Contains(signatureKey)
+                    && _membersBySignature.TryGetValue(signatureKey, out member!))
+                {
+                    return true;
+                }
+            }
+
+            return _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
+        }
 
         public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
         {
@@ -466,6 +488,8 @@ static class ReturnToSenderSourceProbe
 
         static void AddSourceFile(
             Dictionary<string, SourceMember> members,
+            Dictionary<string, SourceMember> membersBySignature,
+            HashSet<string> ambiguousSignatures,
             Dictionary<string, RecordSourceInfo> recordSources,
             Dictionary<string, Dictionary<string, int>> overloads,
             string sourcePath,
@@ -473,7 +497,18 @@ static class ReturnToSenderSourceProbe
             CSharpSourceIdentityContext sourceIdentity)
         {
             foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
+            {
                 members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+
+                var signatureKey = SigKey(member.Type, member.Method, member.Signature);
+                if (ambiguousSignatures.Contains(signatureKey))
+                    continue;
+                if (!membersBySignature.TryAdd(signatureKey, member))
+                {
+                    membersBySignature.Remove(signatureKey);
+                    ambiguousSignatures.Add(signatureKey);
+                }
+            }
         }
 
         static IEnumerable<SourceMember> SourceMembers(
@@ -541,7 +576,7 @@ static class ReturnToSenderSourceProbe
                 foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
                 {
                     int overload = NextOverload(overloads, sourceMember.MetadataName);
-                    yield return new SourceMember(fullType, sourceMember.MetadataName, overload, path, sourceMember.Body);
+                    yield return new SourceMember(fullType, sourceMember.MetadataName, overload, sourceMember.Signature, path, sourceMember.Body);
                 }
             }
 
@@ -630,12 +665,13 @@ static class ReturnToSenderSourceProbe
                 }
 
                 var overload = OverloadIndex(reader, type, methodHandle, methodName);
+                var signature = SignatureIdentity.ForMetadataMethod(reader, type, methodHandle);
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, method.GetCustomAttributes(), qualifyNames: true)
                     .Select(attribute => $"[{attribute}]"));
                 AddReturnAndParameterFragments(reader, method.GetParameters(), fragments);
-                targets.Add(new ProbeTarget(new ReturnToSender.RequestedTarget(fullType, methodName, overload), fragments.Distinct(StringComparer.Ordinal).ToArray()));
+                targets.Add(new ProbeTarget(new ReturnToSender.RequestedTarget(fullType, methodName, overload, signature), fragments.Distinct(StringComparer.Ordinal).ToArray()));
             }
 
             foreach (var propertyHandle in type.GetProperties())
@@ -657,12 +693,13 @@ static class ReturnToSenderSourceProbe
 
                 var methodName = reader.GetString(getter.Name);
                 var overload = OverloadIndex(reader, type, accessors.Getter, methodName);
+                var signature = SignatureIdentity.ForMetadataMethod(reader, type, accessors.Getter);
                 var fragments = new List<string>();
                 fragments.AddRange(typeFragments);
                 fragments.AddRange(AttributeReader.RenderAttributes(reader, property.GetCustomAttributes(), qualifyNames: true)
                     .Select(attribute => $"[{attribute}]"));
                 AddReturnAndParameterFragments(reader, getter.GetParameters(), fragments);
-                targets.Add(new ProbeTarget(new ReturnToSender.RequestedTarget(fullType, methodName, overload), fragments.Distinct(StringComparer.Ordinal).ToArray()));
+                targets.Add(new ProbeTarget(new ReturnToSender.RequestedTarget(fullType, methodName, overload, signature), fragments.Distinct(StringComparer.Ordinal).ToArray()));
             }
         }
 
@@ -694,6 +731,8 @@ static class ReturnToSenderSourceProbe
     }
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
+
+    static string SigKey(string type, string method, string signature) => $"{type}::{method}{signature}";
 
     static string OutcomeId(ReturnToSenderSourceOutcome outcome)
         => outcome switch

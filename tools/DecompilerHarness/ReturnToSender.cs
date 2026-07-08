@@ -36,7 +36,7 @@ static class ReturnToSender
         MemberAnchor? MemberAnchor = null,
         IReadOnlyList<DecompilerDecision>? Decisions = null);
 
-    public sealed record RequestedTarget(string Type, string Method, int Overload);
+    public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
@@ -439,7 +439,7 @@ static class ReturnToSender
                 continue;
             }
 
-            if (TryFindPropertyGetter(reader, typeDef, target.Method, target.Overload) is { } propertyTarget)
+            if (TryFindPropertyGetter(reader, typeDef, target) is { } propertyTarget)
             {
                 results.Add(CompileBackPropertyGetterOrContextFail(
                     assemblyPath,
@@ -453,7 +453,7 @@ static class ReturnToSender
                 continue;
             }
 
-            if (TryFindPropertySetter(reader, typeDef, target.Method, target.Overload) is { } setterTarget)
+            if (TryFindPropertySetter(reader, typeDef, target) is { } setterTarget)
             {
                 results.Add(CompileBackPropertySetterOrContextFail(
                     assemblyPath,
@@ -467,7 +467,7 @@ static class ReturnToSender
                 continue;
             }
 
-            if (TryFindMethod(reader, typeDef, target.Method, target.Overload) is { } methodHandle)
+            if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
             {
                 results.Add(CompileBackMethodOrContextFail(
                     assemblyPath,
@@ -486,8 +486,7 @@ static class ReturnToSender
     static (PropertyDefinitionHandle Property, MethodDefinitionHandle Getter)? TryFindPropertyGetter(
         MetadataReader reader,
         TypeDefinition typeDef,
-        string methodName,
-        int overload)
+        RequestedTarget target)
     {
         var getterToProperty = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -498,7 +497,7 @@ static class ReturnToSender
                 getterToProperty[accessors.Getter] = propertyHandle;
         }
 
-        if (TryFindMethod(reader, typeDef, methodName, overload) is { } getterHandle
+        if (TryFindMethod(reader, typeDef, target) is { } getterHandle
             && getterToProperty.TryGetValue(getterHandle, out var foundPropertyHandle))
         {
             return (foundPropertyHandle, getterHandle);
@@ -510,8 +509,7 @@ static class ReturnToSender
     static (PropertyDefinitionHandle Property, MethodDefinitionHandle Setter)? TryFindPropertySetter(
         MetadataReader reader,
         TypeDefinition typeDef,
-        string methodName,
-        int overload)
+        RequestedTarget target)
     {
         var setterToProperty = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -522,13 +520,57 @@ static class ReturnToSender
                 setterToProperty[accessors.Setter] = propertyHandle;
         }
 
-        if (TryFindMethod(reader, typeDef, methodName, overload) is { } setterHandle
+        if (TryFindMethod(reader, typeDef, target) is { } setterHandle
             && setterToProperty.TryGetValue(setterHandle, out var foundPropertyHandle))
         {
             return (foundPropertyHandle, setterHandle);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the target metadata method by normalized signature when the target
+    /// carries one (ordinal-independent), falling back to the count-all overload
+    /// ordinal when no signature is supplied or the signature is missing/ambiguous.
+    /// </summary>
+    static MethodDefinitionHandle? TryFindMethod(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        RequestedTarget target)
+    {
+        if (target.Signature is { } signature
+            && TryFindMethodBySignature(reader, typeDef, target.Method, signature) is { } bySignature)
+        {
+            return bySignature;
+        }
+
+        return TryFindMethod(reader, typeDef, target.Method, target.Overload);
+    }
+
+    static MethodDefinitionHandle? TryFindMethodBySignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string methodName,
+        string signature)
+    {
+        MethodDefinitionHandle? found = null;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName
+                || method.RelativeVirtualAddress == 0
+                || SignatureIdentity.ForMetadataMethod(reader, typeDef, methodHandle) != signature)
+            {
+                continue;
+            }
+
+            if (found is not null)
+                return null;
+            found = methodHandle;
+        }
+
+        return found;
     }
 
     static MethodDefinitionHandle? TryFindMethod(

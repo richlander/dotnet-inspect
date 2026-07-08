@@ -6,6 +6,7 @@ namespace ILInspector.DecompilerHarness;
 
 internal sealed record CSharpSourceMemberIdentity(
     string MetadataName,
+    string Signature,
     string? Body,
     IReadOnlyList<string> Evidence);
 
@@ -62,6 +63,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 method.Identifier.ValueText,
+                SignatureIdentity.ForSourceMethod(method),
                 BodyText(method),
                 MethodEvidence(method).ToArray()),
         ];
@@ -71,7 +73,11 @@ internal sealed class CSharpSourceIdentityContext
     {
         var members = new List<CSharpSourceMemberIdentity>();
         if (HasPrimaryConstructor(type))
-            members.Add(new CSharpSourceMemberIdentity(".ctor", Body: null, Evidence: ["primary-constructor"]));
+            members.Add(new CSharpSourceMemberIdentity(
+                ".ctor",
+                SignatureIdentity.ForSourceConstructor(type.ParameterList),
+                Body: null,
+                Evidence: ["primary-constructor"]));
         return members;
     }
 
@@ -82,6 +88,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 methodName,
+                SignatureIdentity.ForSourceConstructor(constructor.ParameterList),
                 BodyText(constructor),
                 ConstructorEvidence(constructor).ToArray()),
         ];
@@ -92,6 +99,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 OperatorMetadataName(op),
+                SignatureIdentity.ForSourceOperator(op),
                 BodyText(op),
                 ["operator"]),
         ];
@@ -111,6 +119,7 @@ internal sealed class CSharpSourceIdentityContext
         [
             new CSharpSourceMemberIdentity(
                 methodName,
+                SignatureIdentity.ForSourceConversion(conversion),
                 BodyText(conversion),
                 ["conversion-operator"]),
         ];
@@ -124,9 +133,17 @@ internal sealed class CSharpSourceIdentityContext
         var evidence = PropertyEvidence(property).ToArray();
         var members = new List<CSharpSourceMemberIdentity>(2);
         if (HasGetter(property))
-            members.Add(new CSharpSourceMemberIdentity($"get_{property.Identifier.ValueText}", GetterBodyText(property), evidence));
+            members.Add(new CSharpSourceMemberIdentity(
+                $"get_{property.Identifier.ValueText}",
+                SignatureIdentity.ForSourcePropertyGetter(),
+                GetterBodyText(property),
+                evidence));
         if (HasSetter(property))
-            members.Add(new CSharpSourceMemberIdentity($"set_{property.Identifier.ValueText}", SetterBodyText(property), evidence));
+            members.Add(new CSharpSourceMemberIdentity(
+                $"set_{property.Identifier.ValueText}",
+                SignatureIdentity.ForSourcePropertySetter(property.Type),
+                SetterBodyText(property),
+                evidence));
         return members;
     }
 
@@ -139,9 +156,17 @@ internal sealed class CSharpSourceIdentityContext
         var evidence = IndexerEvidence(indexer, metadataName).ToArray();
         var members = new List<CSharpSourceMemberIdentity>(2);
         if (HasGetter(indexer))
-            members.Add(new CSharpSourceMemberIdentity($"get_{metadataName}", GetterBodyText(indexer), evidence));
+            members.Add(new CSharpSourceMemberIdentity(
+                $"get_{metadataName}",
+                SignatureIdentity.ForSourceIndexerGetter(indexer.ParameterList),
+                GetterBodyText(indexer),
+                evidence));
         if (HasSetter(indexer))
-            members.Add(new CSharpSourceMemberIdentity($"set_{metadataName}", SetterBodyText(indexer), evidence));
+            members.Add(new CSharpSourceMemberIdentity(
+                $"set_{metadataName}",
+                SignatureIdentity.ForSourceIndexerSetter(indexer.ParameterList, indexer.Type),
+                SetterBodyText(indexer),
+                evidence));
         return members;
     }
 
