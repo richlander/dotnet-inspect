@@ -344,6 +344,33 @@ public static class MetadataDeclarationQuery
             RenderMemberAttributes(reader, field.GetCustomAttributes()));
     }
 
+    /// <summary>
+    /// The C# generic-constraint clause body for each in-scope generic parameter of
+    /// <paramref name="method"/> — its own parameters and its declaring type's —
+    /// keyed by parameter name (for example <c>"TOther"</c> to
+    /// <c>"INumberBase&lt;TOther&gt;"</c>). Each body already honors the C# ordering
+    /// and redundancy rules (<c>class</c>/<c>struct</c>, then base/interface
+    /// constraints, then <c>new()</c>; <c>struct</c> implies <c>new()</c> and drops
+    /// the <c>ValueType</c> base). Type parameters win over method parameters on a
+    /// name clash, since both share one scope inside a method shell. A parameter with
+    /// no constraints is omitted. This is the product-owned source of constraint
+    /// declaration facts, so consumers do not re-derive the C# rules from metadata.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> GetGenericConstraintClauses(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var clauses = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var parameter in TypeParameters(reader, typeDef.GetGenericParameters(), GenericContext.ForType(reader, typeDef)))
+            if (parameter.ConstraintsSummary is { } summary)
+                clauses[parameter.Name] = summary;
+        foreach (var parameter in MethodTypeParameters(reader, typeDef, method))
+            if (parameter.ConstraintsSummary is { } summary)
+                clauses.TryAdd(parameter.Name, summary);
+        return clauses;
+    }
+
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
     {
         var metadataFullName = TypeResolver.GetFullName(reader, typeDef);
