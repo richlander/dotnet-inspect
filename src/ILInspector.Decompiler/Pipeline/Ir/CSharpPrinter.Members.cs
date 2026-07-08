@@ -261,7 +261,16 @@ public sealed partial class CSharpPrinter
             // receiver, and the spelling recompiles to the same constrained call.
             if (call.ConstrainedTo is { } staticReceiver)
                 return $"{TypeText(staticReceiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
-            return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+            // A static call to a member of the current type needs no type
+            // qualifier — `M(args)`, not `SelfType.M(args)` — just as a this-
+            // receiver instance call drops `this.` and a same-type static method
+            // group drops its qualifier (see AddressOfMethodText). Cross-type
+            // (incl. base-declared/inherited) static calls stay qualified.
+            string staticName = $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}";
+            string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
+            return IsCrossType(call.Callee.DeclaringType)
+                ? $"{TypeText(call.Callee.DeclaringType)}.{staticName}({staticArgs})"
+                : $"{staticName}({staticArgs})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);

@@ -133,6 +133,39 @@ public sealed class CSharpPrinterReceiverTests
             """);
     }
 
+    [Fact]
+    public void StaticCall_OnCurrentType_IsUnqualified()
+    {
+        // #2497: a static call to a member of the current type needs no type
+        // qualifier — Helper(1), not Holder.Helper(1) — matching the this-receiver
+        // instance form and same-type method groups.
+        var self = TypeRef.Definition("synthetic", "", "Holder");
+        var call = new Call(
+            new MethodRef(self, "Helper", Int32Type, [Int32Type], HasThis: false),
+            isVirtual: false,
+            [new Constant(1, Int32Type)]);
+
+        string body = RenderReturn(call, Int32Type);
+
+        Assert.Contains("return Helper(1);", body);
+        Assert.DoesNotContain("Holder.Helper", body);
+    }
+
+    [Fact]
+    public void StaticCall_OnCrossType_StaysQualified()
+    {
+        // Near-miss: a static call to another type's member must remain qualified.
+        var other = TypeRef.Definition("synthetic", "", "Other");
+        var call = new Call(
+            new MethodRef(other, "Helper", Int32Type, [Int32Type], HasThis: false),
+            isVirtual: false,
+            [new Constant(1, Int32Type)]);
+
+        string body = RenderReturn(call, Int32Type);
+
+        Assert.Contains("return Other.Helper(1);", body);
+    }
+
     static MethodRef Extension(string name, TypeRef receiverType)
         => new(
             TypeRef.Definition("synthetic", "", "Extensions"),
