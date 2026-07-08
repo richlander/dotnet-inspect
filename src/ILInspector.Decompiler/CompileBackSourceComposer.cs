@@ -405,7 +405,7 @@ public static class CompileBackSourceComposer
         {
             new("metadata", "target-type", targetIdentity.FullName),
         };
-        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
         var targetMembers = new List<CompileBackMemberRequirement>
@@ -579,7 +579,7 @@ public static class CompileBackSourceComposer
         {
             new("metadata", "target-type", targetIdentity.FullName),
         };
-        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
         var indexerParameterCount = propertySignature.ParameterTypes.Length;
@@ -678,7 +678,7 @@ public static class CompileBackSourceComposer
         {
             new("metadata", "target-type", targetIdentity.FullName),
         };
-        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
         var targetMembers = isConstructor && primaryConstructor is not null

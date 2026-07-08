@@ -443,6 +443,51 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_CompilesNestedTargetRecordWithExpressionShell()
+    {
+        var fixture = CompileSourceFixture(
+            ("Outer.cs", """
+            namespace SourceProbe;
+
+            public class Outer
+            {
+                public record Point(int X, int Y)
+                {
+                    public Point ShiftY() => this with { Y = 100 };
+                }
+            }
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Outer.Point",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Outer.Point",
+                        "ShiftY",
+                        Overload: 0),
+                ]));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.Contains("public record Point", compileBack.Source);
+            Assert.DoesNotContain("public class Point", compileBack.Source);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
