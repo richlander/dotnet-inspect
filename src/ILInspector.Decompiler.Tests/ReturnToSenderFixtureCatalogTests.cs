@@ -170,6 +170,46 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_DoesNotHideResidualTriviaOnCheckedExpression()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "return left + right;",
+            "return checked(/* residual */ left + right);",
+            FidelityCheck.CompileBackStatus.Exact,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.source_shape_frontier.checked_context.exact", reason);
+        Assert.DoesNotContain("known_compiler_option", reason);
+        Assert.Contains("checked_context", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_DoesNotHideResidualTriviaOnCheckedStatement()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            """
+            checked
+            {
+                return value;
+            }
+            """,
+            """
+            /* residual */ checked
+            {
+                return value;
+            }
+            """,
+            FidelityCheck.CompileBackStatus.Exact,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.source_shape_frontier.checked_context.exact", reason);
+        Assert.DoesNotContain("known_compiler_option", reason);
+        Assert.Contains("checked_context", detail);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ClassifiesIteratorCompilerLowering()
     {
         var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(

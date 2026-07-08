@@ -813,7 +813,9 @@ static class ReturnToSenderSourceProbe
     {
         switch (shape)
         {
-            case "source_shape_frontier.checked_context" when ContextStrippedBodiesMatch(expected, actual):
+            case "source_shape_frontier.checked_context" when !ContainsCommentTrivia(expected)
+                && !ContainsCommentTrivia(actual)
+                && ContextStrippedBodiesMatch(expected, actual):
                 reason = "valid_different.known_compiler_option.checked_context";
                 detail = "decompiled body is Roslyn-valid and compile-back exact; the source delta is an intentional checked-context spelling caused by standalone compile-back losing the fixture project's checked arithmetic option";
                 return true;
@@ -822,6 +824,14 @@ static class ReturnToSenderSourceProbe
                 detail = "";
                 return false;
         }
+    }
+
+    static bool ContainsCommentTrivia(string body)
+    {
+        var tree = CSharpSyntaxTree.ParseText("class __Probe { void __M() {" + Environment.NewLine + body + Environment.NewLine + "} }");
+        return tree.GetCompilationUnitRoot()
+            .DescendantTrivia(descendIntoTrivia: true)
+            .Any(trivia => trivia.IsKind(SyntaxKind.SingleLineCommentTrivia) || trivia.IsKind(SyntaxKind.MultiLineCommentTrivia));
     }
 
     static bool ContextStrippedBodiesMatch(string expected, string actual)
