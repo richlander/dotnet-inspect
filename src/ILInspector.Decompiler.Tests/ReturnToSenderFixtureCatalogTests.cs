@@ -210,6 +210,9 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal(
             "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.__Data_e__FixedBuffer",
             CompileBackCSharpNames.Clean("ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.<Data>e__FixedBuffer"));
+        Assert.Equal(
+            "System.Runtime.CompilerServices.CallSite<___A_00000200_<System.Runtime.CompilerServices.CallSite, object, string, object>>",
+            CompileBackCSharpNames.Clean("System.Runtime.CompilerServices.CallSite<<>A{00000200}<System.Runtime.CompilerServices.CallSite, object, string, object>>"));
     }
 
     [Fact]
@@ -227,6 +230,35 @@ public class ReturnToSenderFixtureCatalogTests
             Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
             Assert.DoesNotContain("CS1525", result.Detail, StringComparison.Ordinal);
             Assert.DoesNotContain("CS0234", result.Detail, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_CompilesGeneratedDynamicDelegateCallSites()
+    {
+        var targets = new[]
+        {
+            new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicNamedOut", Overload: 0),
+            new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicRefArgument", Overload: 0),
+        };
+        var results = ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            targets);
+        var compileBack = ReturnToSender.CompileBackTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            targets);
+
+        Assert.All(results, result =>
+        {
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS0117", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS0246", result.Detail, StringComparison.Ordinal);
+        });
+        Assert.All(compileBack, result =>
+        {
+            Assert.Contains("public delegate", result.Source);
+            Assert.Contains("___A_00000200_", result.Source);
+            Assert.Contains("___A_00000040_", result.Source);
         });
     }
 
