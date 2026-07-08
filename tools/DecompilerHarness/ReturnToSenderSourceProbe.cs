@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -31,7 +32,10 @@ sealed record ReturnToSenderSourceProbeResult(
     string? Detail,
     string? SourcePath,
     string? ExpectedBody,
-    string? ActualBody)
+    string? ActualBody,
+    string? OriginalOpcodes = null,
+    string? RecompiledOpcodes = null,
+    IReadOnlyList<string>? IlDiffLines = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
@@ -96,6 +100,20 @@ static class ReturnToSenderSourceProbe
                     Console.WriteLine($"      detail: {example.Detail}");
                 if (!string.IsNullOrWhiteSpace(example.SourcePath))
                     Console.WriteLine($"      source: {example.SourcePath}");
+                if (example.CompileBackStatus == FidelityCheck.CompileBackStatus.OpcodeDiff)
+                {
+                    if (example.IlDiffLines is { Count: > 0 } diffLines)
+                    {
+                        Console.WriteLine("      il-diff:");
+                        foreach (var line in diffLines.Take(3))
+                            Console.WriteLine($"        {line}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(example.OriginalOpcodes))
+                        Console.WriteLine($"      original-opcodes  : {example.OriginalOpcodes}");
+                    if (!string.IsNullOrWhiteSpace(example.RecompiledOpcodes))
+                        Console.WriteLine($"      recompiled-opcodes: {example.RecompiledOpcodes}");
+                }
             }
         }
 
@@ -265,6 +283,7 @@ static class ReturnToSenderSourceProbe
                 result.Status,
                 result.Decisions ?? [],
                 out var classificationDetail);
+            var opcodeEvidence = OpcodeEvidence(result);
             results.Add(new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
@@ -273,11 +292,36 @@ static class ReturnToSenderSourceProbe
                 Detail: classificationDetail,
                 sourceMember.SourcePath,
                 expected,
-                actual));
+                actual,
+                OriginalOpcodes: opcodeEvidence?.OriginalOpcodes,
+                RecompiledOpcodes: opcodeEvidence?.RecompiledOpcodes,
+                IlDiffLines: opcodeEvidence?.IlDiffLines));
         }
 
         return results;
     }
+
+    static OpcodeDiffEvidence? OpcodeEvidence(ReturnToSender.Result result)
+    {
+        if (result.Status != FidelityCheck.CompileBackStatus.OpcodeDiff)
+            return null;
+
+        IReadOnlyList<string> diffLines = result.IlDiffDiagnostic is null
+            ? Array.Empty<string>()
+            : IlDiffPrinter.ToUnifiedLines(result.IlDiffDiagnostic);
+        return new OpcodeDiffEvidence(
+            NullIfWhiteSpace(result.OriginalOpcodes),
+            NullIfWhiteSpace(result.RecompiledOpcodes),
+            diffLines);
+    }
+
+    static string? NullIfWhiteSpace(string value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    sealed record OpcodeDiffEvidence(
+        string? OriginalOpcodes,
+        string? RecompiledOpcodes,
+        IReadOnlyList<string> IlDiffLines);
 
     static void WriteJson(
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
@@ -322,6 +366,9 @@ static class ReturnToSenderSourceProbe
                 source_path = result.SourcePath,
                 expected_body = result.ExpectedBody,
                 actual_body = result.ActualBody,
+                original_opcodes = result.OriginalOpcodes,
+                recompiled_opcodes = result.RecompiledOpcodes,
+                il_diff = result.IlDiffLines,
             }),
         };
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));

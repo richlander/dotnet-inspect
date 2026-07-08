@@ -174,6 +174,10 @@ frontier and compile-back status, for example
 `valid_different.compiler_lowering.iterator.opcode_diff`,
 `valid_different.known_compiler_option.checked_context`, or
 `valid_different.semantic_opcode_diff.unsafe_residual`.
+For rows whose compile-back status is `OpcodeDiff`, text examples and JSON rows
+also include the original/recompiled opcode streams plus unified IL diff lines,
+so semantic-difference buckets can be triaged without rerunning a member-specific
+probe.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape
