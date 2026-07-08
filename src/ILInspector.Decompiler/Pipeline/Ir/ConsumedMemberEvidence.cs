@@ -11,6 +11,34 @@ public readonly record struct ConsumedMemberEvidence(
     TypeRef? RecordShellType = null,
     bool AllowTargetRoot = false)
 {
+    /// <summary>
+    /// Whether this consumed member may seed a closure member requirement on the
+    /// target root itself. Construction/initialization contexts set
+    /// <see cref="AllowTargetRoot"/> directly (a constructor or initializer setter
+    /// is legitimately re-seeded there); otherwise membership follows the member
+    /// kind — constructors (reserved metadata names) and property accessors
+    /// (<see cref="MethodRef.AccessorKind"/>) are owned by their type/property and
+    /// are not re-seeded, every other member is. Member kind comes from typed
+    /// metadata evidence, so consumers such as ReturnToSender need no C#
+    /// name-prefix sniffing.
+    /// </summary>
+    public bool EffectiveAllowTargetRoot
+        => AllowTargetRoot || (Method is { } method && AllowsTargetRootMember(method));
+
+    static bool AllowsTargetRootMember(MethodRef method)
+        => method.Name is not ".ctor" and not ".cctor" && !IsPropertyAccessor(method);
+
+    // Typed accessor evidence is authoritative. Only when metadata is unresolved
+    // (AccessorKind.Unknown) fall back to the reserved get_/set_ name prefixes,
+    // mirroring PropertySugarPass's accessor-evidence handling — so an unresolved
+    // cross-assembly accessor is not misclassified as an ordinary member and
+    // re-seeded on the target root.
+    static bool IsPropertyAccessor(MethodRef method)
+        => method.AccessorKind is AccessorKind.PropertyGet or AccessorKind.PropertySet
+            || (method.AccessorKind is AccessorKind.Unknown
+                && (method.Name.StartsWith("get_", StringComparison.Ordinal)
+                    || method.Name.StartsWith("set_", StringComparison.Ordinal)));
+
     public static void AddFrom(IrNode node, List<ConsumedMemberEvidence> evidence)
     {
         switch (node)
