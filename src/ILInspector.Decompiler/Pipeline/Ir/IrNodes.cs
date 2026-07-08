@@ -178,6 +178,9 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     public string? BackingPropertyName { get; init; }
 }
 
+/// <summary>The C# method kind decoded from a reserved metadata method name: an ordinary method, an instance constructor (<c>.ctor</c>), or a static constructor (<c>.cctor</c>).</summary>
+public enum IrMethodKind { Method, Constructor, StaticConstructor }
+
 /// <summary>The root of one method's IR: signature plus a body container, with diagnostics accumulated during construction and passes.</summary>
 public sealed class IrFunction : IrNode
 {
@@ -196,6 +199,13 @@ public sealed class IrFunction : IrNode
     public int MetadataToken { get; set; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
+    /// <summary>
+    /// Typed constructor evidence decoded from the reserved metadata method name
+    /// (<c>.ctor</c>/<c>.cctor</c>) at import time. Consumers (e.g. compile-back
+    /// source composition) route this instead of re-matching the method-name
+    /// string.
+    /// </summary>
+    public IrMethodKind MethodKind { get; set; } = IrMethodKind.Method;
     public ImmutableArray<TypeRef> Locals { get; private set; }
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;

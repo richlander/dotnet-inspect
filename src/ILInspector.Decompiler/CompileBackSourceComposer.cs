@@ -668,7 +668,7 @@ public static class CompileBackSourceComposer
         var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, method));
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
-        bool isConstructor = methodName is ".ctor" or ".cctor";
+        bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
         var primaryConstructor = isConstructor
             ? PrimaryConstructorFromPrologue(reader, method, function, targetBody)
             : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
@@ -712,7 +712,7 @@ public static class CompileBackSourceComposer
         }
         if (isConstructor && primaryConstructor is null)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: false));
-        if (methodName == ".cctor")
+        if (function.MethodKind is IrMethodKind.StaticConstructor)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: true));
         if (!isConstructor
             && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
@@ -1706,7 +1706,7 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            string fieldName = AutoPropertyNameForBackingField(reader, declaringType, store.Field.Name)
+            string fieldName = store.Field.BackingPropertyName
                 ?? store.Field.Name;
             initializerTexts.Add((fieldName, parameterName));
             fieldInitializers.Add(new CompileBackMemberRequirement(
@@ -1927,8 +1927,6 @@ public static class CompileBackSourceComposer
                 continue;
             if (!IsSelfType(fieldRef.DeclaringType, targetIdentity))
                 continue;
-            if (AutoPropertyNameForBackingField(reader, typeDef, fieldRef.Name) != propertyName)
-                continue;
             if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
                 continue;
 
@@ -1995,8 +1993,6 @@ public static class CompileBackSourceComposer
                 continue;
             if (!IsSelfType(fieldRef.DeclaringType, targetIdentity))
                 continue;
-            if (AutoPropertyNameForBackingField(reader, typeDef, fieldRef.Name) != propertyName)
-                continue;
             if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
                 continue;
 
@@ -2031,21 +2027,6 @@ public static class CompileBackSourceComposer
         }
 
         return members;
-    }
-
-    static string? AutoPropertyNameForBackingField(MetadataReader reader, TypeDefinition typeDef, string fieldName)
-    {
-        if (!fieldName.StartsWith("<", StringComparison.Ordinal) || !fieldName.EndsWith(">k__BackingField", StringComparison.Ordinal))
-            return null;
-
-        string propertyName = fieldName[1..^">k__BackingField".Length];
-        foreach (var propertyHandle in typeDef.GetProperties())
-        {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            if (reader.GetString(property.Name) == propertyName)
-                return propertyName;
-        }
-        return null;
     }
 
     static int CountInstanceConstructors(MetadataReader reader, TypeDefinition typeDef)

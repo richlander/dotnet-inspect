@@ -394,7 +394,10 @@ public static class IrImporter
         var container = new BlockContainer();
         container.Add(block);
         var signature = new MethodSignature(TypeRef.Unsupported("import failed"), [], false, 0);
-        var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container);
+        var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container)
+        {
+            MethodKind = ClassifyMethodKind(methodName),
+        };
         block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
@@ -414,6 +417,7 @@ public static class IrImporter
             AssemblyPath = source.Path,
             MetadataToken = method.MetadataToken,
             BaseType = source.ResolveBaseType(method.DeclaringType),
+            MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             UsesUpdatedMemorySafetyRules = source.SimulateNewRules || ModuleUsesUpdatedMemorySafetyRules(source.Reader),
@@ -2403,6 +2407,14 @@ public static class IrImporter
 
     static FieldRef ResolveField(MetadataSource source, EntityHandle handle, GenericScope callerScope)
         => source.CrossAssembly.Upgrade(ResolveField(source.Reader, handle, callerScope));
+
+    static IrMethodKind ClassifyMethodKind(string methodName)
+        => methodName switch
+        {
+            ".cctor" => IrMethodKind.StaticConstructor,
+            ".ctor" => IrMethodKind.Constructor,
+            _ => IrMethodKind.Method,
+        };
 
     static string? BackingPropertyName(MetadataReader reader, TypeDefinition declaringType, string fieldName)
     {
