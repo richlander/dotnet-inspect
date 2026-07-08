@@ -1329,7 +1329,7 @@ public static class CompileBackSourceComposer
         string methodName,
         MethodSignature<string> targetSignature)
     {
-        var siblingName = UncheckedOperatorName(methodName);
+        var siblingName = OperatorNames.UncheckedOperator(methodName);
         if (siblingName is null)
             return null;
 
@@ -1362,19 +1362,6 @@ public static class CompileBackSourceComposer
         }
 
         return null;
-    }
-
-    static string? UncheckedOperatorName(string methodName)
-    {
-        if (methodName is "op_CheckedExplicit")
-            return "op_Explicit";
-        if (methodName is "op_CheckedImplicit")
-            return "op_Implicit";
-        if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
-            return null;
-
-        string inner = methodName["op_Checked".Length..];
-        return OperatorNames.MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
     }
 
     static bool IsRecordGeneratedFieldReadHelper(

@@ -83,4 +83,25 @@ public static class OperatorNames
         "UnaryNegation" => "-",
         _ => null
     };
+
+    /// <summary>
+    /// The unchecked operator method name paired with a checked operator method
+    /// name — <c>op_CheckedAddition → op_Addition</c>, <c>op_CheckedExplicit →
+    /// op_Explicit</c>, <c>op_CheckedImplicit → op_Implicit</c> — or null when
+    /// <paramref name="methodName"/> is not a checked operator with a defined
+    /// unchecked sibling. C# requires a checked operator's unchecked form to be
+    /// declared, so consumers pair the two when composing operator surfaces.
+    /// </summary>
+    public static string? UncheckedOperator(string methodName)
+    {
+        if (methodName is "op_CheckedExplicit")
+            return "op_Explicit";
+        if (methodName is "op_CheckedImplicit")
+            return "op_Implicit";
+        if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+            return null;
+
+        string inner = methodName["op_Checked".Length..];
+        return MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
+    }
 }

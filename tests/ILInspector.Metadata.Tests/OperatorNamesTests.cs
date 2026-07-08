@@ -75,4 +75,27 @@ public class OperatorNamesTests
     [Fact]
     public void Unknown_op_prefix_passes_through()
         => Assert.Equal("op_SomeFutureOp", OperatorNames.FormatDisplayName("op_SomeFutureOp"));
+
+    [Theory]
+    [InlineData("op_CheckedAddition", "op_Addition")]
+    [InlineData("op_CheckedSubtraction", "op_Subtraction")]
+    [InlineData("op_CheckedMultiply", "op_Multiply")]
+    [InlineData("op_CheckedDivision", "op_Division")]
+    [InlineData("op_CheckedIncrement", "op_Increment")]
+    [InlineData("op_CheckedDecrement", "op_Decrement")]
+    [InlineData("op_CheckedUnaryNegation", "op_UnaryNegation")]
+    [InlineData("op_CheckedExplicit", "op_Explicit")]
+    [InlineData("op_CheckedImplicit", "op_Implicit")]
+    public void UncheckedOperator_maps_checked_operator_to_its_sibling(string input, string expected)
+        => Assert.Equal(expected, OperatorNames.UncheckedOperator(input));
+
+    [Theory]
+    [InlineData("op_Addition")]
+    [InlineData("op_Explicit")]
+    [InlineData("op_CheckedModulus")]
+    [InlineData("op_Checked")]
+    [InlineData("get_Length")]
+    [InlineData("ToString")]
+    public void UncheckedOperator_returns_null_for_non_checked_or_unpaired_names(string input)
+        => Assert.Null(OperatorNames.UncheckedOperator(input));
 }
