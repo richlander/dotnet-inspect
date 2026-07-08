@@ -1,21 +1,21 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
-using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 
-namespace ILInspector.Decompiler;
+namespace ILInspector.Metadata;
 
 /// <summary>
-/// Guarded wrappers around the string-producing <see cref="SignatureDecoder"/> used by the
-/// compile-back / type-source composers.
+/// Guarded wrappers around the string-producing <see cref="SignatureDecoder"/> (the C# type-text
+/// provider used by the declaration-query API, the compile-back / type-source composers, and the
+/// metadata scanners).
 ///
-/// These composers decode signatures of the inspected (untrusted) assembly, so a malformed
-/// deeply-nested or huge-count signature would overflow the native stack inside SRM's
-/// <c>SignatureDecoder</c> (an uncatchable <c>StackOverflowException</c>) or trigger a
-/// multi-gigabyte pre-allocation. <see cref="SignatureBlobGuard"/> detects both before decoding,
-/// so these helpers fail closed to an unresolved placeholder type (a parseable <c>object</c>)
-/// instead of crashing. Real signatures are shallow, so the guard only trips on malformed input.
+/// These decode signatures of the inspected (untrusted) assembly, so a malformed deeply-nested or
+/// huge-count signature would overflow the native stack inside SRM's <c>SignatureDecoder</c> (an
+/// uncatchable <c>StackOverflowException</c>) or trigger a multi-gigabyte pre-allocation.
+/// <see cref="SignatureBlobGuard"/> detects both before decoding, so these helpers fail closed to
+/// an unresolved placeholder type (a parseable <c>object</c>) instead of crashing. Real signatures
+/// are shallow, so the guard only trips on malformed input.
 /// </summary>
-internal static class GuardedSignatureText
+public static class GuardedSignatureText
 {
     // A degraded but syntactically valid C# type keeps composed source parseable; a member whose
     // signature could not be decoded is already un-reconstructable, so its exact text is moot.
@@ -43,6 +43,16 @@ internal static class GuardedSignatureText
             ? spec.DecodeSignature(SignatureDecoder.Instance, context)
             : Unresolved;
     }
+
+    public static MethodSignature<string> MemberRefMethodText(MetadataReader reader, MemberReference memberRef, GenericContext? context)
+        => SignatureBlobGuard.IsSafeToDecode(reader, memberRef.Signature, SignatureBlobGuard.Kind.Method)
+            ? memberRef.DecodeMethodSignature(SignatureDecoder.Instance, context)
+            : UnresolvedMethod;
+
+    public static ImmutableArray<string> MethodSpecTypeArgs(MetadataReader reader, MethodSpecification spec, GenericContext? context)
+        => SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, SignatureBlobGuard.Kind.MethodSpecification)
+            ? spec.DecodeSignature(SignatureDecoder.Instance, context)
+            : ImmutableArray<string>.Empty;
 
     static readonly MethodSignature<string> UnresolvedMethod = new(default, Unresolved, 0, 0, []);
 }

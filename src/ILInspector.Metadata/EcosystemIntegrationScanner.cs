@@ -614,7 +614,7 @@ public static class EcosystemIntegrationScanner
             MethodSignature<string> signature;
             try
             {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                signature = GuardedSignatureText.MethodText(reader, method, context);
             }
             catch (BadImageFormatException)
             {

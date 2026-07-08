@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using ILInspector.Decompiler;
+using ILInspector.Metadata;
 
-namespace ILInspector.Decompiler.Tests;
+namespace ILInspector.Metadata.Tests;
 
 // GuardedSignatureText routes the compile-back / type-source composers' string-producing signature
 // decodes through SignatureBlobGuard, so a malformed deeply-nested signature degrades to a
