@@ -1510,6 +1510,8 @@ static class ReturnToSender
         void AddMethodFact(MethodRef method, bool allowTargetRootOverride = false)
         {
             AddSingleMethodFact(method, allowTargetRootOverride);
+            if (UncheckedOperatorName(method.Name) is { } siblingName)
+                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRootOverride);
         }
 
         void AddSingleMethodFact(MethodRef method, bool allowTargetRootOverride)
@@ -1645,6 +1647,18 @@ static class ReturnToSender
             }
         }
 
+        static string? UncheckedOperatorName(string methodName)
+        {
+            if (methodName is "op_CheckedExplicit")
+                return "op_Explicit";
+            if (methodName is "op_CheckedImplicit")
+                return "op_Implicit";
+            if (!methodName.StartsWith("op_Checked", StringComparison.Ordinal))
+                return null;
+
+            string inner = methodName["op_Checked".Length..];
+            return OperatorNames.MapBinaryOrUnary(inner) is null ? null : $"op_{inner}";
+        }
     }
 
     static Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByTypeRefIdentity(MetadataReader reader)

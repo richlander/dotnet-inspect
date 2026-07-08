@@ -2648,6 +2648,49 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesCheckedBinaryOperatorSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct CustomNumber
+            {
+                public int Value;
+
+                public CustomNumber(int value)
+                {
+                    Value = value;
+                }
+
+                public static CustomNumber operator +(CustomNumber left, CustomNumber right) => new CustomNumber(left.Value + right.Value);
+                public static CustomNumber operator checked +(CustomNumber left, CustomNumber right) => new CustomNumber(checked(left.Value + right.Value));
+            }
+
+            public class Class1
+            {
+                public CustomNumber Method1(CustomNumber left, CustomNumber right) => checked(left + right);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var number = Assert.Single(result.Plan.Types, type => type.Name == "CustomNumber");
+            Assert.Contains(number.Members, member =>
+                member.Name == "op_CheckedAddition"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_CheckedAddition"));
+            Assert.Contains(number.Members, member =>
+                member.Name == "op_Addition"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_Addition"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
