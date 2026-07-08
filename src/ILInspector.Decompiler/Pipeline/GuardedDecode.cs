@@ -53,12 +53,11 @@ internal static class GuardedDecode
             : TypeRef.Unsupported("field-reference signature nesting depth exceeded");
 
     public static TypeRef TypeSpecification(MetadataReader reader, TypeSpecificationHandle handle, GenericScope scope)
-    {
-        var spec = reader.GetTypeSpecification(handle);
-        return SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, SignatureBlobGuard.Kind.TypeSpecification)
-            ? spec.DecodeSignature(TypeRefDecoder.Instance, scope)
-            : TypeRef.Unsupported("type-specification nesting depth exceeded");
-    }
+        // Route through GetTypeFromSpecification so the TypeSpec length / cumulative caps run before
+        // SignatureBlobGuard (avoiding an O(count) work-stack on an over-long wide blob) and so the
+        // cross-blob modreq-cycle accounting also covers this top-level decode. It resolves to the
+        // same DecodeSignature(TypeRefDecoder.Instance, scope) on the success path.
+        => TypeRefDecoder.Instance.GetTypeFromSpecification(reader, scope, handle, 0);
 
     static MethodSignature<TypeRef> UnsupportedMethodSignature(string what)
         => new(default, TypeRef.Unsupported($"{what} signature nesting depth exceeded"), 0, 0, []);

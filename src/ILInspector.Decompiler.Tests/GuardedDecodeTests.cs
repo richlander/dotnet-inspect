@@ -61,6 +61,19 @@ public class GuardedDecodeTests
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
     }
 
+    [Fact]
+    public void GuardedTypeSpecification_HugeArrayShapeCount_DegradesToUnsupported()
+    {
+        // Same malformed TypeSpec through the GuardedDecode.TypeSpecification wrapper (used by the
+        // CSharpBodyDiff fingerprint paths): it must route through the hardened GetTypeFromSpecification.
+        byte[] blob = [0x14, 0x08, 0x01, 0xdf, 0xff, 0xff, 0xff];
+        var (reader, handle) = BuildTypeSpec(blob);
+
+        var result = GuardedDecode.TypeSpecification(reader, handle, GenericScope.Empty);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
     static (MetadataReader Reader, TypeSpecificationHandle Handle) BuildTypeSpec(byte[] typeBlob)
     {
         var md = NewModule();
