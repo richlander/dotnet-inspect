@@ -158,6 +158,15 @@ public sealed class MetadataDeclarationQueryTests
             new TypeParameter { Name = "T", Constraints = { "class", "new()" } }));
     }
 
+    [Fact]
+    public void IsVolatileField_DetectsVolatileModreq()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var context = GenericContext.ForType(Reader, type);
+        Assert.True(MetadataDeclarationQuery.IsVolatileField(GetField(type, "VolatileField"), context));
+        Assert.False(MetadataDeclarationQuery.IsVolatileField(GetField(type, "PlainField"), context));
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -199,6 +208,18 @@ public sealed class MetadataDeclarationQueryTests
         throw new InvalidOperationException($"Property '{name}' was not found.");
     }
 
+    static FieldDefinition GetField(TypeDefinition type, string name)
+    {
+        foreach (var handle in type.GetFields())
+        {
+            var field = Reader.GetFieldDefinition(handle);
+            if (Reader.GetString(field.Name) == name)
+                return field;
+        }
+
+        throw new InvalidOperationException($"Field '{name}' was not found.");
+    }
+
     static string StripGenericArity(string value)
     {
         var tick = value.IndexOf('`');
@@ -233,6 +254,10 @@ public class MetadataDeclarationQueryFixtures
     public int @while { get; set; }
 
     public int @event = 1;
+
+    public volatile int VolatileField;
+
+    public int PlainField;
 
     public void StructConstraint<T>() where T : struct { }
 
