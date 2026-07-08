@@ -213,7 +213,7 @@ internal static class SignatureFuzzer
             case 1: // GENERICINST with a huge or wide arg count
                 blob.Add(0x15);
                 blob.Add(0x12); // CLASS
-                blob.Add(0x06); // generic type token
+                blob.Add(0x05); // generic type token = TypeRef (SRM rejects a TypeSpec token here)
                 WriteCount(rng, blob);
                 blob.Add(0x08); // one concrete arg follows (rest are "declared but absent")
                 break;
@@ -234,7 +234,7 @@ internal static class SignatureFuzzer
             {
                 blob.Add(0x15);
                 blob.Add(0x12);
-                blob.Add(0x06);
+                blob.Add(0x05); // generic type token = TypeRef
                 int args = rng.Next(1, 100_000);
                 WriteCompressed(blob, args);
                 for (int i = 0; i < args; i++)
@@ -270,7 +270,7 @@ internal static class SignatureFuzzer
                 {
                     blob.Add(0x15); // GENERICINST
                     blob.Add(0x12); // CLASS
-                    blob.Add(0x06); // generic type token
+                    blob.Add(0x05); // generic type token = TypeRef (SRM rejects a TypeSpec token here)
                     blob.Add(0x01); // one argument, which continues the chain
                 }
                 blob.Add(0x08);
@@ -292,8 +292,8 @@ internal static class SignatureFuzzer
             }
             default: // a simple leaf
                 blob.Add((byte)new byte[] { 0x08, 0x0e, 0x1c, 0x02, 0x18, 0x11, 0x12 }[rng.Next(0, 7)]);
-                if (blob[^1] is 0x11 or 0x12) // VALUETYPE/CLASS carry a token
-                    blob.Add(0x06);
+                if (blob[^1] is 0x11 or 0x12) // VALUETYPE/CLASS carry a token (TypeRef; not TypeSpec)
+                    blob.Add(0x05);
                 break;
         }
         return blob;
