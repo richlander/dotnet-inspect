@@ -150,6 +150,18 @@ jobs:
             --max-examples 10 \
             2>&1 | tee artifacts/deep-inspect/not-my-type-census.txt
 
+      - name: Run signature fuzzer
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/deep-inspect
+          # Self-contained: generates adversarial signature blobs and drives them through
+          # SignatureBlobGuard + a real SRM decode. A guard gap aborts the process; finishing is
+          # the pass. Deterministic per seed, so a crash reproduces with --fuzz-seed.
+          dotnet run --project tools/DecompilerHarness -c Release -- \
+            --fuzz-signatures --fuzz-iterations 1000000 --fuzz-seed 1 --fuzz-log-every 50000 \
+            2>&1 | tee artifacts/deep-inspect/signature-fuzz.txt
+
       - name: Run validity predicate scan
         shell: bash
         run: |
