@@ -27,15 +27,24 @@ static class SignatureIdentity
 {
     static readonly Provider s_provider = new();
 
-    public static string ForMetadataMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle)
+    public static string? ForMetadataMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle)
     {
         var method = reader.GetMethodDefinition(handle);
         string name = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(s_provider, GenericContext.ForMethod(reader, typeDef, method));
-        return Format(
-            signature.GenericParameterCount,
-            signature.ParameterTypes,
-            IsConversionOperator(name) ? signature.ReturnType : null);
+        try
+        {
+            var signature = method.DecodeSignature(s_provider, GenericContext.ForMethod(reader, typeDef, method));
+            return Format(
+                signature.GenericParameterCount,
+                signature.ParameterTypes,
+                IsConversionOperator(name) ? signature.ReturnType : null);
+        }
+        catch (BadImageFormatException)
+        {
+            // A signature we cannot decode simply yields no signature identity, so the
+            // caller falls back to ordinal resolution rather than failing the probe.
+            return null;
+        }
     }
 
     public static string ForSourceMethod(MethodDeclarationSyntax method)
