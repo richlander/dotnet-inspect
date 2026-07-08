@@ -344,7 +344,7 @@ static class FidelityCheck
         {
             var assemblyResults = new ConcurrentBag<CompileBackResult>();
             int attempts = 0;
-            int attemptCap = perAssemblyCap * 10;
+            int attemptCap = Math.Max(perAssemblyCap * 10, 100);
             int successCount = 0;
 
             PEReader pe;
@@ -366,6 +366,9 @@ static class FidelityCheck
 
                     Parallel.ForEach(reader.TypeDefinitions, options, (typeHandle, state) =>
                     {
+                        if (IsSynthesizedType(reader, typeHandle))
+                            return;
+
                         if (Volatile.Read(ref successCount) >= perAssemblyCap)
                         {
                             state.Break();
@@ -411,6 +414,13 @@ static class FidelityCheck
                                             .ThenBy(r => r.Signature, StringComparer.Ordinal));
         }
         return results;
+    }
+
+    static bool IsSynthesizedType(MetadataReader reader, TypeDefinitionHandle typeHandle)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        string name = reader.GetString(type.Name);
+        return name.Contains('<', StringComparison.Ordinal) || name == "<Module>";
     }
 
     internal static bool IsUsefulCorpusSample(CompileBackResult result)
