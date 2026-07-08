@@ -48,6 +48,25 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void CatchAllCleanup_SuppressesExceptionPathCandidate()
+    {
+        var result = FixtureResult();
+
+        // A catch-all (`catch {}` or `catch (Exception)`) that returns the buffer protects the
+        // exception path, so no exception-path-leak-candidate (the JsonDocument.Parse FP class).
+        AssertNoCandidate(result, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn), "exception-path-leak-candidate");
+        AssertNoCandidate(result, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchExceptionReturn), "exception-path-leak-candidate");
+
+        // Near miss: a typed catch does not cover every exception type, so it stays a candidate.
+        AssertCandidate(result, nameof(ArrayPoolLeakFixtures.RentCrossCallTypedCatchReturn), "exception-path-leak-candidate");
+
+        // The fix is measurement-only: it changes no finding.
+        Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn)));
+        Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchExceptionReturn)));
+        Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallTypedCatchReturn)));
+    }
+
+    [Fact]
     public void AmbiguousArrayPoolFixtures_FailClosed()
     {
         var findings = FixtureFindings();
@@ -651,8 +670,65 @@ internal sealed class ArrayPoolLeakFixtures
         throw new InvalidOperationException(buffer.Length.ToString());
     }
 
+    // A cross-method throwing boundary returned on both the normal path and a catch-ALL cleanup
+    // (`catch {}`) - correct code with no try/finally. The exception path is protected, so it must
+    // NOT produce an exception-path-leak-candidate once catch-all cleanup is modeled (mirrors
+    // System.Text.Json's JsonDocument.Parse idiom).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RentCrossCallCatchAllReturn()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            Sink(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    // Same shape with `catch (Exception)`, which also runs for every managed exception type.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RentCrossCallCatchExceptionReturn()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            Sink(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (Exception)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
+    // Near miss: a TYPED catch only covers InvalidOperationException; another exception type from
+    // Sink would bypass it and leak, so this MUST still be an exception-path-leak-candidate.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void RentCrossCallTypedCatchReturn()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            Sink(buffer);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+        catch (InvalidOperationException)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
+    }
+
     static void ReturnHelper(byte[] buffer)
         => ArrayPool<byte>.Shared.Return(buffer);
+
+    static int Sink(byte[] buffer) => buffer.Length;
 
     static void Consume(int value)
     {
