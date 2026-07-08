@@ -273,6 +273,42 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_UsesWithExpressionSetterEvidence()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public class Class1
+            {
+                public Point ShiftY(Point point) => point with { Y = 100 };
+            }
+
+            public record Point(int X, int Y);
+            """));
+        try
+        {
+            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "ShiftY",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths));
+
+            Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
+            Assert.DoesNotContain("CS0117", result.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("CS8869", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(

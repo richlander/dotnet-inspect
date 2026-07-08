@@ -17,6 +17,7 @@ public class WithExpressionPassTests
 
         var withExpression = Assert.Single(function.Descendants.OfType<WithExpression>());
         Assert.Equal(["X"], withExpression.Members);
+        Assert.Equal("set_X", Assert.Single(withExpression.Entries).ConsumedMethod?.Name);
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreProperty>());
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), call => call.Callee.Name == "<Clone>$");
@@ -36,6 +37,7 @@ public class WithExpressionPassTests
 
         var withExpression = Assert.Single(function.Descendants.OfType<WithExpression>());
         Assert.Equal(["X", "Y"], withExpression.Members);
+        Assert.Equal(["set_X", "set_Y"], withExpression.Entries.Select(entry => entry.ConsumedMethod?.Name));
         function.CheckInvariant();
 
         var output = CSharpPrinter.Print(function).Output;

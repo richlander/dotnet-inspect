@@ -1652,6 +1652,7 @@ static class ReturnToSender
                     break;
                 case WithExpression withExpression:
                     AddRecordShellFact(withExpression.ResultType);
+                    AddInitializerEntryFacts(withExpression.Entries);
                     break;
             }
         }

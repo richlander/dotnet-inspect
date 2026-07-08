@@ -138,7 +138,7 @@ public static class CSharpDeclarationWriter
     static string RenderTypeDeclarationCore(ApiType type, CSharpDeclarationOptions options)
     {
         var parts = new List<string> { "public" };
-        if (type.Kind == "class")
+        if (type.Kind is "class" or "record")
         {
             if (type.IsStatic)
                 parts.Add("static");

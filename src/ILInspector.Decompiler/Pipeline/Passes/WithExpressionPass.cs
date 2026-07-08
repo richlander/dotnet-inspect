@@ -104,11 +104,11 @@ public sealed class WithExpressionPass : IIrPass
             when receiver.Slot == slot
                 && property.IndexArguments.Count == 0
                 && ObjectInitializerPass.IsInitializerSpellable(property)
-            => new InitializerEntry(property.PropertyName, [property.Value]),
+            => new InitializerEntry(property.PropertyName, [property.Value], ConsumedMethod: property.Accessor),
 
         StoreField { Instance: LoadStackSlot receiver } field
             when receiver.Slot == slot && CSharpNaming.IsUsableIdentifier(field.Field.Name)
-            => new InitializerEntry(field.Field.Name, [field.Value]),
+            => new InitializerEntry(field.Field.Name, [field.Value], ConsumedField: field.Field),
 
         _ => null,
     };
