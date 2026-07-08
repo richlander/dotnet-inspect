@@ -440,7 +440,7 @@ public class ReturnToSenderFixtureCatalogTests
 
         Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
         Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.CompileBackStatus);
-        Assert.Equal("valid_different.semantic_opcode_diff.syntax", result.Reason);
+        Assert.Equal("valid_different.compiler_lowering.dynamic_callsite.opcode_diff", result.Reason);
         Assert.False(string.IsNullOrWhiteSpace(result.OriginalOpcodes));
         Assert.False(string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
         Assert.NotEmpty(result.IlDiffLines ?? []);
