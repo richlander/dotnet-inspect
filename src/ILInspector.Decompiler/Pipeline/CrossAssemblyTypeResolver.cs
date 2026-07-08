@@ -466,6 +466,45 @@ internal sealed class CrossAssemblyTypeResolver
         }
     }
 
+    /// <summary>
+    /// The full <see cref="TypeShapeKind"/> of a cross-assembly type, read from
+    /// its located definition (base type + interface flag). Mirrors
+    /// <see cref="ReadValueTypeHint"/> but preserves the enum/delegate/interface
+    /// distinctions the coarse <see cref="ValueTypeHint"/> folds away. Returns
+    /// <see cref="TypeShapeKind.Unknown"/> when the definition cannot be located.
+    /// </summary>
+    public TypeShapeKind ClassifyShape(TypeRef type)
+    {
+        try
+        {
+            if (Locate(type) is not { } location
+                || _context.Open(location) is not { } assembly
+                || !assembly.TryGetType(location.FullTypeName, out var handle))
+            {
+                return TypeShapeKind.Unknown;
+            }
+
+            var typeDef = assembly.Reader.GetTypeDefinition(handle);
+            if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
+                return TypeShapeKind.Interface;
+
+            // A struct's base is System.ValueType (System.Enum for an enum), a
+            // delegate's is System.MulticastDelegate; a nil/TypeSpec base (object
+            // or a generic class base) reads as null and is a reference class.
+            return BaseTypeName(assembly.Reader, typeDef.BaseType) switch
+            {
+                "System.Enum" => TypeShapeKind.Enum,
+                "System.ValueType" => TypeShapeKind.Struct,
+                "System.MulticastDelegate" or "System.Delegate" => TypeShapeKind.Delegate,
+                _ => TypeShapeKind.Class,
+            };
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return TypeShapeKind.Unknown;
+        }
+    }
+
     ValueTypeHint ResolveValueTypeHint(TypeRef type)
     {
         if (_valueTypeCache.TryGetValue(type, out var cached))

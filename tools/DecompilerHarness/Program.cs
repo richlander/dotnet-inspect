@@ -57,6 +57,9 @@ static class Program
         bool returnAddress = false;
         string? emitReturnAddressSnapshot = null;
         string? diffReturnAddressBaseline = null;
+        bool notMyType = false;
+        string? emitNotMyTypeSnapshot = null;
+        string? diffNotMyTypeBaseline = null;
         bool censusTsv = false;
         bool censusJsonl = false;
         bool returnToSenderAb = false;
@@ -153,6 +156,13 @@ static class Program
                 case "--diff-return-address-baseline":
                     if (i + 1 >= args.Length) return Fail("--diff-return-address-baseline requires <file>.");
                     diffReturnAddressBaseline = args[++i]; returnAddress = true; break;
+                case "--not-my-type": notMyType = true; break;
+                case "--emit-not-my-type-snapshot":
+                    if (i + 1 >= args.Length) return Fail("--emit-not-my-type-snapshot requires <file>.");
+                    emitNotMyTypeSnapshot = args[++i]; notMyType = true; break;
+                case "--diff-not-my-type-baseline":
+                    if (i + 1 >= args.Length) return Fail("--diff-not-my-type-baseline requires <file>.");
+                    diffNotMyTypeBaseline = args[++i]; notMyType = true; break;
                 case "--tsv": censusTsv = true; break;
                 case "--jsonl": censusJsonl = true; break;
                 case "--return-to-sender-ab": returnToSenderAb = true; break;
@@ -325,6 +335,16 @@ static class Program
                     : RaCensusFormat.Markdown,
                 emitReturnAddressSnapshot,
                 diffReturnAddressBaseline);
+
+        if (notMyType)
+            return NotMyTypeCensus.Run(
+                assemblies,
+                maxExamples,
+                censusJsonl || json ? NmtCensusFormat.Jsonl
+                    : censusTsv ? NmtCensusFormat.Tsv
+                    : NmtCensusFormat.Markdown,
+                emitNotMyTypeSnapshot,
+                diffNotMyTypeBaseline);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
@@ -1582,6 +1602,20 @@ static class Program
                                 the agree rate regressed below baseline <f> beyond
                                 its tolerance (implies --return-address). The Deep
                                 Inspect census lane runs this as a drift gate.
+          --not-my-type           type-shape equivalence census: compare the product
+                                type-shape oracle (MetadataSource.ClassifyType) with
+                                the legacy base-name classifier the harness sites
+                                re-derive. Reports same-assembly agreement (a hard
+                                100% floor) plus cross-assembly reference recovery.
+                                Thin observer; --tsv/--jsonl select the format,
+                                --max-examples caps divergence rows. See #2548.
+          --emit-not-my-type-snapshot <f>
+                                run the not-my-type census and write a JSON baseline
+                                snapshot to <f> (implies --not-my-type).
+          --diff-not-my-type-baseline <f>
+                                run the not-my-type census and fail (exit 1) if the
+                                same-assembly agree rate regressed below baseline <f>
+                                (implies --not-my-type).
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
           --return-to-sender-source-probe

@@ -12,6 +12,18 @@ public enum StackFamily { I4, I8, F, I, O }
 public enum TypeShape { Unknown, Reference, ValueType, Enum }
 
 /// <summary>
+/// The complete C#-relevant classification of a type — richer than
+/// <see cref="TypeShape"/>, which folds interface and delegate into
+/// <see cref="TypeShape.Reference"/> because the pipeline's evaluation-stack
+/// purposes never need that distinction. This is the consumer-facing projection
+/// (<see cref="MetadataSource.ClassifyType(TypeRef)"/>) built from the same
+/// base-type reads as <see cref="TypeShape"/> — not a parallel resolver.
+/// <see cref="Unknown"/> covers the unresolved cases: a cross-assembly type with
+/// no locatable definition, or a non-type handle.
+/// </summary>
+public enum TypeShapeKind { Unknown, Class, Struct, Enum, Interface, Delegate }
+
+/// <summary>
 /// The single home for type-family classification (review consolidation:
 /// this knowledge previously lived in the importer's slot merging, the
 /// structuring pass's float detection, and three printer spellings). When
