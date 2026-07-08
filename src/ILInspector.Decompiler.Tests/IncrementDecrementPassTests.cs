@@ -92,6 +92,7 @@ public class IncrementDecrementPassTests
 
         var increment = Assert.IsType<IncrementDecrement>(Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.False(increment.IsIncrement);
+        Assert.Null(increment.ConsumedMethod);
     }
 
     [Fact]
@@ -143,7 +144,8 @@ public class IncrementDecrementPassTests
         Assert.True(increment.IsIncrement);
         Assert.False(increment.IsPrefix);
         Assert.False(increment.IsChecked);
-        Assert.Equal(["op_Increment"], increment.ConsumedMethods.Select(method => method.Name));
+        Assert.Equal("op_Increment", increment.ConsumedMethod?.Name);
+        Assert.Equal(OperatorType, increment.ConsumedMethod?.DeclaringType);
     }
 
     [Fact]
@@ -159,7 +161,6 @@ public class IncrementDecrementPassTests
         Assert.True(increment.IsIncrement);
         Assert.True(increment.IsPrefix);
         Assert.False(increment.IsChecked);
-        Assert.Equal(["op_Increment"], increment.ConsumedMethods.Select(method => method.Name));
     }
 
     [Fact]
@@ -174,7 +175,7 @@ public class IncrementDecrementPassTests
         Assert.True(increment.IsIncrement);
         Assert.True(increment.IsPrefix);
         Assert.True(increment.IsChecked);
-        Assert.Equal(["op_CheckedIncrement", "op_Increment"], increment.ConsumedMethods.Select(method => method.Name));
+        Assert.Equal("op_CheckedIncrement", increment.ConsumedMethod?.Name);
     }
 
     [Fact]
@@ -187,7 +188,6 @@ public class IncrementDecrementPassTests
         Assert.False(increment.IsIncrement);
         Assert.False(increment.IsPrefix);
         Assert.False(increment.IsChecked);
-        Assert.Equal(["op_Decrement"], increment.ConsumedMethods.Select(method => method.Name));
     }
 
     [Fact]
@@ -445,7 +445,6 @@ public class IncrementDecrementPassTests
         var stored = Assert.IsType<StoreLocal>(Assert.Single(statements));
         var increment = Assert.IsType<IncrementDecrement>(stored.Value);
         Assert.True(increment is { IsIncrement: true, IsPrefix: true, IsUserDefined: true });
-        Assert.Equal(["op_Increment"], increment.ConsumedMethods.Select(method => method.Name));
     }
 
     [Fact]
@@ -458,7 +457,8 @@ public class IncrementDecrementPassTests
         var increment = Assert.IsType<IncrementDecrement>(
             Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.True(increment is { IsIncrement: true, IsUserDefined: true, IsChecked: false });
-        Assert.Equal(["op_Increment"], increment.ConsumedMethods.Select(method => method.Name));
+        Assert.Equal("op_Increment", increment.ConsumedMethod?.Name);
+        Assert.Equal(ValueType, increment.ConsumedMethod?.DeclaringType);
     }
 
     [Fact]
@@ -471,7 +471,7 @@ public class IncrementDecrementPassTests
         var increment = Assert.IsType<IncrementDecrement>(
             Assert.IsType<ExpressionStatement>(Assert.Single(statements)).Expression);
         Assert.True(increment is { IsIncrement: false, IsUserDefined: true, IsChecked: true });
-        Assert.Equal(["op_CheckedDecrement", "op_Decrement"], increment.ConsumedMethods.Select(method => method.Name));
+        Assert.Equal("op_CheckedDecrement", increment.ConsumedMethod?.Name);
     }
 
     [Fact]

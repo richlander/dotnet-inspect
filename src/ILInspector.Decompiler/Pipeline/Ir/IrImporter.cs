@@ -59,6 +59,34 @@ public static class IrImporter
     public static IrFunction? Import(MetadataSource source, MethodRef method)
         => Import(source, ImporterTypeName(method.DeclaringType), method.Name);
 
+    /// <summary>
+    /// Typed evidence for the interfaces a type declares in its own assembly: the
+    /// <see cref="TypeRef"/> of each InterfaceImpl row whose interface is a
+    /// TypeDefinition (defined in this assembly), decoded through the product's
+    /// signature decoder. Constructed generic-instance (TypeSpec) and cross-assembly
+    /// (TypeReference) interfaces are excluded — they are never local closure roots,
+    /// and only TypeDefinition rows were ever seeded. Compile-back consumers use this
+    /// to seed target-type interface closure roots without walking metadata
+    /// themselves: interface discovery is product knowledge, not harness knowledge.
+    /// </summary>
+    public static ImmutableArray<TypeRef> ImportImplementedInterfaces(MetadataReader reader, TypeDefinitionHandle typeHandle)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var implementations = typeDef.GetInterfaceImplementations();
+        if (implementations.Count == 0)
+            return [];
+
+        var builder = ImmutableArray.CreateBuilder<TypeRef>(implementations.Count);
+        foreach (var implementationHandle in implementations)
+        {
+            var interfaceHandle = reader.GetInterfaceImplementation(implementationHandle).Interface;
+            if (interfaceHandle.Kind == HandleKind.TypeDefinition)
+                builder.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)interfaceHandle, 0));
+        }
+
+        return builder.ToImmutable();
+    }
+
     static string ImporterTypeName(TypeRef type)
     {
         string name = type.Name.Replace('+', '.');

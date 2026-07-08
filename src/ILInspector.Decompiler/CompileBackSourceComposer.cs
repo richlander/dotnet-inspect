@@ -213,6 +213,7 @@ public sealed record CompileBackTypeDeclaration(
 public enum CompileBackTypeKind
 {
     Class,
+    Record,
     Struct,
     Interface,
     Enum,
@@ -404,7 +405,7 @@ public static class CompileBackSourceComposer
         {
             new("metadata", "target-type", targetIdentity.FullName),
         };
-        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
         var targetMembers = new List<CompileBackMemberRequirement>
@@ -437,7 +438,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef),
+                ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
@@ -529,15 +530,16 @@ public static class CompileBackSourceComposer
             var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
             if (requirements.Any(requirement => requirement.Type.MetadataFullName == identity.MetadataFullName))
                 return;
+            var facts = closureFacts.TryGetValue(handle, out var foundFacts) ? foundFacts : [];
 
             requirements.Add(new CompileBackTypeRequirement(
                 identity,
-                ShellKind(reader, typeDef),
+                ShellKind(reader, typeDef, facts),
                 RequiredMembers: closureMemberRequirements.TryGetValue(handle, out var requiredMembers)
                     ? requiredMembers.ToArray()
                     : [],
                 PrimaryConstructor: null,
-                SourceFacts: closureFacts.TryGetValue(handle, out var facts)
+                SourceFacts: facts.Count != 0
                     ? facts.ToArray()
                     : handle == root
                         ? [new CompileBackFact("closure", "closure-root", identity.FullName)]
@@ -577,7 +579,7 @@ public static class CompileBackSourceComposer
         {
             new("metadata", "target-type", targetIdentity.FullName),
         };
-        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
         var indexerParameterCount = propertySignature.ParameterTypes.Length;
@@ -609,7 +611,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef),
+                ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
@@ -676,7 +678,7 @@ public static class CompileBackSourceComposer
         {
             new("metadata", "target-type", targetIdentity.FullName),
         };
-        if (closureFacts.TryGetValue(targetRoot, out var targetClosureFacts))
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
         var targetMembers = isConstructor && primaryConstructor is not null
@@ -732,7 +734,7 @@ public static class CompileBackSourceComposer
         {
             new(
                 targetIdentity,
-                ShellKind(reader, targetTypeDef),
+                ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
                 primaryConstructor,
                 targetFacts)
@@ -1046,6 +1048,7 @@ public static class CompileBackSourceComposer
             Kind = type.Kind switch
             {
                 CompileBackTypeKind.Class => "class",
+                CompileBackTypeKind.Record => "record",
                 CompileBackTypeKind.Struct => "struct",
                 CompileBackTypeKind.Interface => "interface",
                 CompileBackTypeKind.Enum => "enum",
@@ -2147,7 +2150,7 @@ public static class CompileBackSourceComposer
         return false;
     }
 
-    static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef)
+    static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef, IReadOnlyList<CompileBackFact>? facts = null)
     {
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
             return CompileBackTypeKind.Interface;
@@ -2161,7 +2164,11 @@ public static class CompileBackSourceComposer
 
         if (baseName == "System.Enum")
             return CompileBackTypeKind.Enum;
-        return baseName == "System.ValueType" ? CompileBackTypeKind.Struct : CompileBackTypeKind.Class;
+        if (baseName == "System.ValueType")
+            return CompileBackTypeKind.Struct;
+        if (facts?.Any(fact => fact.Producer == "metadata" && fact.Id == "record-shell") == true)
+            return CompileBackTypeKind.Record;
+        return CompileBackTypeKind.Class;
     }
 
     static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
@@ -2687,8 +2694,8 @@ public static class CompileBackSourceComposer
                 }
 
                 var identity = CompileBackTypeIdentity.FromDefinition(reader, nestedDef);
-                var kind = ShellKind(reader, nestedDef);
                 requirementsByMetadataName.TryGetValue(identity.MetadataFullName, out var requirement);
+                var kind = requirement?.RequiredKind ?? ShellKind(reader, nestedDef);
                 requirement ??= new CompileBackTypeRequirement(
                     identity,
                     kind,

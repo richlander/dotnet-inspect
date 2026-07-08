@@ -47,6 +47,14 @@ const string Usage =
           for #1992 - the analyzer is precision-first, so an empty card means recall (not a
           user-facing section) is the next lever. --top bounds examples per assembly.
 
+      --leak-actionability <file> [--top N] [--tsv | --jsonl]
+          Classify the leak-triage `exception-path-leak-candidate` bucket by actionability
+          (#2439), measurement-only: for each candidate, resolve the boundary members the rented
+          array flows into and bucket the candidate as untrusted-actionable (a boundary reads/
+          decodes/parses external input), trusted-low-actionability (only in-memory transforms -
+          the deliberate no-finally BCL idiom), or unknown. Changes no analyzer behavior. Formats
+          match --leak-triage; --top bounds examples per class.
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -74,6 +82,7 @@ string? annotationParityCategory = null;
 string? annotationParityExpected = null;
 string? annotationParityActual = null;
 string? leakTriageList = null;
+string? leakActionabilityList = null;
 bool tsv = false;
 bool jsonl = false;
 int top = 20;
@@ -117,6 +126,9 @@ for (int i = 0; i < args.Length; i++)
         case "--leak-triage":
             leakTriageList = NextPathValue(args, ref i);
             break;
+        case "--leak-actionability":
+            leakActionabilityList = NextPathValue(args, ref i);
+            break;
         case "--tsv":
             tsv = true;
             break;
@@ -148,11 +160,11 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
-// --tsv/--jsonl are leak-triage-specific format selectors; other modes use --json.
-// Reject them outside --leak-triage rather than silently accepting-and-ignoring them.
-if ((tsv || jsonl) && leakTriageList is null)
+// --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.
+// Reject them elsewhere rather than silently accepting-and-ignoring them.
+if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null)
 {
-    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage; other modes use --json.");
+    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage / --leak-actionability; other modes use --json.");
     return 2;
 }
 
@@ -173,6 +185,9 @@ if (annotationParityExpected is not null)
 
 if (leakTriageList is not null)
     return RunLeakTriage(leakTriageList, top, tsv, jsonl || json);
+
+if (leakActionabilityList is not null)
+    return RunLeakActionability(leakActionabilityList, top, tsv, jsonl || json);
 
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
@@ -261,6 +276,37 @@ static int RunLeakTriage(string corpusList, int top, bool tsv, bool jsonl)
 
     var report = LeakTriageSensor.Measure(paths, examplesPerAssembly: top);
     Console.Write(LeakTriageSensor.Format(report, top, format));
+    return 0;
+}
+
+static int RunLeakActionability(string corpusList, int top, bool tsv, bool jsonl)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    if (tsv && jsonl)
+    {
+        Console.Error.WriteLine("--tsv and --jsonl are mutually exclusive.");
+        return 2;
+    }
+
+    LeakActionabilityFormat format = jsonl ? LeakActionabilityFormat.Jsonl : tsv ? LeakActionabilityFormat.Tsv : LeakActionabilityFormat.Markdown;
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = LeakActionabilitySensor.Measure(paths, examplesPerAssembly: top);
+    Console.Write(LeakActionabilitySensor.Format(report, top, format));
     return 0;
 }
 

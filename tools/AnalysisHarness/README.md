@@ -156,6 +156,44 @@ model next. A 2026-07-05 run over CoreLib, `Microsoft.CodeAnalysis`, and
 assembly's three known-misuse methods surfaced exactly once each. Wire the section only once this
 card shows non-zero, high-precision rows on real assemblies.
 
+## Leak actionability corpus sensor (#2439)
+
+`--leak-actionability` classifies the leak-triage `exception-path-leak-candidate` bucket by
+**actionability**, as a [Markout](https://github.com/richlander/markout) card:
+
+```bash
+dotnet "$DLL" --leak-actionability assemblies.txt --top 5      # Markdown card (default)
+dotnet "$DLL" --leak-actionability assemblies.txt --tsv        # section-tagged TSV
+dotnet "$DLL" --leak-actionability assemblies.txt --jsonl      # one JSON record per row
+```
+
+Like `--leak-triage`, this is **measurement-only** — it changes no analyzer behavior and wires no
+product surface. For each `exception-path-leak-candidate`, it re-resolves via SRM every call the
+rented array flows into between `Rent` and the method's end, then classifies the boundary set by
+what it touches:
+
+- `untrusted-actionable` — a boundary **reads/decodes/parses external input**
+  (`Stream.Read`, `Decoder.GetChars`, `Encoding.GetString`, `Parse`/`Tokenize`/`Deserialize`):
+  genuinely actionable, since the exception is one a caller commonly catches.
+- `trusted-low-actionability` — every boundary is an **in-memory transform of validated data**
+  (`Escape`, `Encode`/`Transcode`, `Array.Copy`, format/write, `new string`): low actionability —
+  the deliberate high-perf no-`finally` BCL idiom that leaks only on a rare/invariant-violating
+  exception.
+- `unknown` — unclassified boundary; stays measurement-only.
+
+A candidate is `untrusted-actionable` if **any** boundary is untrusted, else
+`trusted-low-actionability` if any is a known in-memory transform, else `unknown`. This is the
+evidence engine for the #2439 Slice-4 decision about which exception-path candidates could graduate
+toward findings; keeping the split out of the analyzer means it never affects a user-facing
+accusation. A 2026-07-07 run over the .NET 9.0.14 shared framework (305 assemblies) classified the
+34 exception-path candidates as 6 `untrusted-actionable` (e.g. `MessagePackReader::ReadStringSlow`,
+`HashAlgorithm::ComputeHash`), 19 `trusted-low-actionability` (e.g. `Utf8JsonWriter` escape
+writers, `BinaryWriter::Write`), and 9 `unknown`.
+
+Boundary attribution is a `Rent`-to-end window scan, coarser than the analyzer's def-use set (it
+can include an unrelated call in the window); it is exact for the small single-rent methods this
+bucket is dominated by. A def-use-precise attribution is the natural follow-up.
+
 ## Allocation convergence parity
 
 The Rung 4 allocation-convergence build must prove that a candidate
