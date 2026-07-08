@@ -769,6 +769,35 @@ public class ResearchDiffTests
             && item.IlDisplayRows.Single().UnifiedLine == "h1 + IL_0001 ldc.i4 2");
     }
 
+    [Fact]
+    public void ImplementationDiff_ToIlEvidence_FallsBackWhenTypedDiffHasNoRows()
+    {
+        var typedDiff = new IlMemberDiffResult(
+            new IlMemberDiffSubject("old-id", "old-label"),
+            new IlMemberDiffSubject("new-id", "new-label"),
+            new IlBodyDiffResult(
+                IsExact: true,
+                Failure: null,
+                Rows: []));
+        var failure = new IlDiffDisplayFailureRow(
+            IlDiffFailureKind.NewBodyMissing,
+            "new body missing",
+            Side: "new",
+            Detail: "method has no body");
+        var fallback = new IlDiffDisplayResult(
+            Failure: failure.UnifiedLine,
+            Rows: [],
+            FailureRows: [failure]);
+
+        var evidence = ImplementationDiff.ToIlEvidence(typedDiff, fallback);
+
+        var row = Assert.Single(evidence);
+        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
+        Assert.Equal("method has no body", row.Detail);
+        Assert.Same(failure, row.IlDisplayFailureRow);
+        Assert.Null(row.IlMemberDiff);
+    }
+
     static ApiSurface Surface(string typeName, params ApiMember[] members)
         => new()
         {

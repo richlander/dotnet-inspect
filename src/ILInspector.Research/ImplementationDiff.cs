@@ -130,12 +130,13 @@ public static class ImplementationDiff
         IlMemberDiffResult? diff,
         IlDiffDisplayResult? fallbackDisplay = null)
     {
-        var display = diff is { } typed
-            ? IlDiffPrinter.ToDisplayResult(typed.Diff)
-            : fallbackDisplay;
-        return display is null
-            ? []
-            : ToIlEvidence(display, diff);
+        if (diff is not { } typed)
+            return fallbackDisplay is null ? [] : ToIlEvidence(fallbackDisplay);
+
+        var typedEvidence = ToIlEvidence(IlDiffPrinter.ToDisplayResult(typed.Diff), typed);
+        return typedEvidence.IsEmpty && fallbackDisplay is not null
+            ? ToIlEvidence(fallbackDisplay)
+            : typedEvidence;
     }
 
     public static ImmutableArray<ResearchDiffEvidence> ToIlEvidence(
