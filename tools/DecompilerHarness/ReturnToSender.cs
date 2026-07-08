@@ -1535,14 +1535,6 @@ static class ReturnToSender
                 allowTargetRoot: true);
         }
 
-        void AddNamedMemberRequirement(TypeRef declaringType, string memberName, bool allowTargetRoot = false)
-        {
-            AddMemberRequirement(
-                declaringType,
-                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, memberName),
-                allowTargetRoot);
-        }
-
         void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
         {
             var definition = declaringType.Kind == TypeRefKind.GenericInstance
@@ -1645,13 +1637,19 @@ static class ReturnToSender
         void AddObjectInitializerFacts(ObjectInitializerExpression initializer)
         {
             AddMethodFact(initializer.Creation.Constructor, allowTargetRootOverride: true);
-            if (initializer.IsCollection)
-                return;
+            AddInitializerEntryFacts(initializer.Entries);
+        }
 
-            foreach (var entry in initializer.Entries)
+        void AddInitializerEntryFacts(IEnumerable<InitializerEntry> entries)
+        {
+            foreach (var entry in entries)
             {
-                if (entry.Member is { } memberName)
-                    AddNamedMemberRequirement(initializer.Creation.Constructor.DeclaringType, memberName, allowTargetRoot: true);
+                if (entry.ConsumedMethod is { } method)
+                    AddMethodFact(method, allowTargetRootOverride: true);
+                if (entry.ConsumedField is { } field)
+                    AddFieldFact(field);
+                foreach (var block in entry.Arguments.OfType<InitializerBlock>())
+                    AddInitializerEntryFacts(block.Entries);
             }
         }
 

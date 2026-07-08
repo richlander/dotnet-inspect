@@ -27,6 +27,8 @@ public class ObjectInitializerPassTests
         var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.False(initializer.IsCollection);
         Assert.Equal(["X", "Y"], initializer.Members);
+        Assert.Equal(["set_X", "set_Y"], initializer.Entries.Select(entry => entry.ConsumedMethod?.Name));
+        Assert.All(initializer.Entries, entry => Assert.Null(entry.ConsumedField));
         // The creation is retained as a child so fidelity/unsafe scans still see it.
         Assert.Single(function.Descendants.OfType<NewObject>());
         // The lowered dup chain is gone.
@@ -41,6 +43,10 @@ public class ObjectInitializerPassTests
 
         Assert.False(initializer.IsCollection);
         Assert.Equal(["X", "Z"], initializer.Members);
+        Assert.Equal("set_X", initializer.Entries[0].ConsumedMethod?.Name);
+        Assert.Null(initializer.Entries[0].ConsumedField);
+        Assert.Null(initializer.Entries[1].ConsumedMethod);
+        Assert.Equal("Z", initializer.Entries[1].ConsumedField?.Name);
     }
 
     [Fact]
@@ -51,6 +57,8 @@ public class ObjectInitializerPassTests
         var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.True(initializer.IsCollection);
         Assert.Equal(3, initializer.Entries.Count);
+        Assert.All(initializer.Entries, entry => Assert.Equal("Add", entry.ConsumedMethod?.Name));
+        Assert.All(initializer.Entries, entry => Assert.Null(entry.ConsumedField));
         // No Add call survives as a standalone statement.
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
     }
@@ -235,9 +243,11 @@ public class ObjectInitializerPassTests
         // The single top-level entry is the nested member; its value is the block.
         var entry = Assert.Single(initializer.Entries);
         Assert.Equal("Inner", entry.Member);
+        Assert.Equal("get_Inner", entry.ConsumedMethod?.Name);
         var block = Assert.IsType<InitializerBlock>(Assert.Single(entry.Arguments));
         Assert.False(block.IsCollection);
         Assert.Equal(new string?[] { "X", "Y" }, block.Members);
+        Assert.Equal(["set_X", "set_Y"], block.Entries.Select(inner => inner.ConsumedMethod?.Name));
         // The nested member reads are folded away — no residual stores/loads of Inner.
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreProperty>());
@@ -252,9 +262,11 @@ public class ObjectInitializerPassTests
         Assert.False(initializer.IsCollection);  // top level assigns Items via `=`
         var entry = Assert.Single(initializer.Entries);
         Assert.Equal("Items", entry.Member);
+        Assert.Equal("get_Items", entry.ConsumedMethod?.Name);
         var block = Assert.IsType<InitializerBlock>(Assert.Single(entry.Arguments));
         Assert.True(block.IsCollection);
         Assert.Equal(2, block.Entries.Count);
+        Assert.All(block.Entries, inner => Assert.Equal("Add", inner.ConsumedMethod?.Name));
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Add");
     }
 

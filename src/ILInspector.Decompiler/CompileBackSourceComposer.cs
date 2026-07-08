@@ -324,12 +324,6 @@ public static class CompileBackSourceComposer
         FieldRef field)
         => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, field);
 
-    public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
-        MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
-        string memberName)
-        => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, memberName);
-
     public static CompileBackSourceResult ComposePropertyGetter(
         string assemblyPath,
         MetadataReader reader,
@@ -2233,27 +2227,6 @@ public static class CompileBackSourceComposer
             return FieldRequirement(reader, typeDef, typeIdentity, fieldHandle);
         }
 
-        public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
-            MetadataReader reader,
-            TypeDefinitionHandle typeHandle,
-            string memberName)
-        {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
-            if (TryFindPropertyByName(reader, typeDef, memberName) is { } propertyHandle)
-            {
-                var property = reader.GetPropertyDefinition(propertyHandle);
-                var setter = property.GetAccessors().Setter;
-                if (!setter.IsNil)
-                    return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, $"set_{memberName}");
-            }
-
-            if (FindField(reader, typeDef, memberName) is { } fieldHandle)
-                return FieldRequirement(reader, typeDef, typeIdentity, fieldHandle);
-
-            return null;
-        }
-
         static CompileBackMemberRequirement? FieldRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
@@ -2361,22 +2334,6 @@ public static class CompileBackSourceComposer
             }
 
             return null;
-        }
-
-        static PropertyDefinitionHandle? TryFindPropertyByName(
-            MetadataReader reader,
-            TypeDefinition typeDef,
-            string propertyName)
-        {
-            var matches = new List<PropertyDefinitionHandle>();
-            foreach (var propertyHandle in typeDef.GetProperties())
-            {
-                var property = reader.GetPropertyDefinition(propertyHandle);
-                if (reader.GetString(property.Name) == propertyName)
-                    matches.Add(propertyHandle);
-            }
-
-            return matches.Count == 1 ? matches[0] : null;
         }
 
         static MethodDefinitionHandle? TryFindMethod(
