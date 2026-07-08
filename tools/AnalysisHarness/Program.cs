@@ -55,6 +55,16 @@ const string Usage =
           the deliberate no-finally BCL idiom), or unknown. Changes no analyzer behavior. Formats
           match --leak-triage; --top bounds examples per class.
 
+      --memorypool-lifecycle <file> [--top N] [--tsv | --jsonl]
+          MemoryPool lifecycle census (#2439 Slice 3), measurement-only: find every
+          MemoryPool<T>.Rent site (one assembly path per line in <file>), track the returned
+          IMemoryOwner<T> through the reaching-definitions def/use web, and bucket each site as
+          disposed-in-scope (using/finally), exception-path-leak-candidate (disposed only on the
+          normal path), normal-path-leak-candidate (never disposed, never escapes),
+          ownership-transfer-suppressed (returned/stored/passed onward), or
+          incomplete-or-ambiguous-suppressed. Precision-first; changes no analyzer behavior.
+          Formats match --leak-triage; --top bounds examples per class.
+
       Common: --json machine-readable output; --keep keep generated fixture projects.
     """;
 
@@ -83,6 +93,7 @@ string? annotationParityExpected = null;
 string? annotationParityActual = null;
 string? leakTriageList = null;
 string? leakActionabilityList = null;
+string? memoryPoolLifecycleList = null;
 bool tsv = false;
 bool jsonl = false;
 int top = 20;
@@ -129,6 +140,9 @@ for (int i = 0; i < args.Length; i++)
         case "--leak-actionability":
             leakActionabilityList = NextPathValue(args, ref i);
             break;
+        case "--memorypool-lifecycle":
+            memoryPoolLifecycleList = NextPathValue(args, ref i);
+            break;
         case "--tsv":
             tsv = true;
             break;
@@ -162,9 +176,9 @@ for (int i = 0; i < args.Length; i++)
 
 // --tsv/--jsonl are tabular-format selectors for the leak cards; other modes use --json.
 // Reject them elsewhere rather than silently accepting-and-ignoring them.
-if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null)
+if ((tsv || jsonl) && leakTriageList is null && leakActionabilityList is null && memoryPoolLifecycleList is null)
 {
-    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage / --leak-actionability; other modes use --json.");
+    Console.Error.WriteLine("--tsv and --jsonl apply only to --leak-triage / --leak-actionability / --memorypool-lifecycle; other modes use --json.");
     return 2;
 }
 
@@ -188,6 +202,9 @@ if (leakTriageList is not null)
 
 if (leakActionabilityList is not null)
     return RunLeakActionability(leakActionabilityList, top, tsv, jsonl || json);
+
+if (memoryPoolLifecycleList is not null)
+    return RunMemoryPoolLifecycle(memoryPoolLifecycleList, top, tsv, jsonl || json);
 
 if (corpusList is not null)
     return RunCorpus(corpusList, diffBaseline, emitSnapshot, json);
@@ -307,6 +324,37 @@ static int RunLeakActionability(string corpusList, int top, bool tsv, bool jsonl
 
     var report = LeakActionabilitySensor.Measure(paths, examplesPerAssembly: top);
     Console.Write(LeakActionabilitySensor.Format(report, top, format));
+    return 0;
+}
+
+static int RunMemoryPoolLifecycle(string corpusList, int top, bool tsv, bool jsonl)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    if (tsv && jsonl)
+    {
+        Console.Error.WriteLine("--tsv and --jsonl are mutually exclusive.");
+        return 2;
+    }
+
+    MemoryPoolLifecycleFormat format = jsonl ? MemoryPoolLifecycleFormat.Jsonl : tsv ? MemoryPoolLifecycleFormat.Tsv : MemoryPoolLifecycleFormat.Markdown;
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = MemoryPoolLifecycleSensor.Measure(paths, examplesPerAssembly: top);
+    Console.Write(MemoryPoolLifecycleSensor.Format(report, top, format));
     return 0;
 }
 

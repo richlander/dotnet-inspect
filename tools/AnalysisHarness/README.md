@@ -194,6 +194,49 @@ Boundary attribution is a `Rent`-to-end window scan, coarser than the analyzer's
 can include an unrelated call in the window); it is exact for the small single-rent methods this
 bucket is dominated by. A def-use-precise attribution is the natural follow-up.
 
+## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
+
+`--memorypool-lifecycle` is the second resource family alongside the ArrayPool leak-triage work: a
+**measurement-only** census of `MemoryPool<T>.Rent` sites, as a
+[Markout](https://github.com/richlander/markout) card.
+
+```bash
+dotnet "$DLL" --memorypool-lifecycle assemblies.txt --top 5   # Markdown card (default)
+dotnet "$DLL" --memorypool-lifecycle assemblies.txt --tsv     # section-tagged TSV
+dotnet "$DLL" --memorypool-lifecycle assemblies.txt --jsonl   # one JSON record per row
+```
+
+For every `MemoryPool<T>.Rent` call it tracks the returned `IMemoryOwner<T>` through the shared
+reaching-definitions def/use web and buckets the site by how the owner is released:
+
+- `disposed-in-scope` — the owner is `Dispose`d in a `finally`/fault handler covering the
+  acquisition (the `using` idiom): exception-safe.
+- `exception-path-leak-candidate` — the owner is disposed, but only on the normal path (no covering
+  handler): an exception between `Rent` and `Dispose` leaks it.
+- `normal-path-leak-candidate` — the owner is never disposed and never escapes (e.g. rented then
+  popped, or rented and never used): it leaks on the normal path.
+- `ownership-transfer-suppressed` — the owner is returned, stored to a field, or passed to another
+  method/constructor: its lifetime is owned elsewhere, so no accusation.
+- `incomplete-or-ambiguous-suppressed` — incomplete CFG/RD, an address-taken or multiply-defined
+  owner slot, or an unmodeled disposition: fail-closed.
+
+Like `--leak-triage` this changes no analyzer behavior and wires no product surface, and it is
+**precision-first**: anything not provably disposed or leaked is suppressed. A run over the .NET
+9.0.14 shared framework (`Microsoft.NETCore.App` + `Microsoft.AspNetCore.App`, 308 assemblies)
+found 19 `MemoryPool<T>.Rent` sites — **all 19 `ownership-transfer-suppressed`** (the owner is
+handed to a `BufferSegment`/`DiagnosticPoolBlock`/field that owns disposal), with **zero** false
+leak accusations. Synthetic positive-control fixtures confirm every bucket fires: `using` →
+`disposed-in-scope`, normal-path `Dispose` (no `finally`) → `exception-path-leak-candidate`,
+rent-then-discard → `normal-path-leak-candidate`, and return/field/pass →
+`ownership-transfer-suppressed`.
+
+Attribution is immediate-consumer based; a fully stack-precise attribution is the natural
+follow-up. Known limitation: when the owner is kept purely on the evaluation stack (the Release
+idiom `Rent(); dup; ...; Dispose()` with no local) there is no slot for the def/use web to track,
+so the site is reported `incomplete-or-ambiguous-suppressed` rather than guessed. The
+exception-safe `using` shape always uses a local (the finally must reload the owner), so
+`disposed-in-scope` is detected regardless of optimization level.
+
 ## Allocation convergence parity
 
 The Rung 4 allocation-convergence build must prove that a candidate
