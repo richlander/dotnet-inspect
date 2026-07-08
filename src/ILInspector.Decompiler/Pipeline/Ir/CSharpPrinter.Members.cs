@@ -157,6 +157,33 @@ public sealed partial class CSharpPrinter
         return !Equals(Definition(memberDeclaringType), Definition(_function.DeclaringType));
     }
 
+    /// <summary>
+    /// True when a static-call target is the current type at its own
+    /// instantiation: the same non-generic type, or the enclosing generic type
+    /// instantiated with its own generic parameters in order
+    /// (<c>C&lt;T0, T1, …&gt;</c>). A different instantiation (<c>C&lt;string&gt;</c>)
+    /// or a method-type-parameter instantiation (<c>C&lt;!!0&gt;</c>) is a distinct
+    /// type whose static member must stay qualified — an unqualified call would
+    /// rebind to the enclosing instantiation and change which method runs.
+    /// </summary>
+    bool IsCurrentStaticScope(TypeRef calleeDeclaringType)
+    {
+        var scope = _function.DeclaringType;
+        var scopeDefinition = scope is { Kind: TypeRefKind.GenericInstance, ElementType: { } sd } ? sd : scope;
+        if (Equals(calleeDeclaringType, scope) || Equals(calleeDeclaringType, scopeDefinition))
+            return true;
+        if (calleeDeclaringType is not { Kind: TypeRefKind.GenericInstance, ElementType: { } definition }
+            || !Equals(definition, scopeDefinition))
+            return false;
+        var arguments = calleeDeclaringType.TypeArguments;
+        for (int i = 0; i < arguments.Length; i++)
+        {
+            if (arguments[i].Kind != TypeRefKind.GenericParameter || arguments[i].GenericParameterIndex != i)
+                return false;
+        }
+        return true;
+    }
+
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
     {
@@ -265,12 +292,26 @@ public sealed partial class CSharpPrinter
             // qualifier — `M(args)`, not `SelfType.M(args)` — just as a this-
             // receiver instance call drops `this.` and a same-type static method
             // group drops its qualifier (see AddressOfMethodText). Cross-type
-            // (incl. base-declared/inherited) static calls stay qualified.
-            string staticName = $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}";
+            // (incl. base-declared/inherited) static calls stay qualified. The
+            // comparison is exact (including generic instantiation): a call to a
+            // different instantiation of the current open type — e.g. `C<string>.M`
+            // from within `C<T>` — must stay qualified so it does not silently
+            // rebind to `C<T>.M`.
+            // A static call to a member of the current type needs no type
+            // qualifier — `M(args)`, not `SelfType.M(args)` — just as a this-
+            // receiver instance call drops `this.` and a same-type static method
+            // group drops its qualifier (see AddressOfMethodText). It stays
+            // qualified when the target is a different type (incl. base-declared/
+            // inherited members and a different instantiation of the enclosing
+            // generic type), or when a local/parameter shadows the name — the type
+            // qualifier is the only disambiguator for a static call (there is no
+            // `this.`), so an unqualified call would bind to the local.
+            string sourceName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            string staticName = $"{sourceName}{typeArguments}";
             string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-            return IsCrossType(call.Callee.DeclaringType)
-                ? $"{TypeText(call.Callee.DeclaringType)}.{staticName}({staticArgs})"
-                : $"{staticName}({staticArgs})";
+            return IsCurrentStaticScope(call.Callee.DeclaringType) && !IsShadowedByLocal(sourceName)
+                ? $"{staticName}({staticArgs})"
+                : $"{TypeText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
