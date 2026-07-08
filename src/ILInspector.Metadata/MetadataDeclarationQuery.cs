@@ -192,6 +192,15 @@ public static class MetadataDeclarationQuery
         return GetMethod(reader, typeDef, method, signature);
     }
 
+    public static string GetMethodReturnType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+        return FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters());
+    }
+
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -227,7 +236,7 @@ public static class MetadataDeclarationQuery
             isOverride && (attributes & MethodAttributes.Final) != 0,
             new ApiSignature
             {
-                ReturnType = signature.ReturnType,
+                ReturnType = FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters()),
                 ReturnAttributes = ReturnAttributes(reader, method.GetParameters()).ToList(),
                 MemberName = methodName,
                 TypeParameters = typeParameters.ToList(),
@@ -505,6 +514,27 @@ public static class MetadataDeclarationQuery
         }
 
         return [];
+    }
+
+    static string FormatMethodReturnType(MetadataReader reader, string returnType, ParameterHandleCollection handles)
+        => returnType.StartsWith("ref ", StringComparison.Ordinal)
+            && ReturnIsReadOnlyRef(reader, handles)
+            ? $"ref readonly {returnType["ref ".Length..]}"
+            : returnType;
+
+    static bool ReturnIsReadOnlyRef(MetadataReader reader, ParameterHandleCollection handles)
+    {
+        foreach (var handle in handles)
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber == 0
+                && (AttributeReader.HasAttribute(reader, parameter.GetCustomAttributes(), KnownAttributeNames.IsReadOnlyAttribute)
+                    || AttributeReader.HasAttribute(reader, parameter.GetCustomAttributes(), KnownAttributeNames.RequiresLocationAttribute)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static IReadOnlyList<TypeParameter> MethodTypeParameters(

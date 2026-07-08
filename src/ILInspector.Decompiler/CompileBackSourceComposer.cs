@@ -64,6 +64,7 @@ static class CompileBackCSharpNames
                     && type[i] == '*'
                     && (type[i + 1] == '<' || char.IsWhiteSpace(type[i + 1]));
                 bool bareSpelling = ((word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment)
+                    || (word == "readonly" && !qualifiedSegment && PreviousWordIsRef(type, start) && HasFollowingWord(type, i))
                     || functionPointerKeyword;
                 if (!alreadyEscaped && !bareSpelling && IsCSharpKeyword(word))
                     sb.Append('@');
@@ -77,6 +78,25 @@ static class CompileBackCSharpNames
         }
 
         return sb.ToString();
+    }
+
+    static bool PreviousWordIsRef(string text, int wordStart)
+    {
+        int i = wordStart - 1;
+        while (i >= 0 && char.IsWhiteSpace(text[i]))
+            i--;
+        int end = i + 1;
+        while (i >= 0 && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
+            i--;
+        return end > i + 1 && text[(i + 1)..end] == "ref";
+    }
+
+    static bool HasFollowingWord(string text, int wordEnd)
+    {
+        int i = wordEnd;
+        while (i < text.Length && char.IsWhiteSpace(text[i]))
+            i++;
+        return i < text.Length && (char.IsLetter(text[i]) || text[i] == '_' || text[i] == '@');
     }
 
     static bool IsPrimitiveTypeName(string name)
@@ -622,7 +642,7 @@ public static class CompileBackSourceComposer
                 isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 MethodParameters(reader, method, signature),
-                isConstructor ? null : CompileBackTypeSignature.Display(signature.ReturnType),
+                isConstructor ? null : CompileBackTypeSignature.Display(MethodReturnType(reader, targetTypeDef, method)),
                 MethodTypeParameters(reader, method),
                 CompileBackStubBodyKind.TargetBody,
                 targetBody,
@@ -1188,6 +1208,9 @@ public static class CompileBackSourceComposer
             reader,
             reader.GetTypeDefinition(method.GetDeclaringType()),
             method).Signature.ReturnAttributes;
+
+    static string MethodReturnType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+        => MetadataDeclarationQuery.GetMethodReturnType(reader, typeDef, method);
 
     static CompileBackMemberRequirement? EqualityOperatorSibling(
         MetadataReader reader,

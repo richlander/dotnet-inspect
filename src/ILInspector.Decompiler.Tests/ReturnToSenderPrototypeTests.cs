@@ -1407,6 +1407,39 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RendersRefReadonlyReturnShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public static ref readonly int SelectReadonlyRef(bool useLeft, in int left, in int right)
+                {
+                    if (useLeft)
+                    {
+                        return ref left;
+                    }
+
+                    return ref right;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "SelectReadonlyRef", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public static ref readonly int SelectReadonlyRef(bool useLeft, in int left, in int right)", result.Source);
+            Assert.DoesNotContain("ref @readonly", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsIndexerSetter()
     {
         var assemblyPath = CompileFixture("""
