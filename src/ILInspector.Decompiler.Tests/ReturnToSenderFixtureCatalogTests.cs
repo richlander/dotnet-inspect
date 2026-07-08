@@ -112,6 +112,36 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesCheckedContextSourceShapeFrontier()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "return left + right;",
+            "return checked(left + right);",
+            FidelityCheck.CompileBackStatus.Exact,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.source_shape_frontier.checked_context.exact", reason);
+        Assert.Contains("checked_context", detail);
+        Assert.Contains("Exact", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesIteratorCompilerLowering()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "yield return 1;",
+            "return new IteratorSamples._Linear_d__1(-2);",
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.compiler_lowering.iterator.opcode_diff", reason);
+        Assert.Contains("compiler_lowering.iterator", detail);
+        Assert.Contains("OpcodeDiff", detail);
+    }
+
+    [Fact]
     public void ReturnToSenderIlDiffDiagnostic_ProjectsMemberScopedDiffEvidence()
     {
         using var stream = File.OpenRead(typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location);

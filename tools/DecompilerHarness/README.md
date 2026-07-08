@@ -168,6 +168,12 @@ documented taste rule versus `valid_different.unclassified` for source deltas
 that still need analysis. Roslyn-assisted source comparison stays in the harness;
 the product decompiler owns effective options and typed decisions that explain
 intentional output choices.
+The source probe also supports `--json` for machine-readable census rows. The
+`reason` field classifies valid-but-different rows by the source-fidelity
+frontier and compile-back status, for example
+`valid_different.compiler_lowering.iterator.opcode_diff`,
+`valid_different.source_shape_frontier.checked_context.exact`, or
+`valid_different.semantic_opcode_diff.unsafe_residual`.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
 for the intended C# idiom, and a compile-back opcode verdict for semantic
 fidelity. A row can therefore be opcode-exact while still exposing a shape

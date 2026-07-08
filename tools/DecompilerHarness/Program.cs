@@ -330,7 +330,7 @@ static class Program
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (returnToSenderSourceProbe)
-            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples);
+            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1590,6 +1590,7 @@ static class Program
                                 bodies against checked-in fixture source slices;
                                 reports valid_match, valid_different, invalid,
                                 source_unavailable, and unsupported_target buckets.
+                                Use --json for machine-readable row output.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for
