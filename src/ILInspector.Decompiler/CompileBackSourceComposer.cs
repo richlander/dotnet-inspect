@@ -391,8 +391,8 @@ public static class CompileBackSourceComposer
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
         var getter = reader.GetMethodDefinition(targetGetter);
-        var signature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, targetTypeDef));
-        var getterSignature = getter.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, getter));
+        var signature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, targetTypeDef));
+        var getterSignature = GuardedSignatureText.MethodText(reader, getter, GenericContext.ForMethod(reader, targetTypeDef, getter));
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var accessors = property.GetAccessors();
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
@@ -567,7 +567,7 @@ public static class CompileBackSourceComposer
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
         var setter = reader.GetMethodDefinition(targetSetter);
-        var propertySignature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, targetTypeDef));
+        var propertySignature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, targetTypeDef));
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string propertyName = Identifier(reader.GetString(property.Name));
@@ -665,7 +665,7 @@ public static class CompileBackSourceComposer
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, targetTypeDef, method));
+        var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, targetTypeDef, method));
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
         bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
@@ -1312,7 +1312,7 @@ public static class CompileBackSourceComposer
                 continue;
             }
 
-            var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             if (!OperatorSignaturesMatch(targetSignature, signature))
                 continue;
 
@@ -1358,7 +1358,7 @@ public static class CompileBackSourceComposer
             if (reader.GetString(method.Name) != siblingName)
                 continue;
 
-            var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             if (!OperatorSignaturesMatch(targetSignature, signature))
                 continue;
 
@@ -1452,7 +1452,7 @@ public static class CompileBackSourceComposer
             IReadOnlyList<TypeRef> parameterTypes;
             try
             {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
                 parameterTypes = MethodParameterTypes(reader, typeDef, method);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
@@ -1495,7 +1495,7 @@ public static class CompileBackSourceComposer
             IReadOnlyList<TypeRef> parameterTypes;
             try
             {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
                 parameterTypes = MethodParameterTypes(reader, typeDef, method);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
@@ -1636,7 +1636,7 @@ public static class CompileBackSourceComposer
         {
             HandleKind.TypeDefinition => CompileBackTypeIdentity.FromDefinition(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)).FullName,
             HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
-            HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(SignatureDecoder.Instance, context),
+            HandleKind.TypeSpecification => GuardedSignatureText.TypeSpecText(reader, (TypeSpecificationHandle)handle, context),
             _ => null,
         };
 
@@ -1699,7 +1699,7 @@ public static class CompileBackSourceComposer
             string fieldType;
             try
             {
-                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, declaringType));
+                fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, declaringType));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -1730,7 +1730,7 @@ public static class CompileBackSourceComposer
         if (!RenderedBodyMatchesPrimaryConstructorInitializers(renderedBody, initializerTexts))
             return null;
 
-        var parameters = MethodParameters(reader, method, method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, declaringType, method)));
+        var parameters = MethodParameters(reader, method, GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, declaringType, method)));
         return new CompileBackPrimaryConstructor(
             string.Join(", ", parameters.Select(RenderParameter)),
             parameters,
@@ -1762,7 +1762,7 @@ public static class CompileBackSourceComposer
             string fieldType;
             try
             {
-                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -1941,7 +1941,7 @@ public static class CompileBackSourceComposer
             string fieldType;
             try
             {
-                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2007,7 +2007,7 @@ public static class CompileBackSourceComposer
             string fieldType;
             try
             {
-                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2085,7 +2085,7 @@ public static class CompileBackSourceComposer
                 return false;
             try
             {
-                return CompileBackTypeSignature.Display(field.DecodeSignature(SignatureDecoder.Instance, context)).DisplayName == propertyType;
+                return CompileBackTypeSignature.Display(GuardedSignatureText.FieldText(reader, field, context)).DisplayName == propertyType;
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2126,7 +2126,7 @@ public static class CompileBackSourceComposer
                 return false;
             try
             {
-                return CompileBackTypeSignature.Display(field.DecodeSignature(SignatureDecoder.Instance, context)).DisplayName == propertyType;
+                return CompileBackTypeSignature.Display(GuardedSignatureText.FieldText(reader, field, context)).DisplayName == propertyType;
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2313,7 +2313,7 @@ public static class CompileBackSourceComposer
             string fieldType;
             try
             {
-                fieldType = field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+                fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2540,7 +2540,7 @@ public static class CompileBackSourceComposer
             MethodSignature<string> signature;
             try
             {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -2657,7 +2657,7 @@ public static class CompileBackSourceComposer
                 if (reader.GetString(method.Name) != "Invoke")
                     continue;
 
-                var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
                 return new CompileBackMemberDeclaration(
                     new CompileBackMethodIdentity(typeIdentity.FullName, "Invoke", 0, MethodSignatureText("Invoke", signature)),
                     CompileBackMemberKind.Method,
@@ -2872,7 +2872,7 @@ public static class CompileBackSourceComposer
                 string fieldType;
                 try
                 {
-                    fieldType = field.DecodeSignature(SignatureDecoder.Instance, typeContext);
+                    fieldType = GuardedSignatureText.FieldText(reader, field, typeContext);
                 }
                 catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
                 {
@@ -3008,7 +3008,7 @@ public static class CompileBackSourceComposer
                 MethodSignature<string> signature;
                 try
                 {
-                    signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                    signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
                 }
                 catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
                 {
@@ -3228,7 +3228,7 @@ public static class CompileBackSourceComposer
 
                 try
                 {
-                    var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                    var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
                     if (signature.ParameterTypes.Length == 0)
                         return true;
                 }

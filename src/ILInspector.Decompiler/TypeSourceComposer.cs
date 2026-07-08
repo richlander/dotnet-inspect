@@ -286,7 +286,7 @@ public static class TypeSourceComposer
             string fieldType;
             try
             {
-                fieldType = field.DecodeSignature(SignatureDecoder.Instance, genericContext);
+                fieldType = GuardedSignatureText.FieldText(reader, field, genericContext);
             }
             catch (Exception ex)
             {
@@ -509,7 +509,7 @@ public static class TypeSourceComposer
 
             try
             {
-                var signature = property.DecodeSignature(SignatureDecoder.Instance, genericContext);
+                var signature = GuardedSignatureText.PropertyText(reader, property, genericContext);
                 hasObjectValueGetter = signature.ReturnType is "object" or "System.Object";
             }
             catch
@@ -538,7 +538,7 @@ public static class TypeSourceComposer
             MethodSignature<string> signature;
             try
             {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             }
             catch
             {
