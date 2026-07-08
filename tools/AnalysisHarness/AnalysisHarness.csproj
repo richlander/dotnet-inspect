@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
