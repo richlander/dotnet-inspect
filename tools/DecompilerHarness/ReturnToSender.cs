@@ -354,7 +354,7 @@ static class ReturnToSender
                 || typeName == "<Module>"
                 || typeName.Contains('<', StringComparison.Ordinal)
                 || typeName.Contains('`', StringComparison.Ordinal)
-                || !IsSupportedClass(reader, typeDef))
+                || !IsSupportedClass(source, typeHandle))
             {
                 continue;
             }
@@ -434,7 +434,7 @@ static class ReturnToSender
             string typeName = reader.GetString(typeDef.Name);
             if (typeName == "<Module>"
                 || typeName.Contains('<', StringComparison.Ordinal)
-                || !IsSupportedTargetType(reader, typeDef))
+                || !IsSupportedTargetType(source, typeHandle))
             {
                 continue;
             }
@@ -1228,36 +1228,11 @@ static class ReturnToSender
         return overload;
     }
 
-    static bool IsSupportedClass(MetadataReader reader, TypeDefinition typeDef)
-    {
-        if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
-            return false;
+    static bool IsSupportedClass(MetadataSource source, TypeDefinitionHandle handle)
+        => source.ClassifyType((EntityHandle)handle) == TypeShapeKind.Class;
 
-        string baseName = typeDef.BaseType.Kind switch
-        {
-            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)typeDef.BaseType)),
-            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType)),
-            _ => "",
-        };
-
-        return baseName is not "System.Enum" and not "System.ValueType"
-            and not "System.MulticastDelegate" and not "System.Delegate";
-    }
-
-    static bool IsSupportedTargetType(MetadataReader reader, TypeDefinition typeDef)
-    {
-        if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
-            return false;
-
-        string baseName = typeDef.BaseType.Kind switch
-        {
-            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)typeDef.BaseType)),
-            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType)),
-            _ => "",
-        };
-
-        return baseName is not "System.Enum" and not "System.MulticastDelegate" and not "System.Delegate";
-    }
+    static bool IsSupportedTargetType(MetadataSource source, TypeDefinitionHandle handle)
+        => source.ClassifyType((EntityHandle)handle) is TypeShapeKind.Class or TypeShapeKind.Struct;
 
     static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
     {
