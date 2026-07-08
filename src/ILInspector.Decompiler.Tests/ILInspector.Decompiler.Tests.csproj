@@ -96,8 +96,6 @@
              Link="SlotUnifierCensus.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
              Link="AnnotationCheck.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\VolatileFieldDetector.cs"
-             Link="VolatileFieldDetector.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\Completeness.cs"
              Link="Completeness.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ConditionalBranchShapeClassifier.cs"

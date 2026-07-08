@@ -158,6 +158,31 @@ public sealed class MetadataDeclarationQueryTests
             new TypeParameter { Name = "T", Constraints = { "class", "new()" } }));
     }
 
+    [Fact]
+    public void IsVolatileField_DetectsVolatileModreq()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var context = GenericContext.ForType(Reader, type);
+        Assert.True(MetadataDeclarationQuery.IsVolatileField(GetField(type, "VolatileField"), context));
+        Assert.False(MetadataDeclarationQuery.IsVolatileField(GetField(type, "PlainField"), context));
+    }
+
+    [Fact]
+    public void HasRequiredModifier_RequiresExactNamespace_NotSuffix()
+    {
+        var inner = new NamedTypeNode("System.Int32", isReferenceType: false);
+        var exact = new ModifiedTypeNode(
+            new NamedTypeNode("System.Runtime.CompilerServices.IsVolatile", isReferenceType: true), inner, isRequired: true);
+        var wrongNamespace = new ModifiedTypeNode(
+            new NamedTypeNode("Other.Namespace.IsVolatile", isReferenceType: true), inner, isRequired: true);
+        var globalNamespace = new ModifiedTypeNode(
+            new NamedTypeNode("IsVolatile", isReferenceType: true), inner, isRequired: true);
+
+        Assert.True(exact.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+        Assert.False(wrongNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+        Assert.False(globalNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+    }
+
     static TypeDefinition GetTypeDefinition(Type type)
         => Reader.GetTypeDefinition(GetTypeDefinitionHandle(type));
 
@@ -199,6 +224,18 @@ public sealed class MetadataDeclarationQueryTests
         throw new InvalidOperationException($"Property '{name}' was not found.");
     }
 
+    static FieldDefinition GetField(TypeDefinition type, string name)
+    {
+        foreach (var handle in type.GetFields())
+        {
+            var field = Reader.GetFieldDefinition(handle);
+            if (Reader.GetString(field.Name) == name)
+                return field;
+        }
+
+        throw new InvalidOperationException($"Field '{name}' was not found.");
+    }
+
     static string StripGenericArity(string value)
     {
         var tick = value.IndexOf('`');
@@ -233,6 +270,10 @@ public class MetadataDeclarationQueryFixtures
     public int @while { get; set; }
 
     public int @event = 1;
+
+    public volatile int VolatileField;
+
+    public int PlainField;
 
     public void StructConstraint<T>() where T : struct { }
 

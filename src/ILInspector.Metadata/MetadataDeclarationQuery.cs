@@ -345,6 +345,16 @@ public static class MetadataDeclarationQuery
     }
 
     /// <summary>
+    /// Whether <paramref name="field"/> is declared <c>volatile</c> — its signature carries
+    /// <c>modreq(System.Runtime.CompilerServices.IsVolatile)</c>. Reads the same custom-modifier
+    /// evidence (<see cref="TypeNode.HasRequiredModifier"/>) that the API surface uses for
+    /// <c>in</c>/<c>ref readonly</c>, so callers do not re-decode the signature to spot the modifier.
+    /// </summary>
+    public static bool IsVolatileField(FieldDefinition field, GenericContext context)
+        => field.DecodeSignature(TypeNodeProvider.Instance, context)
+            .HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile");
+
+    /// <summary>
     /// The C# generic-constraint clause body for each in-scope generic parameter of
     /// <paramref name="method"/> — its own parameters and its declaring type's —
     /// keyed by parameter name (for example <c>"TOther"</c> to
