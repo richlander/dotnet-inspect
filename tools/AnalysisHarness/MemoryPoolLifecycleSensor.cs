@@ -389,20 +389,28 @@ public static class MemoryPoolLifecycleSensor
 
     static bool IsCall(ILOpCode op) => op is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj;
 
-    // True when a potentially-throwing call sits in [fromOffset, toOffset). Only a real call
-    // (call/callvirt/newobj/calli) is counted as the throwing operation - the conservative signal
-    // that an exception could occur between acquisition and a normal-path dispose (an exception-path
-    // leak). Non-call ops that could also throw are ignored so the leak accusation stays precise.
+    // True when a potentially-throwing call is GUARANTEED to execute between the acquisition and a
+    // normal-path dispose - i.e. the window [fromOffset, toOffset) is a single straight-line run
+    // (every instruction falls through, none branches) that contains a call. Requiring straight-line
+    // control flow is what makes this sound with only linear IL order: if any instruction in the
+    // window branches, a physically-intervening call might execute on a different path (e.g. a later
+    // loop iteration) than the one reaching this dispose, so we cannot confirm a throwing gap and
+    // fail closed (suppress) rather than risk a false leak accusation. Only a real call
+    // (call/callvirt/newobj/calli) is the throwing signal.
     static bool HasThrowingCallBetween(ImmutableArray<DecodedInstruction> instructions, int fromOffset, int toOffset)
     {
+        bool sawCall = false;
         foreach (var instruction in instructions)
         {
             if (instruction.Offset < fromOffset || instruction.Offset >= toOffset)
                 continue;
+            // Any branch or non-fallthrough in the window breaks the straight-line guarantee.
+            if (instruction.Branches || !instruction.FallsThrough)
+                return false;
             if (instruction.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Calli)
-                return true;
+                sawCall = true;
         }
-        return false;
+        return sawCall;
     }
 
     static bool IsFieldStore(ILOpCode op) => op is ILOpCode.Stfld or ILOpCode.Stsfld;
