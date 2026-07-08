@@ -241,19 +241,28 @@ public static class MemoryPoolLifecycleSensor
         if (uses.Any(u => u.Address))
             return (Ambiguous, "Owner slot is address-taken.");
 
-        bool disposedProtected = false, disposedInCatch = false, disposedNormal = false, escaped = false, hasUse = false;
+        bool disposedProtected = false, disposedInCatch = false, disposedNormal = false,
+             disposedImmediate = false, escaped = false, hasUse = false;
         int ownerReadyOffset = next.NextOffset;
         foreach (var use in uses)
         {
             hasUse = true;
             switch (ConsumerOf(reader, instructions, use.Offset))
             {
-                case (UseDisposition.Dispose, int disposeOffset):
-                    switch (DisposeLocation(regions, ownerReadyOffset, disposeOffset))
+                case (UseDisposition.Dispose, int _):
+                    switch (DisposeLocation(regions, ownerReadyOffset, use.Offset))
                     {
                         case DisposeSite.Protected: disposedProtected = true; break;
                         case DisposeSite.InCatch: disposedInCatch = true; break;
-                        default: disposedNormal = true; break;
+                        default:
+                            // A normal-path dispose only leaks if a potentially-throwing call sits
+                            // between acquisition and the dispose. With no such gap (e.g. an
+                            // immediate `Rent(); owner.Dispose();`), no exception can bypass it.
+                            if (HasThrowingCallBetween(instructions, ownerReadyOffset, use.Offset))
+                                disposedNormal = true;
+                            else
+                                disposedImmediate = true;
+                            break;
                     }
                     break;
                 case (UseDisposition.Escape, _):
@@ -274,8 +283,9 @@ public static class MemoryPoolLifecycleSensor
         // beats a normal-path dispose because the callee may take ownership (disposing here would
         // then be ambiguous, not a clean leak). A dispose inside a catch handler means the
         // exception path is handled somewhere, so we do not accuse a leak. A dispose solely on the
-        // normal path, with no handler and no escape, is an exception-path leak. An owner that is
-        // only read (or never used) and never disposed or escaped leaks on the normal path.
+        // normal path with a throwing call between acquisition and dispose is an exception-path
+        // leak; an immediate dispose with no such gap is safe. An owner that is only read (or never
+        // used) and never disposed or escaped leaks on the normal path.
         if (disposedProtected)
             return (DisposedInScope, "Owner is disposed in a finally/fault handler covering the acquisition.");
         if (escaped)
@@ -284,6 +294,8 @@ public static class MemoryPoolLifecycleSensor
             return (Ambiguous, "Owner is disposed inside a catch/filter handler; exception coverage is unmodeled.");
         if (disposedNormal)
             return (ExceptionPathLeak, "Owner is disposed only on the normal path (no covering handler).");
+        if (disposedImmediate)
+            return (Ambiguous, "Owner is disposed with no throwing call before Dispose (no exception gap).");
         // No dispose and no escape was seen. If the owner had reads (parameterless instance calls),
         // those calls could in principle consume it (e.g. a property getter that disposes `this`),
         // so suppress rather than accuse. Only a genuinely unused owner is an unambiguous leak.
@@ -376,6 +388,22 @@ public static class MemoryPoolLifecycleSensor
     }
 
     static bool IsCall(ILOpCode op) => op is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj;
+
+    // True when a potentially-throwing call sits in [fromOffset, toOffset). Only a real call
+    // (call/callvirt/newobj/calli) is counted as the throwing operation - the conservative signal
+    // that an exception could occur between acquisition and a normal-path dispose (an exception-path
+    // leak). Non-call ops that could also throw are ignored so the leak accusation stays precise.
+    static bool HasThrowingCallBetween(ImmutableArray<DecodedInstruction> instructions, int fromOffset, int toOffset)
+    {
+        foreach (var instruction in instructions)
+        {
+            if (instruction.Offset < fromOffset || instruction.Offset >= toOffset)
+                continue;
+            if (instruction.OpCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Calli)
+                return true;
+        }
+        return false;
+    }
 
     static bool IsFieldStore(ILOpCode op) => op is ILOpCode.Stfld or ILOpCode.Stsfld;
 
