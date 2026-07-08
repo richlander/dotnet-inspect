@@ -1330,7 +1330,11 @@ static class ReturnToSender
         string methodName,
         int overload)
     {
+        if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
+            return null;
         if (FindMethodDefinition(recompiledPe, fullType, methodName, overload) is not { } recompiled)
+            return null;
+        if (recompiled.Method.RelativeVirtualAddress == 0)
             return null;
 
         var diff = IlAssemblyDiff.CompareMembers(

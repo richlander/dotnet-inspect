@@ -17,6 +17,11 @@ namespace ILInspector.Decompiler.Tests;
 
 public class ReturnToSenderFixtureCatalogTests
 {
+    public abstract class BodylessDiagnosticFixture
+    {
+        public abstract int MissingBody();
+    }
+
     [Fact]
     public void ReturnToSenderCandidates_ProvideBuiltAssemblyInputs()
     {
@@ -127,6 +132,27 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.NotEmpty(display!.Rows);
         Assert.Contains(display.Rows, row => row.Kind == IlDiffKind.Remove);
         Assert.Contains(display.Rows, row => row.Kind == IlDiffKind.Add);
+    }
+
+    [Fact]
+    public void ReturnToSenderIlDiffDiagnostic_SuppressesBodylessMethods()
+    {
+        using var stream = File.OpenRead(typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        string fullType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
+        var bodyless = FindMethod(reader, typeof(BodylessDiagnosticFixture).FullName!, nameof(BodylessDiagnosticFixture.MissingBody));
+
+        var display = ReturnToSender.BuildIlDiffDiagnostic(
+            pe,
+            reader,
+            bodyless,
+            pe,
+            fullType,
+            nameof(DecompilerResult_ExposesEffectiveOptionsAndTasteDecisions),
+            overload: 0);
+
+        Assert.Null(display);
     }
 
     [Fact]
