@@ -1546,6 +1546,218 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ResolvesBySignatureOverridingOrdinal()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+
+                public int Pick(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            // Ordinal 0 is Pick(int) in count-all metadata order; the signature must win
+            // and select Pick(string) instead, proving identity no longer depends on the
+            // ordinal position of same-name members.
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(string)")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(1, result.Plan.TargetMethod.Overload);
+            Assert.Contains("public int Pick(string value)", result.Source);
+            Assert.DoesNotContain("public int Pick(int value)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
+    {
+        // The compiled assembly declares Pick(int) before Pick(string); the source slice
+        // reverses that order. Ordinal correlation would pair Pick(int)'s decompiled body
+        // with Pick(string)'s source (a false ValidDifferent); the normalized signature
+        // pairs them correctly.
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+
+                public int Pick(string value) => value.Length;
+            }
+            """);
+        var sourceDirectory = Path.Combine(Path.GetTempPath(), $"rts-signature-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDirectory);
+        var sourcePath = Path.Combine(sourceDirectory, "ReversedOrder.cs");
+        File.WriteAllText(sourcePath, """
+            public class Class1
+            {
+                public int Pick(string value) => value.Length;
+
+                public int Pick(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            var withSignature = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0, Signature: "`0(int)")],
+                [sourcePath]));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, withSignature.Outcome);
+
+            var ordinalOnly = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Pick", Overload: 0)],
+                [sourcePath]));
+
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, ordinalOnly.Outcome);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            try
+            {
+                Directory.Delete(sourceDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void DiscoverTargets_DropsSignatureWhenNormalizationIsAmbiguous()
+    {
+        // A user type named Nullable<T> normalizes to the same `int?` token as
+        // System.Nullable<int> in metadata. The round-trip guard must drop that
+        // ambiguous signature so correlation cannot mis-select the sibling overload.
+        var assemblyPath = CompileFixture("""
+            namespace Sample { public readonly struct Nullable<T> { } }
+
+            public class Class1
+            {
+                public int Pick(Sample.Nullable<int> value) => 1;
+
+                public int Pick(int? value) => 2;
+            }
+            """);
+        try
+        {
+            var pickTargets = ReturnToSenderSourceProbe.DiscoverTargets(assemblyPath, int.MaxValue)
+                .Where(target => target.Target is { Type: "Class1", Method: "Pick" })
+                .ToArray();
+
+            Assert.Equal(2, pickTargets.Length);
+            Assert.All(pickTargets, target => Assert.Null(target.Target.Signature));
+
+            // With the signature dropped, correlation falls back to the ordinal and each
+            // overload still pairs with its own source body (no false ValidDifferent).
+            var results = ReturnToSenderSourceProbe.EvaluateTargets(
+                assemblyPath,
+                pickTargets.Select(target => target.Target).ToArray(),
+                [WriteTempSource(
+                    "NullableCollision.cs",
+                    """
+                    namespace Sample { public readonly struct Nullable<T> { } }
+
+                    public class Class1
+                    {
+                        public int Pick(Sample.Nullable<int> value) => 1;
+
+                        public int Pick(int? value) => 2;
+                    }
+                    """,
+                    out var sourceDirectory)]);
+
+            try
+            {
+                Assert.All(results, result => Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome));
+            }
+            finally
+            {
+                TryDeleteDirectory(sourceDirectory);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_MatchesMixedRankArrayOverloadsBySignature()
+    {
+        // int[][,] and int[,][] must not cross-match: source lists ranks outer-to-inner
+        // while metadata builds them inner-to-outer. With the source slice in reversed
+        // declaration order, only a rank-consistent signature pairs each overload with
+        // its own body.
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Rank(int[][,] value) => value.Length + 1;
+
+                public int Rank(int[,][] value) => value.Length + 2;
+            }
+            """);
+        var reversedSource = WriteTempSource(
+            "MixedRankArrays.cs",
+            """
+            public class Class1
+            {
+                public int Rank(int[,][] value) => value.Length + 2;
+
+                public int Rank(int[][,] value) => value.Length + 1;
+            }
+            """,
+            out var sourceDirectory);
+        try
+        {
+            var targets = ReturnToSenderSourceProbe.DiscoverTargets(assemblyPath, int.MaxValue)
+                .Where(target => target.Target is { Type: "Class1", Method: "Rank" })
+                .Select(target => target.Target)
+                .ToArray();
+
+            Assert.Equal(2, targets.Length);
+            Assert.All(targets, target => Assert.NotNull(target.Signature));
+
+            var results = ReturnToSenderSourceProbe.EvaluateTargets(assemblyPath, targets, [reversedSource]);
+
+            Assert.All(results, result => Assert.Equal(ReturnToSenderSourceOutcome.ValidMatch, result.Outcome));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    static string WriteTempSource(string fileName, string source, out string directory)
+    {
+        directory = Path.Combine(Path.GetTempPath(), $"rts-signature-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, fileName);
+        File.WriteAllText(path, source);
+        return path;
+    }
+
+    static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_EmitsNestedTargetMemberRequirement()
     {
         var assemblyPath = CompileFixture("""
