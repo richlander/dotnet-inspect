@@ -120,137 +120,141 @@ static class Program
         string? packageTfm = null;
         string? packageAssembly = null;
 
-        for (int i = 0; i < args.Length; i++)
+        try
         {
-            switch (args[i])
+            for (int i = 0; i < args.Length; i++)
             {
-                case "--dump": dumpMethod = args[++i]; break;
-                case "--index": dumpIndex = int.Parse(args[++i]); break;
-                case "--list-overloads": listOverloads = true; break;
-                case "--by-shape": byShape = true; break;
-                case "--steps": steps = true; break;
-                case "--facts": facts = true; break;
-                case "--cfg": cfg = true; break;
-                case "--mermaid": mermaid = true; break;
-                case "--diff": diff = true; break;
-                case "--remarks": remarks = true; break;
-                case "--lowered": lowered = true; break;
-                case "--simulate-new-rules": simulate = true; break;
-                case "--step-limit": steps = true; stepLimit = int.Parse(args[++i]); break;
-                case "--il": ilView = true; break;
-                case "--skip-pdb": skipPdb = true; break;
-                case "--emit-inverse-ledger": emitInverseLedger = args[++i]; break;
-                case "--assertions": assertions = true; break;
-                case "--assertion-scan": assertionScan = true; break;
-                case "--assertion-fixture-guarantee": assertionFixtureGuarantee = true; break;
-                case "--sample": sampleSize = int.Parse(args[++i]); break;
-                case "--max-examples": maxExamples = int.Parse(args[++i]); break;
-                case "--validity-check": validityCheck = true; break;
-                case "--validity-predicate-scan": validityPredicateScan = true; break;
-                case "--compile-cap": compileCap = ParseCompileCap(args[++i]); break;
-                case "--emit-assertion-violations": emitAssertionViolations = args[++i]; break;
-                case "--diff-assertion-violations": diffAssertionViolations = args[++i]; break;
-                case "--emit-validity-defects": emitValidityDefects = args[++i]; break;
-                case "--diff-validity-defects": diffValidityDefects = args[++i]; break;
-                case "--fidelity-check": fidelityCheck = true; break;
-                case "--return-to-sender": returnToSender = true; break;
-                case "--return-address": returnAddress = true; break;
-                case "--fuzz-signatures": fuzzSignatures = true; break;
-                case "--fuzz-unguarded": fuzzSignatures = true; fuzzUnguarded = true; break;
-                case "--fuzz-iterations": fuzzIterations = int.Parse(args[++i]); break;
-                case "--fuzz-seed": fuzzSeed = int.Parse(args[++i]); break;
-                case "--fuzz-log-every": fuzzLogEvery = int.Parse(args[++i]); break;
-                case "--emit-return-address-snapshot":
-                    if (i + 1 >= args.Length) return Fail("--emit-return-address-snapshot requires <file>.");
-                    emitReturnAddressSnapshot = args[++i]; returnAddress = true; break;
-                case "--diff-return-address-baseline":
-                    if (i + 1 >= args.Length) return Fail("--diff-return-address-baseline requires <file>.");
-                    diffReturnAddressBaseline = args[++i]; returnAddress = true; break;
-                case "--not-my-type": notMyType = true; break;
-                case "--emit-not-my-type-snapshot":
-                    if (i + 1 >= args.Length) return Fail("--emit-not-my-type-snapshot requires <file>.");
-                    emitNotMyTypeSnapshot = args[++i]; notMyType = true; break;
-                case "--diff-not-my-type-baseline":
-                    if (i + 1 >= args.Length) return Fail("--diff-not-my-type-baseline requires <file>.");
-                    diffNotMyTypeBaseline = args[++i]; notMyType = true; break;
-                case "--tsv": censusTsv = true; break;
-                case "--jsonl": censusJsonl = true; break;
-                case "--return-to-sender-ab": returnToSenderAb = true; break;
-                case "--return-to-sender-markout": returnToSenderMarkout = true; break;
-                case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
-                case "--return-to-sender-fixtures": returnToSenderFixtureGroup = args[++i]; break;
-                case "--return-to-sender-catalog":
-                    returnToSenderCatalog = true;
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
-                        && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1])
-                        && !LooksLikePath(args[i + 1]))
-                        returnToSenderCatalogSelector = args[++i];
-                    break;
-                case "--fidelity-timings": fidelityTimings = true; break;
-                case "--fidelity-zero-signal-guard": fidelityZeroSignalGuard = int.Parse(args[++i]); break;
-                case "--gaps": gaps = true; break;
-                case "--annotation-check": annotationCheck = true; break;
-                case "--pass-impact":
-                    passImpact = true;
-                    // Optional pass name: consume the next token only when it is
-                    // clearly a pass name — not a flag, and not an input path
-                    // (an assembly the sweep should run over). Absent → histogram.
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
-                        && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1]))
-                        passImpactPass = args[++i];
-                    break;
-                case "--show-diff": showDiff = true; break;
-                case "--structuring-stops": structuringStops = true; break;
-                case "--postdom-probe": postdomProbe = true; break;
-                case "--postdom-sample": postdomProbe = true; postdomSample = int.Parse(args[++i]); break;
-                case "--library-report": libraryReport = true; break;
-                case "--unsupported-nodes": unsupportedNodes = true; break;
-                case "--type-check": typeCheck = true; break;
-                case "--bind-check": bindCheck = true; break;
-                case "--classify-dec0009": classifyDec0009 = true; break;
-                case "--dec0009-shapes": classifyDec0009 = true; break;
-                case "--generated-fixtures":
-                    generatedFixtures = true;
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
-                        && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1])
-                        && !LooksLikePath(args[i + 1]))
-                        generatedFixtureSelector = args[++i];
-                    break;
-                case "--keep-generated-fixtures": keepGeneratedFixtures = true; break;
-                case "--emit-corpus-baseline": emitCorpusSnapshot = args[++i]; break;
-                case "--emit-corpus-snapshot": emitCorpusSnapshot = args[++i]; break;
-                case "--diff-corpus-baseline": diffCorpusBaseline = args[++i]; break;
-                case "--emit-corpus-delta": emitCorpusDelta = args[++i]; break;
-                case "--fidelity-method-delta": fidelityMethodDelta = args[++i]; break;
-                case "--quality-diff-card": qualityDiffCard = true; break;
-                case "--quality-card-risky": qualityDiffCard = true; qualityCardRisky = true; break;
-                case "--corpus-fidelity-cap":
-                    foreach (var token in args[++i].Split(','))
-                    {
-                        if (token.Length == 0)
-                            continue;
-                        corpusFidelityCaps.Add(int.Parse(token));
-                    }
-                    break;
-                case "--corpus-method-cap": corpusMethodCap = int.Parse(args[++i]); break;
-                case "--json": json = true; break;
-                case "--top-patterns": topPatterns = int.Parse(args[++i]); break;
-                case "--top-libraries": topLibraries = int.Parse(args[++i]); break;
-                case "--cap": cap = int.Parse(args[++i]); break;
-                case "--package": packages.Add(args[++i]); break;
-                case "--package-version": packageVersion = args[++i]; break;
-                case "--package-tfm": packageTfm = args[++i]; break;
-                case "--package-assembly": packageAssembly = args[++i]; break;
-                case "--workers": workers = int.Parse(args[++i]); break;
-                case "--sequential": sequential = true; break;
-                case "--render-ab": renderAb = args[++i]; break;
-                case "--emit-render-ab": emitRenderAb = args[++i]; break;
-                case "--idempotence-check": idempotenceCheck = true; break;
-                case "--slot-residual-census": slotResidualCensus = true; break;
-                case "--slot-unifier-census": slotUnifierCensus = true; break;
-                case "--help" or "-h": PrintUsage(); return 0;
-                default: inputs.Add(args[i]); break;
+                string flag = args[i];
+                switch (flag)
+                {
+                    case "--dump": dumpMethod = NextArg(args, ref i, flag); break;
+                    case "--index": dumpIndex = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--list-overloads": listOverloads = true; break;
+                    case "--by-shape": byShape = true; break;
+                    case "--steps": steps = true; break;
+                    case "--facts": facts = true; break;
+                    case "--cfg": cfg = true; break;
+                    case "--mermaid": mermaid = true; break;
+                    case "--diff": diff = true; break;
+                    case "--remarks": remarks = true; break;
+                    case "--lowered": lowered = true; break;
+                    case "--simulate-new-rules": simulate = true; break;
+                    case "--step-limit": steps = true; stepLimit = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--il": ilView = true; break;
+                    case "--skip-pdb": skipPdb = true; break;
+                    case "--emit-inverse-ledger": emitInverseLedger = NextArg(args, ref i, flag); break;
+                    case "--assertions": assertions = true; break;
+                    case "--assertion-scan": assertionScan = true; break;
+                    case "--assertion-fixture-guarantee": assertionFixtureGuarantee = true; break;
+                    case "--sample": sampleSize = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--max-examples": maxExamples = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--validity-check": validityCheck = true; break;
+                    case "--validity-predicate-scan": validityPredicateScan = true; break;
+                    case "--compile-cap": compileCap = ParseCompileCap(NextArg(args, ref i, flag)); break;
+                    case "--emit-assertion-violations": emitAssertionViolations = NextArg(args, ref i, flag); break;
+                    case "--diff-assertion-violations": diffAssertionViolations = NextArg(args, ref i, flag); break;
+                    case "--emit-validity-defects": emitValidityDefects = NextArg(args, ref i, flag); break;
+                    case "--diff-validity-defects": diffValidityDefects = NextArg(args, ref i, flag); break;
+                    case "--fidelity-check": fidelityCheck = true; break;
+                    case "--return-to-sender": returnToSender = true; break;
+                    case "--return-address": returnAddress = true; break;
+                    case "--fuzz-signatures": fuzzSignatures = true; break;
+                    case "--fuzz-unguarded": fuzzSignatures = true; fuzzUnguarded = true; break;
+                    case "--fuzz-iterations": fuzzIterations = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--fuzz-seed": fuzzSeed = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--fuzz-log-every": fuzzLogEvery = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--emit-return-address-snapshot":
+                        emitReturnAddressSnapshot = NextArg(args, ref i, flag); returnAddress = true; break;
+                    case "--diff-return-address-baseline":
+                        diffReturnAddressBaseline = NextArg(args, ref i, flag); returnAddress = true; break;
+                    case "--not-my-type": notMyType = true; break;
+                    case "--emit-not-my-type-snapshot":
+                        emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
+                    case "--diff-not-my-type-baseline":
+                        diffNotMyTypeBaseline = NextArg(args, ref i, flag); notMyType = true; break;
+                    case "--tsv": censusTsv = true; break;
+                    case "--jsonl": censusJsonl = true; break;
+                    case "--return-to-sender-ab": returnToSenderAb = true; break;
+                    case "--return-to-sender-markout": returnToSenderMarkout = true; break;
+                    case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
+                    case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
+                    case "--return-to-sender-catalog":
+                        returnToSenderCatalog = true;
+                        if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                            && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1])
+                            && !LooksLikePath(args[i + 1]))
+                            returnToSenderCatalogSelector = NextArg(args, ref i, flag);
+                        break;
+                    case "--fidelity-timings": fidelityTimings = true; break;
+                    case "--fidelity-zero-signal-guard": fidelityZeroSignalGuard = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--gaps": gaps = true; break;
+                    case "--annotation-check": annotationCheck = true; break;
+                    case "--pass-impact":
+                        passImpact = true;
+                        // Optional pass name: consume the next token only when it is
+                        // clearly a pass name — not a flag, and not an input path
+                        // (an assembly the sweep should run over). Absent → histogram.
+                        if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                            && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1]))
+                            passImpactPass = NextArg(args, ref i, flag);
+                        break;
+                    case "--show-diff": showDiff = true; break;
+                    case "--structuring-stops": structuringStops = true; break;
+                    case "--postdom-probe": postdomProbe = true; break;
+                    case "--postdom-sample": postdomProbe = true; postdomSample = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--library-report": libraryReport = true; break;
+                    case "--unsupported-nodes": unsupportedNodes = true; break;
+                    case "--type-check": typeCheck = true; break;
+                    case "--bind-check": bindCheck = true; break;
+                    case "--classify-dec0009": classifyDec0009 = true; break;
+                    case "--dec0009-shapes": classifyDec0009 = true; break;
+                    case "--generated-fixtures":
+                        generatedFixtures = true;
+                        if (i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                            && !File.Exists(args[i + 1]) && !Directory.Exists(args[i + 1])
+                            && !LooksLikePath(args[i + 1]))
+                            generatedFixtureSelector = NextArg(args, ref i, flag);
+                        break;
+                    case "--keep-generated-fixtures": keepGeneratedFixtures = true; break;
+                    case "--emit-corpus-baseline": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
+                    case "--emit-corpus-snapshot": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
+                    case "--diff-corpus-baseline": diffCorpusBaseline = NextArg(args, ref i, flag); break;
+                    case "--emit-corpus-delta": emitCorpusDelta = NextArg(args, ref i, flag); break;
+                    case "--fidelity-method-delta": fidelityMethodDelta = NextArg(args, ref i, flag); break;
+                    case "--quality-diff-card": qualityDiffCard = true; break;
+                    case "--quality-card-risky": qualityDiffCard = true; qualityCardRisky = true; break;
+                    case "--corpus-fidelity-cap":
+                        foreach (var token in NextArg(args, ref i, flag).Split(','))
+                        {
+                            if (token.Length == 0)
+                                continue;
+                            corpusFidelityCaps.Add(int.Parse(token));
+                        }
+                        break;
+                    case "--corpus-method-cap": corpusMethodCap = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--json": json = true; break;
+                    case "--top-patterns": topPatterns = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--top-libraries": topLibraries = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--cap": cap = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--package": packages.Add(NextArg(args, ref i, flag)); break;
+                    case "--package-version": packageVersion = NextArg(args, ref i, flag); break;
+                    case "--package-tfm": packageTfm = NextArg(args, ref i, flag); break;
+                    case "--package-assembly": packageAssembly = NextArg(args, ref i, flag); break;
+                    case "--workers": workers = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--sequential": sequential = true; break;
+                    case "--render-ab": renderAb = NextArg(args, ref i, flag); break;
+                    case "--emit-render-ab": emitRenderAb = NextArg(args, ref i, flag); break;
+                    case "--idempotence-check": idempotenceCheck = true; break;
+                    case "--slot-residual-census": slotResidualCensus = true; break;
+                    case "--slot-unifier-census": slotUnifierCensus = true; break;
+                    case "--help" or "-h": PrintUsage(); return 0;
+                    default: inputs.Add(args[i]); break;
+                }
             }
+        }
+        catch (MissingArgumentException ex)
+        {
+            return Fail($"{ex.Flag} requires a value.");
         }
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
@@ -1493,6 +1497,19 @@ static class Program
     {
         Console.Error.WriteLine($"Error: {message}");
         return 1;
+    }
+
+    // Reads the value that follows a value-taking flag, guarding against a missing
+    // trailing value so the parser reports a clean usage error instead of crashing
+    // with an unhandled IndexOutOfRangeException.
+    static string NextArg(string[] args, ref int i, string flag)
+        => i + 1 < args.Length
+            ? args[++i]
+            : throw new MissingArgumentException(flag);
+
+    sealed class MissingArgumentException(string flag) : Exception
+    {
+        public string Flag { get; } = flag;
     }
 
     static int ParseCompileCap(string value)
