@@ -238,7 +238,7 @@ public static class LeakActionabilitySensor
     // (each level costs >= 1 byte), so refuse over-long blobs pre-decode. Real single-type TypeSpec
     // blobs are tiny (CoreLib's largest is 57 bytes), so 1024 only trips on malformed/adversarial
     // input. Mirrors ILInspector.Analysis.TypeRefDecoder's MaxSignatureBlobLength guard.
-    const int MaxTypeSpecBlobLength = 1024;
+    internal const int MaxTypeSpecBlobLength = 1024;
 
     static string TypeSpecName(MetadataReader reader, TypeSpecificationHandle handle)
     {
@@ -433,8 +433,40 @@ sealed class SignatureTypeNameProvider : ISignatureTypeProvider<string, object?>
         return ns.Length == 0 ? name : $"{ns}.{name}";
     }
 
+    // A nested TypeSpecification reference (e.g. a custom modifier or a CLASS/VALUETYPE token that
+    // itself resolves to a TypeSpec) re-enters DecodeSignature. Each re-entry is a MANAGED frame
+    // here plus SRM native DecodeType frames, so a self-referential or long TypeSpec CHAIN - whose
+    // individual blobs each stay under MaxTypeSpecBlobLength - would recurse until an uncatchable
+    // StackOverflow kills the process. The outer TypeSpecName length cap only bounds the ENTRY
+    // blob's native depth, not this cross-TypeSpec re-entry, so bound both the re-entry depth and
+    // each nested blob's length here (mirrors ILInspector.Analysis.TypeRefDecoder). The classifier
+    // never uses a nested TypeSpec's decoded name (modifiers/type-args are discarded), so failing
+    // closed to "(typespec)" past the cap is loss-free.
+    const int MaxTypeSpecDepth = 16;
+
+    [ThreadStatic]
+    static int s_typeSpecDepth;
+
     public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        var typeSpec = reader.GetTypeSpecification(handle);
+        if (s_typeSpecDepth >= MaxTypeSpecDepth ||
+            reader.GetBlobReader(typeSpec.Signature).Length > LeakActionabilitySensor.MaxTypeSpecBlobLength)
+            return "(typespec)";
+        s_typeSpecDepth++;
+        try
+        {
+            return typeSpec.DecodeSignature(this, genericContext);
+        }
+        catch
+        {
+            return "(typespec)";
+        }
+        finally
+        {
+            s_typeSpecDepth--;
+        }
+    }
 
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) => genericType;
     public string GetSZArrayType(string elementType) => elementType;
