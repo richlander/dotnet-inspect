@@ -440,11 +440,73 @@ public class ReturnToSenderFixtureCatalogTests
 
         Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
         Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.CompileBackStatus);
-        Assert.Equal("valid_different.semantic_opcode_diff.syntax", result.Reason);
+        Assert.Equal("valid_different.compiler_lowering.dynamic_callsite.opcode_diff", result.Reason);
         Assert.False(string.IsNullOrWhiteSpace(result.OriginalOpcodes));
         Assert.False(string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
         Assert.NotEmpty(result.IlDiffLines ?? []);
         Assert.Contains(result.IlDiffLines!, line => line.StartsWith("h", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesDynamicCallSiteOpcodeDiffs()
+    {
+        var results = ReturnToSenderSourceProbe.EvaluateTargets(
+            FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
+            [
+                new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
+                new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicCompoundMember", Overload: 0),
+            ]);
+
+        Assert.All(results, result =>
+        {
+            Assert.Equal(ReturnToSenderSourceOutcome.ValidDifferent, result.Outcome);
+            Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.CompileBackStatus);
+            Assert.Equal("valid_different.compiler_lowering.dynamic_callsite.opcode_diff", result.Reason);
+            Assert.Contains("compiler_lowering.dynamic_callsite", result.Detail);
+        });
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_DynamicCallSiteClassifierRequiresOpcodeDiff()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "return left + right;",
+            """
+            CSharpArgumentInfo[] infos;
+            ___o__0.___p__0 = CallSite<Func<CallSite, object, object, object>>.Create(Binder.BinaryOperation((CSharpBinderFlags)0, ExpressionType.Add, typeof(C), infos));
+            return ___o__0.___p__0.Target.Invoke(___o__0.___p__0, left, right);
+            """,
+            FidelityCheck.CompileBackStatus.Exact,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.source_shape_frontier.syntax.exact", reason);
+        Assert.DoesNotContain("dynamic_callsite", detail);
+    }
+
+    [Theory]
+    [InlineData("yield return value;", "valid_different.compiler_lowering.iterator.opcode_diff")]
+    [InlineData("unsafe { int* p = null; return *p; }", "valid_different.semantic_opcode_diff.unsafe_residual")]
+    [InlineData("Func<int> next = () => value + 1; return next();", "valid_different.semantic_opcode_diff.closure")]
+    public void ReturnToSenderSourceProbe_DynamicCallSiteClassifierPreservesHigherPriorityShapes(
+        string expected,
+        string reason)
+    {
+        var actual = """
+            CSharpArgumentInfo[] infos;
+            ___o__0.___p__0 = CallSite<Func<CallSite, object, object, object>>.Create(Binder.BinaryOperation((CSharpBinderFlags)0, ExpressionType.Add, typeof(C), infos));
+            return ___o__0.___p__0.Target.Invoke(___o__0.___p__0, left, right);
+            """;
+
+        var actualReason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            expected,
+            actual,
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal(reason, actualReason);
+        Assert.DoesNotContain("dynamic_callsite", detail);
     }
 
     [Fact]

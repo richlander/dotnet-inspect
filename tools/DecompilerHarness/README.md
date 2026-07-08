@@ -176,6 +176,7 @@ The source probe also supports `--json` for machine-readable census rows. The
 `reason` field classifies valid-but-different rows by the source-fidelity
 frontier and compile-back status, for example
 `valid_different.compiler_lowering.iterator.opcode_diff`,
+`valid_different.compiler_lowering.dynamic_callsite.opcode_diff`,
 `valid_different.known_compiler_option.checked_context`, or
 `valid_different.semantic_opcode_diff.unsafe_residual`.
 For rows whose compile-back status is `OpcodeDiff`, text examples and JSON rows
