@@ -1,6 +1,8 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 
 using Markout;
 using Markout.Formatting;
@@ -102,8 +104,9 @@ public static class LeakActionabilitySensor
             if (exceptionPath.Count == 0)
                 return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, 0, new Dictionary<string, int>(), []);
 
-            using var stream = File.OpenRead(path);
-            using var pe = new PEReader(stream);
+            // Read into memory so no file handle is held during token resolution
+            // (resolution runs under the outer per-assembly timeout).
+            using var pe = new PEReader(ImmutableCollectionsMarshal.AsImmutableArray(File.ReadAllBytes(path)));
             var reader = pe.GetMetadataReader();
 
             var classCounts = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -178,20 +181,36 @@ public static class LeakActionabilitySensor
         switch (handle.Kind)
         {
             case HandleKind.MethodDefinition:
-            {
-                var md = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                return (TypeName(reader, md.GetDeclaringType()), reader.GetString(md.Name));
-            }
+                return ResolveMethodDef(reader, (MethodDefinitionHandle)handle);
             case HandleKind.MemberReference:
-            {
-                var mr = reader.GetMemberReference((MemberReferenceHandle)handle);
-                return (ParentName(reader, mr.Parent), reader.GetString(mr.Name));
-            }
+                return ResolveMemberRef(reader, (MemberReferenceHandle)handle);
             case HandleKind.MethodSpecification:
-                return ResolveToken(reader, MetadataTokens.GetToken(reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method));
+            {
+                // MethodSpec.Method is a MethodDefOrRef coded index (MethodDef or MemberRef only -
+                // never another MethodSpec), so resolve it directly rather than recursing.
+                var method = reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method;
+                return method.Kind switch
+                {
+                    HandleKind.MethodDefinition => ResolveMethodDef(reader, (MethodDefinitionHandle)method),
+                    HandleKind.MemberReference => ResolveMemberRef(reader, (MemberReferenceHandle)method),
+                    _ => ("", $"(methodspec:{method.Kind})"),
+                };
+            }
             default:
                 return ("", $"(token:{handle.Kind})");
         }
+    }
+
+    static (string Type, string Name) ResolveMethodDef(MetadataReader reader, MethodDefinitionHandle handle)
+    {
+        var md = reader.GetMethodDefinition(handle);
+        return (TypeName(reader, md.GetDeclaringType()), reader.GetString(md.Name));
+    }
+
+    static (string Type, string Name) ResolveMemberRef(MetadataReader reader, MemberReferenceHandle handle)
+    {
+        var mr = reader.GetMemberReference(handle);
+        return (ParentName(reader, mr.Parent), reader.GetString(mr.Name));
     }
 
     static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
@@ -205,9 +224,24 @@ public static class LeakActionabilitySensor
     {
         HandleKind.TypeReference => TypeRefName(reader, (TypeReferenceHandle)parent),
         HandleKind.TypeDefinition => TypeName(reader, (TypeDefinitionHandle)parent),
-        HandleKind.TypeSpecification => "(typespec)",
+        HandleKind.TypeSpecification => TypeSpecName(reader, (TypeSpecificationHandle)parent),
         _ => $"({parent.Kind})",
     };
+
+    // A generic type instance (e.g. Span<byte>, INumberBase<T>) names its declaring type through a
+    // TypeSpecification blob; decode it to the underlying generic type name (Span`1, INumberBase`1)
+    // so wrapper-skipping and member classification see a real type, not "(typespec)".
+    static string TypeSpecName(MetadataReader reader, TypeSpecificationHandle handle)
+    {
+        try
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(SignatureTypeNameProvider.Instance, genericContext: null);
+        }
+        catch
+        {
+            return "(typespec)";
+        }
+    }
 
     static string TypeRefName(MetadataReader reader, TypeReferenceHandle handle)
     {
@@ -244,7 +278,7 @@ public static class LeakActionabilitySensor
         string m = member;
 
         // Untrusted: read / decode / parse external input.
-        if (IsStreamLike(type) && m is "Read" or "ReadAsync" or "ReadByte" or "ReadAtLeast" or "ReadExactly") return Untrusted;
+        if (IsStreamLike(type) && m.StartsWith("Read")) return Untrusted; // Read/ReadByte/ReadAsync/ReadExactly[Async]/ReadAtLeast[Async]
         if (type is "Decoder" && m is "GetChars" or "Convert") return Untrusted;
         if ((type is "Encoding" || type.EndsWith("Encoding")) && m is "GetChars" or "GetString") return Untrusted;
         if (type is "Socket" && m.StartsWith("Receive")) return Untrusted;
@@ -253,7 +287,7 @@ public static class LeakActionabilitySensor
         if ((m is "Parse" or "TryParse" || m.StartsWith("Parse")) && (type.Contains("Document") || type.Contains("Reader") || type.Contains("Parser"))) return Untrusted;
 
         // Trusted: produce / transform validated in-memory data.
-        if (m.Contains("Escape")) return Trusted;
+        if (m.StartsWith("Escape")) return Trusted; // EscapeString/... - NOT Unescape (which decodes external input)
         if ((type is "Encoding" || type.EndsWith("Encoding")) && m is "GetBytes" or "GetByteCount") return Trusted;
         if (m.StartsWith("Encode") || m.StartsWith("Transcode") || m is "ToUtf8" or "EncodeHelper") return Trusted;
         if (type is "Array" && m is "Copy" or "Clear" or "Resize" or "Fill") return Trusted;
@@ -353,6 +387,45 @@ public static class LeakActionabilitySensor
             ByClass = [.. ClassRows(report).Select(r => new LeakActionabilitySectionClassRow("By class", r.Class, r.Count))],
             Examples = [.. ExampleRows(report, maxExamples).Select(r => new LeakActionabilitySectionExampleRow("Examples", r.Class, r.Assembly, r.Method, r.BoundarySet))],
         };
+}
+
+/// <summary>A minimal signature decoder that yields type names as strings, used to name the
+/// declaring type behind a generic-instance boundary (e.g. <c>Span`1</c>, <c>INumberBase`1</c>).
+/// It keeps the outer generic type name and ignores type arguments - the classifier only needs the
+/// declaring type, not its instantiation.</summary>
+sealed class SignatureTypeNameProvider : ISignatureTypeProvider<string, object?>
+{
+    public static readonly SignatureTypeNameProvider Instance = new();
+
+    public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
+
+    public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+    {
+        var td = reader.GetTypeDefinition(handle);
+        string ns = reader.GetString(td.Namespace), name = reader.GetString(td.Name);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+    {
+        var tr = reader.GetTypeReference(handle);
+        string ns = reader.GetString(tr.Namespace), name = reader.GetString(tr.Name);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+
+    public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) => genericType;
+    public string GetSZArrayType(string elementType) => elementType;
+    public string GetArrayType(string elementType, ArrayShape shape) => elementType;
+    public string GetByReferenceType(string elementType) => elementType;
+    public string GetPointerType(string elementType) => elementType;
+    public string GetPinnedType(string elementType) => elementType;
+    public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+    public string GetGenericMethodParameter(object? genericContext, int index) => $"!!{index}";
+    public string GetGenericTypeParameter(object? genericContext, int index) => $"!{index}";
+    public string GetFunctionPointerType(MethodSignature<string> signature) => "(fnptr)";
 }
 
 [MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
