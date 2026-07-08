@@ -2642,6 +2642,93 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_UsesIncrementConsumedOperatorEvidence()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Counter
+            {
+                public int Value;
+
+                public Counter(int value)
+                {
+                    Value = value;
+                }
+
+                public static Counter operator ++(Counter value) => new Counter(value.Value + 1);
+            }
+
+            public class Class1
+            {
+                public Counter Method1(Counter counter)
+                {
+                    counter++;
+                    return counter;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var counter = Assert.Single(result.Plan.Types, type => type.Name == "Counter");
+            Assert.Contains(counter.Members, member =>
+                member.Name == "op_Increment"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_Increment"));
+            Assert.Contains("operator ++", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesCheckedBinaryOperatorSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct CustomNumber
+            {
+                public int Value;
+
+                public CustomNumber(int value)
+                {
+                    Value = value;
+                }
+
+                public static CustomNumber operator +(CustomNumber left, CustomNumber right) => new CustomNumber(left.Value + right.Value);
+                public static CustomNumber operator checked +(CustomNumber left, CustomNumber right) => new CustomNumber(checked(left.Value + right.Value));
+            }
+
+            public class Class1
+            {
+                public CustomNumber Method1(CustomNumber left, CustomNumber right) => checked(left + right);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Method1", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var number = Assert.Single(result.Plan.Types, type => type.Name == "CustomNumber");
+            Assert.Contains(number.Members, member =>
+                member.Name == "op_CheckedAddition"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_CheckedAddition"));
+            Assert.Contains(number.Members, member =>
+                member.Name == "op_Addition"
+                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_Addition"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesFieldShellForRecordStructGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
