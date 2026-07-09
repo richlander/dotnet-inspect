@@ -142,6 +142,11 @@ public static class CorrespondenceEngine
         int minRun,
         ImmutableArray<EvidenceLink>.Builder links)
     {
+        // A committed move is a run of >= minRun operations that is contiguous in BOTH original
+        // streams (a relocated block), not merely adjacent in the residual arrays. Requiring
+        // original-stream contiguity is what keeps coincidental singleton relocations that happen
+        // to be residual-adjacent (separated by matched anchors in the real stream) out of the
+        // committed set and in the scored fringe instead.
         if (minRun < 1)
             minRun = 1;
 
@@ -168,7 +173,10 @@ public static class CorrespondenceEngine
                         && b + len < residualNew.Length
                         && !committedOld[a + len]
                         && !committedNew[b + len]
-                        && oldStream[residualOld[a + len]].ContentKey == newStream[residualNew[b + len]].ContentKey)
+                        && oldStream[residualOld[a + len]].ContentKey == newStream[residualNew[b + len]].ContentKey
+                        && (len == 0
+                            || (residualOld[a + len] == residualOld[a + len - 1] + 1
+                                && residualNew[b + len] == residualNew[b + len - 1] + 1)))
                     {
                         len++;
                     }
@@ -195,6 +203,11 @@ public static class CorrespondenceEngine
         }
     }
 
+    // Emit the FULL scored candidate graph: every content-equal pair of still-uncommitted residual
+    // occurrences. Deferring the actual one-to-one resolution to EvidenceFold.ApplyAcceptance (which
+    // sorts by score and enforces the matching constraint) is deliberate — it lets scope-corroborated
+    // (higher-scored) pairings win over incidental index-order pairings. This is the "scored fringe"
+    // half of committed-core-plus-scored-fringe.
     static ImmutableArray<EvidenceMoveCandidate> BuildFringe(
         IReadOnlyList<EvidenceOccurrence> oldStream,
         IReadOnlyList<EvidenceOccurrence> newStream,
@@ -204,7 +217,6 @@ public static class CorrespondenceEngine
         bool[] committedNew)
     {
         var fringe = ImmutableArray.CreateBuilder<EvidenceMoveCandidate>();
-        var takenNew = new bool[residualNew.Length];
 
         for (int a = 0; a < residualOld.Length; a++)
         {
@@ -213,7 +225,7 @@ public static class CorrespondenceEngine
 
             for (int b = 0; b < residualNew.Length; b++)
             {
-                if (committedNew[b] || takenNew[b])
+                if (committedNew[b])
                     continue;
                 if (oldStream[residualOld[a]].ContentKey != newStream[residualNew[b]].ContentKey)
                     continue;
@@ -225,8 +237,6 @@ public static class CorrespondenceEngine
                 string reason = scopeCorroborates ? "content+scope" : "content-only";
 
                 fringe.Add(new EvidenceMoveCandidate(residualOld[a], residualNew[b], score, reason));
-                takenNew[b] = true;
-                break;
             }
         }
 

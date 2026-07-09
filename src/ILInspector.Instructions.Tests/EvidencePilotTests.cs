@@ -151,6 +151,36 @@ public class EvidencePilotTests
     }
 
     [Fact]
+    public void MovePass_NonContiguousSingletons_AreNotAFalseBlockMove()
+    {
+        // Two isolated relocations that become residual-adjacent after LCS removes the A,B anchors
+        // must NOT be committed as a length-2 block move: they were not contiguous in either stream.
+        var old = Stream("M1", "A", "M2", "B");
+        var @new = Stream("A", "B", "M1", "M2");
+
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+
+        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Moved));
+        Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Added));
+        Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Removed));
+    }
+
+    [Fact]
+    public void Fringe_EmitsFullCandidateGraph_NotIndexOrderThinned()
+    {
+        // The residual has one old "A" and two new "A"s. The fringe must offer BOTH candidate
+        // pairings (so ApplyAcceptance can resolve the matching by score), not just the first.
+        var old = Stream("A", "B");
+        var @new = Stream("B", "A", "A");
+
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+
+        Assert.Equal(2, correspondence.Fringe.Length);
+        Assert.All(correspondence.Fringe, c => Assert.Equal("A", old[c.OldIndex].ContentKey));
+        Assert.All(correspondence.Fringe, c => Assert.Equal("A", @new[c.NewIndex].ContentKey));
+    }
+
+    [Fact]
     public void Match_IsDeterministic_UnderAmbiguity()
     {
         var old = Stream("x", "a", "y", "a", "z", "a");
@@ -221,8 +251,37 @@ public class EvidencePilotTests
 
     // Single-byte, operand-free opcodes so a body is a clean sequence of distinct content keys.
     const byte Ldc0 = 0x16, Ldc1 = 0x17, Ldc2 = 0x18, Ldc3 = 0x19, Ldc4 = 0x1A, Ldc5 = 0x1B, Ldc6 = 0x1C, Ret = 0x2A;
+    const byte BrS = 0x2B, Nop = 0x00;
 
     static readonly EvidenceSubject IlSubject = new("M", "M");
+
+    [Fact]
+    public void IlEvidence_BranchRetarget_IsChangedNotExact()
+    {
+        // br.s to IL_0005 (second ret) vs br.s to IL_0003 (first ret): a real control-flow retarget.
+        // The branch operation's content key ignores its target, so without target validation this
+        // would read as exact. It must surface as Changed and agree with IlBodyDiff's non-exactness.
+        var old = Body(BrS, 0x03, Nop, Ret, Nop, Ret);
+        var @new = Body(BrS, 0x01, Nop, Ret, Nop, Ret);
+
+        var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
+
+        Assert.Null(result.Failure);
+        Assert.False(result.IsExact);
+        Assert.Contains(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
+        Assert.False(IlBodyDiff.Compare(old, @new).IsExact);
+    }
+
+    [Fact]
+    public void IlEvidence_SameBranch_IsExact()
+    {
+        // Branch validation must not false-positive: an identical body with a branch is exact.
+        var body = Body(BrS, 0x01, Nop, Ret, Nop, Ret);
+        var result = IlEvidence.Compare(body, null, body, null, IlSubject);
+
+        Assert.Null(result.Failure);
+        Assert.True(result.IsExact);
+    }
 
     [Fact]
     public void IlEvidence_SameBody_IsExact()

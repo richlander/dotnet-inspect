@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection.Metadata;
 
 using ILInspector.Evidence;
@@ -39,7 +40,108 @@ public static class IlEvidence
         var newStream = BuildOccurrences(newOps);
         var correspondence = CorrespondenceEngine.Match(oldStream, newStream);
         var rows = EvidenceFold.ToRows(correspondence, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
+        rows = ApplyBranchTargetValidation(rows, oldOps, newOps, correspondence);
         return new IlEvidenceResult(rows, correspondence, oldStream, newStream, Failure: null);
+    }
+
+    // ContentKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
+    // so a matched branch whose target was retargeted would otherwise read as unchanged. Reproduce
+    // IlBodyDiff.BranchTargetsMatch over the correspondence's index map and downgrade such rows to
+    // Changed, so a real control-flow retarget is never silently dropped from the evidence stream.
+    static ImmutableArray<EvidenceRow> ApplyBranchTargetValidation(
+        ImmutableArray<EvidenceRow> rows,
+        ImmutableArray<CanonicalIlOperation> oldOps,
+        ImmutableArray<CanonicalIlOperation> newOps,
+        Correspondence correspondence)
+    {
+        var oldToNew = new Dictionary<int, int>();
+        foreach (var link in correspondence.Links)
+        {
+            if (link.Kind is EvidenceLinkKind.Matched or EvidenceLinkKind.Moved)
+                oldToNew[link.OldIndex] = link.NewIndex;
+        }
+
+        var oldOffsetToIndex = BuildOffsetIndex(oldOps);
+        var newOffsetToIndex = BuildOffsetIndex(newOps);
+
+        var builder = ImmutableArray.CreateBuilder<EvidenceRow>(rows.Length);
+        foreach (var row in rows)
+        {
+            if (row.Polarity == EvidencePolarity.Present
+                && row.Anchor.OldPosition >= 0
+                && row.Anchor.NewPosition >= 0
+                && oldOps[row.Anchor.OldPosition].Operand is { Kind: IlOperandIdentityKind.BranchTarget or IlOperandIdentityKind.SwitchTargets } oldOperand
+                && !BranchTargetsCorrespond(oldOperand, newOps[row.Anchor.NewPosition].Operand, oldToNew, oldOffsetToIndex, newOffsetToIndex))
+            {
+                builder.Add(row with { Polarity = EvidencePolarity.Changed, Detail = "branch retargeted" });
+            }
+            else
+            {
+                builder.Add(row);
+            }
+        }
+
+        return builder.ToImmutable();
+    }
+
+    static bool BranchTargetsCorrespond(
+        IlOperandIdentity oldOperand,
+        IlOperandIdentity? newOperand,
+        IReadOnlyDictionary<int, int> oldToNew,
+        IReadOnlyDictionary<int, int> oldOffsetToIndex,
+        IReadOnlyDictionary<int, int> newOffsetToIndex)
+    {
+        if (newOperand is null)
+            return false;
+
+        var oldTargets = ParseTargetOffsets(oldOperand.Value);
+        var newTargets = ParseTargetOffsets(newOperand.Value);
+        if (oldTargets.Length != newTargets.Length)
+            return false;
+
+        for (int i = 0; i < oldTargets.Length; i++)
+        {
+            bool haveOld = oldOffsetToIndex.TryGetValue(oldTargets[i], out int oldTargetIndex);
+            bool haveNew = newOffsetToIndex.TryGetValue(newTargets[i], out int newTargetIndex);
+            if (!haveOld || !haveNew)
+            {
+                if (oldTargets[i] != newTargets[i])
+                    return false;
+                continue;
+            }
+
+            if (!oldToNew.TryGetValue(oldTargetIndex, out int mappedNewTarget))
+                return false;
+            if (mappedNewTarget != newTargetIndex)
+                return false;
+        }
+
+        return true;
+    }
+
+    static Dictionary<int, int> BuildOffsetIndex(ImmutableArray<CanonicalIlOperation> operations)
+    {
+        var map = new Dictionary<int, int>(operations.Length);
+        for (int i = 0; i < operations.Length; i++)
+            map[operations[i].Offset] = i;
+        return map;
+    }
+
+    static int[] ParseTargetOffsets(string value)
+    {
+        var parts = value.Split(',');
+        var offsets = new List<int>(parts.Length);
+        foreach (var part in parts)
+        {
+            var token = part.Trim();
+            if (token.StartsWith("IL_", StringComparison.Ordinal)
+                && int.TryParse(token.AsSpan(3), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int offset))
+            {
+                offsets.Add(offset);
+            }
+        }
+
+        return [.. offsets];
     }
 
     static ImmutableArray<EvidenceOccurrence> BuildOccurrences(ImmutableArray<CanonicalIlOperation> operations)
