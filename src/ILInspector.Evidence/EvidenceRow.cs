@@ -88,11 +88,19 @@ public sealed record EvidenceAnchor(
 /// stream-specific detail rides as an opaque <see cref="Payload"/> for display and is
 /// never required to interpret the row.
 /// </summary>
+/// <param name="Confidence">
+/// How confident the match behind this row is, carried from the correspondence entry: 100 for a
+/// committed (exact-identity) match, and lower for a match accepted from the scored fringe. It is on
+/// the row — not just the internal match entry — so a consumer can tell a definite change from a
+/// low-confidence guess once soft matching lands (a hard <see cref="EvidenceRowKind.Changed"/> and a
+/// future fuzzy one would otherwise render identically).
+/// </param>
 public sealed record EvidenceRow(
     EvidenceSubject Subject,
     EvidenceDescriptor Descriptor,
     EvidenceRowKind Kind,
     EvidenceAnchor Anchor,
     EvidenceDifferenceKind DifferenceKind = EvidenceDifferenceKind.None,
+    int Confidence = 100,
     string? Detail = null,
     object? Payload = null);

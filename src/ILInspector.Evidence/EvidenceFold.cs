@@ -98,6 +98,7 @@ public static class EvidenceFold
                     EvidenceRowKind.Present,
                     new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
                     EvidenceDifferenceKind.None,
+                    Confidence: link.Confidence,
                     Payload: newOcc.Payload);
             }
 
@@ -112,6 +113,7 @@ public static class EvidenceFold
                     EvidenceRowKind.Present,
                     new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
                     EvidenceDifferenceKind.Moved,
+                    Confidence: link.Confidence,
                     Detail: $"moved {delta:+#;-#;0}",
                     Payload: newOcc.Payload);
             }
@@ -125,6 +127,7 @@ public static class EvidenceFold
                     EvidenceRowKind.Added,
                     new EvidenceAnchor(newOcc.IdentityKey, -1, link.NewIndex, newOcc.ScopeKey),
                     EvidenceDifferenceKind.None,
+                    Confidence: link.Confidence,
                     Payload: newOcc.Payload);
             }
 
@@ -137,6 +140,7 @@ public static class EvidenceFold
                     EvidenceRowKind.Removed,
                     new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, -1, oldOcc.ScopeKey),
                     EvidenceDifferenceKind.None,
+                    Confidence: link.Confidence,
                     Payload: oldOcc.Payload);
             }
 

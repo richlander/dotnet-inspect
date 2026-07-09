@@ -108,6 +108,25 @@ public class EvidencePilotTests
     }
 
     [Fact]
+    public void AcceptedFringeMove_CarriesItsConfidenceOntoTheRow()
+    {
+        // The match entry's Confidence must survive onto the row, so a consumer can tell a committed
+        // match (100) from a lower-confidence fringe-accepted one — the basis for distinguishing a
+        // hard Changed from a future fuzzy Changed.
+        var old = Stream("c0", "c1", "c2");
+        var @new = Stream("c1", "c2", "c0");
+        var correspondence = EvidenceMatcher.Match(old, @new);
+
+        var rows = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor, acceptanceThreshold: 50);
+
+        var moved = Assert.Single(rows.Where(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
+        Assert.Equal(50, moved.Confidence);
+        Assert.All(
+            rows.Where(r => r.DifferenceKind == EvidenceDifferenceKind.None && r.Kind == EvidenceRowKind.Present),
+            r => Assert.Equal(100, r.Confidence));
+    }
+
+    [Fact]
     public void ScopeCorroboration_RaisesFringeScore()
     {
         var old = ImmutableArray.Create(
