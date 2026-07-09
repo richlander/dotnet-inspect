@@ -283,6 +283,23 @@ public class FindingPilotTests
         return dp[0, 0];
     }
 
+    [Fact]
+    public void BuildAtoms_IsALazyCensus_QueriedWithLinq()
+    {
+        // The single-version shape: BuildAtoms is the census, a lazy IEnumerable<Finding<T>>.
+        // A consumer asks existence/count/filter with LINQ over the stream (it short-circuits on a
+        // hit and never allocates a list itself); one Finding per op, positions 0..N.
+        var body = Body(Ldc0, Ldc1, Ldc2, Ret);
+        Assert.True(IlBodyDiff.TryCanonicalize(body, null, out var ops, out _));
+
+        IEnumerable<Finding<CanonicalIlOperation>> census = IlFindings.BuildAtoms(ops, IlSubject);
+
+        Assert.Contains(census, f => f.Descriptor.Id == "il.op");
+        var list = census.ToList();
+        Assert.Equal(ops.Length, list.Count);
+        Assert.Equal(Enumerable.Range(0, ops.Length), list.Select(f => f.Position));
+    }
+
     // ---- IL adapter: real decode + raw-byte fixtures -----------------------------------------
 
     static MethodInstructions Body(params byte[] il)
