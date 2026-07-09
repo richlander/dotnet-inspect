@@ -27,7 +27,7 @@ public static class MetadataReaderExtensions
         /// </summary>
         public string GetFullTypeName(TypeReference typeRef)
             => typeRef.ResolutionScope.Kind == HandleKind.TypeReference
-                ? $"{reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)typeRef.ResolutionScope))}.{reader.GetString(typeRef.Name)}"
+                ? $"{TypeResolver.GetTypeNameFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope)}.{reader.GetString(typeRef.Name)}"
                 : TypeResolver.GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
 
         /// <summary>

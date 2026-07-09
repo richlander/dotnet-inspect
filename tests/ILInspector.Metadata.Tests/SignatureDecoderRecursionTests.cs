@@ -159,6 +159,20 @@ public class SignatureDecoderRecursionTests
         Assert.False(string.IsNullOrEmpty(text));
     }
 
+    [Fact]
+    public void CyclicTypeReference_ThroughGetFullTypeNameExtension_DoesNotStackOverflow()
+    {
+        // MetadataReaderExtensions.GetFullTypeName(TypeReference) climbs the resolution scope to
+        // qualify a nested TypeRef (Outer.Inner); a self-scoped TypeRef must not recurse forever.
+        // The overload delegates the climb to the guarded TypeResolver.GetTypeNameFromReference.
+        var reader = BuildAssembly(md =>
+            md.AddTypeReference(MetadataTokens.TypeReferenceHandle(1), md.GetOrAddString("N"), md.GetOrAddString("Loop")));
+
+        var text = reader.GetFullTypeName(reader.GetTypeReference(MetadataTokens.TypeReferenceHandle(1)));
+
+        Assert.False(string.IsNullOrEmpty(text));
+    }
+
     static MetadataReader BuildTypeSpec(Action<BlobBuilder> writeSignature)
     {
         var signature = new BlobBuilder();
