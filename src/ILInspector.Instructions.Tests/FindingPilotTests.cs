@@ -6,7 +6,7 @@ using ILInspector.Findings;
 namespace ILInspector.Instructions.Tests;
 
 /// <summary>
-/// Pilot gates for the finding spine (#2564): the domain-free correspondence engine plus the IL
+/// Pilot gates for the finding spine (#2564): the domain-free alignment engine plus the IL
 /// adapter. The engine's committed core is an LCS (so it reproduces the existing IL sequence
 /// diff on move-free inputs); the move pass recovers relocations; equivalence is a consumer fold.
 /// </summary>
@@ -20,8 +20,8 @@ public class FindingPilotTests
     static readonly FindingSubject Subject = new("test", "test");
     static readonly FindingDescriptor Descriptor = new("test.item", "item");
 
-    static int Count(FindingMatch c, FindingMatchKind kind)
-        => c.Entries.Count(l => l.Kind == kind);
+    static int Count(FindingMatch c, FindingEdgeKind kind)
+        => c.Edges.Count(l => l.Kind == kind);
 
     [Fact]
     public void CommittedCore_IsAnOptimalLcs_OnManyShapes()
@@ -40,8 +40,8 @@ public class FindingPilotTests
 
         foreach (var (old, @new) in cases)
         {
-            var correspondence = FindingMatcher.Match(Stream(old), Stream(@new));
-            var matched = correspondence.Entries.Where(l => l.Kind == FindingMatchKind.Matched).ToArray();
+            var match = FindingMatcher.Match(Stream(old), Stream(@new));
+            var matched = match.Edges.Where(l => l.Kind == FindingEdgeKind.Matched).ToArray();
 
             // Optimality: as long as a classic LCS.
             Assert.Equal(ReferenceLcsLength(old, @new), matched.Length);
@@ -53,8 +53,8 @@ public class FindingPilotTests
                 Assert.True(matched[i].NewIndex > matched[i - 1].NewIndex);
             }
 
-            foreach (var link in matched)
-                Assert.Equal(old[link.OldIndex], @new[link.NewIndex]);
+            foreach (var edge in matched)
+                Assert.Equal(old[edge.OldIndex], @new[edge.NewIndex]);
         }
     }
 
@@ -66,11 +66,11 @@ public class FindingPilotTests
         var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
 
-        var correspondence = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old, @new);
 
-        Assert.Equal(2, Count(correspondence, FindingMatchKind.Moved));
-        Assert.Equal(0, Count(correspondence, FindingMatchKind.Added));
-        Assert.Equal(0, Count(correspondence, FindingMatchKind.Removed));
+        Assert.Equal(2, Count(match, FindingEdgeKind.Moved));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Added));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Removed));
     }
 
     [Fact]
@@ -80,12 +80,12 @@ public class FindingPilotTests
         var old = Stream("c0", "c1", "c2");
         var @new = Stream("c1", "c2", "c0");
 
-        var correspondence = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old, @new);
 
-        Assert.Equal(0, Count(correspondence, FindingMatchKind.Moved));
-        Assert.Equal(1, Count(correspondence, FindingMatchKind.Added));
-        Assert.Equal(1, Count(correspondence, FindingMatchKind.Removed));
-        var candidate = Assert.Single(correspondence.MoveCandidates);
+        Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Added));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Removed));
+        var candidate = Assert.Single(match.MoveCandidates);
         Assert.Equal(50, candidate.Confidence);
     }
 
@@ -94,14 +94,14 @@ public class FindingPilotTests
     {
         var old = Stream("c0", "c1", "c2");
         var @new = Stream("c1", "c2", "c0");
-        var correspondence = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old, @new);
 
-        var strict = FindingFold.ToRows(correspondence, old, @new, Subject, Descriptor);
+        var strict = FindingFold.ToRows(match, old, @new, Subject, Descriptor);
         Assert.Equal(0, strict.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
         Assert.Equal(1, strict.Count(r => r.Kind == FindingKind.Added));
         Assert.Equal(1, strict.Count(r => r.Kind == FindingKind.Removed));
 
-        var recall = FindingFold.ToRows(correspondence, old, @new, Subject, Descriptor, acceptanceThreshold: 50);
+        var recall = FindingFold.ToRows(match, old, @new, Subject, Descriptor, acceptanceThreshold: 50);
         Assert.Equal(1, recall.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
         Assert.Equal(0, recall.Count(r => r.Kind == FindingKind.Added));
         Assert.Equal(0, recall.Count(r => r.Kind == FindingKind.Removed));
@@ -119,8 +119,8 @@ public class FindingPilotTests
             new FindingOccurrence("c2"),
             new FindingOccurrence("c0", ScopeKey: "loop1"));
 
-        var correspondence = FindingMatcher.Match(old, @new);
-        var candidate = Assert.Single(correspondence.MoveCandidates);
+        var match = FindingMatcher.Match(old, @new);
+        var candidate = Assert.Single(match.MoveCandidates);
         Assert.Equal(75, candidate.Confidence);
         Assert.Equal("content+scope", candidate.Reason);
     }
@@ -130,8 +130,8 @@ public class FindingPilotTests
     {
         var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
-        var correspondence = FindingMatcher.Match(old, @new);
-        var rows = FindingFold.ToRows(correspondence, old, @new, Subject, Descriptor);
+        var match = FindingMatcher.Match(old, @new);
+        var rows = FindingFold.ToRows(match, old, @new, Subject, Descriptor);
 
         // Order is semantic under the fidelity fold: a reorder is a real difference.
         Assert.False(FindingEquivalence.Exact.IsEquivalent(rows));
@@ -143,8 +143,8 @@ public class FindingPilotTests
     public void IdenticalStreams_AreExact()
     {
         var stream = Stream("a", "b", "c", "d");
-        var correspondence = FindingMatcher.Match(stream, stream);
-        var rows = FindingFold.ToRows(correspondence, stream, stream, Subject, Descriptor);
+        var match = FindingMatcher.Match(stream, stream);
+        var rows = FindingFold.ToRows(match, stream, stream, Subject, Descriptor);
 
         Assert.All(rows, r => Assert.Equal(FindingKind.Present, r.Kind));
         Assert.True(FindingEquivalence.Exact.IsEquivalent(rows));
@@ -158,11 +158,11 @@ public class FindingPilotTests
         var old = Stream("M1", "A", "M2", "B");
         var @new = Stream("A", "B", "M1", "M2");
 
-        var correspondence = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old, @new);
 
-        Assert.Equal(0, Count(correspondence, FindingMatchKind.Moved));
-        Assert.Equal(2, Count(correspondence, FindingMatchKind.Added));
-        Assert.Equal(2, Count(correspondence, FindingMatchKind.Removed));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
+        Assert.Equal(2, Count(match, FindingEdgeKind.Added));
+        Assert.Equal(2, Count(match, FindingEdgeKind.Removed));
     }
 
     [Fact]
@@ -173,11 +173,11 @@ public class FindingPilotTests
         var old = Stream("A", "B");
         var @new = Stream("B", "A", "A");
 
-        var correspondence = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old, @new);
 
-        Assert.Equal(2, correspondence.MoveCandidates.Length);
-        Assert.All(correspondence.MoveCandidates, c => Assert.Equal("A", old[c.OldIndex].IdentityKey));
-        Assert.All(correspondence.MoveCandidates, c => Assert.Equal("A", @new[c.NewIndex].IdentityKey));
+        Assert.Equal(2, match.MoveCandidates.Length);
+        Assert.All(match.MoveCandidates, c => Assert.Equal("A", old[c.OldIndex].IdentityKey));
+        Assert.All(match.MoveCandidates, c => Assert.Equal("A", @new[c.NewIndex].IdentityKey));
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class FindingPilotTests
         var first = FindingMatcher.Match(old, @new);
         var second = FindingMatcher.Match(old, @new);
 
-        Assert.Equal(first.Entries, second.Entries);
+        Assert.Equal(first.Edges, second.Edges);
         Assert.Equal(first.MoveCandidates, second.MoveCandidates);
     }
 

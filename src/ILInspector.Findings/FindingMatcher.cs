@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 namespace ILInspector.Findings;
 
 /// <summary>How an old/new occurrence pair (or singleton) is related across versions.</summary>
-public enum FindingMatchKind
+public enum FindingEdgeKind
 {
     /// <summary>Order-preserving content match found by the committed LCS core.</summary>
     Matched,
@@ -19,14 +19,14 @@ public enum FindingMatchKind
 }
 
 /// <summary>
-/// One correspondence edge. <see cref="OldIndex"/> is -1 for <see cref="FindingMatchKind.Added"/>;
-/// <see cref="NewIndex"/> is -1 for <see cref="FindingMatchKind.Removed"/>. <see cref="Confidence"/>
+/// One alignment edge. <see cref="OldIndex"/> is -1 for <see cref="FindingEdgeKind.Added"/>;
+/// <see cref="NewIndex"/> is -1 for <see cref="FindingEdgeKind.Removed"/>. <see cref="Confidence"/>
 /// is 100 for the committed matching; lower values are reserved for accepted fringe.
 /// </summary>
-public sealed record FindingMatchEntry(FindingMatchKind Kind, int OldIndex, int NewIndex, int Confidence);
+public sealed record FindingEdge(FindingEdgeKind Kind, int OldIndex, int NewIndex, int Confidence);
 
 /// <summary>
-/// A deferred, ambiguous correspondence the committed core did not commit (a content-equal
+/// A deferred, ambiguous match the committed core did not commit (a content-equal
 /// singleton that lacks a corroborating run). Acceptance is a <em>consumer</em> decision:
 /// <see cref="FindingFold"/> promotes candidates whose <see cref="Confidence"/> meets a caller
 /// threshold. The default (100) accepts none, so these stay Added+Removed.
@@ -34,7 +34,7 @@ public sealed record FindingMatchEntry(FindingMatchKind Kind, int OldIndex, int 
 public sealed record FindingMoveCandidate(int OldIndex, int NewIndex, int Confidence, string Reason);
 
 /// <summary>The result of matching two occurrence streams.</summary>
-/// <param name="Entries">
+/// <param name="Edges">
 /// The committed, conservative interpretation: order-preserving matches, committed moves,
 /// and Added/Removed for everything else (including the endpoints of every fringe candidate).
 /// </param>
@@ -43,7 +43,7 @@ public sealed record FindingMoveCandidate(int OldIndex, int NewIndex, int Confid
 /// pair into a move. Empty when nothing is ambiguous.
 /// </param>
 public sealed record FindingMatch(
-    ImmutableArray<FindingMatchEntry> Entries,
+    ImmutableArray<FindingEdge> Edges,
     ImmutableArray<FindingMoveCandidate> MoveCandidates);
 
 /// <summary>Tunables for <see cref="FindingMatcher.Match"/>.</summary>
@@ -61,7 +61,7 @@ public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
 /// The single, domain-free matcher every finding stream shares. It commits an
 /// order-preserving LCS core (which reproduces a classic sequence diff when there are no moves)
 /// and then recovers relocations as a scored move pass over the residual. It never decides
-/// equivalence: it emits classified correspondence, and a consumer <see cref="FindingFold"/>
+/// equivalence: it emits a classified alignment (a set of edges), and a consumer <see cref="FindingFold"/>
 /// folds it.
 /// </summary>
 public static class FindingMatcher
@@ -93,14 +93,14 @@ public static class FindingMatcher
 
         var matchedOld = new bool[oldStream.Count];
         var matchedNew = new bool[newStream.Count];
-        var links = ImmutableArray.CreateBuilder<FindingMatchEntry>();
+        var edges = ImmutableArray.CreateBuilder<FindingEdge>();
 
         // 1. Committed core: order-preserving LCS over content keys.
         foreach (var (oldIndex, newIndex) in LongestCommonSubsequence(oldStream, newStream))
         {
             matchedOld[oldIndex] = true;
             matchedNew[newIndex] = true;
-            links.Add(new FindingMatchEntry(FindingMatchKind.Matched, oldIndex, newIndex, 100));
+            edges.Add(new FindingEdge(FindingEdgeKind.Matched, oldIndex, newIndex, 100));
         }
 
         // 2. Residual (what the order-preserving core could not match).
@@ -110,7 +110,7 @@ public static class FindingMatcher
         // 3. Move pass: commit maximal common contiguous residual runs (>= MinMoveRunLength).
         var committedOld = new bool[residualOld.Length];
         var committedNew = new bool[residualNew.Length];
-        DetectMoveRuns(oldStream, newStream, residualOld, residualNew, committedOld, committedNew, options.MinMoveRunLength, links);
+        DetectMoveRuns(oldStream, newStream, residualOld, residualNew, committedOld, committedNew, options.MinMoveRunLength, edges);
 
         // 4. Leftover residual: score singleton content matches as fringe, emit the rest as add/remove.
         var fringe = BuildFringe(oldStream, newStream, residualOld, residualNew, committedOld, committedNew);
@@ -118,16 +118,16 @@ public static class FindingMatcher
         foreach (var (localIndex, oldIndex) in Indexed(residualOld))
         {
             if (!committedOld[localIndex])
-                links.Add(new FindingMatchEntry(FindingMatchKind.Removed, oldIndex, -1, 100));
+                edges.Add(new FindingEdge(FindingEdgeKind.Removed, oldIndex, -1, 100));
         }
 
         foreach (var (localIndex, newIndex) in Indexed(residualNew))
         {
             if (!committedNew[localIndex])
-                links.Add(new FindingMatchEntry(FindingMatchKind.Added, -1, newIndex, 100));
+                edges.Add(new FindingEdge(FindingEdgeKind.Added, -1, newIndex, 100));
         }
 
-        return new FindingMatch(links.ToImmutable(), fringe);
+        return new FindingMatch(edges.ToImmutable(), fringe);
     }
 
     static int[] ResidualIndices(bool[] matched)
@@ -156,7 +156,7 @@ public static class FindingMatcher
         bool[] committedOld,
         bool[] committedNew,
         int minRun,
-        ImmutableArray<FindingMatchEntry>.Builder links)
+        ImmutableArray<FindingEdge>.Builder edges)
     {
         // A committed move is a run of >= minRun operations that is contiguous in BOTH original
         // streams (a relocated block), not merely adjacent in the residual arrays. Requiring
@@ -214,7 +214,7 @@ public static class FindingMatcher
             {
                 committedOld[bestA + k] = true;
                 committedNew[bestB + k] = true;
-                links.Add(new FindingMatchEntry(FindingMatchKind.Moved, residualOld[bestA + k], residualNew[bestB + k], 100));
+                edges.Add(new FindingEdge(FindingEdgeKind.Moved, residualOld[bestA + k], residualNew[bestB + k], 100));
             }
         }
     }

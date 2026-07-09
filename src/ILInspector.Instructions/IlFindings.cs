@@ -9,7 +9,7 @@ namespace ILInspector.Instructions;
 /// Adapts IL method bodies onto the domain-free finding substrate: it canonicalizes each body
 /// (reusing <see cref="IlBodyDiff"/> exactly), projects operations into
 /// <see cref="FindingOccurrence"/>s, runs the shared <see cref="FindingMatcher"/>, and
-/// folds the correspondence into <see cref="Finding"/>s. This is the "IL as finding" pilot:
+/// folds the alignment into <see cref="Finding"/>s. This is the "IL as finding" pilot:
 /// the committed LCS core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move
 /// pass recovers relocations that the order-preserving diff cannot.
 /// </summary>
@@ -38,10 +38,10 @@ public static class IlFindings
         var oldStream = BuildOccurrences(oldOps);
         var newStream = BuildOccurrences(newOps);
 
-        FindingMatch correspondence;
+        FindingMatch match;
         try
         {
-            correspondence = FindingMatcher.Match(oldStream, newStream);
+            match = FindingMatcher.Match(oldStream, newStream);
         }
         catch (ArgumentException ex)
         {
@@ -50,9 +50,9 @@ public static class IlFindings
             return IlFindingsResult.Failed(ex.Message);
         }
 
-        var rows = FindingFold.ToRows(correspondence, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
+        var rows = FindingFold.ToRows(match, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
         rows = ApplyBranchTargetValidation(rows, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
-        return new IlFindingsResult(rows, correspondence, oldStream, newStream, Failure: null);
+        return new IlFindingsResult(rows, match, oldStream, newStream, Failure: null);
     }
 
     // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),

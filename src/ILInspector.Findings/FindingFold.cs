@@ -12,36 +12,36 @@ namespace ILInspector.Findings;
 public static class FindingFold
 {
     public static ImmutableArray<Finding> ToRows(
-        FindingMatch correspondence,
+        FindingMatch match,
         IReadOnlyList<FindingOccurrence> oldStream,
         IReadOnlyList<FindingOccurrence> newStream,
         FindingSubject subject,
         FindingDescriptor descriptor,
         int acceptanceThreshold = 100)
     {
-        ArgumentNullException.ThrowIfNull(correspondence);
+        ArgumentNullException.ThrowIfNull(match);
         ArgumentNullException.ThrowIfNull(oldStream);
         ArgumentNullException.ThrowIfNull(newStream);
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(descriptor);
 
-        var links = ApplyAcceptance(correspondence, acceptanceThreshold);
-        var rows = ImmutableArray.CreateBuilder<Finding>(links.Length);
-        foreach (var link in links)
-            rows.Add(ToRow(link, oldStream, newStream, subject, descriptor));
+        var edges = ApplyAcceptance(match, acceptanceThreshold);
+        var rows = ImmutableArray.CreateBuilder<Finding>(edges.Length);
+        foreach (var edge in edges)
+            rows.Add(ToRow(edge, oldStream, newStream, subject, descriptor));
 
         return rows.ToImmutable();
     }
 
-    static ImmutableArray<FindingMatchEntry> ApplyAcceptance(FindingMatch correspondence, int threshold)
+    static ImmutableArray<FindingEdge> ApplyAcceptance(FindingMatch match, int threshold)
     {
-        if (threshold > 99 || correspondence.MoveCandidates.IsDefaultOrEmpty)
-            return correspondence.Entries;
+        if (threshold > 99 || match.MoveCandidates.IsDefaultOrEmpty)
+            return match.Edges;
 
         var usedOld = new HashSet<int>();
         var usedNew = new HashSet<int>();
         var accepted = new List<FindingMoveCandidate>();
-        foreach (var candidate in correspondence.MoveCandidates
+        foreach (var candidate in match.MoveCandidates
             .OrderByDescending(c => c.Confidence)
             .ThenBy(c => c.OldIndex)
             .ThenBy(c => c.NewIndex))
@@ -60,88 +60,88 @@ public static class FindingFold
         }
 
         if (accepted.Count == 0)
-            return correspondence.Entries;
+            return match.Edges;
 
-        var result = ImmutableArray.CreateBuilder<FindingMatchEntry>();
-        foreach (var link in correspondence.Entries)
+        var result = ImmutableArray.CreateBuilder<FindingEdge>();
+        foreach (var edge in match.Edges)
         {
-            if (link.Kind == FindingMatchKind.Removed && usedOld.Contains(link.OldIndex))
+            if (edge.Kind == FindingEdgeKind.Removed && usedOld.Contains(edge.OldIndex))
                 continue;
-            if (link.Kind == FindingMatchKind.Added && usedNew.Contains(link.NewIndex))
+            if (edge.Kind == FindingEdgeKind.Added && usedNew.Contains(edge.NewIndex))
                 continue;
 
-            result.Add(link);
+            result.Add(edge);
         }
 
         foreach (var candidate in accepted)
-            result.Add(new FindingMatchEntry(FindingMatchKind.Moved, candidate.OldIndex, candidate.NewIndex, candidate.Confidence));
+            result.Add(new FindingEdge(FindingEdgeKind.Moved, candidate.OldIndex, candidate.NewIndex, candidate.Confidence));
 
         return result.ToImmutable();
     }
 
     static Finding ToRow(
-        FindingMatchEntry link,
+        FindingEdge edge,
         IReadOnlyList<FindingOccurrence> oldStream,
         IReadOnlyList<FindingOccurrence> newStream,
         FindingSubject subject,
         FindingDescriptor descriptor)
     {
-        switch (link.Kind)
+        switch (edge.Kind)
         {
-            case FindingMatchKind.Matched:
+            case FindingEdgeKind.Matched:
             {
-                var oldOcc = oldStream[link.OldIndex];
-                var newOcc = newStream[link.NewIndex];
+                var oldOcc = oldStream[edge.OldIndex];
+                var newOcc = newStream[edge.NewIndex];
                 return new Finding(
                     subject,
                     descriptor,
                     FindingKind.Present,
-                    new FindingAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
+                    new FindingAnchor(oldOcc.IdentityKey, edge.OldIndex, edge.NewIndex, oldOcc.ScopeKey),
                     FindingDifferenceKind.None,
                     Payload: newOcc.Payload);
             }
 
-            case FindingMatchKind.Moved:
+            case FindingEdgeKind.Moved:
             {
-                var oldOcc = oldStream[link.OldIndex];
-                var newOcc = newStream[link.NewIndex];
-                int delta = link.NewIndex - link.OldIndex;
+                var oldOcc = oldStream[edge.OldIndex];
+                var newOcc = newStream[edge.NewIndex];
+                int delta = edge.NewIndex - edge.OldIndex;
                 return new Finding(
                     subject,
                     descriptor,
                     FindingKind.Present,
-                    new FindingAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
+                    new FindingAnchor(oldOcc.IdentityKey, edge.OldIndex, edge.NewIndex, oldOcc.ScopeKey),
                     FindingDifferenceKind.Moved,
                     Detail: $"moved {delta:+#;-#;0}",
                     Payload: newOcc.Payload);
             }
 
-            case FindingMatchKind.Added:
+            case FindingEdgeKind.Added:
             {
-                var newOcc = newStream[link.NewIndex];
+                var newOcc = newStream[edge.NewIndex];
                 return new Finding(
                     subject,
                     descriptor,
                     FindingKind.Added,
-                    new FindingAnchor(newOcc.IdentityKey, -1, link.NewIndex, newOcc.ScopeKey),
+                    new FindingAnchor(newOcc.IdentityKey, -1, edge.NewIndex, newOcc.ScopeKey),
                     FindingDifferenceKind.None,
                     Payload: newOcc.Payload);
             }
 
-            case FindingMatchKind.Removed:
+            case FindingEdgeKind.Removed:
             {
-                var oldOcc = oldStream[link.OldIndex];
+                var oldOcc = oldStream[edge.OldIndex];
                 return new Finding(
                     subject,
                     descriptor,
                     FindingKind.Removed,
-                    new FindingAnchor(oldOcc.IdentityKey, link.OldIndex, -1, oldOcc.ScopeKey),
+                    new FindingAnchor(oldOcc.IdentityKey, edge.OldIndex, -1, oldOcc.ScopeKey),
                     FindingDifferenceKind.None,
                     Payload: oldOcc.Payload);
             }
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(link), link.Kind, "Unknown link kind.");
+                throw new ArgumentOutOfRangeException(nameof(edge), edge.Kind, "Unknown edge kind.");
         }
     }
 }

@@ -67,7 +67,7 @@ public enum FindingDifferenceKind
 
 /// <summary>
 /// A domain-free identity/location bundle for an occurrence. <see cref="IdentityKey"/>
-/// is the canonical content fingerprint (the correspondence match key); the positions
+/// is the canonical content fingerprint (the alignment key); the positions
 /// and <see cref="ScopeKey"/> are the structural signals a Fold reads to classify a
 /// change (e.g. a move that crossed a scope boundary).
 /// </summary>
