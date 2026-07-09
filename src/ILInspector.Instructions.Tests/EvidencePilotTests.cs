@@ -273,6 +273,24 @@ public class EvidencePilotTests
     }
 
     [Fact]
+    public void IlEvidence_BranchInsideMovedBlock_IsReorderNotRetarget()
+    {
+        // The [ldc.i4.0, br.s] block (branch targets the ldc just before it) relocates ahead of the
+        // NOP spine. The branch is byte-identical and still targets its (moved) ldc, so it must read
+        // as a move, not a retarget. Requires overlaying the evidence Moved mappings onto the
+        // IlBodyDiff alignment map (which is move-blind).
+        var old = Body(Nop, Nop, Nop, Ldc0, BrS, 0xFD, Ret);
+        var @new = Body(Ldc0, BrS, 0xFD, Nop, Nop, Nop, Ret);
+
+        var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
+
+        Assert.Null(result.Failure);
+        Assert.DoesNotContain(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
+        Assert.Equal(2, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.True(EvidenceEquivalenceFold.Multiset.IsEquivalent(result.Rows));
+    }
+
+    [Fact]
     public void IlEvidence_Exactness_AgreesWithIlBodyDiff_AcrossFixtures()
     {
         (byte[] Old, byte[] New)[] pairs =

@@ -45,9 +45,10 @@ public static class IlEvidence
 
     // ContentKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
     // so a matched branch whose target was retargeted would otherwise read as unchanged. Reuse
-    // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation) and
-    // downgrade a non-corresponding branch to Changed, so a real control-flow retarget is never
-    // silently dropped and the adapter stays faithful to IlBodyDiff (gap-pair mapping included).
+    // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
+    // then overlay the evidence Moved mappings so a branch that targets a relocated instruction is
+    // judged in the evidence frame (its target moved with it) rather than being falsely retargeted.
+    // On move-free inputs there are no Moved rows, so the map is exactly IlBodyDiff's.
     static ImmutableArray<EvidenceRow> ApplyBranchTargetValidation(
         ImmutableArray<EvidenceRow> rows,
         ImmutableArray<DecodedInstruction> oldInstructions,
@@ -55,7 +56,16 @@ public static class IlEvidence
         ImmutableArray<DecodedInstruction> newInstructions,
         ImmutableArray<CanonicalIlOperation> newOps)
     {
-        var alignment = IlBodyDiff.BuildAlignmentMap(oldOps, newOps);
+        var alignment = new Dictionary<int, int>(IlBodyDiff.BuildAlignmentMap(oldOps, newOps));
+        foreach (var row in rows)
+        {
+            if (row.Difference == EvidenceDifferenceClass.Moved
+                && row.Anchor.OldPosition >= 0
+                && row.Anchor.NewPosition >= 0)
+            {
+                alignment[row.Anchor.OldPosition] = row.Anchor.NewPosition;
+            }
+        }
 
         var builder = ImmutableArray.CreateBuilder<EvidenceRow>(rows.Length);
         foreach (var row in rows)
