@@ -2,10 +2,10 @@ namespace ILInspector.Evidence;
 
 /// <summary>
 /// A single domain-free item within an ordered stream, presented to the
-/// <see cref="CorrespondenceEngine"/> for cross-version matching. Domain producers
+/// <see cref="EvidenceMatcher"/> for cross-version matching. Domain producers
 /// project their nodes (IL operations, IR nodes, API members) into this shape.
 /// </summary>
-/// <param name="ContentKey">
+/// <param name="IdentityKey">
 /// The canonical content fingerprint. Two occurrences are candidate "same thing"
 /// matches iff their content keys are equal, so the producing layer must fold all
 /// incidental encoding (short/long form, register renumbering) into this key.
@@ -20,6 +20,6 @@ namespace ILInspector.Evidence;
 /// display. Never inspected by the matcher.
 /// </param>
 public sealed record EvidenceOccurrence(
-    string ContentKey,
+    string IdentityKey,
     string? ScopeKey = null,
     object? Payload = null);

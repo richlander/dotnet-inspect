@@ -9,7 +9,7 @@ namespace ILInspector.Evidence;
 /// mechanism behind "equivalence is a fold": the differ emits classified rows once, and each
 /// consumer picks which classes it forgives.
 /// </summary>
-public sealed record EvidenceEquivalenceFold(
+public sealed record EvidenceEquivalence(
     ImmutableHashSet<EvidencePolarity> EquivalentPolarities,
     ImmutableHashSet<EvidenceDifferenceClass> EquivalentClasses)
 {
@@ -32,7 +32,7 @@ public sealed record EvidenceEquivalenceFold(
     /// encoding is folded. A move is a real difference (order is semantic for IL), so a
     /// reordered body is not exact.
     /// </summary>
-    public static readonly EvidenceEquivalenceFold Exact = new(
+    public static readonly EvidenceEquivalence Exact = new(
         [EvidencePolarity.Present],
         [EvidenceDifferenceClass.None, EvidenceDifferenceClass.EncodingOnly]);
 
@@ -40,7 +40,7 @@ public sealed record EvidenceEquivalenceFold(
     /// "Same operations, order aside": moves are forgiven, but additions and removals are not.
     /// Appropriate for a consumer that only cares whether the multiset of operations changed.
     /// </summary>
-    public static readonly EvidenceEquivalenceFold Multiset = new(
+    public static readonly EvidenceEquivalence Multiset = new(
         [EvidencePolarity.Present],
         [EvidenceDifferenceClass.None, EvidenceDifferenceClass.EncodingOnly, EvidenceDifferenceClass.Moved]);
 }

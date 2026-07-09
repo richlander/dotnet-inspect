@@ -8,7 +8,7 @@ namespace ILInspector.Instructions;
 /// <summary>
 /// Adapts IL method bodies onto the domain-free evidence substrate: it canonicalizes each body
 /// (reusing <see cref="IlBodyDiff"/> exactly), projects operations into
-/// <see cref="EvidenceOccurrence"/>s, runs the shared <see cref="CorrespondenceEngine"/>, and
+/// <see cref="EvidenceOccurrence"/>s, runs the shared <see cref="EvidenceMatcher"/>, and
 /// folds the correspondence into <see cref="EvidenceRow"/>s. This is the "IL as evidence" pilot:
 /// the committed LCS core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move
 /// pass recovers relocations that the order-preserving diff cannot.
@@ -37,13 +37,13 @@ public static class IlEvidence
 
         var oldStream = BuildOccurrences(oldOps);
         var newStream = BuildOccurrences(newOps);
-        var correspondence = CorrespondenceEngine.Match(oldStream, newStream);
+        var correspondence = EvidenceMatcher.Match(oldStream, newStream);
         var rows = EvidenceFold.ToRows(correspondence, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
         rows = ApplyBranchTargetValidation(rows, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
         return new IlEvidenceResult(rows, correspondence, oldStream, newStream, Failure: null);
     }
 
-    // ContentKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
+    // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
     // so a matched branch whose target was retargeted would otherwise read as unchanged. Reuse
     // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
     // then overlay the evidence Moved mappings so a branch that targets a relocated instruction is
@@ -93,7 +93,7 @@ public static class IlEvidence
         {
             // ScopeKey is left null in the pilot: move detection is corroborated by run
             // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
-            builder.Add(new EvidenceOccurrence(ContentKey(operation), ScopeKey: null, Payload: operation));
+            builder.Add(new EvidenceOccurrence(IdentityKey(operation), ScopeKey: null, Payload: operation));
         }
 
         return builder.MoveToImmutable();
@@ -104,7 +104,7 @@ public static class IlEvidence
     /// <see cref="IlBodyDiff"/> canonical-equality relation (branch targets ignored; switch
     /// arms compared by count). This keeps the committed core aligned with the existing diff.
     /// </summary>
-    public static string ContentKey(CanonicalIlOperation operation)
+    public static string IdentityKey(CanonicalIlOperation operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (operation.Operand is null)
@@ -122,14 +122,14 @@ public static class IlEvidence
 /// <summary>The outcome of an <see cref="IlEvidence.Compare"/> call.</summary>
 public sealed record IlEvidenceResult(
     ImmutableArray<EvidenceRow> Rows,
-    Correspondence Correspondence,
+    EvidenceCorrespondence Correspondence,
     ImmutableArray<EvidenceOccurrence> OldStream,
     ImmutableArray<EvidenceOccurrence> NewStream,
     string? Failure)
 {
     /// <summary>True when the bodies are exact under the fidelity fold (no adds/removes/moves).</summary>
-    public bool IsExact => Failure is null && EvidenceEquivalenceFold.Exact.IsEquivalent(Rows);
+    public bool IsExact => Failure is null && EvidenceEquivalence.Exact.IsEquivalent(Rows);
 
     public static IlEvidenceResult Failed(string failure)
-        => new([], new Correspondence([], []), [], [], failure);
+        => new([], new EvidenceCorrespondence([], []), [], [], failure);
 }

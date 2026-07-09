@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 namespace ILInspector.Evidence;
 
 /// <summary>
-/// Projects a <see cref="Correspondence"/> into evidence rows. This is the generic diff Fold:
+/// Projects a <see cref="EvidenceCorrespondence"/> into evidence rows. This is the generic diff Fold:
 /// it never decides equivalence, it materializes classified rows (Present / Added / Removed,
 /// with a <see cref="EvidenceDifferenceClass"/> facet). Move <em>acceptance</em> is itself a
 /// fold: the default threshold (100) commits nothing from the fringe, while a recall-hungry
@@ -12,7 +12,7 @@ namespace ILInspector.Evidence;
 public static class EvidenceFold
 {
     public static ImmutableArray<EvidenceRow> ToRows(
-        Correspondence correspondence,
+        EvidenceCorrespondence correspondence,
         IReadOnlyList<EvidenceOccurrence> oldStream,
         IReadOnlyList<EvidenceOccurrence> newStream,
         EvidenceSubject subject,
@@ -33,7 +33,7 @@ public static class EvidenceFold
         return rows.ToImmutable();
     }
 
-    static ImmutableArray<EvidenceLink> ApplyAcceptance(Correspondence correspondence, int threshold)
+    static ImmutableArray<EvidenceLink> ApplyAcceptance(EvidenceCorrespondence correspondence, int threshold)
     {
         if (threshold > 99 || correspondence.Fringe.IsDefaultOrEmpty)
             return correspondence.Links;
@@ -96,7 +96,7 @@ public static class EvidenceFold
                     subject,
                     descriptor,
                     EvidencePolarity.Present,
-                    new EvidenceAnchor(oldOcc.ContentKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
+                    new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
                     EvidenceDifferenceClass.None,
                     Payload: newOcc.Payload);
             }
@@ -110,7 +110,7 @@ public static class EvidenceFold
                     subject,
                     descriptor,
                     EvidencePolarity.Present,
-                    new EvidenceAnchor(oldOcc.ContentKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
+                    new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
                     EvidenceDifferenceClass.Moved,
                     Detail: $"moved {delta:+#;-#;0}",
                     Payload: newOcc.Payload);
@@ -123,7 +123,7 @@ public static class EvidenceFold
                     subject,
                     descriptor,
                     EvidencePolarity.Added,
-                    new EvidenceAnchor(newOcc.ContentKey, -1, link.NewIndex, newOcc.ScopeKey),
+                    new EvidenceAnchor(newOcc.IdentityKey, -1, link.NewIndex, newOcc.ScopeKey),
                     EvidenceDifferenceClass.None,
                     Payload: newOcc.Payload);
             }
@@ -135,7 +135,7 @@ public static class EvidenceFold
                     subject,
                     descriptor,
                     EvidencePolarity.Removed,
-                    new EvidenceAnchor(oldOcc.ContentKey, link.OldIndex, -1, oldOcc.ScopeKey),
+                    new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, -1, oldOcc.ScopeKey),
                     EvidenceDifferenceClass.None,
                     Payload: oldOcc.Payload);
             }

@@ -41,7 +41,7 @@ public enum EvidencePolarity
 /// The kind of difference a Fold observed for a matched pair, orthogonal to
 /// <see cref="EvidencePolarity"/> and to the content-kind carried by
 /// <see cref="EvidenceDescriptor"/>. Consumers select an equivalence by allow-listing
-/// classes (see <see cref="EvidenceEquivalenceFold"/>), which is why this is a
+/// classes (see <see cref="EvidenceEquivalence"/>), which is why this is a
 /// separate axis: the same class is folded away by one consumer and is the salient
 /// signal for another.
 /// </summary>
@@ -95,6 +95,4 @@ public sealed record EvidenceRow(
     EvidenceAnchor Anchor,
     EvidenceDifferenceClass Difference = EvidenceDifferenceClass.None,
     string? Detail = null,
-    object? Old = null,
-    object? New = null,
     object? Payload = null);

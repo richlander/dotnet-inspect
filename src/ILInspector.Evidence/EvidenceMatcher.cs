@@ -42,38 +42,38 @@ public sealed record EvidenceMoveCandidate(int OldIndex, int NewIndex, int Score
 /// Scored move candidates a recall-hungry consumer may accept to reclassify an Added+Removed
 /// pair into a move. Empty when nothing is ambiguous.
 /// </param>
-public sealed record Correspondence(
+public sealed record EvidenceCorrespondence(
     ImmutableArray<EvidenceLink> Links,
     ImmutableArray<EvidenceMoveCandidate> Fringe);
 
-/// <summary>Tunables for <see cref="CorrespondenceEngine.Match"/>.</summary>
+/// <summary>Tunables for <see cref="EvidenceMatcher.Match"/>.</summary>
 /// <param name="MinMoveRun">
 /// The minimum length of a common contiguous residual run to commit as a move. Runs shorter
 /// than this are left to the fringe, which is what gives the conservative default its
 /// mismatch resistance (a lone content-equal occurrence is not silently treated as a move).
 /// </param>
-public sealed record CorrespondenceOptions(int MinMoveRun = 2)
+public sealed record EvidenceMatchOptions(int MinMoveRun = 2)
 {
-    public static readonly CorrespondenceOptions Default = new();
+    public static readonly EvidenceMatchOptions Default = new();
 }
 
 /// <summary>
-/// The single, domain-free correspondence engine every evidence stream shares. It commits an
+/// The single, domain-free matcher every evidence stream shares. It commits an
 /// order-preserving LCS core (which reproduces a classic sequence diff when there are no moves)
 /// and then recovers relocations as a scored move pass over the residual. It never decides
 /// equivalence: it emits classified correspondence, and a consumer <see cref="EvidenceFold"/>
 /// folds it.
 /// </summary>
-public static class CorrespondenceEngine
+public static class EvidenceMatcher
 {
-    public static Correspondence Match(
+    public static EvidenceCorrespondence Match(
         IReadOnlyList<EvidenceOccurrence> oldStream,
         IReadOnlyList<EvidenceOccurrence> newStream,
-        CorrespondenceOptions? options = null)
+        EvidenceMatchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(oldStream);
         ArgumentNullException.ThrowIfNull(newStream);
-        options ??= CorrespondenceOptions.Default;
+        options ??= EvidenceMatchOptions.Default;
 
         var matchedOld = new bool[oldStream.Count];
         var matchedNew = new bool[newStream.Count];
@@ -111,7 +111,7 @@ public static class CorrespondenceEngine
                 links.Add(new EvidenceLink(EvidenceLinkKind.Added, -1, newIndex, 100));
         }
 
-        return new Correspondence(links.ToImmutable(), fringe);
+        return new EvidenceCorrespondence(links.ToImmutable(), fringe);
     }
 
     static int[] ResidualIndices(bool[] matched)
@@ -165,7 +165,7 @@ public static class CorrespondenceEngine
                 {
                     if (committedNew[b])
                         continue;
-                    if (oldStream[residualOld[a]].ContentKey != newStream[residualNew[b]].ContentKey)
+                    if (oldStream[residualOld[a]].IdentityKey != newStream[residualNew[b]].IdentityKey)
                         continue;
 
                     int len = 0;
@@ -173,7 +173,7 @@ public static class CorrespondenceEngine
                         && b + len < residualNew.Length
                         && !committedOld[a + len]
                         && !committedNew[b + len]
-                        && oldStream[residualOld[a + len]].ContentKey == newStream[residualNew[b + len]].ContentKey
+                        && oldStream[residualOld[a + len]].IdentityKey == newStream[residualNew[b + len]].IdentityKey
                         && (len == 0
                             || (residualOld[a + len] == residualOld[a + len - 1] + 1
                                 && residualNew[b + len] == residualNew[b + len - 1] + 1)))
@@ -227,7 +227,7 @@ public static class CorrespondenceEngine
             {
                 if (committedNew[b])
                     continue;
-                if (oldStream[residualOld[a]].ContentKey != newStream[residualNew[b]].ContentKey)
+                if (oldStream[residualOld[a]].IdentityKey != newStream[residualNew[b]].IdentityKey)
                     continue;
 
                 string? oldScope = oldStream[residualOld[a]].ScopeKey;
@@ -256,7 +256,7 @@ public static class CorrespondenceEngine
         {
             for (int newIndex = newLength - 1; newIndex >= 0; newIndex--)
             {
-                lengths[oldIndex, newIndex] = oldStream[oldIndex].ContentKey == newStream[newIndex].ContentKey
+                lengths[oldIndex, newIndex] = oldStream[oldIndex].IdentityKey == newStream[newIndex].IdentityKey
                     ? lengths[oldIndex + 1, newIndex + 1] + 1
                     : Math.Max(lengths[oldIndex + 1, newIndex], lengths[oldIndex, newIndex + 1]);
             }
@@ -267,7 +267,7 @@ public static class CorrespondenceEngine
         int j = 0;
         while (i < oldLength && j < newLength)
         {
-            if (oldStream[i].ContentKey == newStream[j].ContentKey)
+            if (oldStream[i].IdentityKey == newStream[j].IdentityKey)
             {
                 pairs.Add((i, j));
                 i++;

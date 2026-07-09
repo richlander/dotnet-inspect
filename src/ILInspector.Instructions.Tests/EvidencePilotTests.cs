@@ -20,7 +20,7 @@ public class EvidencePilotTests
     static readonly EvidenceSubject Subject = new("test", "test");
     static readonly EvidenceDescriptor Descriptor = new("test.item", "item");
 
-    static int Count(Correspondence c, EvidenceLinkKind kind)
+    static int Count(EvidenceCorrespondence c, EvidenceLinkKind kind)
         => c.Links.Count(l => l.Kind == kind);
 
     [Fact]
@@ -40,7 +40,7 @@ public class EvidencePilotTests
 
         foreach (var (old, @new) in cases)
         {
-            var correspondence = CorrespondenceEngine.Match(Stream(old), Stream(@new));
+            var correspondence = EvidenceMatcher.Match(Stream(old), Stream(@new));
             var matched = correspondence.Links.Where(l => l.Kind == EvidenceLinkKind.Matched).ToArray();
 
             // Optimality: as long as a classic LCS.
@@ -66,7 +66,7 @@ public class EvidencePilotTests
         var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
 
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
 
         Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Moved));
         Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Added));
@@ -80,7 +80,7 @@ public class EvidencePilotTests
         var old = Stream("c0", "c1", "c2");
         var @new = Stream("c1", "c2", "c0");
 
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
 
         Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Moved));
         Assert.Equal(1, Count(correspondence, EvidenceLinkKind.Added));
@@ -94,7 +94,7 @@ public class EvidencePilotTests
     {
         var old = Stream("c0", "c1", "c2");
         var @new = Stream("c1", "c2", "c0");
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
 
         var strict = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor);
         Assert.Equal(0, strict.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
@@ -119,7 +119,7 @@ public class EvidencePilotTests
             new EvidenceOccurrence("c2"),
             new EvidenceOccurrence("c0", ScopeKey: "loop1"));
 
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
         var candidate = Assert.Single(correspondence.Fringe);
         Assert.Equal(75, candidate.Score);
         Assert.Equal("content+scope", candidate.Reason);
@@ -130,24 +130,24 @@ public class EvidencePilotTests
     {
         var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
         var rows = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor);
 
         // Order is semantic under the fidelity fold: a reorder is a real difference.
-        Assert.False(EvidenceEquivalenceFold.Exact.IsEquivalent(rows));
+        Assert.False(EvidenceEquivalence.Exact.IsEquivalent(rows));
         // The multiset of operations is unchanged: a reorder is forgiven.
-        Assert.True(EvidenceEquivalenceFold.Multiset.IsEquivalent(rows));
+        Assert.True(EvidenceEquivalence.Multiset.IsEquivalent(rows));
     }
 
     [Fact]
     public void IdenticalStreams_AreExact()
     {
         var stream = Stream("a", "b", "c", "d");
-        var correspondence = CorrespondenceEngine.Match(stream, stream);
+        var correspondence = EvidenceMatcher.Match(stream, stream);
         var rows = EvidenceFold.ToRows(correspondence, stream, stream, Subject, Descriptor);
 
         Assert.All(rows, r => Assert.Equal(EvidencePolarity.Present, r.Polarity));
-        Assert.True(EvidenceEquivalenceFold.Exact.IsEquivalent(rows));
+        Assert.True(EvidenceEquivalence.Exact.IsEquivalent(rows));
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class EvidencePilotTests
         var old = Stream("M1", "A", "M2", "B");
         var @new = Stream("A", "B", "M1", "M2");
 
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
 
         Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Moved));
         Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Added));
@@ -173,11 +173,11 @@ public class EvidencePilotTests
         var old = Stream("A", "B");
         var @new = Stream("B", "A", "A");
 
-        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var correspondence = EvidenceMatcher.Match(old, @new);
 
         Assert.Equal(2, correspondence.Fringe.Length);
-        Assert.All(correspondence.Fringe, c => Assert.Equal("A", old[c.OldIndex].ContentKey));
-        Assert.All(correspondence.Fringe, c => Assert.Equal("A", @new[c.NewIndex].ContentKey));
+        Assert.All(correspondence.Fringe, c => Assert.Equal("A", old[c.OldIndex].IdentityKey));
+        Assert.All(correspondence.Fringe, c => Assert.Equal("A", @new[c.NewIndex].IdentityKey));
     }
 
     [Fact]
@@ -186,8 +186,8 @@ public class EvidencePilotTests
         var old = Stream("x", "a", "y", "a", "z", "a");
         var @new = Stream("a", "z", "a", "x", "a", "y");
 
-        var first = CorrespondenceEngine.Match(old, @new);
-        var second = CorrespondenceEngine.Match(old, @new);
+        var first = EvidenceMatcher.Match(old, @new);
+        var second = EvidenceMatcher.Match(old, @new);
 
         Assert.Equal(first.Links, second.Links);
         Assert.Equal(first.Fringe, second.Fringe);
@@ -287,7 +287,7 @@ public class EvidencePilotTests
         Assert.Null(result.Failure);
         Assert.DoesNotContain(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
         Assert.Equal(2, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
-        Assert.True(EvidenceEquivalenceFold.Multiset.IsEquivalent(result.Rows));
+        Assert.True(EvidenceEquivalence.Multiset.IsEquivalent(result.Rows));
     }
 
     [Fact]
@@ -364,7 +364,7 @@ public class EvidencePilotTests
         Assert.Equal(2, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
         Assert.Equal(0, result.Rows.Count(r => r.Polarity is EvidencePolarity.Added or EvidencePolarity.Removed));
         Assert.False(result.IsExact);
-        Assert.True(EvidenceEquivalenceFold.Multiset.IsEquivalent(result.Rows));
+        Assert.True(EvidenceEquivalence.Multiset.IsEquivalent(result.Rows));
     }
 
     [Fact]
@@ -382,7 +382,7 @@ public class EvidencePilotTests
 
         var classicRemoved = classic.Rows
             .Where(r => r.Kind == IlDiffKind.Remove)
-            .Select(r => IlEvidence.ContentKey(r.Operation))
+            .Select(r => IlEvidence.IdentityKey(r.Operation))
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
         var evidenceRemoved = ResidualKeys(evidence, EvidencePolarity.Removed);
@@ -390,7 +390,7 @@ public class EvidencePilotTests
 
         var classicAdded = classic.Rows
             .Where(r => r.Kind == IlDiffKind.Add)
-            .Select(r => IlEvidence.ContentKey(r.Operation))
+            .Select(r => IlEvidence.IdentityKey(r.Operation))
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
         var evidenceAdded = ResidualKeys(evidence, EvidencePolarity.Added);
