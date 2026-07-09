@@ -440,6 +440,14 @@ public static class IlBodyDiff
 
     sealed class MetadataOperandResolver(MetadataReader reader)
     {
+        // Malformed metadata can make a declaring type or resolution-scope chain cyclic,
+        // so the type-name climbs below would recurse until an uncatchable
+        // StackOverflowException (which TryResolve's catch cannot intercept). Cap the climb
+        // ([ThreadStatic] for thread safety) and degrade to the leaf name past the cap.
+        [ThreadStatic]
+        static int s_climbDepth;
+        const int MaxClimbDepth = 256;
+
         public bool TryResolve(DecodedInstruction instruction, out IlOperandIdentity? operand, out string? failure)
         {
             try
@@ -620,9 +628,17 @@ public static class IlBodyDiff
             var type = reader.GetTypeDefinition(handle);
             string name = reader.GetString(type.Name);
             var declaring = type.GetDeclaringType();
-            string fullName = declaring.IsNil
-                ? Dotted(reader.GetString(type.Namespace), name)
-                : $"{FormatTypeDefinition(declaring)}+{name}";
+            string fullName;
+            if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
+            {
+                s_climbDepth++;
+                try { fullName = $"{FormatTypeDefinition(declaring)}+{name}"; }
+                finally { s_climbDepth--; }
+            }
+            else
+            {
+                fullName = Dotted(reader.GetString(type.Namespace), name);
+            }
             return $"[{CurrentAssemblyName()}]{fullName}";
         }
 
@@ -631,14 +647,15 @@ public static class IlBodyDiff
             var type = reader.GetTypeReference(handle);
             string name = reader.GetString(type.Name);
             string fullName = Dotted(reader.GetString(type.Namespace), name);
-            return type.ResolutionScope.Kind switch
+            if (type.ResolutionScope.Kind == HandleKind.AssemblyReference)
+                return $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}";
+            if (type.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
             {
-                HandleKind.AssemblyReference =>
-                    $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}",
-                HandleKind.TypeReference =>
-                    $"{FormatTypeReference((TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
-                _ => $"[{CurrentAssemblyName()}]{fullName}",
-            };
+                s_climbDepth++;
+                try { return $"{FormatTypeReference((TypeReferenceHandle)type.ResolutionScope)}+{fullName}"; }
+                finally { s_climbDepth--; }
+            }
+            return $"[{CurrentAssemblyName()}]{fullName}";
         }
 
         string CurrentAssemblyName()
@@ -654,6 +671,14 @@ public static class IlBodyDiff
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     {
         public static SignatureIdentityProvider Instance { get; } = new();
+
+        // Malformed metadata can make a declaring type or resolution-scope chain cyclic, so
+        // the TypeName climbs below would recurse until an uncatchable StackOverflowException.
+        // Cap the climb ([ThreadStatic] so the shared Instance stays thread-safe) and degrade
+        // to the leaf name past the cap.
+        [ThreadStatic]
+        static int s_climbDepth;
+        const int MaxClimbDepth = 256;
 
         public string GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode switch
@@ -710,8 +735,12 @@ public static class IlBodyDiff
             var type = reader.GetTypeDefinition(handle);
             string name = reader.GetString(type.Name);
             var declaring = type.GetDeclaringType();
-            if (!declaring.IsNil)
-                return $"{TypeName(reader, declaring)}+{name}";
+            if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
+            {
+                s_climbDepth++;
+                try { return $"{TypeName(reader, declaring)}+{name}"; }
+                finally { s_climbDepth--; }
+            }
             string ns = reader.GetString(type.Namespace);
             string assembly = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
             return $"[{assembly}]{(ns.Length == 0 ? name : $"{ns}.{name}")}";
@@ -723,14 +752,15 @@ public static class IlBodyDiff
             string name = reader.GetString(type.Name);
             string ns = reader.GetString(type.Namespace);
             string fullName = ns.Length == 0 ? name : $"{ns}.{name}";
-            return type.ResolutionScope.Kind switch
+            if (type.ResolutionScope.Kind == HandleKind.AssemblyReference)
+                return $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}";
+            if (type.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
             {
-                HandleKind.AssemblyReference =>
-                    $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}",
-                HandleKind.TypeReference =>
-                    $"{TypeName(reader, (TypeReferenceHandle)type.ResolutionScope)}+{fullName}",
-                _ => fullName,
-            };
+                s_climbDepth++;
+                try { return $"{TypeName(reader, (TypeReferenceHandle)type.ResolutionScope)}+{fullName}"; }
+                finally { s_climbDepth--; }
+            }
+            return fullName;
         }
     }
 
