@@ -28,6 +28,7 @@
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
+    <Project Path="src/ILInspector.Evidence/ILInspector.Evidence.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.Ladder/ILInspector.Decompiler.Fixtures.Ladder.csproj" />

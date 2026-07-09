@@ -100,6 +100,29 @@ public static class IlBodyDiff
             new MetadataOperandResolver(newReader));
     }
 
+    /// <summary>
+    /// Canonicalizes a decoded body into the offset-free operation stream the diff aligns over.
+    /// Exposed so the evidence adapter can reuse the exact canonicalization (opcode-family and
+    /// operand-identity normalization) instead of reimplementing it.
+    /// </summary>
+    public static bool TryCanonicalize(
+        MethodInstructions body,
+        MetadataReader? reader,
+        out ImmutableArray<CanonicalIlOperation> operations,
+        out string? failure)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        if (!body.IsComplete)
+        {
+            operations = [];
+            failure = body.Blocks.IncompleteReason ?? "body decode failed";
+            return false;
+        }
+
+        var resolver = reader is null ? null : new MetadataOperandResolver(reader);
+        return TryBuildOperations(body.Instructions, resolver, "body", out operations, out failure);
+    }
+
     static IlBodyDiffResult Compare(
         MethodInstructions oldBody,
         MethodInstructions newBody,

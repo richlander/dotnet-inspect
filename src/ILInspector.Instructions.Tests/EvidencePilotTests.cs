@@ -1,0 +1,264 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+
+using ILInspector.Evidence;
+
+namespace ILInspector.Instructions.Tests;
+
+/// <summary>
+/// Pilot gates for the evidence spine (#2564): the domain-free correspondence engine plus the IL
+/// adapter. The engine's committed core is an LCS (so it reproduces the existing IL sequence
+/// diff on move-free inputs); the move pass recovers relocations; equivalence is a consumer fold.
+/// </summary>
+public class EvidencePilotTests
+{
+    // ---- Leaf engine: synthetic occurrence streams -------------------------------------------
+
+    static ImmutableArray<EvidenceOccurrence> Stream(params string[] keys)
+        => [.. keys.Select(k => new EvidenceOccurrence(k))];
+
+    static readonly EvidenceSubject Subject = new("test", "test");
+    static readonly EvidenceDescriptor Descriptor = new("test.item", "item");
+
+    static int Count(Correspondence c, EvidenceLinkKind kind)
+        => c.Links.Count(l => l.Kind == kind);
+
+    [Fact]
+    public void CommittedCore_IsAnOptimalLcs_OnManyShapes()
+    {
+        (string[] Old, string[] New)[] cases =
+        [
+            (["a", "b", "c"], ["a", "b", "c"]),
+            (["a", "b", "c"], ["a", "x", "c"]),
+            (["a", "b", "c", "d"], ["a", "c"]),
+            (["a"], ["b", "a", "c"]),
+            (["a", "b", "c", "d", "e"], ["e", "d", "c", "b", "a"]),
+            ([], ["a", "b"]),
+            (["a", "b"], []),
+            (["a", "a", "b", "a"], ["a", "b", "a", "a"]),
+        ];
+
+        foreach (var (old, @new) in cases)
+        {
+            var correspondence = CorrespondenceEngine.Match(Stream(old), Stream(@new));
+            var matched = correspondence.Links.Where(l => l.Kind == EvidenceLinkKind.Matched).ToArray();
+
+            // Optimality: as long as a classic LCS.
+            Assert.Equal(ReferenceLcsLength(old, @new), matched.Length);
+
+            // It is a real common subsequence: strictly increasing on both sides, keys agree.
+            for (int i = 1; i < matched.Length; i++)
+            {
+                Assert.True(matched[i].OldIndex > matched[i - 1].OldIndex);
+                Assert.True(matched[i].NewIndex > matched[i - 1].NewIndex);
+            }
+
+            foreach (var link in matched)
+                Assert.Equal(old[link.OldIndex], @new[link.NewIndex]);
+        }
+    }
+
+    [Fact]
+    public void MovePass_RelocatedBlock_IsDetectedAsMoved()
+    {
+        // The [m1,m2] block moves ahead of the stable A,B,C spine; the longer spine stays put
+        // via LCS and the block surfaces as a contiguous residual run -> a committed move.
+        var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
+        var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
+
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+
+        Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Moved));
+        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Added));
+        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Removed));
+    }
+
+    [Fact]
+    public void MismatchResistance_CoincidentalSingleton_StaysAddedRemoved()
+    {
+        // A lone relocated occurrence (run length 1) is NOT silently called a move by default.
+        var old = Stream("c0", "c1", "c2");
+        var @new = Stream("c1", "c2", "c0");
+
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+
+        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Moved));
+        Assert.Equal(1, Count(correspondence, EvidenceLinkKind.Added));
+        Assert.Equal(1, Count(correspondence, EvidenceLinkKind.Removed));
+        var candidate = Assert.Single(correspondence.Fringe);
+        Assert.Equal(50, candidate.Score);
+    }
+
+    [Fact]
+    public void Acceptance_IsAConsumerFold_LoweringThresholdPromotesFringeToMove()
+    {
+        var old = Stream("c0", "c1", "c2");
+        var @new = Stream("c1", "c2", "c0");
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+
+        var strict = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor);
+        Assert.Equal(0, strict.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.Equal(1, strict.Count(r => r.Polarity == EvidencePolarity.Added));
+        Assert.Equal(1, strict.Count(r => r.Polarity == EvidencePolarity.Removed));
+
+        var recall = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor, acceptanceThreshold: 50);
+        Assert.Equal(1, recall.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.Equal(0, recall.Count(r => r.Polarity == EvidencePolarity.Added));
+        Assert.Equal(0, recall.Count(r => r.Polarity == EvidencePolarity.Removed));
+    }
+
+    [Fact]
+    public void ScopeCorroboration_RaisesFringeScore()
+    {
+        var old = ImmutableArray.Create(
+            new EvidenceOccurrence("c0", ScopeKey: "loop1"),
+            new EvidenceOccurrence("c1"),
+            new EvidenceOccurrence("c2"));
+        var @new = ImmutableArray.Create(
+            new EvidenceOccurrence("c1"),
+            new EvidenceOccurrence("c2"),
+            new EvidenceOccurrence("c0", ScopeKey: "loop1"));
+
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var candidate = Assert.Single(correspondence.Fringe);
+        Assert.Equal(75, candidate.Score);
+        Assert.Equal("content+scope", candidate.Reason);
+    }
+
+    [Fact]
+    public void EquivalenceFolds_MoveIsExactDiffButMultisetEquivalent()
+    {
+        var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
+        var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
+        var correspondence = CorrespondenceEngine.Match(old, @new);
+        var rows = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor);
+
+        // Order is semantic under the fidelity fold: a reorder is a real difference.
+        Assert.False(EvidenceEquivalenceFold.Exact.IsEquivalent(rows));
+        // The multiset of operations is unchanged: a reorder is forgiven.
+        Assert.True(EvidenceEquivalenceFold.Multiset.IsEquivalent(rows));
+    }
+
+    [Fact]
+    public void IdenticalStreams_AreExact()
+    {
+        var stream = Stream("a", "b", "c", "d");
+        var correspondence = CorrespondenceEngine.Match(stream, stream);
+        var rows = EvidenceFold.ToRows(correspondence, stream, stream, Subject, Descriptor);
+
+        Assert.All(rows, r => Assert.Equal(EvidencePolarity.Present, r.Polarity));
+        Assert.True(EvidenceEquivalenceFold.Exact.IsEquivalent(rows));
+    }
+
+    [Fact]
+    public void Match_IsDeterministic_UnderAmbiguity()
+    {
+        var old = Stream("x", "a", "y", "a", "z", "a");
+        var @new = Stream("a", "z", "a", "x", "a", "y");
+
+        var first = CorrespondenceEngine.Match(old, @new);
+        var second = CorrespondenceEngine.Match(old, @new);
+
+        Assert.Equal(first.Links, second.Links);
+        Assert.Equal(first.Fringe, second.Fringe);
+    }
+
+    static int ReferenceLcsLength(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        var dp = new int[a.Count + 1, b.Count + 1];
+        for (int i = a.Count - 1; i >= 0; i--)
+        {
+            for (int j = b.Count - 1; j >= 0; j--)
+                dp[i, j] = a[i] == b[j] ? dp[i + 1, j + 1] + 1 : Math.Max(dp[i + 1, j], dp[i, j + 1]);
+        }
+
+        return dp[0, 0];
+    }
+
+    // ---- IL adapter: real decode + raw-byte fixtures -----------------------------------------
+
+    static MethodInstructions Body(params byte[] il)
+        => MethodInstructions.Decode(il, il.Length, Array.Empty<ExceptionRegion>());
+
+    // Single-byte, operand-free opcodes so a body is a clean sequence of distinct content keys.
+    const byte Ldc0 = 0x16, Ldc1 = 0x17, Ldc2 = 0x18, Ldc3 = 0x19, Ldc4 = 0x1A, Ldc5 = 0x1B, Ldc6 = 0x1C, Ret = 0x2A;
+
+    static readonly EvidenceSubject IlSubject = new("M", "M");
+
+    [Fact]
+    public void IlEvidence_SameBody_IsExact()
+    {
+        var body = Body(Ldc0, Ldc1, Ldc2, Ret);
+        var result = IlEvidence.Compare(body, null, body, null, IlSubject);
+
+        Assert.Null(result.Failure);
+        Assert.True(result.IsExact);
+        Assert.All(result.Rows, r => Assert.Equal(EvidencePolarity.Present, r.Polarity));
+    }
+
+    [Fact]
+    public void IlEvidence_RelocatedBlock_IsDetectedAsMoved()
+    {
+        // old: c0 c1 c2 c3 c4 c5 c6 ret ; new moves the [c3,c4] block to the front.
+        var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
+        var @new = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
+
+        var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
+
+        Assert.Null(result.Failure);
+        Assert.Equal(2, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.Equal(0, result.Rows.Count(r => r.Polarity is EvidencePolarity.Added or EvidencePolarity.Removed));
+        Assert.False(result.IsExact);
+        Assert.True(EvidenceEquivalenceFold.Multiset.IsEquivalent(result.Rows));
+    }
+
+    [Fact]
+    public void IlEvidence_CommittedCore_ReproducesIlBodyDiffResidual()
+    {
+        // A body pair with no moves: pure insert/delete. The evidence adapter's Added/Removed
+        // operations must match IlBodyDiff's Add/Remove rows (the committed core is the LCS).
+        var old = Body(Ldc0, Ldc1, Ldc2, Ret);
+        var @new = Body(Ldc0, Ldc2, Ldc3, Ret);
+
+        var classic = IlBodyDiff.Compare(old, @new);
+        var evidence = IlEvidence.Compare(old, null, @new, null, IlSubject);
+
+        Assert.Equal(0, evidence.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+
+        var classicRemoved = classic.Rows
+            .Where(r => r.Kind == IlDiffKind.Remove)
+            .Select(r => IlEvidence.ContentKey(r.Operation))
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToArray();
+        var evidenceRemoved = ResidualKeys(evidence, EvidencePolarity.Removed);
+        Assert.Equal(classicRemoved, evidenceRemoved);
+
+        var classicAdded = classic.Rows
+            .Where(r => r.Kind == IlDiffKind.Add)
+            .Select(r => IlEvidence.ContentKey(r.Operation))
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToArray();
+        var evidenceAdded = ResidualKeys(evidence, EvidencePolarity.Added);
+        Assert.Equal(classicAdded, evidenceAdded);
+    }
+
+    [Fact]
+    public void IlEvidence_MismatchResistance_SingletonStaysAddedRemoved()
+    {
+        var old = Body(Ldc0, Ldc1, Ldc2, Ret);
+        var @new = Body(Ldc1, Ldc2, Ldc0, Ret);
+
+        var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
+
+        Assert.Equal(0, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Added));
+        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Removed));
+    }
+
+    static string[] ResidualKeys(IlEvidenceResult result, EvidencePolarity polarity)
+        => result.Rows
+            .Where(r => r.Polarity == polarity)
+            .Select(r => r.Anchor.IdentityKey)
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToArray();
+}
