@@ -74,25 +74,27 @@ public static class FindingMatcher
     const long MaxOrderedMatchCells = 64_000_000;
 
     public static FindingMatch Match(
-        IReadOnlyList<FindingKey> oldStream,
-        IReadOnlyList<FindingKey> newStream,
+        ImmutableArray<FindingKey> oldStream,
+        ImmutableArray<FindingKey> newStream,
         FindingMatchOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(oldStream);
-        ArgumentNullException.ThrowIfNull(newStream);
+        if (oldStream.IsDefault)
+            oldStream = ImmutableArray<FindingKey>.Empty;
+        if (newStream.IsDefault)
+            newStream = ImmutableArray<FindingKey>.Empty;
         options ??= FindingMatchOptions.Default;
 
-        long cells = ((long)oldStream.Count + 1) * ((long)newStream.Count + 1);
+        long cells = ((long)oldStream.Length + 1) * ((long)newStream.Length + 1);
         if (cells > MaxOrderedMatchCells)
         {
             throw new ArgumentException(
                 $"Ordered matching is bounded to {MaxOrderedMatchCells:N0} matrix cells " +
-                $"({oldStream.Count}x{newStream.Count} requested). Streams this large need the " +
+                $"({oldStream.Length}x{newStream.Length} requested). Streams this large need the " +
                 "identity-set committer, not the ordered LCS (see issue #2585).");
         }
 
-        var matchedOld = new bool[oldStream.Count];
-        var matchedNew = new bool[newStream.Count];
+        var matchedOld = new bool[oldStream.Length];
+        var matchedNew = new bool[newStream.Length];
         var edges = ImmutableArray.CreateBuilder<FindingEdge>();
 
         // 1. Committed core: order-preserving LCS over content keys.
@@ -149,8 +151,8 @@ public static class FindingMatcher
     }
 
     static void DetectMoveRuns(
-        IReadOnlyList<FindingKey> oldStream,
-        IReadOnlyList<FindingKey> newStream,
+        ImmutableArray<FindingKey> oldStream,
+        ImmutableArray<FindingKey> newStream,
         int[] residualOld,
         int[] residualNew,
         bool[] committedOld,
@@ -225,8 +227,8 @@ public static class FindingMatcher
     // (higher-scored) pairings win over incidental index-order pairings. This is the "scored fringe"
     // half of committed-core-plus-scored-fringe.
     static ImmutableArray<FindingMoveCandidate> BuildFringe(
-        IReadOnlyList<FindingKey> oldStream,
-        IReadOnlyList<FindingKey> newStream,
+        ImmutableArray<FindingKey> oldStream,
+        ImmutableArray<FindingKey> newStream,
         int[] residualOld,
         int[] residualNew,
         bool[] committedOld,
@@ -262,11 +264,11 @@ public static class FindingMatcher
     // Same construction and tiebreak as ILInspector.Instructions.IlBodyDiff so the committed
     // core reproduces the existing IL sequence diff exactly on move-free inputs.
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
-        IReadOnlyList<FindingKey> oldStream,
-        IReadOnlyList<FindingKey> newStream)
+        ImmutableArray<FindingKey> oldStream,
+        ImmutableArray<FindingKey> newStream)
     {
-        int oldLength = oldStream.Count;
-        int newLength = newStream.Count;
+        int oldLength = oldStream.Length;
+        int newLength = newStream.Length;
         var lengths = new int[oldLength + 1, newLength + 1];
         for (int oldIndex = oldLength - 1; oldIndex >= 0; oldIndex--)
         {

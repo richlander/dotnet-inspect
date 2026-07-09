@@ -4,8 +4,10 @@ namespace ILInspector.Findings;
 /// The domain-free alignment key the <see cref="FindingMatcher"/> operates on: a content
 /// fingerprint plus an optional structural scope tag. Deliberately a value type carrying no
 /// payload — the matcher never needs the domain detail, so keeping the payload out of the core
-/// keeps the matcher monomorphic (no generic instantiation, no boxing, no interface dispatch in
-/// the hot loop). A producer feeds keys projected from its typed
+/// keeps the matcher monomorphic (no generic instantiation, no boxing). Because the matcher
+/// consumes the keys as a concrete <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
+/// of <see cref="FindingKey"/>, the LCS hot loop indexes a struct directly rather than through an
+/// interface. A producer feeds keys projected from its typed
 /// <see cref="FindingOccurrence{T}"/> stream (see <c>ToKeys</c>).
 /// </summary>
 /// <param name="IdentityKey">

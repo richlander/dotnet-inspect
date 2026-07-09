@@ -45,6 +45,9 @@ public static class FindingOccurrenceExtensions
     /// </summary>
     public static ImmutableArray<FindingKey> ToKeys<T>(this ImmutableArray<FindingOccurrence<T>> occurrences)
     {
+        if (occurrences.IsDefaultOrEmpty)
+            return ImmutableArray<FindingKey>.Empty;
+
         var builder = ImmutableArray.CreateBuilder<FindingKey>(occurrences.Length);
         foreach (var occurrence in occurrences)
             builder.Add(occurrence.Key);

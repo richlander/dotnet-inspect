@@ -207,6 +207,25 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void ToKeys_OnDefaultOrEmptyArray_IsEmpty_NotNullReference()
+    {
+        // A default (uninitialized) ImmutableArray has a null backing array; ToKeys must not
+        // read .Length off it. Guarded to return Empty, consistent with the IReadOnlyList overload.
+        ImmutableArray<FindingOccurrence<string>> uninitialized = default;
+        Assert.True(uninitialized.ToKeys().IsEmpty);
+        Assert.True(ImmutableArray<FindingOccurrence<string>>.Empty.ToKeys().IsEmpty);
+    }
+
+    [Fact]
+    public void Match_OnDefaultStreams_IsAnEmptyMatch_NotNullReference()
+    {
+        // Default streams normalize to empty rather than throwing an NRE on .Length.
+        var match = FindingMatcher.Match(default, default);
+        Assert.True(match.Edges.IsEmpty);
+        Assert.True(match.MoveCandidates.IsEmpty);
+    }
+
+    [Fact]
     public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
     {
         // A stream-agnostic consumer: it reads only the skeleton, so the same rows could have
