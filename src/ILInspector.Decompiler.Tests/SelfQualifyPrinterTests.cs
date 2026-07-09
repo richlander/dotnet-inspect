@@ -64,6 +64,18 @@ public class SelfQualifyPrinterTests
         Assert.DoesNotContain("=> Op(Op)", body);
     }
 
+    [Fact]
+    public void OuterScopeShadowedStaticCall_InsideNestedLambda_StaysQualified()
+    {
+        // A lambda with its own locals renders through a nested printer; an outer
+        // parameter that shadows the static method name must still keep the call
+        // qualified (the nested printer inherits outer scope names).
+        string body = RenderAnyFidelity(typeof(SelfQualifyOuterShadow), nameof(SelfQualifyOuterShadow.Uses));
+
+        Assert.Contains("SelfQualifyOuterShadow.M()", body);
+        Assert.DoesNotContain("int x = M();", body);
+    }
+
     static string RenderFixture(System.Type type, string methodName)
     {
         var (function, source) = Import(type, methodName);
@@ -147,5 +159,16 @@ public class SelfQualifyLambdaShadow
     {
         System.Func<int, int> f = Op => SelfQualifyLambdaShadow.Op(Op);
         return f(seed);
+    }
+}
+
+public class SelfQualifyOuterShadow
+{
+    public static int M() => 1;
+
+    public int Uses(int M)
+    {
+        System.Func<int, int> f = seed => { int x = SelfQualifyOuterShadow.M(); return seed + x; };
+        return f(M);
     }
 }

@@ -3544,6 +3544,13 @@ public sealed partial class CSharpPrinter
         if (_staticScopeShadowNames is null)
         {
             _staticScopeShadowNames = new HashSet<string>(StringComparer.Ordinal);
+            // Names inherited from an enclosing printer (this printer renders a
+            // lambda/local-function body with its own scope): the outer parameters
+            // and locals are in scope here too, so an outer shadow must still keep
+            // the call qualified. _reservedScopeNames mixes raw and escaped names;
+            // EscapeIdentifier is idempotent, so normalize all to escaped form.
+            foreach (var inherited in _reservedScopeNames)
+                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(inherited));
             foreach (var parameter in _function.Signature.Parameters)
                 _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
             for (int i = 0; i < _function.Locals.Length; i++)
