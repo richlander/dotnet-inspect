@@ -261,4 +261,56 @@ public class EvidencePilotTests
             .Select(r => r.Anchor.IdentityKey)
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
+
+    // ---- IL adapter: real-assembly corpus ----------------------------------------------------
+
+    [Theory]
+    [InlineData(typeof(IlBodyDiff))]                    // ILInspector.Instructions: diverse real IL.
+    [InlineData(typeof(EvidencePilotTests))]            // the test assembly itself.
+    [InlineData(typeof(System.Linq.Enumerable))]        // System.Linq: a larger BCL corpus.
+    public void IlEvidence_SelfCompare_IsExactAcrossWholeAssembly(Type anchorType)
+    {
+        using var stream = File.OpenRead(anchorType.Assembly.Location);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        int canonicalized = 0;
+        int declined = 0;
+        foreach (var handle in reader.MethodDefinitions)
+        {
+            var method = reader.GetMethodDefinition(handle);
+            if (method.RelativeVirtualAddress == 0)
+                continue; // abstract/extern/pinvoke: no body.
+
+            MethodInstructions body;
+            try
+            {
+                body = MethodInstructions.Decode(pe.GetMethodBody(method.RelativeVirtualAddress));
+            }
+            catch (System.BadImageFormatException)
+            {
+                continue;
+            }
+
+            if (!body.IsComplete)
+                continue;
+
+            var subject = new EvidenceSubject(handle.GetHashCode().ToString(System.Globalization.CultureInfo.InvariantCulture), "m");
+            var evidence = IlEvidence.Compare(body, reader, body, reader, subject);
+            if (evidence.Failure is not null)
+            {
+                declined++; // rare token-resolution edge cases; tracked, not asserted.
+                continue;
+            }
+
+            // A body compared to itself must be exact: all Present, no moves, no add/remove.
+            Assert.True(evidence.IsExact, $"IlEvidence self-compare not exact for RVA {method.RelativeVirtualAddress}");
+            canonicalized++;
+        }
+
+        // The adapter canonicalizes the overwhelming majority of real IL (a real reader resolves
+        // tokens): declines must be a small tail, not the common case.
+        Assert.True(canonicalized > 50, $"expected a substantial corpus; canonicalized={canonicalized} declined={declined}");
+        Assert.True(declined <= canonicalized / 10, $"too many canonicalization declines: canonicalized={canonicalized} declined={declined}");
+    }
 }
