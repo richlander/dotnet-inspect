@@ -96,14 +96,14 @@ public static class FindingFold
                     oldStream[edge.OldIndex],
                     newStream[edge.NewIndex],
                     FindingDifferenceKind.Moved,
-                    Detail: $"moved {delta:+#;-#;0}");
+                    detail: $"moved {delta:+#;-#;0}");
             }
 
             case FindingEdgeKind.Added:
-                return new PairFinding<T>(Old: null, New: newStream[edge.NewIndex]);
+                return new PairFinding<T>(null, newStream[edge.NewIndex]);
 
             case FindingEdgeKind.Removed:
-                return new PairFinding<T>(Old: oldStream[edge.OldIndex], New: null);
+                return new PairFinding<T>(oldStream[edge.OldIndex], null);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(edge), edge.Kind, "Unknown edge kind.");

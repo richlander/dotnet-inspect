@@ -221,11 +221,12 @@ public class FindingPilotTests
 
         // Kind is derived from the sides — there is no Kind to set out of step with them.
         Assert.Equal(PairKind.Present, new PairFinding<string>(a, b).Kind);
-        Assert.Equal(PairKind.Changed, new PairFinding<string>(a, b, ContentChanged: true).Kind);
+        Assert.Equal(PairKind.Changed, new PairFinding<string>(a, b, contentChanged: true).Kind);
         Assert.Equal(PairKind.Added, new PairFinding<string>(null, b).Kind);
         Assert.Equal(PairKind.Removed, new PairFinding<string>(a, null).Kind);
 
-        // A with-expression cannot desync polarity from the sides; the only rejected case is both-null.
+        // A with-expression cannot desync polarity from the sides (Kind is derived) nor null a side
+        // out (Old/New are get-only); the only rejected case is both-null at construction.
         Assert.Throws<ArgumentException>(() => new PairFinding<string>(null, null));
     }
 
@@ -261,7 +262,7 @@ public class FindingPilotTests
         IPairFinding[] pairs =
         [
             new PairFinding<string>(Atom("k0", 0), Atom("k0", 0)),
-            new PairFinding<string>(Old: null, New: Atom("k1", 1)),
+            new PairFinding<string>(null, Atom("k1", 1)),
         ];
 
         var summary = FindingSummary.Summarize(pairs);

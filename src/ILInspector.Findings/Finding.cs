@@ -115,24 +115,47 @@ public interface IPairFinding : IFinding
 /// (<see cref="New"/> if present, else <see cref="Old"/>); both sides remain reachable via
 /// <see cref="Old"/>/<see cref="New"/> for consumers that need the change.
 /// <para>
-/// <see cref="Kind"/> is <em>derived</em> from the sides, never stored, so it can never disagree
-/// with them: one side ⟹ Added/Removed; both sides ⟹ Changed when <see cref="ContentChanged"/> is
-/// set, else Present. That makes an inconsistent pair unrepresentable — there is no polarity to set
-/// out of step with the sides, even through a <c>with</c> expression. Construction rejects the one
-/// remaining degenerate case (neither side present).
+/// The type makes an inconsistent pair unrepresentable. <see cref="Kind"/> is <em>derived</em>
+/// from the sides (one side ⟹ Added/Removed; both ⟹ Changed when <see cref="ContentChanged"/>,
+/// else Present), so there is no polarity to set out of step with them. <see cref="Old"/> and
+/// <see cref="New"/> are get-only — a <c>with</c> expression cannot null them out — and the
+/// constructor rejects the one remaining degenerate case (neither side present). Only the
+/// non-structural facets (<see cref="Difference"/>, <see cref="ContentChanged"/>,
+/// <see cref="Detail"/>) remain <c>init</c>-settable for <c>with</c>.
 /// </para>
 /// </summary>
-public sealed record PairFinding<T>(
-    Finding<T>? Old,
-    Finding<T>? New,
-    FindingDifferenceKind Difference = FindingDifferenceKind.None,
-    bool ContentChanged = false,
-    string? Detail = null) : IPairFinding, IFinding<T>
+public sealed record PairFinding<T> : IPairFinding, IFinding<T>
     where T : notnull
 {
-    private readonly bool _hasSide = Old is not null || New is not null
-        ? true
-        : throw new ArgumentException("A PairFinding must have a non-null Old or New side.");
+    public PairFinding(
+        Finding<T>? old,
+        Finding<T>? @new,
+        FindingDifferenceKind difference = FindingDifferenceKind.None,
+        bool contentChanged = false,
+        string? detail = null)
+    {
+        if (old is null && @new is null)
+            throw new ArgumentException("A PairFinding must have a non-null Old or New side.", nameof(old));
+
+        Old = old;
+        New = @new;
+        Difference = difference;
+        ContentChanged = contentChanged;
+        Detail = detail;
+    }
+
+    /// <summary>The old-side atom, or null when this pair is an addition. Set only at construction.</summary>
+    public Finding<T>? Old { get; }
+
+    /// <summary>The new-side atom, or null when this pair is a removal. Set only at construction.</summary>
+    public Finding<T>? New { get; }
+
+    public FindingDifferenceKind Difference { get; init; }
+
+    /// <summary>Marks a both-sides pair as a content change, deriving <see cref="Kind"/> = Changed.</summary>
+    public bool ContentChanged { get; init; }
+
+    public string? Detail { get; init; }
 
     /// <summary>
     /// The transition polarity, derived from the sides (and <see cref="ContentChanged"/> for the
