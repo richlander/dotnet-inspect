@@ -991,6 +991,10 @@ public sealed partial class CSharpPrinter
             names.Add(name);
         foreach (var name in _switchTemps.Values)
             names.Add(name);
+        // Synthetic locals (e.g. __stackalloc) are in scope for this body and for
+        // any nested lambda/local-function printer built from these names.
+        foreach (var name in _syntheticLocalNames)
+            names.Add(name);
         return names;
     }
 
