@@ -21,9 +21,7 @@ public class GenericContext
     /// </summary>
     public static GenericContext ForType(MetadataReader reader, TypeDefinition typeDef)
     {
-        var typeParams = typeDef.GetGenericParameters()
-            .Select(h => reader.GetString(reader.GetGenericParameter(h).Name))
-            .ToList();
+        var typeParams = NestedTypeName.GenericParameterNames(reader, typeDef.GetGenericParameters());
         return new GenericContext(typeParams, []);
     }
 
@@ -32,12 +30,8 @@ public class GenericContext
     /// </summary>
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
     {
-        var typeParams = typeDef.GetGenericParameters()
-            .Select(h => reader.GetString(reader.GetGenericParameter(h).Name))
-            .ToList();
-        var methodParams = methodDef.GetGenericParameters()
-            .Select(h => reader.GetString(reader.GetGenericParameter(h).Name))
-            .ToList();
+        var typeParams = NestedTypeName.GenericParameterNames(reader, typeDef.GetGenericParameters());
+        var methodParams = NestedTypeName.GenericParameterNames(reader, methodDef.GetGenericParameters());
         return new GenericContext(typeParams, methodParams);
     }
 }

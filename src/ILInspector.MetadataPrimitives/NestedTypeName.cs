@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection.Metadata;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -64,5 +65,63 @@ public static class NestedTypeName
         }
         chain.Reverse();
         return chain;
+    }
+
+    /// <summary>
+    /// Joins untrusted decoded names / type arguments with <paramref name="separator"/>, stopping
+    /// once the accumulated length passes <see cref="MaxLength"/>. The values come from inspected
+    /// metadata (a wide generic instantiation, or a cyclic chain repeating one long name), so a raw
+    /// <c>string.Join</c> would amplify a tiny blob into a multi-megabyte string.
+    /// </summary>
+    public static string BoundedJoin(string separator, IReadOnlyList<string> values)
+    {
+        var builder = new StringBuilder();
+        for (int i = 0; i < values.Count; i++)
+        {
+            if (i > 0)
+                builder.Append(separator);
+            builder.Append(values[i]);
+            if (builder.Length > MaxLength)
+                break;
+        }
+        return builder.ToString();
+    }
+
+    /// <inheritdoc cref="BoundedJoin(string, IReadOnlyList{string})"/>
+    public static string BoundedJoin(string separator, IEnumerable<string> values)
+    {
+        var builder = new StringBuilder();
+        bool first = true;
+        foreach (var value in values)
+        {
+            if (!first)
+                builder.Append(separator);
+            first = false;
+            builder.Append(value);
+            if (builder.Length > MaxLength)
+                break;
+        }
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Materializes the names of a type's / method's generic parameters, stopping once the
+    /// accumulated name length passes <see cref="MaxLength"/>. A type or method can carry up to
+    /// <c>ushort.MaxValue</c> generic parameters all pointing at one long <c>#Strings</c> entry, so
+    /// an unbounded projection would allocate gigabytes from a small blob.
+    /// </summary>
+    public static List<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
+    {
+        var names = new List<string>();
+        long budget = MaxLength;
+        foreach (var handle in handles)
+        {
+            string name = reader.GetString(reader.GetGenericParameter(handle).Name);
+            names.Add(name);
+            budget -= name.Length + 1;
+            if (budget < 0)
+                break;
+        }
+        return names;
     }
 }

@@ -473,6 +473,9 @@ public static class ApiSurfaceExtractor
         bool includeVariance)
     {
         var parameters = new List<TypeParameter>();
+        // A type/method can carry up to ushort.MaxValue generic parameters all pointing at one long
+        // #Strings name, so cap the accumulated name length to avoid materializing gigabytes.
+        long budget = NestedTypeName.MaxLength;
         foreach (var paramHandle in handles)
         {
             var param = reader.GetGenericParameter(paramHandle);
@@ -480,6 +483,7 @@ public static class ApiSurfaceExtractor
             {
                 Name = reader.GetString(param.Name)
             };
+            budget -= typeParam.Name.Length + 1;
 
             var attrs = param.Attributes;
             if (includeVariance)
@@ -523,6 +527,8 @@ public static class ApiSurfaceExtractor
                 typeParam.Constraints.Add("allows ref struct");
 
             parameters.Add(typeParam);
+            if (budget < 0)
+                break;
         }
 
         return parameters;

@@ -17,8 +17,16 @@ internal sealed class PointerDetector : ISignatureTypeProvider<bool, object?>
 
     public bool GetTypeFromSpecification(MetadataReader reader, object? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        var typeSpec = reader.GetTypeSpecification(handle);
-        return typeSpec.DecodeSignature(this, context);
+        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+            return false;
+        try
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        }
+        finally
+        {
+            TypeSpecGuard.Exit(blobLength);
+        }
     }
 
     public bool GetSZArrayType(bool elementType) => elementType;

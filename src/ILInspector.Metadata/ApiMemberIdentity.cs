@@ -46,12 +46,23 @@ public static class ApiMemberIdentity
             => TypeResolver.GetTypeNameFromReference(reader, handle).Replace('+', '.');
 
         public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-            => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+                return "object";
+            try
+            {
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            }
+            finally
+            {
+                TypeSpecGuard.Exit(blobLength);
+            }
+        }
 
         public string GetSZArrayType(string elementType) => $"{elementType}[]";
 
         public string GetArrayType(string elementType, ArrayShape shape)
-            => $"{elementType}[{(shape.Rank == 1 ? "*" : new string(',', shape.Rank - 1))}]";
+            => $"{elementType}[{(shape.Rank == 1 ? "*" : new string(',', Math.Max(0, shape.Rank - 1)))}]";
 
         public string GetByReferenceType(string elementType) => $"{elementType}&";
 
@@ -60,7 +71,7 @@ public static class ApiMemberIdentity
         public string GetPinnedType(string elementType) => $"pinned {elementType}";
 
         public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-            => $"{genericType}<{string.Join(",", typeArguments)}>";
+            => $"{genericType}<{NestedTypeName.BoundedJoin(",", typeArguments)}>";
 
         public string GetGenericTypeParameter(GenericContext? context, int index)
             => context is not null && index >= 0 && index < context.TypeParameters.Count
@@ -73,7 +84,7 @@ public static class ApiMemberIdentity
                 : $"!{index}";
 
         public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"delegate*<{string.Join(",", signature.ParameterTypes.Append(signature.ReturnType))}>";
+            => $"delegate*<{NestedTypeName.BoundedJoin(",", signature.ParameterTypes.Append(signature.ReturnType))}>";
 
         public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
     }
@@ -228,14 +239,12 @@ public static class ApiMemberIdentity
 
     static string SimpleDefinitionName(MetadataReader reader, TypeDefinition type)
     {
-        var genericNames = type.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
+        var genericNames = NestedTypeName.GenericParameterNames(reader, type.GetGenericParameters());
         string name = reader.GetString(type.Name);
         int tick = name.IndexOf('`');
         string simple = tick < 0 ? name : name[..tick];
-        if (genericNames.Length > 0)
-            simple += $"<{string.Join(",", genericNames)}>";
+        if (genericNames.Count > 0)
+            simple += $"<{NestedTypeName.BoundedJoin(",", genericNames)}>";
         return simple;
     }
 
@@ -243,10 +252,8 @@ public static class ApiMemberIdentity
     {
         if (methodName == ".ctor")
             return "#ctor";
-        var genericNames = method.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
-        return genericNames.Length == 0 ? methodName : $"{methodName}<{string.Join(",", genericNames)}>";
+        var genericNames = NestedTypeName.GenericParameterNames(reader, method.GetGenericParameters());
+        return genericNames.Count == 0 ? methodName : $"{methodName}<{NestedTypeName.BoundedJoin(",", genericNames)}>";
     }
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)

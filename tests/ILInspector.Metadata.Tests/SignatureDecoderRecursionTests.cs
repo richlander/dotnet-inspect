@@ -230,6 +230,51 @@ public class SignatureDecoderRecursionTests
         Assert.False(string.IsNullOrEmpty(text));
     }
 
+    [Fact]
+    public void TypeSpecGuard_RejectsOverlongBlob()
+    {
+        // A 100000-deep SZARRAY TypeSpec is far past the per-blob length cap; TryEnter must refuse
+        // it so no provider re-decodes it (which would overflow SRM's native decoder).
+        var reader = BuildTypeSpec(sig =>
+        {
+            for (int i = 0; i < 100_000; i++)
+                sig.WriteByte(0x1d);
+            sig.WriteByte(0x08);
+        });
+
+        bool entered = TypeSpecGuard.TryEnter(reader, MetadataTokens.TypeSpecificationHandle(1), out _);
+
+        Assert.False(entered);
+    }
+
+    [Fact]
+    public void ManyLongGenericParameters_GenericContext_BoundedMaterialization()
+    {
+        // A type carrying thousands of generic parameters that all point at one long #Strings name
+        // would materialize gigabytes; the accumulated-name cap must bound the context's parameter
+        // list well below the parameter count.
+        var longName = new string('p', 1_000);
+        TypeDefinitionHandle typeHandle = default;
+        var reader = BuildAssembly(md =>
+        {
+            typeHandle = md.AddTypeDefinition(System.Reflection.TypeAttributes.Public,
+                md.GetOrAddString("N"), md.GetOrAddString("Wide`10000"), default,
+                MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+            for (int i = 0; i < 10_000; i++)
+                md.AddGenericParameter(typeHandle, System.Reflection.GenericParameterAttributes.None,
+                    md.GetOrAddString(longName), i);
+        });
+
+        var context = GenericContext.ForType(reader, reader.GetTypeDefinition(typeHandle));
+
+        long totalLength = 0;
+        foreach (var name in context.TypeParameters)
+            totalLength += name.Length;
+        Assert.True(context.TypeParameters.Count < 10_000, $"expected capped count, got {context.TypeParameters.Count}");
+        Assert.True(totalLength < NestedTypeName.MaxLength + longName.Length,
+            $"expected bounded materialization, got {totalLength} chars");
+    }
+
     static MetadataReader BuildTypeSpec(Action<BlobBuilder> writeSignature)
     {
         var signature = new BlobBuilder();

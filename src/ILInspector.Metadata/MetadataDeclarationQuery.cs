@@ -218,7 +218,7 @@ public static class MetadataDeclarationQuery
         var csharpName = EscapeIdentifier(name);
         var methodName = typeParameters.Count == 0
             ? csharpName
-            : $"{csharpName}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
+            : $"{csharpName}<{NestedTypeName.BoundedJoin(", ", typeParameters.Select(parameter => parameter.Name))}>";
 
         return new MetadataMethodDeclaration(
             name,
@@ -393,7 +393,7 @@ public static class MetadataDeclarationQuery
         var spellable = parameter.Constraints
             .Where(constraint => constraint is not ("System.Object" or "Object" or "object"))
             .ToList();
-        return spellable.Count > 0 ? string.Join(", ", spellable) : null;
+        return spellable.Count > 0 ? NestedTypeName.BoundedJoin(", ", spellable) : null;
     }
 
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
@@ -604,6 +604,9 @@ public static class MetadataDeclarationQuery
         GenericContext context)
     {
         var parameters = new List<TypeParameter>();
+        // A type/method can carry up to ushort.MaxValue generic parameters all pointing at one long
+        // #Strings name, so cap the accumulated name length to avoid materializing gigabytes.
+        long budget = NestedTypeName.MaxLength;
         foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
@@ -629,11 +632,15 @@ public static class MetadataDeclarationQuery
             if (!isStruct && (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
                 constraints.Add("new()");
 
+            var name = reader.GetString(parameter.Name);
             parameters.Add(new TypeParameter
             {
-                Name = reader.GetString(parameter.Name),
+                Name = name,
                 Constraints = constraints,
             });
+            budget -= name.Length + 1;
+            if (budget < 0)
+                break;
         }
 
         return parameters;
@@ -742,7 +749,7 @@ public static class MetadataDeclarationQuery
             : "{ " + string.Join(" ", declaration.Signature.Accessors.Select(AccessorText)) + " }";
         return declaration.Signature.Parameters.Count == 0
             ? $"{returnType} {declaration.CSharpName} {accessors}"
-            : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(parameter => parameter.Declaration))}] {accessors}";
+            : $"{returnType} this[{NestedTypeName.BoundedJoin(", ", declaration.Signature.Parameters.Select(parameter => parameter.Declaration))}] {accessors}";
     }
 
     static string AccessorText(ApiAccessor accessor)
@@ -1046,9 +1053,7 @@ public static class MetadataDeclarationQuery
     }
 
     static IReadOnlyList<string> TypeParameterNames(MetadataReader reader, TypeDefinition typeDef)
-        => typeDef.GetGenericParameters()
-            .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
-            .ToArray();
+        => NestedTypeName.GenericParameterNames(reader, typeDef.GetGenericParameters());
 
     static int GenericArity(string metadataFullName)
     {

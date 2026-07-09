@@ -62,7 +62,18 @@ public sealed class ILSignatureTypeProvider : ISignatureTypeProvider<string, Gen
         => Prefix(rawTypeKind) + CanonicalIL.QualifiedName(reader, handle);
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+    {
+        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+            return "object";
+        try
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        }
+        finally
+        {
+            TypeSpecGuard.Exit(blobLength);
+        }
+    }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
     public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
@@ -71,13 +82,13 @@ public sealed class ILSignatureTypeProvider : ISignatureTypeProvider<string, Gen
     public string GetPinnedType(string elementType) => $"{elementType} pinned";
 
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-        => $"{genericType}<{string.Join(", ", typeArguments)}>";
+        => $"{genericType}<{NestedTypeName.BoundedJoin(", ", typeArguments)}>";
 
     public string GetGenericMethodParameter(GenericContext? context, int index) => $"!!{index}";
     public string GetGenericTypeParameter(GenericContext? context, int index) => $"!{index}";
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
     public string GetFunctionPointerType(MethodSignature<string> signature)
-        => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
+        => $"method {signature.ReturnType} *({NestedTypeName.BoundedJoin(", ", signature.ParameterTypes)})";
 
     static string Prefix(byte rawTypeKind) => rawTypeKind switch
     {
@@ -314,7 +325,7 @@ public static class CanonicalIL
     {
         var spec = reader.GetMethodSpecification(handle);
         var typeArgs = spec.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
-        string genericArgs = $"<{string.Join(", ", typeArgs)}>";
+        string genericArgs = $"<{NestedTypeName.BoundedJoin(", ", typeArgs)}>";
 
         switch (spec.Method.Kind)
         {
@@ -341,7 +352,7 @@ public static class CanonicalIL
         // .ctor/.cctor are grammar keywords; every other member name may need
         // quoting (compiler-generated names like <get_X>b__16_0).
         string methodName = name is ".ctor" or ".cctor" ? name : QuoteName(name);
-        return $"{instance}{sig.ReturnType} {parent}::{methodName}{genericArgs}({string.Join(", ", sig.ParameterTypes)})";
+        return $"{instance}{sig.ReturnType} {parent}::{methodName}{genericArgs}({NestedTypeName.BoundedJoin(", ", sig.ParameterTypes)})";
     }
 
     static string FormatFieldDef(MetadataReader reader, FieldDefinitionHandle handle)

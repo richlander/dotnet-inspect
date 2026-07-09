@@ -166,7 +166,7 @@ public class TypeParameter
     /// Returns constraints as a comma-separated string, or null if none.
     /// </summary>
     public string? ConstraintsSummary => Constraints.Count > 0
-        ? string.Join(", ", Constraints)
+        ? NestedTypeName.BoundedJoin(", ", Constraints)
         : null;
 }
 
@@ -184,12 +184,12 @@ public class ApiSignature
 
     public string ParameterTypesSummary => Parameters.Count == 0
         ? ""
-        : $"({string.Join(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
+        : $"({NestedTypeName.BoundedJoin(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
 
     public string ParameterDeclarationsSummary => Parameters.Count == 0
         ? "()"
         : CSharpDeclarationWriter.EscapeQualifiedKeywordSegments(
-            $"({string.Join(", ", Parameters.Select(parameter => parameter.Declaration))})");
+            $"({NestedTypeName.BoundedJoin(", ", Parameters.Select(parameter => parameter.Declaration))})");
 
     public List<(string name, string type, bool hasDefault)> ParameterInfoSummary => Parameters
         .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
@@ -220,7 +220,7 @@ public class ApiParameter
         {
             var attributes = Attributes.Count == 0
                 ? ""
-                : $"[{string.Join(", ", Attributes)}] ";
+                : $"[{NestedTypeName.BoundedJoin(", ", Attributes)}] ";
             var head = string.IsNullOrWhiteSpace(Name)
                 ? TypeWithModifier
                 : $"{TypeWithModifier} {CSharpDeclarationWriter.EscapeIdentifier(Name)}";
