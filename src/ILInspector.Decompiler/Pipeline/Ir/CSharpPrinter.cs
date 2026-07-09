@@ -2868,14 +2868,23 @@ public sealed partial class CSharpPrinter
             _function.Signature.Parameters.Select(p => p.Name)
                 .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!)),
             StringComparer.Ordinal);
-        if (!used.Contains(baseName))
-            return baseName;
-        for (int i = 0; ; i++)
+        string chosen = baseName;
+        if (used.Contains(baseName))
         {
-            string candidate = $"{baseName}{i}";
-            if (!used.Contains(candidate))
-                return candidate;
+            for (int i = 0; ; i++)
+            {
+                string candidate = $"{baseName}{i}";
+                if (!used.Contains(candidate))
+                {
+                    chosen = candidate;
+                    break;
+                }
+            }
         }
+        // Record every generated synthetic local so a self-static call whose name
+        // collides with it (e.g. a suffixed `__stackalloc0`) stays qualified.
+        _syntheticLocalNames.Add(chosen);
+        return chosen;
     }
 
     static bool IsNativeInteger(TypeRef? type)
@@ -3531,6 +3540,7 @@ public sealed partial class CSharpPrinter
     }
 
     HashSet<string>? _staticScopeShadowNames;
+    readonly HashSet<string> _syntheticLocalNames = new(StringComparer.Ordinal);
 
     /// <summary>
     /// True when the escaped source spelling of a static-call name is captured by
@@ -3550,6 +3560,11 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool IsStaticCallNameShadowed(string escapedName)
     {
+        // Synthetic locals are generated during rendering; check the live set so a
+        // name emitted before this call (regardless of the cache below) is seen.
+        // These names are never keywords, so their spelling equals escapedName.
+        if (_syntheticLocalNames.Contains(escapedName))
+            return true;
         if (_staticScopeShadowNames is null)
         {
             _staticScopeShadowNames = new HashSet<string>(StringComparer.Ordinal);
@@ -3562,9 +3577,6 @@ public sealed partial class CSharpPrinter
             // normalize all to the escaped spelling the rendered call name uses.
             foreach (var name in CurrentScopeNames())
                 _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(name));
-            // FreshSyntheticLocalName("__stackalloc") does not flow through
-            // CurrentScopeNames; add it explicitly.
-            _staticScopeShadowNames.Add("__stackalloc");
         }
         return _staticScopeShadowNames.Contains(escapedName);
     }
