@@ -269,6 +269,21 @@ public class EvidencePilotTests
     static readonly EvidenceSubject IlSubject = new("M", "M");
 
     [Fact]
+    public void IlEvidence_PathologicallyLargeBody_FailsClosed()
+    {
+        // A body large enough to exceed the ordered matcher's cell guard must fail closed
+        // (return a failure result), not throw at the caller — consistent with the decode path.
+        var il = new byte[9000];
+        il[^1] = Ret; // 8999 nops + ret
+        var body = Body(il);
+
+        var result = IlEvidence.Compare(body, null, body, null, IlSubject);
+
+        Assert.NotNull(result.Failure);
+        Assert.False(result.IsExact);
+    }
+
+    [Fact]
     public void IlEvidence_BranchRetarget_IsChangedNotExact()
     {
         // br.s to IL_0005 (second ret) vs br.s to IL_0003 (first ret): a real control-flow retarget.

@@ -37,7 +37,19 @@ public static class IlEvidence
 
         var oldStream = BuildOccurrences(oldOps);
         var newStream = BuildOccurrences(newOps);
-        var correspondence = EvidenceMatcher.Match(oldStream, newStream);
+
+        EvidenceMatch correspondence;
+        try
+        {
+            correspondence = EvidenceMatcher.Match(oldStream, newStream);
+        }
+        catch (ArgumentException ex)
+        {
+            // Fail closed like the canonicalization path: a pathological body that exceeds the
+            // ordered matcher's size guard returns a failure result instead of throwing at the caller.
+            return IlEvidenceResult.Failed(ex.Message);
+        }
+
         var rows = EvidenceFold.ToRows(correspondence, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
         rows = ApplyBranchTargetValidation(rows, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
         return new IlEvidenceResult(rows, correspondence, oldStream, newStream, Failure: null);
