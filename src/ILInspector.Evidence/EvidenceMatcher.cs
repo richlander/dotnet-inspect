@@ -82,7 +82,7 @@ public static class EvidenceMatcher
         ArgumentNullException.ThrowIfNull(newStream);
         options ??= EvidenceMatchOptions.Default;
 
-        long cells = (long)(oldStream.Count + 1) * (newStream.Count + 1);
+        long cells = ((long)oldStream.Count + 1) * ((long)newStream.Count + 1);
         if (cells > MaxOrderedMatchCells)
         {
             throw new ArgumentException(
