@@ -78,6 +78,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public abstract class BaseMarkerAttribute : Attribute
+            {
+            }
+
+            [AttributeUsage(AttributeTargets.Class)]
+            public sealed class MarkerAttribute : BaseMarkerAttribute
+            {
+                public bool Flag => true;
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.UsedCompileBackFloor, result.Detail);
+            Assert.NotNull(result.CompileBackFloor);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.CompileBackFloor.Status);
+            Assert.Contains("compile-back-floor", result.Detail);
+            Assert.Contains("CS0641", result.Detail);
+            Assert.Contains("return true;", result.TargetBody);
+            Assert.Contains("return true;", result.Source);
+            Assert.NotNull(result.MemberAnchor);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
