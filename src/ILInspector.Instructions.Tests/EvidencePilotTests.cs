@@ -163,6 +163,45 @@ public class EvidencePilotTests
         Assert.Equal(first.Fringe, second.Fringe);
     }
 
+    [Fact]
+    public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
+    {
+        // A stream-agnostic consumer: it reads only the skeleton, so the same rows could have
+        // come from IL, C#, or a fact producer. Here we drive it from the IL adapter.
+        var identical = Body(Ldc0, Ldc1, Ret);
+        var identicalRows = IlEvidence.Compare(identical, null, identical, null, IlSubject).Rows;
+        Assert.Equal(EvidenceVerdict.Identical, EvidenceDiffSummary.Summarize(identicalRows).Verdict);
+
+        var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
+        var reordered = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
+        var reorderRows = IlEvidence.Compare(old, null, reordered, null, IlSubject).Rows;
+        var reorderSummary = EvidenceDiffSummary.Summarize(reorderRows);
+        Assert.Equal(EvidenceVerdict.ReorderOnly, reorderSummary.Verdict);
+        Assert.Equal(2, reorderSummary.Moved);
+
+        var changed = Body(Ldc0, Ldc2, Ldc3, Ret);
+        var changedRows = IlEvidence.Compare(old, null, changed, null, IlSubject).Rows;
+        Assert.Equal(EvidenceVerdict.Structural, EvidenceDiffSummary.Summarize(changedRows).Verdict);
+    }
+
+    [Fact]
+    public void SkeletonConsumer_IsStreamAgnostic_OverHandBuiltRows()
+    {
+        // Rows fabricated as if from an arbitrary (non-IL) stream: the consumer does not care.
+        var subject = new EvidenceSubject("s", "s");
+        var descriptor = new EvidenceDescriptor("any.kind", "any");
+        EvidenceRow[] rows =
+        [
+            new(subject, descriptor, EvidencePolarity.Present, new EvidenceAnchor("k0", 0, 0)),
+            new(subject, descriptor, EvidencePolarity.Added, new EvidenceAnchor("k1", -1, 1)),
+        ];
+
+        var summary = EvidenceDiffSummary.Summarize(rows);
+        Assert.Equal(EvidenceVerdict.Structural, summary.Verdict);
+        Assert.Equal(1, summary.Added);
+        Assert.Equal(1, summary.Present);
+    }
+
     static int ReferenceLcsLength(IReadOnlyList<string> a, IReadOnlyList<string> b)
     {
         var dp = new int[a.Count + 1, b.Count + 1];
