@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -42,9 +42,16 @@ public class EngineToolBoundaryTests
 
     static IEnumerable<string> ReadProjectReferences(string csprojPath)
     {
-        var text = File.ReadAllText(csprojPath);
-        foreach (Match match in Regex.Matches(text, "<ProjectReference\\s+Include=\"([^\"]+)\""))
-            yield return match.Groups[1].Value;
+        // Parse the XML rather than pattern-match text, so attribute order/extra
+        // attributes (e.g. a Condition before Include) can't slip a reference past the
+        // guardrail. Match by local name to tolerate any MSBuild XML namespace.
+        var doc = XDocument.Load(csprojPath);
+        foreach (var element in doc.Descendants().Where(e => e.Name.LocalName == "ProjectReference"))
+        {
+            var include = element.Attribute("Include")?.Value;
+            if (!string.IsNullOrEmpty(include))
+                yield return include;
+        }
     }
 
     static string FindRepoRoot()

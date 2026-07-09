@@ -36,11 +36,15 @@ public class SourceLinkService : IDisposable
     /// Opens an assembly and probes for PDB (embedded, then standalone adjacent).
     /// After return, check <see cref="NeedsPdb"/> to see if the caller should download a PDB.
     /// </summary>
-    /// <param name="cache">
-    /// Optional index cache; when null, <see cref="DefaultCache"/> is used. Pass an
-    /// explicit instance in tests to avoid the process-wide default.
-    /// </param>
-    public static SourceLinkService Open(string assemblyPath, Action<string>? log = null, ISourceLinkIndexCache? cache = null)
+    public static SourceLinkService Open(string assemblyPath, Action<string>? log = null)
+        => Open(assemblyPath, log, cache: null);
+
+    /// <summary>
+    /// Opens an assembly with an explicit index cache. Prefer passing a cache in tests to
+    /// avoid the process-wide <see cref="DefaultCache"/>; when <paramref name="cache"/> is
+    /// null, <see cref="DefaultCache"/> is used.
+    /// </summary>
+    public static SourceLinkService Open(string assemblyPath, Action<string>? log, ISourceLinkIndexCache? cache)
     {
         var context = PdbContext.Open(assemblyPath, log);
         return new SourceLinkService(context, cache ?? DefaultCache);
