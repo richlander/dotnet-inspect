@@ -1,29 +1,29 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
-using ILInspector.Evidence;
+using ILInspector.Findings;
 
 namespace ILInspector.Instructions;
 
 /// <summary>
-/// Adapts IL method bodies onto the domain-free evidence substrate: it canonicalizes each body
+/// Adapts IL method bodies onto the domain-free finding substrate: it canonicalizes each body
 /// (reusing <see cref="IlBodyDiff"/> exactly), projects operations into
-/// <see cref="EvidenceOccurrence"/>s, runs the shared <see cref="EvidenceMatcher"/>, and
-/// folds the correspondence into <see cref="EvidenceRow"/>s. This is the "IL as evidence" pilot:
+/// <see cref="FindingOccurrence"/>s, runs the shared <see cref="FindingMatcher"/>, and
+/// folds the alignment into <see cref="Finding"/>s. This is the "IL as finding" pilot:
 /// the committed LCS core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move
 /// pass recovers relocations that the order-preserving diff cannot.
 /// </summary>
-public static class IlEvidence
+public static class IlFindings
 {
-    /// <summary>The evidence descriptor for a single IL operation occurrence.</summary>
-    public static readonly EvidenceDescriptor OperationDescriptor = new("il.op", "IL operation");
+    /// <summary>The finding descriptor for a single IL operation occurrence.</summary>
+    public static readonly FindingDescriptor OperationDescriptor = new("il.op", "IL operation");
 
-    public static IlEvidenceResult Compare(
+    public static IlFindingsResult Compare(
         MethodInstructions oldBody,
         MetadataReader? oldReader,
         MethodInstructions newBody,
         MetadataReader? newReader,
-        EvidenceSubject subject,
+        FindingSubject subject,
         int acceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(oldBody);
@@ -31,38 +31,38 @@ public static class IlEvidence
         ArgumentNullException.ThrowIfNull(subject);
 
         if (!IlBodyDiff.TryCanonicalize(oldBody, oldReader, out var oldOps, out var oldFailure))
-            return IlEvidenceResult.Failed(oldFailure ?? "old body canonicalization failed");
+            return IlFindingsResult.Failed(oldFailure ?? "old body canonicalization failed");
         if (!IlBodyDiff.TryCanonicalize(newBody, newReader, out var newOps, out var newFailure))
-            return IlEvidenceResult.Failed(newFailure ?? "new body canonicalization failed");
+            return IlFindingsResult.Failed(newFailure ?? "new body canonicalization failed");
 
         var oldStream = BuildOccurrences(oldOps);
         var newStream = BuildOccurrences(newOps);
 
-        EvidenceMatch correspondence;
+        FindingMatch match;
         try
         {
-            correspondence = EvidenceMatcher.Match(oldStream, newStream);
+            match = FindingMatcher.Match(oldStream, newStream);
         }
         catch (ArgumentException ex)
         {
             // Fail closed like the canonicalization path: a pathological body that exceeds the
             // ordered matcher's size guard returns a failure result instead of throwing at the caller.
-            return IlEvidenceResult.Failed(ex.Message);
+            return IlFindingsResult.Failed(ex.Message);
         }
 
-        var rows = EvidenceFold.ToRows(correspondence, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
+        var rows = FindingFold.ToRows(match, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
         rows = ApplyBranchTargetValidation(rows, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
-        return new IlEvidenceResult(rows, correspondence, oldStream, newStream, Failure: null);
+        return new IlFindingsResult(rows, match, oldStream, newStream, Failure: null);
     }
 
     // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
     // so a matched branch whose target was retargeted would otherwise read as unchanged. Reuse
     // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
-    // then overlay the evidence Moved mappings so a branch that targets a relocated instruction is
-    // judged in the evidence frame (its target moved with it) rather than being falsely retargeted.
+    // then overlay the finding Moved mappings so a branch that targets a relocated instruction is
+    // judged in the finding frame (its target moved with it) rather than being falsely retargeted.
     // On move-free inputs there are no Moved rows, so the map is exactly IlBodyDiff's.
-    static ImmutableArray<EvidenceRow> ApplyBranchTargetValidation(
-        ImmutableArray<EvidenceRow> rows,
+    static ImmutableArray<Finding> ApplyBranchTargetValidation(
+        ImmutableArray<Finding> rows,
         ImmutableArray<DecodedInstruction> oldInstructions,
         ImmutableArray<CanonicalIlOperation> oldOps,
         ImmutableArray<DecodedInstruction> newInstructions,
@@ -71,7 +71,7 @@ public static class IlEvidence
         var alignment = new Dictionary<int, int>(IlBodyDiff.BuildAlignmentMap(oldOps, newOps));
         foreach (var row in rows)
         {
-            if (row.DifferenceKind == EvidenceDifferenceKind.Moved
+            if (row.DifferenceKind == FindingDifferenceKind.Moved
                 && row.Anchor.OldIndex >= 0
                 && row.Anchor.NewIndex >= 0)
             {
@@ -79,15 +79,15 @@ public static class IlEvidence
             }
         }
 
-        var builder = ImmutableArray.CreateBuilder<EvidenceRow>(rows.Length);
+        var builder = ImmutableArray.CreateBuilder<Finding>(rows.Length);
         foreach (var row in rows)
         {
-            if (row.Kind == EvidenceRowKind.Present
+            if (row.Kind == FindingKind.Present
                 && row.Anchor.OldIndex >= 0
                 && row.Anchor.NewIndex >= 0
                 && !IlBodyDiff.BranchTargetsMatch(oldInstructions, row.Anchor.OldIndex, newInstructions, row.Anchor.NewIndex, alignment))
             {
-                builder.Add(row with { Kind = EvidenceRowKind.Changed, Detail = "branch retargeted" });
+                builder.Add(row with { Kind = FindingKind.Changed, Detail = "branch retargeted" });
             }
             else
             {
@@ -98,14 +98,14 @@ public static class IlEvidence
         return builder.ToImmutable();
     }
 
-    static ImmutableArray<EvidenceOccurrence> BuildOccurrences(ImmutableArray<CanonicalIlOperation> operations)
+    static ImmutableArray<FindingOccurrence> BuildOccurrences(ImmutableArray<CanonicalIlOperation> operations)
     {
-        var builder = ImmutableArray.CreateBuilder<EvidenceOccurrence>(operations.Length);
+        var builder = ImmutableArray.CreateBuilder<FindingOccurrence>(operations.Length);
         foreach (var operation in operations)
         {
             // ScopeKey is left null in the pilot: move detection is corroborated by run
             // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
-            builder.Add(new EvidenceOccurrence(GetIdentityKey(operation), ScopeKey: null, Payload: operation));
+            builder.Add(new FindingOccurrence(GetIdentityKey(operation), ScopeKey: null, Payload: operation));
         }
 
         return builder.MoveToImmutable();
@@ -131,17 +131,17 @@ public static class IlEvidence
     }
 }
 
-/// <summary>The outcome of an <see cref="IlEvidence.Compare"/> call.</summary>
-public sealed record IlEvidenceResult(
-    ImmutableArray<EvidenceRow> Rows,
-    EvidenceMatch Match,
-    ImmutableArray<EvidenceOccurrence> OldOccurrences,
-    ImmutableArray<EvidenceOccurrence> NewOccurrences,
+/// <summary>The outcome of an <see cref="IlFindings.Compare"/> call.</summary>
+public sealed record IlFindingsResult(
+    ImmutableArray<Finding> Rows,
+    FindingMatch Match,
+    ImmutableArray<FindingOccurrence> OldOccurrences,
+    ImmutableArray<FindingOccurrence> NewOccurrences,
     string? Failure)
 {
     /// <summary>True when the bodies are exact under the fidelity fold (no adds/removes/moves).</summary>
-    public bool IsExact => Failure is null && EvidenceEquivalence.Exact.IsEquivalent(Rows);
+    public bool IsExact => Failure is null && FindingEquivalence.Exact.IsEquivalent(Rows);
 
-    public static IlEvidenceResult Failed(string failure)
-        => new([], new EvidenceMatch([], []), [], [], failure);
+    public static IlFindingsResult Failed(string failure)
+        => new([], new FindingMatch([], []), [], [], failure);
 }

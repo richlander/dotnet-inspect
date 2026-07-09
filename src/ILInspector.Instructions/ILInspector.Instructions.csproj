@@ -16,7 +16,7 @@
   <!-- System.Reflection.Metadata is part of the BCL -->
 
   <ItemGroup>
-    <ProjectReference Include="..\ILInspector.Evidence\ILInspector.Evidence.csproj" />
+    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
   </ItemGroup>
 
