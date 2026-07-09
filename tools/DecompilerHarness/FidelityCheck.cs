@@ -458,14 +458,20 @@ static class FidelityCheck
 
     sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
 
-    sealed class CompilerReferenceResolver(IEnumerable<ResolvedAssemblyReference> references) : IAssemblyReferenceResolver
+    sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
+
+    sealed class CompilerReferenceResolver(IEnumerable<CompilerReference> references) : IAssemblyReferenceResolver
     {
-        readonly IReadOnlyList<ResolvedAssemblyReference> _references = references.ToList();
+        readonly IReadOnlyList<CompilerReference> _references = references.ToList();
 
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
-            foreach (var reference in _references)
+            foreach (var candidate in _references)
             {
+                if (scope == AssemblyResolutionScope.Platform && !candidate.PlatformTrusted)
+                    continue;
+
+                var reference = candidate.Reference;
                 if (!reference.Identity.Name.Equals(identity.Name, StringComparison.OrdinalIgnoreCase))
                     continue;
                 if (!CultureMatches(identity.Culture, reference.Identity.Culture))
@@ -3386,10 +3392,10 @@ static class FidelityCheck
     static ReferenceSet RuntimeReferences(string targetPath, IReadOnlyList<string>? corpusAssemblies = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var resolvedReferences = new List<ResolvedAssemblyReference>();
+        var resolvedReferences = new List<CompilerReference>();
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
 
-        void Add(string path)
+        void Add(string path, AssemblyDependencyProvenance? provenance)
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 return;
@@ -3406,7 +3412,10 @@ static class FidelityCheck
                 {
                     builder.Add(reference);
                     if (TryReadAssemblyIdentity(fullPath) is { } identity)
-                        resolvedReferences.Add(new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), "CompilerReference"));
+                        resolvedReferences.Add(new CompilerReference(
+                            new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), provenance?.ToString() ?? "CompilerReference"),
+                            PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
+                                or AssemblyDependencyProvenance.SharedFramework));
                 }
             }
             catch (IOException) { }
@@ -3421,7 +3430,7 @@ static class FidelityCheck
             ExcludeTargetAssembly = true,
         });
         foreach (var dependency in resolver.ResolveAll())
-            Add(dependency.Path);
+            Add(dependency.Path, dependency.Provenance);
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
     }
