@@ -14,8 +14,8 @@ public class FindingPilotTests
 {
     // ---- Leaf engine: synthetic occurrence streams -------------------------------------------
 
-    static ImmutableArray<FindingOccurrence> Stream(params string[] keys)
-        => [.. keys.Select(k => new FindingOccurrence(k))];
+    static ImmutableArray<FindingOccurrence<string>> Stream(params string[] keys)
+        => [.. keys.Select(k => new FindingOccurrence<string>(k))];
 
     static readonly FindingSubject Subject = new("test", "test");
     static readonly FindingDescriptor Descriptor = new("test.item", "item");
@@ -40,7 +40,7 @@ public class FindingPilotTests
 
         foreach (var (old, @new) in cases)
         {
-            var match = FindingMatcher.Match(Stream(old), Stream(@new));
+            var match = FindingMatcher.Match(Stream(old).ToKeys(), Stream(@new).ToKeys());
             var matched = match.Edges.Where(l => l.Kind == FindingEdgeKind.Matched).ToArray();
 
             // Optimality: as long as a classic LCS.
@@ -66,7 +66,7 @@ public class FindingPilotTests
         var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
 
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
 
         Assert.Equal(2, Count(match, FindingEdgeKind.Moved));
         Assert.Equal(0, Count(match, FindingEdgeKind.Added));
@@ -80,7 +80,7 @@ public class FindingPilotTests
         var old = Stream("c0", "c1", "c2");
         var @new = Stream("c1", "c2", "c0");
 
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
 
         Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
         Assert.Equal(1, Count(match, FindingEdgeKind.Added));
@@ -94,7 +94,7 @@ public class FindingPilotTests
     {
         var old = Stream("c0", "c1", "c2");
         var @new = Stream("c1", "c2", "c0");
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
 
         var strict = FindingFold.ToRows(match, old, @new, Subject, Descriptor);
         Assert.Equal(0, strict.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
@@ -111,15 +111,15 @@ public class FindingPilotTests
     public void ScopeCorroboration_RaisesFringeScore()
     {
         var old = ImmutableArray.Create(
-            new FindingOccurrence("c0", ScopeKey: "loop1"),
-            new FindingOccurrence("c1"),
-            new FindingOccurrence("c2"));
+            new FindingOccurrence<string>("c0", ScopeKey: "loop1"),
+            new FindingOccurrence<string>("c1"),
+            new FindingOccurrence<string>("c2"));
         var @new = ImmutableArray.Create(
-            new FindingOccurrence("c1"),
-            new FindingOccurrence("c2"),
-            new FindingOccurrence("c0", ScopeKey: "loop1"));
+            new FindingOccurrence<string>("c1"),
+            new FindingOccurrence<string>("c2"),
+            new FindingOccurrence<string>("c0", ScopeKey: "loop1"));
 
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
         var candidate = Assert.Single(match.MoveCandidates);
         Assert.Equal(75, candidate.Confidence);
         Assert.Equal("content+scope", candidate.Reason);
@@ -130,7 +130,7 @@ public class FindingPilotTests
     {
         var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
         var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
         var rows = FindingFold.ToRows(match, old, @new, Subject, Descriptor);
 
         // Order is semantic under the fidelity fold: a reorder is a real difference.
@@ -143,7 +143,7 @@ public class FindingPilotTests
     public void IdenticalStreams_AreExact()
     {
         var stream = Stream("a", "b", "c", "d");
-        var match = FindingMatcher.Match(stream, stream);
+        var match = FindingMatcher.Match(stream.ToKeys(), stream.ToKeys());
         var rows = FindingFold.ToRows(match, stream, stream, Subject, Descriptor);
 
         Assert.All(rows, r => Assert.Equal(FindingKind.Present, r.Kind));
@@ -158,7 +158,7 @@ public class FindingPilotTests
         var old = Stream("M1", "A", "M2", "B");
         var @new = Stream("A", "B", "M1", "M2");
 
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
 
         Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
         Assert.Equal(2, Count(match, FindingEdgeKind.Added));
@@ -173,7 +173,7 @@ public class FindingPilotTests
         var old = Stream("A", "B");
         var @new = Stream("B", "A", "A");
 
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
 
         Assert.Equal(2, match.MoveCandidates.Length);
         Assert.All(match.MoveCandidates, c => Assert.Equal("A", old[c.OldIndex].IdentityKey));
@@ -186,8 +186,8 @@ public class FindingPilotTests
         var old = Stream("x", "a", "y", "a", "z", "a");
         var @new = Stream("a", "z", "a", "x", "a", "y");
 
-        var first = FindingMatcher.Match(old, @new);
-        var second = FindingMatcher.Match(old, @new);
+        var first = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
+        var second = FindingMatcher.Match(old.ToKeys(), @new.ToKeys());
 
         Assert.Equal(first.Edges, second.Edges);
         Assert.Equal(first.MoveCandidates, second.MoveCandidates);
@@ -199,10 +199,10 @@ public class FindingPilotTests
         // The ordered LCS matrix is O(N*M); guard it so an assembly-scale stream fails loudly
         // instead of attempting a multi-gigabyte allocation (issue #2585).
         var big = Enumerable.Range(0, 8000)
-            .Select(i => new FindingOccurrence(i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .Select(i => new FindingOccurrence<string>(i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
             .ToArray();
 
-        var ex = Assert.Throws<ArgumentException>(() => FindingMatcher.Match(big, big));
+        var ex = Assert.Throws<ArgumentException>(() => FindingMatcher.Match(big.ToKeys(), big.ToKeys()));
         Assert.Contains("identity-set", ex.Message, StringComparison.Ordinal);
     }
 
@@ -233,7 +233,7 @@ public class FindingPilotTests
         // Rows fabricated as if from an arbitrary (non-IL) stream: the consumer does not care.
         var subject = new FindingSubject("s", "s");
         var descriptor = new FindingDescriptor("any.kind", "any");
-        Finding[] rows =
+        Finding<string>[] rows =
         [
             new(subject, descriptor, FindingKind.Present, new FindingAnchor("k0", 0, 0)),
             new(subject, descriptor, FindingKind.Added, new FindingAnchor("k1", -1, 1)),

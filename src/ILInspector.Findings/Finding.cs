@@ -83,16 +83,44 @@ public sealed record FindingAnchor(
 }
 
 /// <summary>
-/// One finding row: the shared envelope every stream (IL diff, C# diff, semantic
-/// fact) projects into so cross-stream consumers query a single skeleton. Rich,
-/// stream-specific detail rides as an opaque <see cref="Payload"/> for display and is
-/// never required to interpret the row.
+/// The domain-free skeleton of a finding row: everything a cross-stream consumer needs to
+/// classify and align a row without knowing which producer emitted it or what the payload is.
+/// Cross-stream code (Performance Triage, <see cref="FindingSummary"/>, <see cref="FindingEquivalence"/>)
+/// is written against this interface; <see cref="IFinding{T}"/> adds the typed payload for
+/// same-domain consumers.
 /// </summary>
-public sealed record Finding(
+public interface IFinding
+{
+    FindingSubject Subject { get; }
+    FindingDescriptor Descriptor { get; }
+    FindingKind Kind { get; }
+    FindingAnchor Anchor { get; }
+    FindingDifferenceKind DifferenceKind { get; }
+    string? Detail { get; }
+}
+
+/// <summary>
+/// A finding row with its typed payload. Same-domain consumers take this; the substrate matcher
+/// and fold never do (the payload is opaque to them). Non-variant on <typeparamref name="T"/>: a
+/// payload may be a value type, and CLR variance is reference-only.
+/// </summary>
+public interface IFinding<T> : IFinding
+{
+    T? Payload { get; }
+}
+
+/// <summary>
+/// One finding row: the shared envelope every stream (IL diff, C# diff, semantic fact) projects
+/// into so cross-stream consumers query a single skeleton (<see cref="IFinding"/>). Rich,
+/// stream-specific detail rides as a typed <see cref="Payload"/> for display and is never
+/// required to interpret the row. The payload is a type parameter rather than <c>object?</c> so a
+/// value-typed payload is not boxed and same-domain consumers read it without a cast.
+/// </summary>
+public sealed record Finding<T>(
     FindingSubject Subject,
     FindingDescriptor Descriptor,
     FindingKind Kind,
     FindingAnchor Anchor,
     FindingDifferenceKind DifferenceKind = FindingDifferenceKind.None,
     string? Detail = null,
-    object? Payload = null);
+    T? Payload = default) : IFinding<T>;

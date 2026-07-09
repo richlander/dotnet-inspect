@@ -33,7 +33,7 @@ public sealed record FindingEdge(FindingEdgeKind Kind, int OldIndex, int NewInde
 /// </summary>
 public sealed record FindingMoveCandidate(int OldIndex, int NewIndex, int Confidence, string Reason);
 
-/// <summary>The result of matching two occurrence streams.</summary>
+/// <summary>The result of matching two key streams (see FindingKey).</summary>
 /// <param name="Edges">
 /// The committed, conservative interpretation: order-preserving matches, committed moves,
 /// and Added/Removed for everything else (including the endpoints of every fringe candidate).
@@ -60,7 +60,7 @@ public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
 /// <summary>
 /// The single, domain-free matcher every finding stream shares. It commits an
 /// order-preserving LCS core (which reproduces a classic sequence diff when there are no moves)
-/// and then recovers relocations as a scored move pass over the residual. It never decides
+/// and then recovers relocations as a scored move pass over the residual. It never inspects a payload and never decides
 /// equivalence: it emits a classified alignment (a set of edges), and a consumer <see cref="FindingFold"/>
 /// folds it.
 /// </summary>
@@ -74,8 +74,8 @@ public static class FindingMatcher
     const long MaxOrderedMatchCells = 64_000_000;
 
     public static FindingMatch Match(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        IReadOnlyList<FindingKey> oldStream,
+        IReadOnlyList<FindingKey> newStream,
         FindingMatchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(oldStream);
@@ -149,8 +149,8 @@ public static class FindingMatcher
     }
 
     static void DetectMoveRuns(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        IReadOnlyList<FindingKey> oldStream,
+        IReadOnlyList<FindingKey> newStream,
         int[] residualOld,
         int[] residualNew,
         bool[] committedOld,
@@ -225,8 +225,8 @@ public static class FindingMatcher
     // (higher-scored) pairings win over incidental index-order pairings. This is the "scored fringe"
     // half of committed-core-plus-scored-fringe.
     static ImmutableArray<FindingMoveCandidate> BuildFringe(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        IReadOnlyList<FindingKey> oldStream,
+        IReadOnlyList<FindingKey> newStream,
         int[] residualOld,
         int[] residualNew,
         bool[] committedOld,
@@ -262,8 +262,8 @@ public static class FindingMatcher
     // Same construction and tiebreak as ILInspector.Instructions.IlBodyDiff so the committed
     // core reproduces the existing IL sequence diff exactly on move-free inputs.
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream)
+        IReadOnlyList<FindingKey> oldStream,
+        IReadOnlyList<FindingKey> newStream)
     {
         int oldLength = oldStream.Count;
         int newLength = newStream.Count;

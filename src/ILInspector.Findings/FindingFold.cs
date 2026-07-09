@@ -11,10 +11,10 @@ namespace ILInspector.Findings;
 /// </summary>
 public static class FindingFold
 {
-    public static ImmutableArray<Finding> ToRows(
+    public static ImmutableArray<Finding<T>> ToRows<T>(
         FindingMatch match,
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        IReadOnlyList<FindingOccurrence<T>> oldStream,
+        IReadOnlyList<FindingOccurrence<T>> newStream,
         FindingSubject subject,
         FindingDescriptor descriptor,
         int acceptanceThreshold = 100)
@@ -26,7 +26,7 @@ public static class FindingFold
         ArgumentNullException.ThrowIfNull(descriptor);
 
         var edges = ApplyAcceptance(match, acceptanceThreshold);
-        var rows = ImmutableArray.CreateBuilder<Finding>(edges.Length);
+        var rows = ImmutableArray.CreateBuilder<Finding<T>>(edges.Length);
         foreach (var edge in edges)
             rows.Add(ToRow(edge, oldStream, newStream, subject, descriptor));
 
@@ -79,10 +79,10 @@ public static class FindingFold
         return result.ToImmutable();
     }
 
-    static Finding ToRow(
+    static Finding<T> ToRow<T>(
         FindingEdge edge,
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        IReadOnlyList<FindingOccurrence<T>> oldStream,
+        IReadOnlyList<FindingOccurrence<T>> newStream,
         FindingSubject subject,
         FindingDescriptor descriptor)
     {
@@ -92,7 +92,7 @@ public static class FindingFold
             {
                 var oldOcc = oldStream[edge.OldIndex];
                 var newOcc = newStream[edge.NewIndex];
-                return new Finding(
+                return new Finding<T>(
                     subject,
                     descriptor,
                     FindingKind.Present,
@@ -106,7 +106,7 @@ public static class FindingFold
                 var oldOcc = oldStream[edge.OldIndex];
                 var newOcc = newStream[edge.NewIndex];
                 int delta = edge.NewIndex - edge.OldIndex;
-                return new Finding(
+                return new Finding<T>(
                     subject,
                     descriptor,
                     FindingKind.Present,
@@ -119,7 +119,7 @@ public static class FindingFold
             case FindingEdgeKind.Added:
             {
                 var newOcc = newStream[edge.NewIndex];
-                return new Finding(
+                return new Finding<T>(
                     subject,
                     descriptor,
                     FindingKind.Added,
@@ -131,7 +131,7 @@ public static class FindingFold
             case FindingEdgeKind.Removed:
             {
                 var oldOcc = oldStream[edge.OldIndex];
-                return new Finding(
+                return new Finding<T>(
                     subject,
                     descriptor,
                     FindingKind.Removed,

@@ -8,8 +8,8 @@ namespace ILInspector.Instructions;
 /// <summary>
 /// Adapts IL method bodies onto the domain-free finding substrate: it canonicalizes each body
 /// (reusing <see cref="IlBodyDiff"/> exactly), projects operations into
-/// <see cref="FindingOccurrence"/>s, runs the shared <see cref="FindingMatcher"/>, and
-/// folds the alignment into <see cref="Finding"/>s. This is the "IL as finding" pilot:
+/// <see cref="FindingOccurrence{T}"/>s, runs the shared <see cref="FindingMatcher"/>, and
+/// folds the alignment into <see cref="Finding{T}"/>s. This is the "IL as finding" pilot:
 /// the committed LCS core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move
 /// pass recovers relocations that the order-preserving diff cannot.
 /// </summary>
@@ -41,7 +41,7 @@ public static class IlFindings
         FindingMatch match;
         try
         {
-            match = FindingMatcher.Match(oldStream, newStream);
+            match = FindingMatcher.Match(oldStream.ToKeys(), newStream.ToKeys());
         }
         catch (ArgumentException ex)
         {
@@ -61,8 +61,8 @@ public static class IlFindings
     // then overlay the finding Moved mappings so a branch that targets a relocated instruction is
     // judged in the finding frame (its target moved with it) rather than being falsely retargeted.
     // On move-free inputs there are no Moved rows, so the map is exactly IlBodyDiff's.
-    static ImmutableArray<Finding> ApplyBranchTargetValidation(
-        ImmutableArray<Finding> rows,
+    static ImmutableArray<Finding<CanonicalIlOperation>> ApplyBranchTargetValidation(
+        ImmutableArray<Finding<CanonicalIlOperation>> rows,
         ImmutableArray<DecodedInstruction> oldInstructions,
         ImmutableArray<CanonicalIlOperation> oldOps,
         ImmutableArray<DecodedInstruction> newInstructions,
@@ -79,7 +79,7 @@ public static class IlFindings
             }
         }
 
-        var builder = ImmutableArray.CreateBuilder<Finding>(rows.Length);
+        var builder = ImmutableArray.CreateBuilder<Finding<CanonicalIlOperation>>(rows.Length);
         foreach (var row in rows)
         {
             if (row.Kind == FindingKind.Present
@@ -98,14 +98,14 @@ public static class IlFindings
         return builder.ToImmutable();
     }
 
-    static ImmutableArray<FindingOccurrence> BuildOccurrences(ImmutableArray<CanonicalIlOperation> operations)
+    static ImmutableArray<FindingOccurrence<CanonicalIlOperation>> BuildOccurrences(ImmutableArray<CanonicalIlOperation> operations)
     {
-        var builder = ImmutableArray.CreateBuilder<FindingOccurrence>(operations.Length);
+        var builder = ImmutableArray.CreateBuilder<FindingOccurrence<CanonicalIlOperation>>(operations.Length);
         foreach (var operation in operations)
         {
             // ScopeKey is left null in the pilot: move detection is corroborated by run
             // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
-            builder.Add(new FindingOccurrence(GetIdentityKey(operation), ScopeKey: null, Payload: operation));
+            builder.Add(new FindingOccurrence<CanonicalIlOperation>(GetIdentityKey(operation), ScopeKey: null, Payload: operation));
         }
 
         return builder.MoveToImmutable();
@@ -133,10 +133,10 @@ public static class IlFindings
 
 /// <summary>The outcome of an <see cref="IlFindings.Compare"/> call.</summary>
 public sealed record IlFindingsResult(
-    ImmutableArray<Finding> Rows,
+    ImmutableArray<Finding<CanonicalIlOperation>> Rows,
     FindingMatch Match,
-    ImmutableArray<FindingOccurrence> OldOccurrences,
-    ImmutableArray<FindingOccurrence> NewOccurrences,
+    ImmutableArray<FindingOccurrence<CanonicalIlOperation>> OldOccurrences,
+    ImmutableArray<FindingOccurrence<CanonicalIlOperation>> NewOccurrences,
     string? Failure)
 {
     /// <summary>True when the bodies are exact under the fidelity fold (no adds/removes/moves).</summary>

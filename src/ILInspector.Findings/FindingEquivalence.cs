@@ -13,7 +13,7 @@ public sealed record FindingEquivalence(
     ImmutableHashSet<FindingKind> AllowedRowKinds,
     ImmutableHashSet<FindingDifferenceKind> AllowedDifferenceKinds)
 {
-    public bool IsEquivalent(IReadOnlyList<Finding> rows)
+    public bool IsEquivalent(IReadOnlyList<IFinding> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
         foreach (var row in rows)

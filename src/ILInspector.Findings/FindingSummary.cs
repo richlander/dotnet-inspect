@@ -29,7 +29,7 @@ public sealed record FindingSummary(
     int Moved,
     DiffShape Shape)
 {
-    public static FindingSummary Summarize(IReadOnlyList<Finding> rows)
+    public static FindingSummary Summarize(IReadOnlyList<IFinding> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
