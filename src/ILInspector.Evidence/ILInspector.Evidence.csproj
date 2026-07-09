@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Domain-free evidence substrate (leaf): the occurrence-correspondence engine (committed LCS core plus a scored move fringe) and the generic diff Fold that every evidence stream shares. Records and pure logic only; no SRM, no IrNode, no C#, no inspected-assembly loading. See issue #2564.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <!-- Leaf floor: references nothing by design. -->
+
+</Project>
