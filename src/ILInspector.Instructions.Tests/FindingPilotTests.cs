@@ -214,19 +214,19 @@ public class FindingPilotTests
         => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
 
     [Fact]
-    public void PairFinding_ViolatingKindSideInvariant_ThrowsAtConstruction()
+    public void PairFinding_DerivesKindFromSides_AndRejectsBothNull()
     {
-        var atom = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
+        var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
+        var b = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 1, "k");
 
-        // Neither side: no skeleton to project.
-        Assert.Throws<ArgumentException>(
-            () => new PairFinding<string>(PairKind.Present, FindingDifferenceKind.None, Old: null, New: null));
-        // Kind lies about the sides: Added must be new-only.
-        Assert.Throws<ArgumentException>(
-            () => new PairFinding<string>(PairKind.Added, FindingDifferenceKind.None, Old: atom, New: atom));
-        // Removed must be old-only.
-        Assert.Throws<ArgumentException>(
-            () => new PairFinding<string>(PairKind.Removed, FindingDifferenceKind.None, Old: null, New: atom));
+        // Kind is derived from the sides — there is no Kind to set out of step with them.
+        Assert.Equal(PairKind.Present, new PairFinding<string>(a, b).Kind);
+        Assert.Equal(PairKind.Changed, new PairFinding<string>(a, b, ContentChanged: true).Kind);
+        Assert.Equal(PairKind.Added, new PairFinding<string>(null, b).Kind);
+        Assert.Equal(PairKind.Removed, new PairFinding<string>(a, null).Kind);
+
+        // A with-expression cannot desync polarity from the sides; the only rejected case is both-null.
+        Assert.Throws<ArgumentException>(() => new PairFinding<string>(null, null));
     }
 
     [Fact]
@@ -260,8 +260,8 @@ public class FindingPilotTests
 
         IPairFinding[] pairs =
         [
-            new PairFinding<string>(PairKind.Present, FindingDifferenceKind.None, Atom("k0", 0), Atom("k0", 0)),
-            new PairFinding<string>(PairKind.Added, FindingDifferenceKind.None, Old: null, New: Atom("k1", 1)),
+            new PairFinding<string>(Atom("k0", 0), Atom("k0", 0)),
+            new PairFinding<string>(Old: null, New: Atom("k1", 1)),
         ];
 
         var summary = FindingSummary.Summarize(pairs);

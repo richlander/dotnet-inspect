@@ -115,21 +115,34 @@ public interface IPairFinding : IFinding
 /// (<see cref="New"/> if present, else <see cref="Old"/>); both sides remain reachable via
 /// <see cref="Old"/>/<see cref="New"/> for consumers that need the change.
 /// <para>
-/// The <see cref="Kind"/>↔side invariant (Added ⟹ New only; Removed ⟹ Old only; Present/Changed ⟹
-/// both) is validated at construction. Note that a <c>with</c> expression uses the record copy
-/// constructor and therefore bypasses this check, so a caller re-kinding a pair via
-/// <c>with { Kind = … }</c> must keep the sides consistent.
+/// <see cref="Kind"/> is <em>derived</em> from the sides, never stored, so it can never disagree
+/// with them: one side ⟹ Added/Removed; both sides ⟹ Changed when <see cref="ContentChanged"/> is
+/// set, else Present. That makes an inconsistent pair unrepresentable — there is no polarity to set
+/// out of step with the sides, even through a <c>with</c> expression. Construction rejects the one
+/// remaining degenerate case (neither side present).
 /// </para>
 /// </summary>
 public sealed record PairFinding<T>(
-    PairKind Kind,
-    FindingDifferenceKind Difference,
     Finding<T>? Old,
     Finding<T>? New,
+    FindingDifferenceKind Difference = FindingDifferenceKind.None,
+    bool ContentChanged = false,
     string? Detail = null) : IPairFinding, IFinding<T>
     where T : notnull
 {
-    private readonly bool _checked = CheckInvariant(Kind, Old, New);
+    private readonly bool _hasSide = Old is not null || New is not null
+        ? true
+        : throw new ArgumentException("A PairFinding must have a non-null Old or New side.");
+
+    /// <summary>
+    /// The transition polarity, derived from the sides (and <see cref="ContentChanged"/> for the
+    /// both-present case) so it is always consistent with them.
+    /// </summary>
+    public PairKind Kind => Old is null
+        ? PairKind.Added
+        : New is null
+            ? PairKind.Removed
+            : ContentChanged ? PairKind.Changed : PairKind.Present;
 
     private Finding<T> Current => New ?? Old
         ?? throw new InvalidOperationException("A PairFinding has neither an Old nor a New side.");
@@ -143,27 +156,6 @@ public sealed record PairFinding<T>(
 
     /// <summary>The signed position delta for a matched pair, or null if one-sided.</summary>
     public int? PositionDelta => Old is not null && New is not null ? New.Position - Old.Position : null;
-
-    static bool CheckInvariant(PairKind kind, Finding<T>? old, Finding<T>? @new)
-    {
-        bool ok = kind switch
-        {
-            PairKind.Added => old is null && @new is not null,
-            PairKind.Removed => old is not null && @new is null,
-            PairKind.Present or PairKind.Changed => old is not null && @new is not null,
-            _ => false,
-        };
-
-        if (!ok)
-        {
-            throw new ArgumentException(
-                $"PairFinding.{kind} is inconsistent with Old={(old is null ? "null" : "set")}/" +
-                $"New={(@new is null ? "null" : "set")}: Added requires New only, Removed requires " +
-                "Old only, Present/Changed require both sides.");
-        }
-
-        return true;
-    }
 }
 
 /// <summary>Projections over finding streams shared by producers and the matcher seam.</summary>

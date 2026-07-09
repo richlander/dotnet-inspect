@@ -85,10 +85,11 @@ public static class IlFindings
                 && !IlBodyDiff.BranchTargetsMatch(oldInstructions, pair.Old.Position, newInstructions, pair.New.Position, alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so
-                // neither the distance nor the retarget note is lost.
+                // neither the distance nor the retarget note is lost. ContentChanged flips the
+                // derived Kind from Present to Changed while keeping both sides.
                 builder.Add(pair with
                 {
-                    Kind = PairKind.Changed,
+                    ContentChanged = true,
                     Detail = pair.Detail is null ? "branch retargeted" : $"{pair.Detail}; branch retargeted",
                 });
             }

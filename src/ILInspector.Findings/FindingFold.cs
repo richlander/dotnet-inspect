@@ -87,36 +87,23 @@ public static class FindingFold
         switch (edge.Kind)
         {
             case FindingEdgeKind.Matched:
-                return new PairFinding<T>(
-                    PairKind.Present,
-                    FindingDifferenceKind.None,
-                    oldStream[edge.OldIndex],
-                    newStream[edge.NewIndex]);
+                return new PairFinding<T>(oldStream[edge.OldIndex], newStream[edge.NewIndex]);
 
             case FindingEdgeKind.Moved:
             {
                 int delta = edge.NewIndex - edge.OldIndex;
                 return new PairFinding<T>(
-                    PairKind.Present,
-                    FindingDifferenceKind.Moved,
                     oldStream[edge.OldIndex],
                     newStream[edge.NewIndex],
+                    FindingDifferenceKind.Moved,
                     Detail: $"moved {delta:+#;-#;0}");
             }
 
             case FindingEdgeKind.Added:
-                return new PairFinding<T>(
-                    PairKind.Added,
-                    FindingDifferenceKind.None,
-                    Old: null,
-                    New: newStream[edge.NewIndex]);
+                return new PairFinding<T>(Old: null, New: newStream[edge.NewIndex]);
 
             case FindingEdgeKind.Removed:
-                return new PairFinding<T>(
-                    PairKind.Removed,
-                    FindingDifferenceKind.None,
-                    Old: oldStream[edge.OldIndex],
-                    New: null);
+                return new PairFinding<T>(Old: oldStream[edge.OldIndex], New: null);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(edge), edge.Kind, "Unknown edge kind.");
