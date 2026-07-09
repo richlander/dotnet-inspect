@@ -203,7 +203,31 @@ public static class ApiMemberIdentity
 
     static string FormatDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
     {
-        var type = reader.GetTypeDefinition(handle);
+        // Iterative declaring-type climb (a self-nested TypeDefinition cannot recurse forever),
+        // outermost-first, degrading if a cyclic climb amplifies past the length ceiling.
+        var chain = NestedTypeName.DeclaringChain(reader, handle);
+        var builder = new System.Text.StringBuilder();
+        for (int i = 0; i < chain.Count; i++)
+        {
+            var type = reader.GetTypeDefinition(chain[i]);
+            string simple = SimpleDefinitionName(reader, type);
+            if (i == 0)
+            {
+                string ns = reader.GetString(type.Namespace);
+                builder.Append(string.IsNullOrEmpty(ns) ? simple : $"{ns}.{simple}");
+            }
+            else
+            {
+                builder.Append('.').Append(simple);
+            }
+            if (builder.Length > NestedTypeName.MaxLength)
+                break;
+        }
+        return builder.ToString();
+    }
+
+    static string SimpleDefinitionName(MetadataReader reader, TypeDefinition type)
+    {
         var genericNames = type.GetGenericParameters()
             .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
             .ToArray();
@@ -212,11 +236,7 @@ public static class ApiMemberIdentity
         string simple = tick < 0 ? name : name[..tick];
         if (genericNames.Length > 0)
             simple += $"<{string.Join(",", genericNames)}>";
-        var declaring = type.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{FormatDefinitionName(reader, declaring)}.{simple}";
-        string ns = reader.GetString(type.Namespace);
-        return string.IsNullOrEmpty(ns) ? simple : $"{ns}.{simple}";
+        return simple;
     }
 
     static string MethodMemberName(MetadataReader reader, string methodName, MethodDefinition method)

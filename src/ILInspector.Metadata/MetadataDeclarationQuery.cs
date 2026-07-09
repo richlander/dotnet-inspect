@@ -718,10 +718,13 @@ public static class MetadataDeclarationQuery
 
     static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
     {
-        var declaringType = typeDef.GetDeclaringType();
-        return declaringType.IsNil
-            ? reader.GetString(typeDef.Namespace)
-            : GetRootNamespace(reader, reader.GetTypeDefinition(declaringType));
+        if (typeDef.GetDeclaringType().IsNil)
+            return reader.GetString(typeDef.Namespace);
+
+        // Iterative climb to the outermost declaring type (a self-nested TypeDefinition cannot
+        // recurse forever); only the outermost type carries the namespace.
+        var chain = NestedTypeName.DeclaringChain(reader, typeDef.GetDeclaringType());
+        return reader.GetString(reader.GetTypeDefinition(chain[0]).Namespace);
     }
 
     static string MethodSignatureText(MetadataMethodDeclaration declaration)
@@ -1020,7 +1023,12 @@ public static class MetadataDeclarationQuery
         var parameters = new List<string>();
         var declaringType = typeDef.GetDeclaringType();
         if (!declaringType.IsNil)
-            parameters.AddRange(TypeAndDeclaringTypeParameters(reader, reader.GetTypeDefinition(declaringType)));
+        {
+            // Iterative declaring-type climb (a self-nested TypeDefinition cannot recurse forever),
+            // outermost-first so parameters stay in enclosing-to-nested order.
+            foreach (var handle in NestedTypeName.DeclaringChain(reader, declaringType))
+                parameters.AddRange(TypeParameterNames(reader, reader.GetTypeDefinition(handle)));
+        }
         parameters.AddRange(TypeParameterNames(reader, typeDef));
         return parameters;
     }

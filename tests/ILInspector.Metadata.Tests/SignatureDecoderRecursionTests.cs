@@ -122,6 +122,41 @@ public class SignatureDecoderRecursionTests
     }
 
     [Fact]
+    public void ManyBoundedArityMarkers_FormatDisplayName_DoesNotAmplifyToOom()
+    {
+        // Each marker's arity is under the per-marker cap (1024), but a name carrying thousands of
+        // them would still expand ~1000x per marker into an OOM-scale string. The cumulative output
+        // cap must bound the result to roughly the ceiling plus the raw remainder.
+        var builder = new System.Text.StringBuilder();
+        for (int i = 0; i < 5000; i++)
+            builder.Append("N`1024.");
+        var name = builder.ToString();
+
+        var text = TypeResolver.FormatDisplayName(name);
+
+        // Unbounded expansion would be ~5000 * ~6 KB = tens of MB; the cap keeps output O(input + cap)
+        // rather than O(input * arity). The overshoot allows for one in-flight marker expansion.
+        Assert.True(text.Length < name.Length + 10 * NestedTypeName.MaxLength,
+            $"expected bounded output, got {text.Length} chars");
+    }
+
+    [Fact]
+    public void CyclicLongNameTypeRef_ThroughResolver_DoesNotAmplifyToOom()
+    {
+        // A self-scoped TypeReference whose name is long. The depth cap prevents the stack overflow,
+        // but without a cumulative length cap the climb would repeat the long name up to 256 times
+        // (a small blob -> hundreds of MB). The length cap must bound the output near one name.
+        var longName = new string('x', 50_000);
+        var reader = BuildAssembly(md =>
+            md.AddTypeReference(MetadataTokens.TypeReferenceHandle(1), default, md.GetOrAddString(longName)));
+
+        var text = TypeResolver.GetTypeNameFromReference(reader, MetadataTokens.TypeReferenceHandle(1));
+
+        Assert.True(text.Length <= longName.Length + NestedTypeName.MaxLength + 16,
+            $"expected bounded output, got {text.Length} chars");
+    }
+
+    [Fact]
     public void CyclicTypeReferenceResolutionScope_ThroughResolver_DoesNotStackOverflow()
     {
         // A nested TypeReference whose resolution scope points at itself (row 1). SignatureDecoder

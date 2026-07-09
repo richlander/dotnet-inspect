@@ -552,13 +552,22 @@ public static class ApiSurfaceExtractor
 
     private static string GetMetadataName(MetadataReader reader, TypeDefinition typeDef)
     {
-        string name = reader.GetString(typeDef.Name);
-        if (typeDef.IsNested)
+        if (!typeDef.IsNested)
+            return reader.GetString(typeDef.Name);
+
+        // Iterative declaring-type climb (a self-nested TypeDefinition cannot recurse forever),
+        // joined Outer+Inner, degrading if a cyclic climb amplifies past the length ceiling.
+        var chain = NestedTypeName.DeclaringChain(reader, typeDef.GetDeclaringType());
+        var builder = new System.Text.StringBuilder();
+        for (int i = 0; i < chain.Count; i++)
         {
-            var declaring = reader.GetTypeDefinition(typeDef.GetDeclaringType());
-            return $"{GetMetadataName(reader, declaring)}+{name}";
+            if (i > 0)
+                builder.Append('+');
+            builder.Append(reader.GetString(reader.GetTypeDefinition(chain[i]).Name));
+            if (builder.Length > NestedTypeName.MaxLength)
+                return builder.ToString();
         }
-        return name;
+        return builder.Append('+').Append(reader.GetString(typeDef.Name)).ToString();
     }
 
     private static string DecodeFieldType(
@@ -577,11 +586,13 @@ public static class ApiSurfaceExtractor
 
     private static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
     {
-        var declaringType = typeDef.GetDeclaringType();
-        if (!declaringType.IsNil)
-            return GetRootNamespace(reader, reader.GetTypeDefinition(declaringType));
+        if (typeDef.GetDeclaringType().IsNil)
+            return reader.GetString(typeDef.Namespace);
 
-        return reader.GetString(typeDef.Namespace);
+        // Iterative climb to the outermost declaring type (a self-nested TypeDefinition cannot
+        // recurse forever); only the outermost type carries the namespace.
+        var chain = NestedTypeName.DeclaringChain(reader, typeDef.GetDeclaringType());
+        return reader.GetString(reader.GetTypeDefinition(chain[0]).Namespace);
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(

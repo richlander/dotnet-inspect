@@ -1,5 +1,6 @@
 using System;
 using System.Reflection.Metadata;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -11,21 +12,20 @@ public static class TypeResolver
     // GetTypeNameFromReference climbs a nested TypeReference's resolution scope and
     // GetFullName(TypeDefinition) climbs a nested type's declaring-type chain. Malformed metadata
     // can make either chain cycle (a TypeRef whose resolution scope is itself, a TypeDef nested in
-    // itself), which without a bound recurses until an *uncatchable* StackOverflowException tears
-    // down the process. These climbs are reached while decoding inspected (untrusted) signatures
-    // (SignatureDecoder.GetTypeFromReference/GetTypeFromDefinition delegate here) with a shallow
-    // signature blob, so the SignatureBlobGuard prescan cannot see the cross-row cycle. Bound the
-    // climb depth ([ThreadStatic] so the static helper stays thread-safe) and degrade to the leaf
-    // (non-qualified) name — mirrors TypeRefDecoder's resolution-scope / nested-type guards.
-    [ThreadStatic]
-    static int s_climbDepth;
-    const int MaxClimbDepth = 256;
+    // itself), which a naive recursive climb rides until an *uncatchable* StackOverflowException
+    // tears down the process, or amplifies into a huge string. These climbs are reached while
+    // decoding inspected (untrusted) signatures (SignatureDecoder delegates here) with a shallow
+    // blob, so the SignatureBlobGuard prescan cannot see the cross-row cycle. Both climbs now walk
+    // NestedTypeName's bounded, iterative chains and stop concatenating once the accumulated name
+    // passes NestedTypeName.MaxLength, degrading to the truncated qualification.
 
     // FormatDisplayName renders a generic type name's `N arity marker as N placeholder parameters
     // (<T1, ..., TN>). The arity is parsed from an untrusted #Strings-heap type name, so an absurd
     // arity (e.g. "Foo`2000000000") would drive a multi-billion-iteration StringBuilder append and
     // OOM the process from a 15-byte string. Real generic arities are tiny (<= a couple dozen), so a
     // name whose arity exceeds this ceiling is malformed and is rendered raw instead of expanded.
+    // A cumulative output cap (NestedTypeName.MaxLength) additionally bounds a name carrying many
+    // bounded markers, whose expansions would otherwise still multiply into an OOM-scale string.
     const int MaxGenericArity = 1024;
 
     /// <summary>
@@ -57,19 +57,26 @@ public static class TypeResolver
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
     {
         var typeRef = reader.GetTypeReference(handle);
-        if (typeRef.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
+        // Fast, allocation-free path for the common non-nested reference.
+        if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
+            return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+
+        // Nested: walk the resolution-scope chain iteratively (a self-scoped TypeReference cannot
+        // recurse forever) and qualify outermost-first, stopping if the accumulated name amplifies
+        // past the length ceiling.
+        var chain = NestedTypeName.ResolutionScopeChain(reader, handle);
+        var builder = new StringBuilder();
+        for (int i = 0; i < chain.Count; i++)
         {
-            s_climbDepth++;
-            try
-            {
-                return $"{GetTypeNameFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope)}.{reader.GetString(typeRef.Name)}";
-            }
-            finally
-            {
-                s_climbDepth--;
-            }
+            var current = reader.GetTypeReference(chain[i]);
+            if (i == 0)
+                builder.Append(GetFullName(reader.GetString(current.Namespace), reader.GetString(current.Name)));
+            else
+                builder.Append('.').Append(reader.GetString(current.Name));
+            if (builder.Length > NestedTypeName.MaxLength)
+                break;
         }
-        return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+        return builder.ToString();
     }
 
     /// <summary>
@@ -101,20 +108,34 @@ public static class TypeResolver
     /// </summary>
     public static string GetFullName(MetadataReader reader, TypeDefinition typeDef)
     {
-        var declaringType = typeDef.GetDeclaringType();
-        if (!declaringType.IsNil && s_climbDepth < MaxClimbDepth)
+        // Fast, allocation-free path for the common non-nested definition.
+        if (typeDef.GetDeclaringType().IsNil)
+            return GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+
+        // Nested: walk the declaring-type chain iteratively (a self-nested TypeDefinition cannot
+        // recurse forever) and qualify outermost-first, stopping if the accumulated name amplifies
+        // past the length ceiling.
+        return QualifyDeclaringChain(reader, typeDef, '.');
+    }
+
+    static string QualifyDeclaringChain(MetadataReader reader, TypeDefinition typeDef, char separator)
+    {
+        // Re-derive the leaf handle so the shared chain walker owns the bound; TypeDefinition does
+        // not expose its own handle, so climb one level and prepend the leaf.
+        var builder = new StringBuilder();
+        var chain = NestedTypeName.DeclaringChain(reader, typeDef.GetDeclaringType());
+        for (int i = 0; i < chain.Count; i++)
         {
-            s_climbDepth++;
-            try
-            {
-                return $"{GetFullName(reader, reader.GetTypeDefinition(declaringType))}.{reader.GetString(typeDef.Name)}";
-            }
-            finally
-            {
-                s_climbDepth--;
-            }
+            var current = reader.GetTypeDefinition(chain[i]);
+            if (i == 0)
+                builder.Append(GetFullName(reader.GetString(current.Namespace), reader.GetString(current.Name)));
+            else
+                builder.Append(separator).Append(reader.GetString(current.Name));
+            if (builder.Length > NestedTypeName.MaxLength)
+                return builder.ToString();
         }
-        return GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+        builder.Append(separator).Append(reader.GetString(typeDef.Name));
+        return builder.ToString();
     }
 
     /// <summary>
@@ -195,6 +216,16 @@ public static class TypeResolver
         var result = new System.Text.StringBuilder(typeName.Length + 8);
         for (var i = 0; i < typeName.Length; i++)
         {
+            // A single arity marker is capped (MaxGenericArity), but a name carrying many bounded
+            // markers still multiplies its untrusted length into an OOM-scale string. Once the
+            // accumulated output passes the length ceiling the name is malformed / adversarial, so
+            // append the untouched remainder raw and stop expanding.
+            if (result.Length > NestedTypeName.MaxLength)
+            {
+                result.Append(typeName, i, typeName.Length - i);
+                break;
+            }
+
             if (typeName[i] != '`')
             {
                 result.Append(typeName[i]);

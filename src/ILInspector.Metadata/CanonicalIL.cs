@@ -240,30 +240,56 @@ public static class CanonicalIL
     /// <summary>Dotted (and slash-nested) name for a type definition — no assembly qualifier.</summary>
     internal static string QualifiedName(MetadataReader reader, TypeDefinitionHandle handle)
     {
-        var td = reader.GetTypeDefinition(handle);
-        string name = QuoteName(reader.GetString(td.Name));
-        var declaring = td.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{QualifiedName(reader, declaring)}/{name}";
-        string ns = QuoteDottedName(reader.GetString(td.Namespace));
-        return ns.Length > 0 ? $"{ns}.{name}" : name;
+        // Iterative declaring-type climb (a self-nested TypeDefinition cannot recurse forever),
+        // degrading if a cyclic climb amplifies past the length ceiling.
+        var chain = NestedTypeName.DeclaringChain(reader, handle);
+        var builder = new System.Text.StringBuilder();
+        for (int i = 0; i < chain.Count; i++)
+        {
+            var td = reader.GetTypeDefinition(chain[i]);
+            string name = QuoteName(reader.GetString(td.Name));
+            if (i == 0)
+            {
+                string ns = QuoteDottedName(reader.GetString(td.Namespace));
+                builder.Append(ns.Length > 0 ? $"{ns}.{name}" : name);
+            }
+            else
+            {
+                builder.Append('/').Append(name);
+            }
+            if (builder.Length > NestedTypeName.MaxLength)
+                break;
+        }
+        return builder.ToString();
     }
 
     /// <summary>Assembly-qualified (and slash-nested) name for a type reference.</summary>
     internal static string QualifiedName(MetadataReader reader, TypeReferenceHandle handle)
     {
-        var tr = reader.GetTypeReference(handle);
-        string name = QuoteName(reader.GetString(tr.Name));
-        string ns = QuoteDottedName(reader.GetString(tr.Namespace));
-        string dotted = ns.Length > 0 ? $"{ns}.{name}" : name;
-        return tr.ResolutionScope.Kind switch
+        // Iterative resolution-scope climb (a self-scoped TypeReference cannot recurse forever),
+        // degrading if a cyclic climb amplifies past the length ceiling.
+        var chain = NestedTypeName.ResolutionScopeChain(reader, handle);
+        var builder = new System.Text.StringBuilder();
+        for (int i = 0; i < chain.Count; i++)
         {
-            HandleKind.AssemblyReference =>
-                $"[{QuoteDottedName(reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)tr.ResolutionScope).Name))}]{dotted}",
-            HandleKind.TypeReference =>
-                $"{QualifiedName(reader, (TypeReferenceHandle)tr.ResolutionScope)}/{dotted}",
-            _ => dotted
-        };
+            var tr = reader.GetTypeReference(chain[i]);
+            string name = QuoteName(reader.GetString(tr.Name));
+            string ns = QuoteDottedName(reader.GetString(tr.Namespace));
+            string dotted = ns.Length > 0 ? $"{ns}.{name}" : name;
+            if (i == 0)
+            {
+                builder.Append(tr.ResolutionScope.Kind == HandleKind.AssemblyReference
+                    ? $"[{QuoteDottedName(reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)tr.ResolutionScope).Name))}]{dotted}"
+                    : dotted);
+            }
+            else
+            {
+                builder.Append('/').Append(dotted);
+            }
+            if (builder.Length > NestedTypeName.MaxLength)
+                break;
+        }
+        return builder.ToString();
     }
 
     static string FormatMethodDef(MetadataReader reader, MethodDefinitionHandle handle)
