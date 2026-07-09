@@ -51,9 +51,10 @@ public static class MethodImporter
         var typeDef = reader.GetTypeDefinition(typeDefHandle);
         var method = reader.GetMethodDefinition(methodHandle);
 
+        var methodGenericParameterNames = ParameterNames(reader, method.GetGenericParameters());
         var scope = new GenericScope(
             ParameterNames(reader, typeDef.GetGenericParameters()),
-            ParameterNames(reader, method.GetGenericParameters()));
+            methodGenericParameterNames);
 
         var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, typeDefHandle, 0);
         var decoded = GuardedDecode.MethodSignature(reader, method, scope);
@@ -80,7 +81,10 @@ public static class MethodImporter
             decoded.ReturnType,
             parameters.MoveToImmutable(),
             decoded.Header.IsInstance,
-            decoded.GenericParameterCount);
+            decoded.GenericParameterCount)
+        {
+            GenericParameterNames = methodGenericParameterNames,
+        };
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
 

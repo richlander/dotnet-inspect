@@ -56,7 +56,7 @@ public class ObjectInitializerContiguityTests
         Assert.Empty(function.Descendants.OfType<StoreProperty>());
 
         var output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("new InitTarget { X = Owner.Log() }", output);
+        Assert.Contains("new InitTarget { X = Log() }", output);
         Assert.True(
             output.IndexOf("new InitTarget { X = Owner.Log() }", StringComparison.Ordinal)
                 < output.IndexOf("Other();", StringComparison.Ordinal),

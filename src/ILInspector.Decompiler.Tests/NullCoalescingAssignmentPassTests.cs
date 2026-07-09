@@ -107,7 +107,7 @@ public class NullCoalescingAssignmentPassTests
         var output = CSharpPrinter.Print(function).Output;
 
         Assert.NotNull(output);
-        Assert.Contains("return value.GetValueOrDefault(CfgSampleClass.NullableFallbackWithSideEffect());", output);
+        Assert.Contains("return value.GetValueOrDefault(NullableFallbackWithSideEffect());", output);
         Assert.DoesNotContain("??", output);
     }
 

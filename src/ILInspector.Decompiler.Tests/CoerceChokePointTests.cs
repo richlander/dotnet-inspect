@@ -881,7 +881,7 @@ public class CoerceChokePointTests
         AssertCompiles(
             "public static unsafe void M()",
             body,
-            "public static unsafe class Holder { public static void Consume(byte* p) { } public static void Consume(int* p) { } }");
+            "using static Holder; public static unsafe class Holder { public static void Consume(byte* p) { } public static void Consume(int* p) { } }");
     }
 
     [Fact]

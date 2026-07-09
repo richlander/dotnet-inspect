@@ -991,6 +991,10 @@ public sealed partial class CSharpPrinter
             names.Add(name);
         foreach (var name in _switchTemps.Values)
             names.Add(name);
+        // Synthetic locals (e.g. __stackalloc) are in scope for this body and for
+        // any nested lambda/local-function printer built from these names.
+        foreach (var name in _syntheticLocalNames)
+            names.Add(name);
         return names;
     }
 
@@ -999,6 +1003,8 @@ public sealed partial class CSharpPrinter
         var names = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
         foreach (var parameter in _function.Signature.Parameters)
             names.Add(parameter.Name);
+        foreach (var genericParameter in _function.Signature.GenericParameterNames)
+            names.Add(genericParameter);
         foreach (var nested in _function.Descendants.OfType<Lambda>())
             foreach (var parameter in nested.Parameters)
                 names.Add(parameter.Name);
@@ -2868,14 +2874,23 @@ public sealed partial class CSharpPrinter
             _function.Signature.Parameters.Select(p => p.Name)
                 .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!)),
             StringComparer.Ordinal);
-        if (!used.Contains(baseName))
-            return baseName;
-        for (int i = 0; ; i++)
+        string chosen = baseName;
+        if (used.Contains(baseName))
         {
-            string candidate = $"{baseName}{i}";
-            if (!used.Contains(candidate))
-                return candidate;
+            for (int i = 0; ; i++)
+            {
+                string candidate = $"{baseName}{i}";
+                if (!used.Contains(candidate))
+                {
+                    chosen = candidate;
+                    break;
+                }
+            }
         }
+        // Record every generated synthetic local so a self-static call whose name
+        // collides with it (e.g. a suffixed `__stackalloc0`) stays qualified.
+        _syntheticLocalNames.Add(chosen);
+        return chosen;
     }
 
     static bool IsNativeInteger(TypeRef? type)
@@ -3528,6 +3543,48 @@ public sealed partial class CSharpPrinter
                 _localScopeNames.Add(LocalName(i));
         }
         return _localScopeNames.Contains(fieldName);
+    }
+
+    HashSet<string>? _staticScopeShadowNames;
+    readonly HashSet<string> _syntheticLocalNames = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when the escaped source spelling of a static-call name is captured by
+    /// a parameter or local in scope — the enclosing method's parameters and
+    /// locals, names inherited from an enclosing printer, and nested lambda /
+    /// local-function parameters — so an unqualified call would bind to that local
+    /// rather than the static method. Names are compared in their escaped C#
+    /// spelling (a keyword carries the leading <c>@</c>), matching the rendered
+    /// call name.
+    ///
+    /// This is a deliberate over-approximation of lexical scope: it treats every
+    /// parameter/local anywhere in the method (including sibling lambdas) as a
+    /// shadow, so a rare sibling-lambda name collision keeps a call qualified that
+    /// could in principle be bare. That only costs fidelity (the qualified form is
+    /// always valid), whereas missing a real shadow would rebind the call and
+    /// produce wrong or uncompilable C#; the guard errs toward qualifying.
+    /// </summary>
+    bool IsStaticCallNameShadowed(string escapedName)
+    {
+        // Synthetic locals are generated during rendering; check the live set so a
+        // name emitted before this call (regardless of the cache below) is seen.
+        // These names are never keywords, so their spelling equals escapedName.
+        if (_syntheticLocalNames.Contains(escapedName))
+            return true;
+        if (_staticScopeShadowNames is null)
+        {
+            _staticScopeShadowNames = new HashSet<string>(StringComparer.Ordinal);
+            // CurrentScopeNames aggregates every binder in scope for this printer:
+            // the enclosing method's parameters and locals, names inherited from an
+            // enclosing printer (when this renders a lambda/local-function body with
+            // its own scope), nested lambda/local-function parameters, and the
+            // printer's own synthetic locals (stack slots S_n, switch temps). It
+            // mixes raw and escaped names; EscapeIdentifier is idempotent, so
+            // normalize all to the escaped spelling the rendered call name uses.
+            foreach (var name in CurrentScopeNames())
+                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(name));
+        }
+        return _staticScopeShadowNames.Contains(escapedName);
     }
 
     string IncrementDecrementText(IncrementDecrement id)

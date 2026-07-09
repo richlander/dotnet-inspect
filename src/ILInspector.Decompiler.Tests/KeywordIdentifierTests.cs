@@ -45,7 +45,7 @@ public class KeywordIdentifierTests
     {
         var output = Render(nameof(CfgSampleClass.CallsKeywordStaticMethod));
 
-        Assert.Contains("CfgSampleClass.@return(value)", output);
+        Assert.Contains("@return(value)", output);
         Assert.DoesNotContain("CfgSampleClass.return(value)", output);
     }
 

@@ -34,7 +34,16 @@ public sealed record MethodSignature(
     TypeRef ReturnType,
     ImmutableArray<Parameter> Parameters,
     bool HasThis,
-    int GenericParameterCount);
+    int GenericParameterCount)
+{
+    /// <summary>
+    /// The method's own generic parameter names (e.g. <c>T</c>), when known; empty
+    /// otherwise. A method type parameter shares the declaration space with the
+    /// declaring type's members, so it shadows a same-named static member — an
+    /// unqualified call to that member would bind to the type parameter (CS0119).
+    /// </summary>
+    public ImmutableArray<string> GenericParameterNames { get; init; } = [];
+}
 
 /// <summary>
 /// The importer's output: declaring type, name, signature, and body — all
