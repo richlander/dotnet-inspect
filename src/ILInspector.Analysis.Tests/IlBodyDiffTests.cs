@@ -373,6 +373,102 @@ public class IlBodyDiffTests
         _ = SingleTokenOperand(diff, IlDiffKind.Add, "call", "[Dep, Version=2.0.0.0, Culture=neutral, PublicKeyToken=null]N.T::M(");
     }
 
+    // Malformed metadata can encode a TypeReference resolution scope or a nested-type chain that
+    // points back at itself. The IL-diff operand/signature name climbs would then recurse until an
+    // *uncatchable* StackOverflowException — which MetadataOperandResolver's try/catch cannot
+    // intercept — so these assert the climbs terminate instead of overflowing the test runner.
+    [Fact]
+    public void Compare_SelfReferentialTypeReferenceOperand_DoesNotStackOverflow()
+    {
+        var image = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.LdToken,
+            (metadata, _) => metadata.AddTypeReference(
+                // ResolutionScope points at this very TypeReference row (token 1) -> a cycle.
+                MetadataTokens.TypeReferenceHandle(1),
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Loop")));
+
+        var diff = SyntheticEntryDiff(image, image);
+
+        Assert.True(diff.IsExact);
+    }
+
+    [Fact]
+    public void Compare_SelfNestedTypeDefinitionOperand_DoesNotStackOverflow()
+    {
+        var image = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.LdToken,
+            (metadata, _) =>
+            {
+                var loop = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Loop"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+                // Declares the type as nested inside itself -> GetDeclaringType() cycles.
+                metadata.AddNestedType(loop, loop);
+                return loop;
+            });
+
+        var diff = SyntheticEntryDiff(image, image);
+
+        Assert.True(diff.IsExact);
+    }
+
+    [Fact]
+    public void Compare_SelfReferentialTypeReferenceInTypeSpec_DoesNotStackOverflow()
+    {
+        var image = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.LdToken,
+            (metadata, _) =>
+            {
+                metadata.AddTypeReference(
+                    MetadataTokens.TypeReferenceHandle(1),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Loop"));
+                // ELEMENT_TYPE_CLASS (0x12) of the cyclic TypeRef (TypeDefOrRef coded token
+                // (row 1 << 2) | tag 1 = 0x05) -> the signature provider climbs the same cycle.
+                var spec = new BlobBuilder();
+                spec.WriteByte(0x12);
+                spec.WriteByte(0x05);
+                return metadata.AddTypeSpecification(metadata.GetOrAddBlob(spec));
+            });
+
+        var diff = SyntheticEntryDiff(image, image);
+
+        Assert.True(diff.IsExact);
+    }
+
+    [Fact]
+    public void Compare_SelfNestedTypeDefinitionInTypeSpec_DoesNotStackOverflow()
+    {
+        var image = BuildSyntheticEntryImage(
+            SyntheticTokenInstruction.LdToken,
+            (metadata, _) =>
+            {
+                var loop = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Loop"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+                metadata.AddNestedType(loop, loop);
+                // ELEMENT_TYPE_CLASS (0x12) of the self-nested TypeDef (coded token
+                // (row 2 << 2) | tag 0 = 0x08).
+                var spec = new BlobBuilder();
+                spec.WriteByte(0x12);
+                spec.WriteByte(0x08);
+                return metadata.AddTypeSpecification(metadata.GetOrAddBlob(spec));
+            });
+
+        var diff = SyntheticEntryDiff(image, image);
+
+        Assert.True(diff.IsExact);
+    }
+
     [Fact]
     public void Compare_CompiledFixtureSwitchRetarget_ReportsChangedSwitch()
     {

@@ -238,13 +238,26 @@ public static class CanonicalIL
         => dotted.Contains('.') ? string.Join(".", dotted.Split('.').Select(QuoteName)) : QuoteName(dotted);
 
     /// <summary>Dotted (and slash-nested) name for a type definition — no assembly qualifier.</summary>
+    // Malformed metadata can make a TypeDefinition declaring type or a TypeReference
+    // resolution scope self-referential or cyclic, so the name climbs below would recurse
+    // until an uncatchable StackOverflowException. Cap the climb ([ThreadStatic] so these
+    // static helpers stay thread-safe) and degrade to the leaf name past the cap — mirrors
+    // the TypeResolver / TypeRefDecoder resolution-scope guards from #2490.
+    [ThreadStatic]
+    static int s_climbDepth;
+    const int MaxClimbDepth = 256;
+
     internal static string QualifiedName(MetadataReader reader, TypeDefinitionHandle handle)
     {
         var td = reader.GetTypeDefinition(handle);
         string name = QuoteName(reader.GetString(td.Name));
         var declaring = td.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{QualifiedName(reader, declaring)}/{name}";
+        if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
+        {
+            s_climbDepth++;
+            try { return $"{QualifiedName(reader, declaring)}/{name}"; }
+            finally { s_climbDepth--; }
+        }
         string ns = QuoteDottedName(reader.GetString(td.Namespace));
         return ns.Length > 0 ? $"{ns}.{name}" : name;
     }
@@ -256,14 +269,15 @@ public static class CanonicalIL
         string name = QuoteName(reader.GetString(tr.Name));
         string ns = QuoteDottedName(reader.GetString(tr.Namespace));
         string dotted = ns.Length > 0 ? $"{ns}.{name}" : name;
-        return tr.ResolutionScope.Kind switch
+        if (tr.ResolutionScope.Kind == HandleKind.AssemblyReference)
+            return $"[{QuoteDottedName(reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)tr.ResolutionScope).Name))}]{dotted}";
+        if (tr.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
         {
-            HandleKind.AssemblyReference =>
-                $"[{QuoteDottedName(reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)tr.ResolutionScope).Name))}]{dotted}",
-            HandleKind.TypeReference =>
-                $"{QualifiedName(reader, (TypeReferenceHandle)tr.ResolutionScope)}/{dotted}",
-            _ => dotted
-        };
+            s_climbDepth++;
+            try { return $"{QualifiedName(reader, (TypeReferenceHandle)tr.ResolutionScope)}/{dotted}"; }
+            finally { s_climbDepth--; }
+        }
+        return dotted;
     }
 
     static string FormatMethodDef(MetadataReader reader, MethodDefinitionHandle handle)
