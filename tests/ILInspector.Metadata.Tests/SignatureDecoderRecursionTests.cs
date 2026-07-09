@@ -157,6 +157,28 @@ public class SignatureDecoderRecursionTests
     }
 
     [Fact]
+    public void ManyLongTypeArguments_ApplyGenericArguments_DoesNotAmplifyToOom()
+    {
+        // A self-nested generic type produces a declaring chain that repeats the same (untrusted,
+        // long) generic parameter name for every marker; ApplyGenericArguments would expand them all
+        // into an OOM-scale string. The cumulative output cap must bound it.
+        var longArg = new string('x', 50_000);
+        var nameBuilder = new System.Text.StringBuilder();
+        var arguments = new System.Collections.Generic.List<string>();
+        for (int i = 0; i < 257; i++)
+        {
+            nameBuilder.Append("Loop`1.");
+            arguments.Add(longArg);
+        }
+
+        var text = TypeResolver.ApplyGenericArguments(nameBuilder.ToString(), arguments);
+
+        // Unbounded expansion would be ~257 * 50 KB = ~12.8 MB; the cap keeps it O(input + cap).
+        Assert.True(text.Length < longArg.Length + 10 * NestedTypeName.MaxLength,
+            $"expected bounded output, got {text.Length} chars");
+    }
+
+    [Fact]
     public void CyclicTypeReferenceResolutionScope_ThroughResolver_DoesNotStackOverflow()
     {
         // A nested TypeReference whose resolution scope points at itself (row 1). SignatureDecoder

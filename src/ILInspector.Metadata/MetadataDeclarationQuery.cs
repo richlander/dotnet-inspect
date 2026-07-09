@@ -1025,9 +1025,21 @@ public static class MetadataDeclarationQuery
         if (!declaringType.IsNil)
         {
             // Iterative declaring-type climb (a self-nested TypeDefinition cannot recurse forever),
-            // outermost-first so parameters stay in enclosing-to-nested order.
+            // outermost-first so parameters stay in enclosing-to-nested order. A cyclic chain repeats
+            // the same (untrusted, arbitrarily long) parameter names up to the depth cap, so stop
+            // once the accumulated name length passes the ceiling — otherwise ApplyGenericArguments
+            // downstream would expand them into an OOM-scale string.
+            long budget = NestedTypeName.MaxLength;
             foreach (var handle in NestedTypeName.DeclaringChain(reader, declaringType))
-                parameters.AddRange(TypeParameterNames(reader, reader.GetTypeDefinition(handle)));
+            {
+                foreach (var name in TypeParameterNames(reader, reader.GetTypeDefinition(handle)))
+                {
+                    parameters.Add(name);
+                    budget -= name.Length + 1;
+                }
+                if (budget < 0)
+                    return parameters;
+            }
         }
         parameters.AddRange(TypeParameterNames(reader, typeDef));
         return parameters;

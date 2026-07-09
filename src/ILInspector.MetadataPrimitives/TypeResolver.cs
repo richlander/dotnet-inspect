@@ -160,15 +160,28 @@ public static class TypeResolver
     {
         if (!genericTypeName.Contains('`'))
         {
-            return typeArguments.Count == 0
-                ? genericTypeName
-                : $"{genericTypeName}<{string.Join(", ", typeArguments)}>";
+            if (typeArguments.Count == 0)
+                return genericTypeName;
+            var flat = new System.Text.StringBuilder(genericTypeName.Length + 16);
+            flat.Append(genericTypeName).Append('<');
+            AppendBoundedArguments(flat, typeArguments, 0, typeArguments.Count);
+            flat.Append('>');
+            return flat.ToString();
         }
 
         var result = new System.Text.StringBuilder(genericTypeName.Length + 16);
         var argIndex = 0;
         for (var i = 0; i < genericTypeName.Length; i++)
         {
+            // The type arguments come from untrusted metadata (a cyclic declaring chain can repeat a
+            // long name many times), so cap the cumulative output and append the untouched remainder
+            // once it trips rather than expanding every marker into an OOM-scale string.
+            if (result.Length > NestedTypeName.MaxLength)
+            {
+                result.Append(genericTypeName, i, genericTypeName.Length - i);
+                break;
+            }
+
             if (genericTypeName[i] != '`')
             {
                 result.Append(genericTypeName[i]);
@@ -190,18 +203,25 @@ public static class TypeResolver
 
             var take = Math.Min(arity, typeArguments.Count - argIndex);
             result.Append('<');
-            for (var k = 0; k < take; k++)
-            {
-                if (k > 0)
-                    result.Append(", ");
-                result.Append(typeArguments[argIndex + k]);
-            }
+            AppendBoundedArguments(result, typeArguments, argIndex, take);
             result.Append('>');
             argIndex += take;
             i = digitEnd - 1;
         }
 
         return result.ToString();
+    }
+
+    static void AppendBoundedArguments(System.Text.StringBuilder builder, IReadOnlyList<string> typeArguments, int start, int count)
+    {
+        for (var k = 0; k < count; k++)
+        {
+            if (k > 0)
+                builder.Append(", ");
+            builder.Append(typeArguments[start + k]);
+            if (builder.Length > NestedTypeName.MaxLength)
+                break;
+        }
     }
 
     /// <summary>
