@@ -86,6 +86,18 @@ public class SelfQualifyPrinterTests
         Assert.Contains("SelfQualifySyntheticShadow.S_0()", body);
     }
 
+    [Fact]
+    public void MethodGenericParameterShadowedStaticCall_StaysQualified()
+    {
+        // A method type parameter shares the declaration space with the declaring
+        // type's members, so it shadows a same-named static member; the call must
+        // stay qualified or it binds to the type parameter (CS0119).
+        string body = RenderAnyFidelity(typeof(SelfQualifyGenericParamShadow), nameof(SelfQualifyGenericParamShadow.G));
+
+        Assert.Contains("SelfQualifyGenericParamShadow.M()", body);
+        Assert.DoesNotContain("return M();", body);
+    }
+
     static string RenderFixture(System.Type type, string methodName)
     {
         var (function, source) = Import(type, methodName);
@@ -188,4 +200,11 @@ public class SelfQualifySyntheticShadow
     public static int S_0() => 2;
 
     public static int Uses(int a, int b) => S_0() + (a > b ? a : b);
+}
+
+public class SelfQualifyGenericParamShadow
+{
+    public static int M() => 1;
+
+    public static int G<M>() => SelfQualifyGenericParamShadow.M();
 }

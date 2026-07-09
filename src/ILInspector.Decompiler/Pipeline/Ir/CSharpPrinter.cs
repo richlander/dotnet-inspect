@@ -1003,6 +1003,8 @@ public sealed partial class CSharpPrinter
         var names = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
         foreach (var parameter in _function.Signature.Parameters)
             names.Add(parameter.Name);
+        foreach (var genericParameter in _function.Signature.GenericParameterNames)
+            names.Add(genericParameter);
         foreach (var nested in _function.Descendants.OfType<Lambda>())
             foreach (var parameter in nested.Parameters)
                 names.Add(parameter.Name);
