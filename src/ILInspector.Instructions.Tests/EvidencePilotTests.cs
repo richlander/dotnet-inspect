@@ -194,6 +194,19 @@ public class EvidencePilotTests
     }
 
     [Fact]
+    public void Match_RejectsStreamsTooLargeForOrderedMatrix()
+    {
+        // The ordered LCS matrix is O(N*M); guard it so an assembly-scale stream fails loudly
+        // instead of attempting a multi-gigabyte allocation (issue #2585).
+        var big = Enumerable.Range(0, 8000)
+            .Select(i => new EvidenceOccurrence(i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .ToArray();
+
+        var ex = Assert.Throws<ArgumentException>(() => EvidenceMatcher.Match(big, big));
+        Assert.Contains("identity-set", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
     {
         // A stream-agnostic consumer: it reads only the skeleton, so the same rows could have

@@ -66,6 +66,13 @@ public sealed record EvidenceMatchOptions(int MinMoveRun = 2)
 /// </summary>
 public static class EvidenceMatcher
 {
+    // The ordered committer is a full-matrix LCS (O(N*M) space). That is ample for method-body-scale
+    // ordered streams (the only thing shipped today), but a caller feeding assembly-scale streams
+    // would otherwise silently attempt a multi-gigabyte allocation. Guard the matrix with a documented
+    // cell cap and fail loudly instead of OOMing. Large/unordered streams belong on the identity-set
+    // committer (hash bijection, no matrix) — see issue #2585.
+    const long MaxOrderedMatchCells = 64_000_000;
+
     public static EvidenceCorrespondence Match(
         IReadOnlyList<EvidenceOccurrence> oldStream,
         IReadOnlyList<EvidenceOccurrence> newStream,
@@ -74,6 +81,15 @@ public static class EvidenceMatcher
         ArgumentNullException.ThrowIfNull(oldStream);
         ArgumentNullException.ThrowIfNull(newStream);
         options ??= EvidenceMatchOptions.Default;
+
+        long cells = (long)(oldStream.Count + 1) * (newStream.Count + 1);
+        if (cells > MaxOrderedMatchCells)
+        {
+            throw new ArgumentException(
+                $"Ordered matching is bounded to {MaxOrderedMatchCells:N0} matrix cells " +
+                $"({oldStream.Count}x{newStream.Count} requested). Streams this large need the " +
+                "identity-set committer, not the ordered LCS (see issue #2585).");
+        }
 
         var matchedOld = new bool[oldStream.Count];
         var matchedNew = new bool[newStream.Count];
