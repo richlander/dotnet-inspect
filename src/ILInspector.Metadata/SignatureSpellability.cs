@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Threading;
 
 namespace ILInspector.Metadata;
 
@@ -14,7 +16,7 @@ namespace ILInspector.Metadata;
 public sealed class SignatureSpellability
 {
     readonly IAssemblyReferenceResolver _resolver;
-    readonly Dictionary<ReferenceKey, HashSet<string>?> _nonPublicTypes = new();
+    readonly ConcurrentDictionary<ReferenceKey, Lazy<NonPublicTypeSet>> _nonPublicTypes = new();
 
     public SignatureSpellability(IAssemblyReferenceResolver resolver)
         => _resolver = resolver;
@@ -27,7 +29,11 @@ public sealed class SignatureSpellability
 
     public bool CanSpellProperty(MetadataReader reader, PropertyDefinition property, GenericContext context)
     {
-        try { return !property.DecodeSignature(new InaccessibleTypeDetector(this), context).ReturnType; }
+        try
+        {
+            var signature = property.DecodeSignature(new InaccessibleTypeDetector(this), context);
+            return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
+        }
         catch (Exception ex) when (IsDecodeException(ex)) { return true; }
     }
 
@@ -50,19 +56,18 @@ public sealed class SignatureSpellability
             return false;
 
         string fullName = reader.GetFullTypeName(reader.GetTypeReference(handle));
-        return NonPublicTypes(reference)?.Contains(fullName) == true;
+        return NonPublicTypes(reference).Types?.Contains(fullName) == true;
     }
 
-    HashSet<string>? NonPublicTypes(ReferenceKey reference)
-    {
-        if (_nonPublicTypes.TryGetValue(reference, out var cached))
-            return cached;
+    NonPublicTypeSet NonPublicTypes(ReferenceKey reference)
+        => _nonPublicTypes.GetOrAdd(
+            reference,
+            key => new Lazy<NonPublicTypeSet>(() => LoadNonPublicTypes(key), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
+    NonPublicTypeSet LoadNonPublicTypes(ReferenceKey reference)
+    {
         if (Resolve(reference) is not { } resolved)
-        {
-            _nonPublicTypes[reference] = null;
-            return null;
-        }
+            return new NonPublicTypeSet(null);
 
         var types = new HashSet<string>(StringComparer.Ordinal);
         Stream? stream = null;
@@ -83,8 +88,7 @@ public sealed class SignatureSpellability
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
-            _nonPublicTypes[reference] = null;
-            return null;
+            return new NonPublicTypeSet(null);
         }
         finally
         {
@@ -92,8 +96,7 @@ public sealed class SignatureSpellability
             stream?.Dispose();
         }
 
-        _nonPublicTypes[reference] = types;
-        return types;
+        return new NonPublicTypeSet(types);
     }
 
     ResolvedAssemblyReference? Resolve(ReferenceKey reference)
@@ -139,6 +142,8 @@ public sealed class SignatureSpellability
             return new ReferenceKey(identity, scope);
         }
     }
+
+    sealed record NonPublicTypeSet(HashSet<string>? Types);
 
     sealed class InaccessibleTypeDetector(SignatureSpellability spellability)
         : ISignatureTypeProvider<bool, GenericContext?>

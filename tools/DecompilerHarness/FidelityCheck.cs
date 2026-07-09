@@ -458,6 +458,43 @@ static class FidelityCheck
 
     sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
 
+    sealed class CompilerReferenceResolver(IEnumerable<ResolvedAssemblyReference> references) : IAssemblyReferenceResolver
+    {
+        readonly IReadOnlyList<ResolvedAssemblyReference> _references = references.ToList();
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            foreach (var reference in _references)
+            {
+                if (!reference.Identity.Name.Equals(identity.Name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!CultureMatches(identity.Culture, reference.Identity.Culture))
+                    continue;
+                if (identity.PublicKeyToken is { Length: > 0 }
+                    && !string.Equals(identity.PublicKeyToken, reference.Identity.PublicKeyToken, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (identity.Version is not null && reference.Identity.Version != identity.Version)
+                    continue;
+                return reference;
+            }
+
+            return null;
+        }
+
+        static bool CultureMatches(string? expected, string? actual)
+        {
+            if (string.IsNullOrEmpty(expected))
+                return true;
+
+            static string Normalize(string? culture)
+                => string.IsNullOrEmpty(culture) || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : culture;
+
+            return Normalize(expected).Equals(Normalize(actual), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     internal sealed class ZeroSignalGuard
     {
         readonly int _probeCount;
@@ -3349,6 +3386,7 @@ static class FidelityCheck
     static ReferenceSet RuntimeReferences(string targetPath, IReadOnlyList<string>? corpusAssemblies = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var resolvedReferences = new List<ResolvedAssemblyReference>();
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
 
         void Add(string path)
@@ -3367,6 +3405,8 @@ static class FidelityCheck
                 if (seen.Add(simple))
                 {
                     builder.Add(reference);
+                    if (TryReadAssemblyIdentity(fullPath) is { } identity)
+                        resolvedReferences.Add(new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), "CompilerReference"));
                 }
             }
             catch (IOException) { }
@@ -3383,7 +3423,39 @@ static class FidelityCheck
         foreach (var dependency in resolver.ResolveAll())
             Add(dependency.Path);
 
-        return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(resolver));
+        return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
+    }
+
+    static AssemblyReferenceIdentity? TryReadAssemblyIdentity(string path)
+    {
+        try
+        {
+            var name = AssemblyName.GetAssemblyName(path);
+            string? token = ToHex(name.GetPublicKeyToken());
+            return new AssemblyReferenceIdentity(
+                name.Name ?? Path.GetFileNameWithoutExtension(path),
+                name.Version,
+                name.CultureName,
+                token);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    static string? ToHex(byte[]? bytes)
+    {
+        if (bytes is null || bytes.Length == 0)
+            return null;
+
+        var chars = new char[bytes.Length * 2];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            chars[i * 2] = "0123456789abcdef"[bytes[i] >> 4];
+            chars[i * 2 + 1] = "0123456789abcdef"[bytes[i] & 0xF];
+        }
+        return new string(chars);
     }
 
 }

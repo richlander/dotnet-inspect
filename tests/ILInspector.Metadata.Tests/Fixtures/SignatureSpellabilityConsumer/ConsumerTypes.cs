@@ -9,6 +9,7 @@ public sealed class SignatureSpellabilityConsumerFixtures
 
     internal HiddenReferenceType HiddenProperty { get; set; } = new();
     internal VisibleReferenceType VisibleProperty { get; set; } = new();
+    internal int this[HiddenReferenceType key] => 0;
 
     internal HiddenReferenceType HiddenMethod(HiddenReferenceType value) => value;
     internal VisibleReferenceType VisibleMethod(VisibleReferenceType value) => value;

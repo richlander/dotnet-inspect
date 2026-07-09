@@ -38,6 +38,17 @@ public sealed class SignatureSpellabilityTests
     }
 
     [Fact]
+    public void CanSpellProperty_RejectsReferencedInternalIndexerParameterType()
+    {
+        using var fixture = OpenFixture();
+
+        Assert.False(fixture.Spellability.CanSpellProperty(
+            fixture.Reader,
+            GetProperty(fixture.Reader, fixture.Type, "Item"),
+            GenericContext.ForType(fixture.Reader, fixture.Type)));
+    }
+
+    [Fact]
     public void CanSpellMethod_RejectsReferencedInternalType()
     {
         using var fixture = OpenFixture();
