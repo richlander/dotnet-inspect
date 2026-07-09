@@ -3534,10 +3534,19 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// True when the escaped source spelling of a static-call name is captured by
-    /// a parameter or local in scope — including nested lambda and local-function
-    /// parameters — so an unqualified call would bind to that local rather than the
-    /// static method. Names are compared in their escaped C# spelling (a keyword
-    /// carries the leading <c>@</c>), matching the rendered call name.
+    /// a parameter or local in scope — the enclosing method's parameters and
+    /// locals, names inherited from an enclosing printer, and nested lambda /
+    /// local-function parameters — so an unqualified call would bind to that local
+    /// rather than the static method. Names are compared in their escaped C#
+    /// spelling (a keyword carries the leading <c>@</c>), matching the rendered
+    /// call name.
+    ///
+    /// This is a deliberate over-approximation of lexical scope: it treats every
+    /// parameter/local anywhere in the method (including sibling lambdas) as a
+    /// shadow, so a rare sibling-lambda name collision keeps a call qualified that
+    /// could in principle be bare. That only costs fidelity (the qualified form is
+    /// always valid), whereas missing a real shadow would rebind the call and
+    /// produce wrong or uncompilable C#; the guard errs toward qualifying.
     /// </summary>
     bool IsStaticCallNameShadowed(string escapedName)
     {
