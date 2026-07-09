@@ -1,14 +1,14 @@
 namespace ILInspector.Findings;
 
 /// <summary>
-/// The thing an finding row is about (a member, an occurrence within a body, an
+/// The thing a finding row is about (a member, an occurrence within a body, an
 /// API surface element). Domain-free: <see cref="Key"/> is an opaque stable string
 /// the producing layer chooses; <see cref="Display"/> is a human label.
 /// </summary>
 public sealed record FindingSubject(string Key, string Display);
 
 /// <summary>
-/// A typed, reorder-stable vocabulary entry for an finding row, following the
+/// A typed, reorder-stable vocabulary entry for a finding row, following the
 /// Roslyn <c>DiagnosticDescriptor</c> precedent. <see cref="Id"/> is a
 /// <c>family.kind</c> const string (e.g. <c>il.op</c>, <c>il.op.moved</c>); the
 /// absence of a numeric code is deliberate so descriptors can be added and
@@ -17,7 +17,7 @@ public sealed record FindingSubject(string Key, string Display);
 public sealed record FindingDescriptor(string Id, string Title);
 
 /// <summary>
-/// Whether an finding row asserts presence or a diff transition. A move is
+/// Whether a finding row asserts presence or a diff transition. A move is
 /// deliberately <em>not</em> a polarity: a moved occurrence keeps
 /// <see cref="Present"/> polarity (its content is unchanged) and carries the move
 /// on the orthogonal <see cref="FindingDifferenceKind"/> facet.
