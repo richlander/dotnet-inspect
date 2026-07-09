@@ -273,6 +273,45 @@ public class EvidencePilotTests
     }
 
     [Fact]
+    public void IlEvidence_Exactness_AgreesWithIlBodyDiff_AcrossFixtures()
+    {
+        (byte[] Old, byte[] New)[] pairs =
+        [
+            ([Ldc0, Ldc1, Ret], [Ldc0, Ldc1, Ret]),               // identical -> both exact
+            ([Ldc0, Ldc1, Ret], [Ldc0, Ldc2, Ret]),               // content change -> both non-exact
+            ([BrS, 0x03, Nop, Ret, Nop, Ret], [BrS, 0x01, Nop, Ret, Nop, Ret]), // retarget -> both non-exact
+            ([BrS, 0x00, Ldc0, Ret], [BrS, 0x00, Ldc1, Ret]),     // target content change, slot stable
+            ([Ldc0, Ldc1, Ldc2, Ret], [Ldc0, Ldc2, Ret]),         // deletion -> both non-exact
+        ];
+
+        foreach (var (oldBytes, newBytes) in pairs)
+        {
+            var old = Body(oldBytes);
+            var @new = Body(newBytes);
+            bool evidenceExact = IlEvidence.Compare(old, null, @new, null, IlSubject).IsExact;
+            bool classicExact = IlBodyDiff.Compare(old, @new).IsExact;
+            Assert.Equal(classicExact, evidenceExact);
+        }
+    }
+
+    [Fact]
+    public void IlEvidence_BranchTargetContentChangedButSlotStable_BranchIsNotRetargeted()
+    {
+        // br.s targets the instruction right after it; that instruction's content changes
+        // (ldc.i4.0 -> ldc.i4.1) but stays in the same slot. IlBodyDiff's equal-size gap-pair
+        // alignment forgives the branch; the adapter must reuse that map and NOT flag the branch.
+        var old = Body(BrS, 0x00, Ldc0, Ret);
+        var @new = Body(BrS, 0x00, Ldc1, Ret);
+
+        var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
+
+        Assert.Null(result.Failure);
+        Assert.DoesNotContain(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
+        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Added));
+        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Removed));
+    }
+
+    [Fact]
     public void IlEvidence_SameBranch_IsExact()
     {
         // Branch validation must not false-positive: an identical body with a branch is exact.

@@ -284,6 +284,19 @@ public static class IlBodyDiff
         return pairs;
     }
 
+    /// <summary>
+    /// The old→new instruction-index alignment map (LCS anchors plus equal-sized gap pairs) that
+    /// branch-target validation uses. Exposed so the evidence adapter reuses the exact alignment
+    /// instead of reconstructing it.
+    /// </summary>
+    public static IReadOnlyDictionary<int, int> BuildAlignmentMap(
+        ImmutableArray<CanonicalIlOperation> oldOperations,
+        ImmutableArray<CanonicalIlOperation> newOperations)
+    {
+        var lcs = LongestCommonSubsequence(oldOperations, newOperations);
+        return BuildAlignmentMap(lcs, oldOperations.Length, newOperations.Length);
+    }
+
     static IReadOnlyDictionary<int, int> BuildAlignmentMap(
         IReadOnlyList<(int OldIndex, int NewIndex)> lcs,
         int oldLength,
@@ -424,7 +437,12 @@ public static class IlBodyDiff
         => kind is OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
             or OperandKind.InlineType or OperandKind.InlineSig or OperandKind.InlineTok;
 
-    static bool BranchTargetsMatch(
+    /// <summary>
+    /// True when a matched branch/switch operation's targets still correspond under the given
+    /// alignment map (i.e. the branch was not retargeted). Exposed so the evidence adapter reuses
+    /// this decision verbatim rather than reimplementing it.
+    /// </summary>
+    public static bool BranchTargetsMatch(
         ImmutableArray<DecodedInstruction> oldInstructions,
         int oldIndex,
         ImmutableArray<DecodedInstruction> newInstructions,
