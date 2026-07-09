@@ -57,6 +57,8 @@ if (isolated && cacheBasePath == null)
 // Initialize library configuration
 DotnetInspector.Core.HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
+// Wire the tool-tier SourceLink index cache into the engine's dependency-inversion seam.
+ILInspector.Metadata.SourceLinkService.DefaultCache = DotnetInspector.Services.CoreSourceLinkIndexCache.Instance;
 
 // Start info tracking (installs counting writer on Console.Out)
 if (showInfo)
