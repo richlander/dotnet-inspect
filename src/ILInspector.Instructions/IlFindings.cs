@@ -84,7 +84,13 @@ public static class IlFindings
                 && pair.New is not null
                 && !IlBodyDiff.BranchTargetsMatch(oldInstructions, pair.Old.Position, newInstructions, pair.New.Position, alignment))
             {
-                builder.Add(pair with { Kind = PairKind.Changed, Detail = "branch retargeted" });
+                // A moved-and-retargeted operation keeps its move Detail; append the retarget so
+                // neither the distance nor the retarget note is lost.
+                builder.Add(pair with
+                {
+                    Kind = PairKind.Changed,
+                    Detail = pair.Detail is null ? "branch retargeted" : $"{pair.Detail}; branch retargeted",
+                });
             }
             else
             {

@@ -18,6 +18,7 @@ public static class FindingFold
         IReadOnlyList<Finding<T>> oldStream,
         IReadOnlyList<Finding<T>> newStream,
         int acceptanceThreshold = 100)
+        where T : notnull
     {
         ArgumentNullException.ThrowIfNull(match);
         ArgumentNullException.ThrowIfNull(oldStream);
@@ -81,6 +82,7 @@ public static class FindingFold
         FindingEdge edge,
         IReadOnlyList<Finding<T>> oldStream,
         IReadOnlyList<Finding<T>> newStream)
+        where T : notnull
     {
         switch (edge.Kind)
         {

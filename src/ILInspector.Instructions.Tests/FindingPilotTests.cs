@@ -214,6 +214,22 @@ public class FindingPilotTests
         => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
 
     [Fact]
+    public void PairFinding_ViolatingKindSideInvariant_ThrowsAtConstruction()
+    {
+        var atom = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
+
+        // Neither side: no skeleton to project.
+        Assert.Throws<ArgumentException>(
+            () => new PairFinding<string>(PairKind.Present, FindingDifferenceKind.None, Old: null, New: null));
+        // Kind lies about the sides: Added must be new-only.
+        Assert.Throws<ArgumentException>(
+            () => new PairFinding<string>(PairKind.Added, FindingDifferenceKind.None, Old: atom, New: atom));
+        // Removed must be old-only.
+        Assert.Throws<ArgumentException>(
+            () => new PairFinding<string>(PairKind.Removed, FindingDifferenceKind.None, Old: null, New: atom));
+    }
+
+    [Fact]
     public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
     {
         // A stream-agnostic consumer: it reads only the pair skeleton, so the same pairs could have

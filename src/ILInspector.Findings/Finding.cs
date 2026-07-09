@@ -70,6 +70,7 @@ public interface IFinding
 /// value type, and CLR variance is reference-only.
 /// </summary>
 public interface IFinding<T> : IFinding
+    where T : notnull
 {
     T Payload { get; }
 }
@@ -89,7 +90,8 @@ public sealed record Finding<T>(
     FindingKey Key,
     int Position,
     T Payload,
-    string? Detail = null) : IFinding<T>;
+    string? Detail = null) : IFinding<T>
+    where T : notnull;
 
 /// <summary>
 /// The domain-free skeleton of a transition: an old/new pair classified by <see cref="Kind"/> and
@@ -112,6 +114,12 @@ public interface IPairFinding : IFinding
 /// add/remove. Implements <see cref="IFinding{T}"/> with a "current" payload projection
 /// (<see cref="New"/> if present, else <see cref="Old"/>); both sides remain reachable via
 /// <see cref="Old"/>/<see cref="New"/> for consumers that need the change.
+/// <para>
+/// The <see cref="Kind"/>↔side invariant (Added ⟹ New only; Removed ⟹ Old only; Present/Changed ⟹
+/// both) is validated at construction. Note that a <c>with</c> expression uses the record copy
+/// constructor and therefore bypasses this check, so a caller re-kinding a pair via
+/// <c>with { Kind = … }</c> must keep the sides consistent.
+/// </para>
 /// </summary>
 public sealed record PairFinding<T>(
     PairKind Kind,
@@ -119,8 +127,12 @@ public sealed record PairFinding<T>(
     Finding<T>? Old,
     Finding<T>? New,
     string? Detail = null) : IPairFinding, IFinding<T>
+    where T : notnull
 {
-    private Finding<T> Current => (New ?? Old)!;
+    private readonly bool _checked = CheckInvariant(Kind, Old, New);
+
+    private Finding<T> Current => New ?? Old
+        ?? throw new InvalidOperationException("A PairFinding has neither an Old nor a New side.");
 
     public FindingSubject Subject => Current.Subject;
     public FindingDescriptor Descriptor => Current.Descriptor;
@@ -131,6 +143,27 @@ public sealed record PairFinding<T>(
 
     /// <summary>The signed position delta for a matched pair, or null if one-sided.</summary>
     public int? PositionDelta => Old is not null && New is not null ? New.Position - Old.Position : null;
+
+    static bool CheckInvariant(PairKind kind, Finding<T>? old, Finding<T>? @new)
+    {
+        bool ok = kind switch
+        {
+            PairKind.Added => old is null && @new is not null,
+            PairKind.Removed => old is not null && @new is null,
+            PairKind.Present or PairKind.Changed => old is not null && @new is not null,
+            _ => false,
+        };
+
+        if (!ok)
+        {
+            throw new ArgumentException(
+                $"PairFinding.{kind} is inconsistent with Old={(old is null ? "null" : "set")}/" +
+                $"New={(@new is null ? "null" : "set")}: Added requires New only, Removed requires " +
+                "Old only, Present/Changed require both sides.");
+        }
+
+        return true;
+    }
 }
 
 /// <summary>Projections over finding streams shared by producers and the matcher seam.</summary>
@@ -141,9 +174,15 @@ public static class FindingExtensions
     /// committer materializes once, and a streaming set committer can consume it without an array.
     /// </summary>
     public static IEnumerable<FindingKey> Keys<T>(this IEnumerable<Finding<T>> findings)
+        where T : notnull
     {
         ArgumentNullException.ThrowIfNull(findings);
-        foreach (var finding in findings)
-            yield return finding.Key;
+        return Iterate(findings);
+
+        static IEnumerable<FindingKey> Iterate(IEnumerable<Finding<T>> source)
+        {
+            foreach (var finding in source)
+                yield return finding.Key;
+        }
     }
 }
