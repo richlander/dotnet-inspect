@@ -31,6 +31,14 @@ public static class SignatureBlobGuard
     /// </summary>
     public const int DefaultMaxDepth = 512;
 
+    // ELEMENT_TYPE_ARRAY carries a rank (>= 1 per ECMA-335 II.23.1.16) that the string decoder
+    // renders as `rank - 1` commas (new string(',', rank - 1)). Rank is a compressed integer that
+    // consumes no bytes proportional to its value, so a tiny blob can encode rank 0 (which would
+    // throw) or ~536M (an attacker-controlled multi-hundred-MB allocation) even though numSizes /
+    // numLoBounds are byte-bounded. Real ranks are tiny (the CLI caps them at 32), so this generous
+    // ceiling only trips on malformed / adversarial metadata.
+    const int MaxArrayRank = 1024;
+
     /// <summary>The kind of signature the blob encodes, which determines its header layout.</summary>
     public enum Kind
     {
@@ -236,13 +244,16 @@ public static class SignatureBlobGuard
         }
     }
 
-    /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
-    /// count exceeds the remaining blob: SRM's array decoder pre-allocates a builder from these
-    /// counts before reading elements, so an unbounded count (a compressed integer can encode ~536M)
-    /// would OOM SRM even though the blob is only a few bytes.</summary>
+    /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if the rank
+    /// is malformed (&lt; 1) or absurdly large, or if either count exceeds the remaining blob: SRM's
+    /// array decoder pre-allocates a builder from these counts before reading elements, and the
+    /// string decoder renders rank-1 commas, so an unbounded count / rank (a compressed integer can
+    /// encode ~536M) would OOM even though the blob is only a few bytes.</summary>
     static bool SkipArrayShape(ref BlobReader blob)
     {
-        blob.ReadCompressedInteger();           // rank
+        int rank = blob.ReadCompressedInteger();
+        if (rank < 1 || rank > MaxArrayRank)
+            return true;
         int numSizes = blob.ReadCompressedInteger();
         if (numSizes < 0 || numSizes > blob.RemainingBytes)
             return true;

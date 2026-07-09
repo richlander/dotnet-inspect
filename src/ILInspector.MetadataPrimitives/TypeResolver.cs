@@ -1,3 +1,4 @@
+using System;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
@@ -7,6 +8,19 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class TypeResolver
 {
+    // GetTypeNameFromReference climbs a nested TypeReference's resolution scope and
+    // GetFullName(TypeDefinition) climbs a nested type's declaring-type chain. Malformed metadata
+    // can make either chain cycle (a TypeRef whose resolution scope is itself, a TypeDef nested in
+    // itself), which without a bound recurses until an *uncatchable* StackOverflowException tears
+    // down the process. These climbs are reached while decoding inspected (untrusted) signatures
+    // (SignatureDecoder.GetTypeFromReference/GetTypeFromDefinition delegate here) with a shallow
+    // signature blob, so the SignatureBlobGuard prescan cannot see the cross-row cycle. Bound the
+    // climb depth ([ThreadStatic] so the static helper stays thread-safe) and degrade to the leaf
+    // (non-qualified) name — mirrors TypeRefDecoder's resolution-scope / nested-type guards.
+    [ThreadStatic]
+    static int s_climbDepth;
+    const int MaxClimbDepth = 256;
+
     /// <summary>
     /// Gets the fully qualified type name from an entity handle.
     /// Handles TypeReference, TypeDefinition, and TypeSpecification.
@@ -36,8 +50,18 @@ public static class TypeResolver
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
     {
         var typeRef = reader.GetTypeReference(handle);
-        if (typeRef.ResolutionScope.Kind == HandleKind.TypeReference)
-            return $"{GetTypeNameFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope)}.{reader.GetString(typeRef.Name)}";
+        if (typeRef.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
+        {
+            s_climbDepth++;
+            try
+            {
+                return $"{GetTypeNameFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope)}.{reader.GetString(typeRef.Name)}";
+            }
+            finally
+            {
+                s_climbDepth--;
+            }
+        }
         return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
     }
 
@@ -71,8 +95,18 @@ public static class TypeResolver
     public static string GetFullName(MetadataReader reader, TypeDefinition typeDef)
     {
         var declaringType = typeDef.GetDeclaringType();
-        if (!declaringType.IsNil)
-            return $"{GetFullName(reader, reader.GetTypeDefinition(declaringType))}.{reader.GetString(typeDef.Name)}";
+        if (!declaringType.IsNil && s_climbDepth < MaxClimbDepth)
+        {
+            s_climbDepth++;
+            try
+            {
+                return $"{GetFullName(reader, reader.GetTypeDefinition(declaringType))}.{reader.GetString(typeDef.Name)}";
+            }
+            finally
+            {
+                s_climbDepth--;
+            }
+        }
         return GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
     }
 

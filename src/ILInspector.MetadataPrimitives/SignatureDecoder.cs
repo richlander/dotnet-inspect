@@ -97,7 +97,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
     
     public string GetArrayType(string elementType, ArrayShape shape) 
-        => $"{elementType}[{new string(',', shape.Rank - 1)}]";
+        => $"{elementType}[{new string(',', Math.Max(0, shape.Rank - 1))}]";
     
     public string GetByReferenceType(string elementType) => $"ref {elementType}";
     
