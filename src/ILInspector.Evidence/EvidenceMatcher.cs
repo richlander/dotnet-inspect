@@ -46,23 +46,43 @@ public sealed record EvidenceMatch(
     ImmutableArray<EvidenceMatchEntry> Entries,
     ImmutableArray<EvidenceMoveCandidate> MoveCandidates);
 
+/// <summary>
+/// Whether a stream's order is semantic. <see cref="Ordered"/> (IL instructions, C# statements) uses
+/// the LCS + move committer. <see cref="IdentitySet"/> (an unordered set such as a type's members)
+/// bypasses order entirely and commits an identity-key bijection. The choice is per match invocation
+/// and per occurrence level — the same producer can be ordered at one level and a set at another
+/// (C# statements vs a type's member list).
+/// </summary>
+public enum EvidenceStreamKind
+{
+    /// <summary>Order is semantic; use the LCS committer + move pass.</summary>
+    Ordered,
+
+    /// <summary>Order is not semantic; commit an identity-key bijection (hash buckets, O(N)).</summary>
+    IdentitySet,
+}
+
 /// <summary>Tunables for <see cref="EvidenceMatcher.Match"/>.</summary>
+/// <param name="StreamKind">Whether the streams are ordered or an unordered identity set.</param>
 /// <param name="MinMoveRunLength">
 /// The minimum length of a common contiguous residual run to commit as a move. Runs shorter
 /// than this are left to the fringe, which is what gives the conservative default its
 /// mismatch resistance (a lone content-equal occurrence is not silently treated as a move).
+/// Applies only to <see cref="EvidenceStreamKind.Ordered"/> matching.
 /// </param>
-public sealed record EvidenceMatchOptions(int MinMoveRunLength = 2)
+public sealed record EvidenceMatchOptions(
+    EvidenceStreamKind StreamKind = EvidenceStreamKind.Ordered,
+    int MinMoveRunLength = 2)
 {
     public static readonly EvidenceMatchOptions Default = new();
 }
 
 /// <summary>
-/// The single, domain-free matcher every evidence stream shares. It commits an
-/// order-preserving LCS core (which reproduces a classic sequence diff when there are no moves)
-/// and then recovers relocations as a scored move pass over the residual. It never decides
-/// equivalence: it emits classified correspondence, and a consumer <see cref="EvidenceFold"/>
-/// folds it.
+/// The single, domain-free matcher every evidence stream shares. For <see cref="EvidenceStreamKind.Ordered"/>
+/// streams it commits an order-preserving LCS core (reproducing a classic sequence diff when there are no
+/// moves) and recovers relocations with a scored move pass; for <see cref="EvidenceStreamKind.IdentitySet"/>
+/// streams it commits an identity-key bijection with no notion of order. It never decides equivalence: it
+/// emits classified correspondence, and a consumer <see cref="EvidenceFold"/> folds it.
 /// </summary>
 public static class EvidenceMatcher
 {
@@ -82,6 +102,59 @@ public static class EvidenceMatcher
         ArgumentNullException.ThrowIfNull(newStream);
         options ??= EvidenceMatchOptions.Default;
 
+        return options.StreamKind == EvidenceStreamKind.IdentitySet
+            ? MatchIdentitySet(oldStream, newStream)
+            : MatchOrdered(oldStream, newStream, options);
+    }
+
+    // Order-free committer: pair occurrences by identity-key equality (hash buckets, deterministic by
+    // index within a bucket), leftover old -> Removed, leftover new -> Added. O(N) time and space, so
+    // it needs no matrix cell cap and scales to assembly-size member sets. There is no positional move
+    // at this rung — a set has no position; a relocation only appears once a soft tier drops a facet
+    // (e.g. declaring type) from the identity key (see #2585).
+    static EvidenceMatch MatchIdentitySet(
+        IReadOnlyList<EvidenceOccurrence> oldStream,
+        IReadOnlyList<EvidenceOccurrence> newStream)
+    {
+        var newByKey = new Dictionary<string, Queue<int>>();
+        for (int j = 0; j < newStream.Count; j++)
+        {
+            if (!newByKey.TryGetValue(newStream[j].IdentityKey, out var queue))
+                newByKey[newStream[j].IdentityKey] = queue = new Queue<int>();
+            queue.Enqueue(j);
+        }
+
+        var matchedNew = new bool[newStream.Count];
+        var links = ImmutableArray.CreateBuilder<EvidenceMatchEntry>();
+
+        for (int i = 0; i < oldStream.Count; i++)
+        {
+            if (newByKey.TryGetValue(oldStream[i].IdentityKey, out var queue) && queue.Count > 0)
+            {
+                int j = queue.Dequeue();
+                matchedNew[j] = true;
+                links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Matched, i, j, 100));
+            }
+            else
+            {
+                links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Removed, i, -1, 100));
+            }
+        }
+
+        for (int j = 0; j < newStream.Count; j++)
+        {
+            if (!matchedNew[j])
+                links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Added, -1, j, 100));
+        }
+
+        return new EvidenceMatch(links.ToImmutable(), ImmutableArray<EvidenceMoveCandidate>.Empty);
+    }
+
+    static EvidenceMatch MatchOrdered(
+        IReadOnlyList<EvidenceOccurrence> oldStream,
+        IReadOnlyList<EvidenceOccurrence> newStream,
+        EvidenceMatchOptions options)
+    {
         long cells = ((long)oldStream.Count + 1) * ((long)newStream.Count + 1);
         if (cells > MaxOrderedMatchCells)
         {

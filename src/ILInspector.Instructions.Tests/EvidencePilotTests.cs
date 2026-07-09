@@ -213,6 +213,57 @@ public class EvidencePilotTests
     }
 
     [Fact]
+    public void IdentitySet_PermutationIsAllMatched_NoAddRemove()
+    {
+        // Order is not semantic for a set: a permutation is a non-event, unlike the ordered matcher
+        // (which would report it as add/remove). Every element matches by identity key.
+        var old = Stream("A", "B", "C", "D");
+        var @new = Stream("D", "C", "B", "A");
+        var options = new EvidenceMatchOptions(EvidenceStreamKind.IdentitySet);
+
+        var correspondence = EvidenceMatcher.Match(old, @new, options);
+
+        Assert.Equal(4, Count(correspondence, EvidenceMatchKind.Matched));
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Added));
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Removed));
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Moved));
+    }
+
+    [Fact]
+    public void IdentitySet_DistinctMultisets_AreAddRemove()
+    {
+        var old = Stream("A", "B", "B", "C");
+        var @new = Stream("B", "C", "D");
+        var options = new EvidenceMatchOptions(EvidenceStreamKind.IdentitySet);
+
+        var correspondence = EvidenceMatcher.Match(old, @new, options);
+
+        // multiset intersection {B, C} matched; old {A, B} removed; new {D} added.
+        Assert.Equal(2, Count(correspondence, EvidenceMatchKind.Matched));
+        Assert.Equal(2, Count(correspondence, EvidenceMatchKind.Removed));
+        Assert.Equal(1, Count(correspondence, EvidenceMatchKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_IsDeterministic_AndScalesPastTheOrderedGuard()
+    {
+        // No O(N*M) matrix, so the identity-set committer handles a stream far larger than the ordered
+        // cell cap without allocating or throwing.
+        var big = Enumerable.Range(0, 20000)
+            .Select(i => new EvidenceOccurrence(i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .ToArray();
+        var options = new EvidenceMatchOptions(EvidenceStreamKind.IdentitySet);
+
+        var first = EvidenceMatcher.Match(big, big, options);
+        var second = EvidenceMatcher.Match(big, big, options);
+
+        Assert.Equal(20000, Count(first, EvidenceMatchKind.Matched));
+        Assert.Equal(0, Count(first, EvidenceMatchKind.Added));
+        Assert.Equal(0, Count(first, EvidenceMatchKind.Removed));
+        Assert.Equal(first.Entries, second.Entries);
+    }
+
+    [Fact]
     public void Match_RejectsStreamsTooLargeForOrderedMatrix()
     {
         // The ordered LCS matrix is O(N*M); guard it so an assembly-scale stream fails loudly
