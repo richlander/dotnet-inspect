@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Core;
 
 namespace ILInspector.Metadata;
 
@@ -13,23 +12,38 @@ internal partial class SourceLinkJsonContext : JsonSerializerContext;
 /// </summary>
 public class SourceLinkService : IDisposable
 {
+    /// <summary>
+    /// Process-wide cache implementation for the SourceLink type→file index, wired by
+    /// the tool tier at startup. This is the dependency-inversion seam that keeps the
+    /// engine free of a tool-tier cache dependency: the engine defines the cache shape
+    /// it needs (<see cref="ISourceLinkIndexCache"/>); the tool supplies it. Null means
+    /// no persistence — the index is rebuilt from PDB data on each open.
+    /// </summary>
+    public static ISourceLinkIndexCache? DefaultCache { get; set; }
+
     private readonly PdbContext _context;
+    private readonly ISourceLinkIndexCache? _cache;
     private IReadOnlyList<SourceDocument>? _trackedFiles;
     private Dictionary<string, string[]>? _typeFileIndex;
 
-    private SourceLinkService(PdbContext context)
+    private SourceLinkService(PdbContext context, ISourceLinkIndexCache? cache)
     {
         _context = context;
+        _cache = cache;
     }
 
     /// <summary>
     /// Opens an assembly and probes for PDB (embedded, then standalone adjacent).
     /// After return, check <see cref="NeedsPdb"/> to see if the caller should download a PDB.
     /// </summary>
-    public static SourceLinkService Open(string assemblyPath, Action<string>? log = null)
+    /// <param name="cache">
+    /// Optional index cache; when null, <see cref="DefaultCache"/> is used. Pass an
+    /// explicit instance in tests to avoid the process-wide default.
+    /// </param>
+    public static SourceLinkService Open(string assemblyPath, Action<string>? log = null, ISourceLinkIndexCache? cache = null)
     {
         var context = PdbContext.Open(assemblyPath, log);
-        return new SourceLinkService(context);
+        return new SourceLinkService(context, cache ?? DefaultCache);
     }
 
     /// <summary>
@@ -163,7 +177,7 @@ public class SourceLinkService : IDisposable
         var commitHash = CommitHash;
         if (commitHash != null)
         {
-            var cached = CoreCache.TryGet("sourcelink-index", commitHash);
+            var cached = _cache?.TryGet(commitHash);
             if (cached != null)
             {
                 try
@@ -187,7 +201,7 @@ public class SourceLinkService : IDisposable
             try
             {
                 var json = JsonSerializer.Serialize(_typeFileIndex, SourceLinkJsonContext.Default.DictionaryStringStringArray);
-                CoreCache.Set("sourcelink-index", commitHash, json);
+                _cache?.Set(commitHash, json);
             }
             catch
             {
