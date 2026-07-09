@@ -3553,26 +3553,18 @@ public sealed partial class CSharpPrinter
         if (_staticScopeShadowNames is null)
         {
             _staticScopeShadowNames = new HashSet<string>(StringComparer.Ordinal);
-            // Names inherited from an enclosing printer (this printer renders a
-            // lambda/local-function body with its own scope): the outer parameters
-            // and locals are in scope here too, so an outer shadow must still keep
-            // the call qualified. _reservedScopeNames mixes raw and escaped names;
-            // EscapeIdentifier is idempotent, so normalize all to escaped form.
-            foreach (var inherited in _reservedScopeNames)
-                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(inherited));
-            foreach (var parameter in _function.Signature.Parameters)
-                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
-            for (int i = 0; i < _function.Locals.Length; i++)
-                _staticScopeShadowNames.Add(LocalName(i));
-            foreach (var lambda in _function.Descendants.OfType<Lambda>())
-                foreach (var parameter in lambda.Parameters)
-                    _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
-            foreach (var localFunction in _function.Descendants.OfType<LocalFunctionStatement>())
-            {
-                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(localFunction.Name));
-                foreach (var parameter in localFunction.Parameters)
-                    _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(parameter.Name));
-            }
+            // CurrentScopeNames aggregates every binder in scope for this printer:
+            // the enclosing method's parameters and locals, names inherited from an
+            // enclosing printer (when this renders a lambda/local-function body with
+            // its own scope), nested lambda/local-function parameters, and the
+            // printer's own synthetic locals (stack slots S_n, switch temps). It
+            // mixes raw and escaped names; EscapeIdentifier is idempotent, so
+            // normalize all to the escaped spelling the rendered call name uses.
+            foreach (var name in CurrentScopeNames())
+                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(name));
+            // FreshSyntheticLocalName("__stackalloc") does not flow through
+            // CurrentScopeNames; add it explicitly.
+            _staticScopeShadowNames.Add("__stackalloc");
         }
         return _staticScopeShadowNames.Contains(escapedName);
     }

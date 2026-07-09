@@ -76,6 +76,16 @@ public class SelfQualifyPrinterTests
         Assert.DoesNotContain("int x = M();", body);
     }
 
+    [Fact]
+    public void SyntheticLocalShadowedStaticCall_StaysQualified()
+    {
+        // A static method whose name collides with a printer-synthetic local (a
+        // stack slot S_n) keeps the qualifier so the call does not bind to the local.
+        string body = RenderAnyFidelity(typeof(SelfQualifySyntheticShadow), nameof(SelfQualifySyntheticShadow.Uses));
+
+        Assert.Contains("SelfQualifySyntheticShadow.S_0()", body);
+    }
+
     static string RenderFixture(System.Type type, string methodName)
     {
         var (function, source) = Import(type, methodName);
@@ -171,4 +181,11 @@ public class SelfQualifyOuterShadow
         System.Func<int, int> f = seed => { int x = SelfQualifyOuterShadow.M(); return seed + x; };
         return f(M);
     }
+}
+
+public class SelfQualifySyntheticShadow
+{
+    public static int S_0() => 2;
+
+    public static int Uses(int a, int b) => S_0() + (a > b ? a : b);
 }
