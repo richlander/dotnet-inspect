@@ -456,7 +456,50 @@ static class FidelityCheck
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
-    sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureAccessibility Accessibility);
+    sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
+
+    sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
+
+    sealed class CompilerReferenceResolver(IEnumerable<CompilerReference> references) : IAssemblyReferenceResolver
+    {
+        readonly IReadOnlyList<CompilerReference> _references = references.ToList();
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            foreach (var candidate in _references)
+            {
+                if (scope == AssemblyResolutionScope.Platform && !candidate.PlatformTrusted)
+                    continue;
+
+                var reference = candidate.Reference;
+                if (!reference.Identity.Name.Equals(identity.Name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!CultureMatches(identity.Culture, reference.Identity.Culture))
+                    continue;
+                if (identity.PublicKeyToken is { Length: > 0 }
+                    && !string.Equals(identity.PublicKeyToken, reference.Identity.PublicKeyToken, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (identity.Version is not null && reference.Identity.Version != identity.Version)
+                    continue;
+                return reference;
+            }
+
+            return null;
+        }
+
+        static bool CultureMatches(string? expected, string? actual)
+        {
+            if (string.IsNullOrEmpty(expected))
+                return true;
+
+            static string Normalize(string? culture)
+                => string.IsNullOrEmpty(culture) || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
+                    ? ""
+                    : culture;
+
+            return Normalize(expected).Equals(Normalize(actual), StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     internal sealed class ZeroSignalGuard
     {
@@ -567,144 +610,6 @@ static class FidelityCheck
             Console.WriteLine($"  compilation create         : {Ms(_compilationCreateTicks)}");
             Console.WriteLine($"  emit                       : {Ms(_emitTicks)}");
             Console.WriteLine($"  opcode compare             : {Ms(_opcodeCompareTicks)}");
-        }
-    }
-
-    /// <summary>
-    /// Some metadata-valid public members expose internal types from referenced
-    /// assemblies (Roslyn has several). C# cannot spell those signatures from the
-    /// compile-back assembly, so sibling stubs with such signatures are skipped
-    /// instead of poisoning unrelated target methods with CS0122.
-    /// </summary>
-    sealed class SignatureAccessibility
-    {
-        readonly IReadOnlyDictionary<string, string> _referencePaths;
-        readonly Dictionary<string, HashSet<string>?> _nonPublicTypes = new(StringComparer.OrdinalIgnoreCase);
-
-        public SignatureAccessibility(IReadOnlyDictionary<string, string> referencePaths)
-            => _referencePaths = referencePaths;
-
-        public bool CanEmitField(MetadataReader reader, FieldDefinition field, GenericContext context)
-        {
-            try { return !field.DecodeSignature(new InaccessibleTypeDetector(this), context); }
-            catch (Exception ex) when (IsDecodeException(ex)) { return true; }
-        }
-
-        public bool CanEmitProperty(MetadataReader reader, PropertyDefinition property, GenericContext context)
-        {
-            try { return !property.DecodeSignature(new InaccessibleTypeDetector(this), context).ReturnType; }
-            catch (Exception ex) when (IsDecodeException(ex)) { return true; }
-        }
-
-        public bool CanEmitMethod(MetadataReader reader, MethodDefinition method, GenericContext context)
-        {
-            try
-            {
-                var signature = method.DecodeSignature(new InaccessibleTypeDetector(this), context);
-                return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
-            }
-            catch (Exception ex) when (IsDecodeException(ex)) { return true; }
-        }
-
-        static bool IsDecodeException(Exception ex)
-            => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
-
-        bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
-        {
-            if (AssemblyScope(reader, handle) is not { Length: > 0 } assemblyName)
-                return false;
-
-            string fullName = reader.GetFullTypeName(reader.GetTypeReference(handle));
-            return NonPublicTypes(assemblyName)?.Contains(fullName) == true;
-        }
-
-        HashSet<string>? NonPublicTypes(string assemblyName)
-        {
-            if (_nonPublicTypes.TryGetValue(assemblyName, out var cached))
-                return cached;
-
-            if (!_referencePaths.TryGetValue(assemblyName, out var path))
-            {
-                _nonPublicTypes[assemblyName] = null;
-                return null;
-            }
-
-            var types = new HashSet<string>(StringComparer.Ordinal);
-            FileStream? stream = null;
-            PEReader? pe = null;
-            try
-            {
-                stream = File.OpenRead(path);
-                pe = new PEReader(stream);
-                if (pe.HasMetadata)
-                {
-                    var reader = pe.GetMetadataReader();
-                    foreach (var handle in reader.TypeDefinitions)
-                    {
-                        if (!IsExternallyVisible(reader, handle))
-                            types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
-            {
-                _nonPublicTypes[assemblyName] = null;
-                return null;
-            }
-            finally
-            {
-                pe?.Dispose();
-                stream?.Dispose();
-            }
-
-            _nonPublicTypes[assemblyName] = types;
-            return types;
-        }
-
-        static bool IsExternallyVisible(MetadataReader reader, TypeDefinitionHandle handle)
-        {
-            var typeDef = reader.GetTypeDefinition(handle);
-            return (typeDef.Attributes & TypeAttributes.VisibilityMask) switch
-            {
-                TypeAttributes.Public => true,
-                TypeAttributes.NestedPublic => !typeDef.GetDeclaringType().IsNil
-                    && IsExternallyVisible(reader, typeDef.GetDeclaringType()),
-                _ => false,
-            };
-        }
-
-        static string? AssemblyScope(MetadataReader reader, TypeReferenceHandle handle)
-        {
-            var typeRef = reader.GetTypeReference(handle);
-            return typeRef.ResolutionScope.Kind switch
-            {
-                HandleKind.AssemblyReference => reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope).Name),
-                HandleKind.TypeReference => AssemblyScope(reader, (TypeReferenceHandle)typeRef.ResolutionScope),
-                _ => null,
-            };
-        }
-
-        sealed class InaccessibleTypeDetector(SignatureAccessibility accessibility)
-            : ISignatureTypeProvider<bool, GenericContext?>
-        {
-            public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
-            public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
-            public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-                => accessibility.IsInaccessible(reader, handle);
-            public bool GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-                => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
-            public bool GetSZArrayType(bool elementType) => elementType;
-            public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
-            public bool GetByReferenceType(bool elementType) => elementType;
-            public bool GetPointerType(bool elementType) => elementType;
-            public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
-                => genericType || typeArguments.Any(inaccessible => inaccessible);
-            public bool GetGenericMethodParameter(GenericContext? context, int index) => false;
-            public bool GetGenericTypeParameter(GenericContext? context, int index) => false;
-            public bool GetFunctionPointerType(MethodSignature<bool> signature)
-                => signature.ReturnType || signature.ParameterTypes.Any(inaccessible => inaccessible);
-            public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => unmodifiedType;
-            public bool GetPinnedType(bool elementType) => elementType;
         }
     }
 
@@ -1919,7 +1824,7 @@ static class FidelityCheck
         bool targetRequiresAsync,
         PrimaryConstructorShape? targetPrimaryConstructor,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
-        SignatureAccessibility accessibility,
+        SignatureSpellability accessibility,
         IReadOnlySet<string>? requiredNamespaces = null,
         IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
@@ -1940,7 +1845,7 @@ static class FidelityCheck
     /// </summary>
     static string BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureAccessibility accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
+        SignatureSpellability accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
         IReadOnlySet<string>? isolatedTargetNamespaces = null)
     {
         var sb = new StringBuilder();
@@ -2055,7 +1960,7 @@ static class FidelityCheck
            || (type.ElementType is { } element && ContainsUnsupportedType(element))
            || type.TypeArguments.Any(ContainsUnsupportedType);
 
-    static string InterfaceClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind, SignatureAccessibility accessibility)
+    static string InterfaceClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind, SignatureSpellability accessibility)
     {
         if (kind != TypeKind.Class)
             return "";
@@ -2189,7 +2094,7 @@ static class FidelityCheck
         return $"{qualified}<{string.Join(", ", type.TypeArguments.Select(FullyQualifiedTypeName))}>";
     }
 
-    static bool InterfaceMembersSatisfied(MetadataReader reader, TypeDefinition typeDef, EntityHandle interfaceHandle, SignatureAccessibility accessibility)
+    static bool InterfaceMembersSatisfied(MetadataReader reader, TypeDefinition typeDef, EntityHandle interfaceHandle, SignatureSpellability accessibility)
     {
         if (interfaceHandle.Kind != HandleKind.TypeDefinition)
             return false;
@@ -2204,7 +2109,7 @@ static class FidelityCheck
         foreach (var propertyHandle in interfaceDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
-            if (!accessibility.CanEmitProperty(reader, property, GenericContext.ForType(reader, interfaceDef)))
+            if (!accessibility.CanSpellProperty(reader, property, GenericContext.ForType(reader, interfaceDef)))
                 continue;
             if (!HierarchyHasProperty(reader, typeDef, reader.GetString(property.Name)))
                 return false;
@@ -2217,7 +2122,7 @@ static class FidelityCheck
             string name = reader.GetString(method.Name);
             if (accessorNames.Contains(name))
                 continue;
-            if (!accessibility.CanEmitMethod(reader, method, GenericContext.ForMethod(reader, interfaceDef, method)))
+            if (!accessibility.CanSpellMethod(reader, method, GenericContext.ForMethod(reader, interfaceDef, method)))
                 continue;
             if (name.Contains('.') || !HierarchyHasMethod(reader, typeDef, name))
                 return false;
@@ -2269,7 +2174,7 @@ static class FidelityCheck
     static void EmitType(MetadataReader reader, TypeDefinitionHandle typeHandle,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureAccessibility accessibility, StringBuilder sb, int indent)
+        SignatureSpellability accessibility, StringBuilder sb, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var kind = ShapeOf(reader, typeDef);
@@ -2439,7 +2344,7 @@ static class FidelityCheck
     /// without bodies or accessibility, as the interface form requires.
     /// </summary>
     static void EmitInterface(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        string name, string genParams, string whereClauses, SignatureAccessibility accessibility, StringBuilder sb, string pad, int indent)
+        string name, string genParams, string whereClauses, SignatureSpellability accessibility, StringBuilder sb, string pad, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         string interfaceBaseClause = InterfaceBaseClause(reader, typeDef);
@@ -2459,7 +2364,7 @@ static class FidelityCheck
                 continue; // indexer / explicit impl — skip
             try
             {
-                if (!accessibility.CanEmitProperty(reader, prop, GenericContext.ForType(reader, typeDef)))
+                if (!accessibility.CanSpellProperty(reader, prop, GenericContext.ForType(reader, typeDef)))
                     continue;
                 var sig = prop.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
                 string body = (!pa.Getter.IsNil ? " get;" : "") + (!pa.Setter.IsNil ? " set;" : "");
@@ -2475,7 +2380,7 @@ static class FidelityCheck
             if (mn.Contains('<') || mn.Contains('.') || accessors.Contains(mn))
                 continue; // accessor, static-abstract op, or explicit impl
             var context = GenericContext.ForMethod(reader, typeDef, method);
-            if (!accessibility.CanEmitMethod(reader, method, context))
+            if (!accessibility.CanSpellMethod(reader, method, context))
                 continue;
             MethodSignature<string> sig;
             try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
@@ -2534,7 +2439,7 @@ static class FidelityCheck
     /// </summary>
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
-        SignatureAccessibility accessibility, IReadOnlyList<(string Field, string Value)> fieldInits,
+        SignatureSpellability accessibility, IReadOnlyList<(string Field, string Value)> fieldInits,
         HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad,
         bool requireAutoProperty = false)
     {
@@ -2548,7 +2453,7 @@ static class FidelityCheck
                 continue; // compiler-generated / explicit interface impl
             try
             {
-                if (!accessibility.CanEmitProperty(reader, prop, typeContext))
+                if (!accessibility.CanSpellProperty(reader, prop, typeContext))
                     continue;
                 var sig = prop.DecodeSignature(SignatureDecoder.Instance, typeContext);
                 if (sig.ParameterTypes.Length > 0)
@@ -2667,10 +2572,10 @@ static class FidelityCheck
         return false;
     }
 
-    static bool CanEmitAccessor(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle, SignatureAccessibility accessibility)
+    static bool CanEmitAccessor(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle handle, SignatureSpellability accessibility)
     {
         var method = reader.GetMethodDefinition(handle);
-        return accessibility.CanEmitMethod(reader, method, GenericContext.ForMethod(reader, typeDef, method));
+        return accessibility.CanSpellMethod(reader, method, GenericContext.ForMethod(reader, typeDef, method));
     }
 
 
@@ -2732,7 +2637,7 @@ static class FidelityCheck
     }
 
     static void EmitField(MetadataReader reader, FieldDefinitionHandle fh, GenericContext context,
-        IReadOnlyList<(string Field, string Value)> fieldInits, SignatureAccessibility accessibility, StringBuilder sb, string pad)
+        IReadOnlyList<(string Field, string Value)> fieldInits, SignatureSpellability accessibility, StringBuilder sb, string pad)
     {
         var field = reader.GetFieldDefinition(fh);
         string name = reader.GetString(field.Name);
@@ -2741,7 +2646,7 @@ static class FidelityCheck
         string type;
         try { type = field.DecodeSignature(SignatureDecoder.Instance, context); }
         catch { return; }
-        if (!accessibility.CanEmitField(reader, field, context)
+        if (!accessibility.CanSpellField(reader, field, context)
             && !fieldInits.Any(init => string.Equals(init.Field, name, StringComparison.Ordinal)))
             return;
         if (type.Contains(">e__FixedBuffer", StringComparison.Ordinal))
@@ -2777,7 +2682,7 @@ static class FidelityCheck
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync,
-        SignatureAccessibility accessibility, StringBuilder sb, string pad)
+        SignatureSpellability accessibility, StringBuilder sb, string pad)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(mh);
@@ -2794,7 +2699,7 @@ static class FidelityCheck
         if (realBody is null && name.Contains('.') && name is not ".ctor" and not ".cctor")
             return;
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        if (realBody is null && !accessibility.CanEmitMethod(reader, method, context))
+        if (realBody is null && !accessibility.CanSpellMethod(reader, method, context))
             return;
         MethodSignature<string> sig;
         try { sig = method.DecodeSignature(SignatureDecoder.Instance, context); }
@@ -3487,10 +3392,10 @@ static class FidelityCheck
     static ReferenceSet RuntimeReferences(string targetPath, IReadOnlyList<string>? corpusAssemblies = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var referencePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var resolvedReferences = new List<CompilerReference>();
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
 
-        void Add(string path)
+        void Add(string path, AssemblyDependencyProvenance? provenance)
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 return;
@@ -3506,7 +3411,11 @@ static class FidelityCheck
                 if (seen.Add(simple))
                 {
                     builder.Add(reference);
-                    referencePaths[simple] = fullPath;
+                    if (TryReadAssemblyIdentity(fullPath) is { } identity)
+                        resolvedReferences.Add(new CompilerReference(
+                            new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), provenance?.ToString() ?? "CompilerReference"),
+                            PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
+                                or AssemblyDependencyProvenance.SharedFramework));
                 }
             }
             catch (IOException) { }
@@ -3521,9 +3430,41 @@ static class FidelityCheck
             ExcludeTargetAssembly = true,
         });
         foreach (var dependency in resolver.ResolveAll())
-            Add(dependency.Path);
+            Add(dependency.Path, dependency.Provenance);
 
-        return new ReferenceSet(builder.ToImmutable(), new SignatureAccessibility(referencePaths));
+        return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
+    }
+
+    static AssemblyReferenceIdentity? TryReadAssemblyIdentity(string path)
+    {
+        try
+        {
+            var name = AssemblyName.GetAssemblyName(path);
+            string? token = ToHex(name.GetPublicKeyToken());
+            return new AssemblyReferenceIdentity(
+                name.Name ?? Path.GetFileNameWithoutExtension(path),
+                name.Version,
+                name.CultureName,
+                token);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    static string? ToHex(byte[]? bytes)
+    {
+        if (bytes is null || bytes.Length == 0)
+            return null;
+
+        var chars = new char[bytes.Length * 2];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            chars[i * 2] = "0123456789abcdef"[bytes[i] >> 4];
+            chars[i * 2 + 1] = "0123456789abcdef"[bytes[i] & 0xF];
+        }
+        return new string(chars);
     }
 
 }
