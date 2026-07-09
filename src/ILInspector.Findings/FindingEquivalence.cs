@@ -3,24 +3,24 @@ using System.Collections.Immutable;
 namespace ILInspector.Findings;
 
 /// <summary>
-/// A consumer-selected equivalence relation over a diff, expressed as data (an allow-list of
-/// polarities and difference classes) rather than a hard-coded differ verdict. Two streams are
-/// "equivalent for this consumer" iff every row falls inside the allow-list. This is the
-/// mechanism behind "equivalence is a fold": the differ emits classified rows once, and each
+/// A consumer-selected equivalence relation over a diff, expressed as data (an allow-list of pair
+/// kinds and difference classes) rather than a hard-coded differ verdict. Two streams are
+/// "equivalent for this consumer" iff every transition falls inside the allow-list. This is the
+/// mechanism behind "equivalence is a fold": the differ emits classified pairs once, and each
 /// consumer picks which classes it forgives.
 /// </summary>
 public sealed record FindingEquivalence(
-    ImmutableHashSet<FindingKind> AllowedRowKinds,
+    ImmutableHashSet<PairKind> AllowedKinds,
     ImmutableHashSet<FindingDifferenceKind> AllowedDifferenceKinds)
 {
-    public bool IsEquivalent(IReadOnlyList<Finding> rows)
+    public bool IsEquivalent(IReadOnlyList<IPairFinding> pairs)
     {
-        ArgumentNullException.ThrowIfNull(rows);
-        foreach (var row in rows)
+        ArgumentNullException.ThrowIfNull(pairs);
+        foreach (var pair in pairs)
         {
-            if (!AllowedRowKinds.Contains(row.Kind))
+            if (!AllowedKinds.Contains(pair.Kind))
                 return false;
-            if (!AllowedDifferenceKinds.Contains(row.DifferenceKind))
+            if (!AllowedDifferenceKinds.Contains(pair.Difference))
                 return false;
         }
 
@@ -33,7 +33,7 @@ public sealed record FindingEquivalence(
     /// reordered body is not exact.
     /// </summary>
     public static readonly FindingEquivalence Exact = new(
-        [FindingKind.Present],
+        [PairKind.Present],
         [FindingDifferenceKind.None, FindingDifferenceKind.EncodingOnly]);
 
     /// <summary>
@@ -41,6 +41,6 @@ public sealed record FindingEquivalence(
     /// Appropriate for a consumer that only cares whether the multiset of operations changed.
     /// </summary>
     public static readonly FindingEquivalence Multiset = new(
-        [FindingKind.Present],
+        [PairKind.Present],
         [FindingDifferenceKind.None, FindingDifferenceKind.EncodingOnly, FindingDifferenceKind.Moved]);
 }

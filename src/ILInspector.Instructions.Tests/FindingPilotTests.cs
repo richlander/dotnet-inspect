@@ -6,22 +6,31 @@ using ILInspector.Findings;
 namespace ILInspector.Instructions.Tests;
 
 /// <summary>
-/// Pilot gates for the finding spine (#2564): the domain-free alignment engine plus the IL
-/// adapter. The engine's committed core is an LCS (so it reproduces the existing IL sequence
-/// diff on move-free inputs); the move pass recovers relocations; equivalence is a consumer fold.
+/// Pilot gates for the finding spine (#2564/#2585): the domain-free alignment engine, the atom
+/// (<see cref="Finding{T}"/>) / pair (<see cref="PairFinding{T}"/>) split, and the IL adapter. The
+/// engine's committed core is an LCS (so it reproduces the existing IL sequence diff on move-free
+/// inputs); the move pass recovers relocations; equivalence is a consumer fold over the pairs.
 /// </summary>
 public class FindingPilotTests
 {
-    // ---- Leaf engine: synthetic occurrence streams -------------------------------------------
-
-    static ImmutableArray<FindingOccurrence> Stream(params string[] keys)
-        => [.. keys.Select(k => new FindingOccurrence(k))];
+    // ---- Leaf engine: synthetic key/atom streams ---------------------------------------------
 
     static readonly FindingSubject Subject = new("test", "test");
     static readonly FindingDescriptor Descriptor = new("test.item", "item");
 
-    static int Count(FindingMatch c, FindingEdgeKind kind)
-        => c.Edges.Count(l => l.Kind == kind);
+    // Matcher-only tests need just the alignment keys.
+    static FindingKey[] Keys(params string[] keys) => [.. keys.Select(k => new FindingKey(k))];
+
+    // Fold tests need atoms: payload is the key string, position is the stream index.
+    static ImmutableArray<Finding<string>> Atoms(params string[] keys)
+    {
+        var builder = ImmutableArray.CreateBuilder<Finding<string>>(keys.Length);
+        for (int i = 0; i < keys.Length; i++)
+            builder.Add(new Finding<string>(Subject, Descriptor, new FindingKey(keys[i]), i, keys[i]));
+        return builder.MoveToImmutable();
+    }
+
+    static int Count(FindingMatch c, FindingEdgeKind kind) => c.Edges.Count(e => e.Kind == kind);
 
     [Fact]
     public void CommittedCore_IsAnOptimalLcs_OnManyShapes()
@@ -40,13 +49,11 @@ public class FindingPilotTests
 
         foreach (var (old, @new) in cases)
         {
-            var match = FindingMatcher.Match(Stream(old), Stream(@new));
-            var matched = match.Edges.Where(l => l.Kind == FindingEdgeKind.Matched).ToArray();
+            var match = FindingMatcher.Match(Keys(old), Keys(@new));
+            var matched = match.Edges.Where(e => e.Kind == FindingEdgeKind.Matched).ToArray();
 
-            // Optimality: as long as a classic LCS.
             Assert.Equal(ReferenceLcsLength(old, @new), matched.Length);
 
-            // It is a real common subsequence: strictly increasing on both sides, keys agree.
             for (int i = 1; i < matched.Length; i++)
             {
                 Assert.True(matched[i].OldIndex > matched[i - 1].OldIndex);
@@ -61,12 +68,9 @@ public class FindingPilotTests
     [Fact]
     public void MovePass_RelocatedBlock_IsDetectedAsMoved()
     {
-        // The [m1,m2] block moves ahead of the stable A,B,C spine; the longer spine stays put
-        // via LCS and the block surfaces as a contiguous residual run -> a committed move.
-        var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
-        var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
-
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(
+            Keys("A", "B", "C", "m1", "m2", "D", "E"),
+            Keys("m1", "m2", "A", "B", "C", "D", "E"));
 
         Assert.Equal(2, Count(match, FindingEdgeKind.Moved));
         Assert.Equal(0, Count(match, FindingEdgeKind.Added));
@@ -76,11 +80,7 @@ public class FindingPilotTests
     [Fact]
     public void MismatchResistance_CoincidentalSingleton_StaysAddedRemoved()
     {
-        // A lone relocated occurrence (run length 1) is NOT silently called a move by default.
-        var old = Stream("c0", "c1", "c2");
-        var @new = Stream("c1", "c2", "c0");
-
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(Keys("c0", "c1", "c2"), Keys("c1", "c2", "c0"));
 
         Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
         Assert.Equal(1, Count(match, FindingEdgeKind.Added));
@@ -92,32 +92,26 @@ public class FindingPilotTests
     [Fact]
     public void Acceptance_IsAConsumerFold_LoweringThresholdPromotesFringeToMove()
     {
-        var old = Stream("c0", "c1", "c2");
-        var @new = Stream("c1", "c2", "c0");
-        var match = FindingMatcher.Match(old, @new);
+        var old = Atoms("c0", "c1", "c2");
+        var @new = Atoms("c1", "c2", "c0");
+        var match = FindingMatcher.Match(old.Keys(), @new.Keys());
 
-        var strict = FindingFold.ToRows(match, old, @new, Subject, Descriptor);
-        Assert.Equal(0, strict.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
-        Assert.Equal(1, strict.Count(r => r.Kind == FindingKind.Added));
-        Assert.Equal(1, strict.Count(r => r.Kind == FindingKind.Removed));
+        var strict = FindingFold.ToPairs(match, old, @new);
+        Assert.Equal(0, strict.Count(p => p.Difference == FindingDifferenceKind.Moved));
+        Assert.Equal(1, strict.Count(p => p.Kind == PairKind.Added));
+        Assert.Equal(1, strict.Count(p => p.Kind == PairKind.Removed));
 
-        var recall = FindingFold.ToRows(match, old, @new, Subject, Descriptor, acceptanceThreshold: 50);
-        Assert.Equal(1, recall.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
-        Assert.Equal(0, recall.Count(r => r.Kind == FindingKind.Added));
-        Assert.Equal(0, recall.Count(r => r.Kind == FindingKind.Removed));
+        var recall = FindingFold.ToPairs(match, old, @new, acceptanceThreshold: 50);
+        Assert.Equal(1, recall.Count(p => p.Difference == FindingDifferenceKind.Moved));
+        Assert.Equal(0, recall.Count(p => p.Kind == PairKind.Added));
+        Assert.Equal(0, recall.Count(p => p.Kind == PairKind.Removed));
     }
 
     [Fact]
     public void ScopeCorroboration_RaisesFringeScore()
     {
-        var old = ImmutableArray.Create(
-            new FindingOccurrence("c0", ScopeKey: "loop1"),
-            new FindingOccurrence("c1"),
-            new FindingOccurrence("c2"));
-        var @new = ImmutableArray.Create(
-            new FindingOccurrence("c1"),
-            new FindingOccurrence("c2"),
-            new FindingOccurrence("c0", ScopeKey: "loop1"));
+        var old = new[] { new FindingKey("c0", "loop1"), new FindingKey("c1"), new FindingKey("c2") };
+        var @new = new[] { new FindingKey("c1"), new FindingKey("c2"), new FindingKey("c0", "loop1") };
 
         var match = FindingMatcher.Match(old, @new);
         var candidate = Assert.Single(match.MoveCandidates);
@@ -128,37 +122,30 @@ public class FindingPilotTests
     [Fact]
     public void EquivalenceFolds_MoveIsExactDiffButMultisetEquivalent()
     {
-        var old = Stream("A", "B", "C", "m1", "m2", "D", "E");
-        var @new = Stream("m1", "m2", "A", "B", "C", "D", "E");
-        var match = FindingMatcher.Match(old, @new);
-        var rows = FindingFold.ToRows(match, old, @new, Subject, Descriptor);
+        var old = Atoms("A", "B", "C", "m1", "m2", "D", "E");
+        var @new = Atoms("m1", "m2", "A", "B", "C", "D", "E");
+        var match = FindingMatcher.Match(old.Keys(), @new.Keys());
+        var pairs = FindingFold.ToPairs(match, old, @new);
 
-        // Order is semantic under the fidelity fold: a reorder is a real difference.
-        Assert.False(FindingEquivalence.Exact.IsEquivalent(rows));
-        // The multiset of operations is unchanged: a reorder is forgiven.
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(rows));
+        Assert.False(FindingEquivalence.Exact.IsEquivalent(pairs));
+        Assert.True(FindingEquivalence.Multiset.IsEquivalent(pairs));
     }
 
     [Fact]
     public void IdenticalStreams_AreExact()
     {
-        var stream = Stream("a", "b", "c", "d");
-        var match = FindingMatcher.Match(stream, stream);
-        var rows = FindingFold.ToRows(match, stream, stream, Subject, Descriptor);
+        var stream = Atoms("a", "b", "c", "d");
+        var match = FindingMatcher.Match(stream.Keys(), stream.Keys());
+        var pairs = FindingFold.ToPairs(match, stream, stream);
 
-        Assert.All(rows, r => Assert.Equal(FindingKind.Present, r.Kind));
-        Assert.True(FindingEquivalence.Exact.IsEquivalent(rows));
+        Assert.All(pairs, p => Assert.Equal(PairKind.Present, p.Kind));
+        Assert.True(FindingEquivalence.Exact.IsEquivalent(pairs));
     }
 
     [Fact]
     public void MovePass_NonContiguousSingletons_AreNotAFalseBlockMove()
     {
-        // Two isolated relocations that become residual-adjacent after LCS removes the A,B anchors
-        // must NOT be committed as a length-2 block move: they were not contiguous in either stream.
-        var old = Stream("M1", "A", "M2", "B");
-        var @new = Stream("A", "B", "M1", "M2");
-
-        var match = FindingMatcher.Match(old, @new);
+        var match = FindingMatcher.Match(Keys("M1", "A", "M2", "B"), Keys("A", "B", "M1", "M2"));
 
         Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
         Assert.Equal(2, Count(match, FindingEdgeKind.Added));
@@ -168,10 +155,8 @@ public class FindingPilotTests
     [Fact]
     public void Fringe_EmitsFullCandidateGraph_NotIndexOrderThinned()
     {
-        // The residual has one old "A" and two new "A"s. The fringe must offer BOTH candidate
-        // pairings (so ApplyAcceptance can resolve the matching by score), not just the first.
-        var old = Stream("A", "B");
-        var @new = Stream("B", "A", "A");
+        var old = Keys("A", "B");
+        var @new = Keys("B", "A", "A");
 
         var match = FindingMatcher.Match(old, @new);
 
@@ -183,8 +168,8 @@ public class FindingPilotTests
     [Fact]
     public void Match_IsDeterministic_UnderAmbiguity()
     {
-        var old = Stream("x", "a", "y", "a", "z", "a");
-        var @new = Stream("a", "z", "a", "x", "a", "y");
+        var old = Keys("x", "a", "y", "a", "z", "a");
+        var @new = Keys("a", "z", "a", "x", "a", "y");
 
         var first = FindingMatcher.Match(old, @new);
         var second = FindingMatcher.Match(old, @new);
@@ -196,10 +181,8 @@ public class FindingPilotTests
     [Fact]
     public void Match_RejectsStreamsTooLargeForOrderedMatrix()
     {
-        // The ordered LCS matrix is O(N*M); guard it so an assembly-scale stream fails loudly
-        // instead of attempting a multi-gigabyte allocation (issue #2585).
         var big = Enumerable.Range(0, 8000)
-            .Select(i => new FindingOccurrence(i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .Select(i => new FindingKey(i.ToString(System.Globalization.CultureInfo.InvariantCulture)))
             .ToArray();
 
         var ex = Assert.Throws<ArgumentException>(() => FindingMatcher.Match(big, big));
@@ -207,39 +190,65 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void Match_OnEmptyStreams_IsEmptyMatch()
+    {
+        var match = FindingMatcher.Match(Keys(), Keys());
+        Assert.True(match.Edges.IsEmpty);
+        Assert.True(match.MoveCandidates.IsEmpty);
+    }
+
+    [Fact]
+    public void Match_MaterializesLazyKeyEnumerable()
+    {
+        // The matcher accepts a lazy IEnumerable<FindingKey> and materializes the ordered path
+        // once; a filtered (non-array) sequence must match identically to the array form.
+        IEnumerable<FindingKey> old = Keys("a", "b", "c").Where(_ => true);
+        IEnumerable<FindingKey> @new = Keys("a", "b", "c").Where(_ => true);
+
+        var match = FindingMatcher.Match(old, @new);
+        Assert.Equal(3, Count(match, FindingEdgeKind.Matched));
+    }
+
+    [Fact]
+    public void Match_NullStream_Throws()
+        => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
+
+    [Fact]
     public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
     {
-        // A stream-agnostic consumer: it reads only the skeleton, so the same rows could have
+        // A stream-agnostic consumer: it reads only the pair skeleton, so the same pairs could have
         // come from IL, C#, or a fact producer. Here we drive it from the IL adapter.
         var identical = Body(Ldc0, Ldc1, Ret);
-        var identicalRows = IlFindings.Compare(identical, null, identical, null, IlSubject).Rows;
-        Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(identicalRows).Shape);
+        var identicalPairs = IlFindings.Compare(identical, null, identical, null, IlSubject).Pairs;
+        Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(identicalPairs).Shape);
 
         var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
         var reordered = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
-        var reorderRows = IlFindings.Compare(old, null, reordered, null, IlSubject).Rows;
-        var reorderSummary = FindingSummary.Summarize(reorderRows);
+        var reorderPairs = IlFindings.Compare(old, null, reordered, null, IlSubject).Pairs;
+        var reorderSummary = FindingSummary.Summarize(reorderPairs);
         Assert.Equal(DiffShape.ReorderOnly, reorderSummary.Shape);
         Assert.Equal(2, reorderSummary.Moved);
 
         var changed = Body(Ldc0, Ldc2, Ldc3, Ret);
-        var changedRows = IlFindings.Compare(old, null, changed, null, IlSubject).Rows;
-        Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(changedRows).Shape);
+        var changedPairs = IlFindings.Compare(old, null, changed, null, IlSubject).Pairs;
+        Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(changedPairs).Shape);
     }
 
     [Fact]
-    public void SkeletonConsumer_IsStreamAgnostic_OverHandBuiltRows()
+    public void SkeletonConsumer_IsStreamAgnostic_OverHandBuiltPairs()
     {
-        // Rows fabricated as if from an arbitrary (non-IL) stream: the consumer does not care.
+        // Pairs fabricated as if from an arbitrary (non-IL) stream: the consumer does not care.
         var subject = new FindingSubject("s", "s");
         var descriptor = new FindingDescriptor("any.kind", "any");
-        Finding[] rows =
+        Finding<string> Atom(string key, int position) => new(subject, descriptor, new FindingKey(key), position, key);
+
+        IPairFinding[] pairs =
         [
-            new(subject, descriptor, FindingKind.Present, new FindingAnchor("k0", 0, 0)),
-            new(subject, descriptor, FindingKind.Added, new FindingAnchor("k1", -1, 1)),
+            new PairFinding<string>(PairKind.Present, FindingDifferenceKind.None, Atom("k0", 0), Atom("k0", 0)),
+            new PairFinding<string>(PairKind.Added, FindingDifferenceKind.None, Old: null, New: Atom("k1", 1)),
         ];
 
-        var summary = FindingSummary.Summarize(rows);
+        var summary = FindingSummary.Summarize(pairs);
         Assert.Equal(DiffShape.Structural, summary.Shape);
         Assert.Equal(1, summary.Added);
         Assert.Equal(1, summary.Present);
@@ -262,7 +271,6 @@ public class FindingPilotTests
     static MethodInstructions Body(params byte[] il)
         => MethodInstructions.Decode(il, il.Length, Array.Empty<ExceptionRegion>());
 
-    // Single-byte, operand-free opcodes so a body is a clean sequence of distinct content keys.
     const byte Ldc0 = 0x16, Ldc1 = 0x17, Ldc2 = 0x18, Ldc3 = 0x19, Ldc4 = 0x1A, Ldc5 = 0x1B, Ldc6 = 0x1C, Ret = 0x2A;
     const byte BrS = 0x2B, Nop = 0x00;
 
@@ -271,10 +279,8 @@ public class FindingPilotTests
     [Fact]
     public void IlFindings_PathologicallyLargeBody_FailsClosed()
     {
-        // A body large enough to exceed the ordered matcher's cell guard must fail closed
-        // (return a failure result), not throw at the caller — consistent with the decode path.
         var il = new byte[9000];
-        il[^1] = Ret; // 8999 nops + ret
+        il[^1] = Ret;
         var body = Body(il);
 
         var result = IlFindings.Compare(body, null, body, null, IlSubject);
@@ -286,9 +292,6 @@ public class FindingPilotTests
     [Fact]
     public void IlFindings_BranchRetarget_IsChangedNotExact()
     {
-        // br.s to IL_0005 (second ret) vs br.s to IL_0003 (first ret): a real control-flow retarget.
-        // The branch operation's content key ignores its target, so without target validation this
-        // would read as exact. It must surface as Changed and agree with IlBodyDiff's non-exactness.
         var old = Body(BrS, 0x03, Nop, Ret, Nop, Ret);
         var @new = Body(BrS, 0x01, Nop, Ret, Nop, Ret);
 
@@ -296,26 +299,22 @@ public class FindingPilotTests
 
         Assert.Null(result.Failure);
         Assert.False(result.IsExact);
-        Assert.Contains(result.Rows, r => r.Kind == FindingKind.Changed);
+        Assert.Contains(result.Pairs, p => p.Kind == PairKind.Changed);
         Assert.False(IlBodyDiff.Compare(old, @new).IsExact);
     }
 
     [Fact]
     public void IlFindings_BranchInsideMovedBlock_IsReorderNotRetarget()
     {
-        // The [ldc.i4.0, br.s] block (branch targets the ldc just before it) relocates ahead of the
-        // NOP spine. The branch is byte-identical and still targets its (moved) ldc, so it must read
-        // as a move, not a retarget. Requires overlaying the finding Moved mappings onto the
-        // IlBodyDiff alignment map (which is move-blind).
         var old = Body(Nop, Nop, Nop, Ldc0, BrS, 0xFD, Ret);
         var @new = Body(Ldc0, BrS, 0xFD, Nop, Nop, Nop, Ret);
 
         var result = IlFindings.Compare(old, null, @new, null, IlSubject);
 
         Assert.Null(result.Failure);
-        Assert.DoesNotContain(result.Rows, r => r.Kind == FindingKind.Changed);
-        Assert.Equal(2, result.Rows.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Rows));
+        Assert.DoesNotContain(result.Pairs, p => p.Kind == PairKind.Changed);
+        Assert.Equal(2, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
+        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Pairs));
     }
 
     [Fact]
@@ -323,11 +322,11 @@ public class FindingPilotTests
     {
         (byte[] Old, byte[] New)[] pairs =
         [
-            ([Ldc0, Ldc1, Ret], [Ldc0, Ldc1, Ret]),               // identical -> both exact
-            ([Ldc0, Ldc1, Ret], [Ldc0, Ldc2, Ret]),               // content change -> both non-exact
-            ([BrS, 0x03, Nop, Ret, Nop, Ret], [BrS, 0x01, Nop, Ret, Nop, Ret]), // retarget -> both non-exact
-            ([BrS, 0x00, Ldc0, Ret], [BrS, 0x00, Ldc1, Ret]),     // target content change, slot stable
-            ([Ldc0, Ldc1, Ldc2, Ret], [Ldc0, Ldc2, Ret]),         // deletion -> both non-exact
+            ([Ldc0, Ldc1, Ret], [Ldc0, Ldc1, Ret]),
+            ([Ldc0, Ldc1, Ret], [Ldc0, Ldc2, Ret]),
+            ([BrS, 0x03, Nop, Ret, Nop, Ret], [BrS, 0x01, Nop, Ret, Nop, Ret]),
+            ([BrS, 0x00, Ldc0, Ret], [BrS, 0x00, Ldc1, Ret]),
+            ([Ldc0, Ldc1, Ldc2, Ret], [Ldc0, Ldc2, Ret]),
         ];
 
         foreach (var (oldBytes, newBytes) in pairs)
@@ -343,24 +342,20 @@ public class FindingPilotTests
     [Fact]
     public void IlFindings_BranchTargetContentChangedButSlotStable_BranchIsNotRetargeted()
     {
-        // br.s targets the instruction right after it; that instruction's content changes
-        // (ldc.i4.0 -> ldc.i4.1) but stays in the same slot. IlBodyDiff's equal-size gap-pair
-        // alignment forgives the branch; the adapter must reuse that map and NOT flag the branch.
         var old = Body(BrS, 0x00, Ldc0, Ret);
         var @new = Body(BrS, 0x00, Ldc1, Ret);
 
         var result = IlFindings.Compare(old, null, @new, null, IlSubject);
 
         Assert.Null(result.Failure);
-        Assert.DoesNotContain(result.Rows, r => r.Kind == FindingKind.Changed);
-        Assert.Equal(1, result.Rows.Count(r => r.Kind == FindingKind.Added));
-        Assert.Equal(1, result.Rows.Count(r => r.Kind == FindingKind.Removed));
+        Assert.DoesNotContain(result.Pairs, p => p.Kind == PairKind.Changed);
+        Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Added));
+        Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Removed));
     }
 
     [Fact]
     public void IlFindings_SameBranch_IsExact()
     {
-        // Branch validation must not false-positive: an identical body with a branch is exact.
         var body = Body(BrS, 0x01, Nop, Ret, Nop, Ret);
         var result = IlFindings.Compare(body, null, body, null, IlSubject);
 
@@ -376,53 +371,48 @@ public class FindingPilotTests
 
         Assert.Null(result.Failure);
         Assert.True(result.IsExact);
-        Assert.All(result.Rows, r => Assert.Equal(FindingKind.Present, r.Kind));
+        Assert.All(result.Pairs, p => Assert.Equal(PairKind.Present, p.Kind));
     }
 
     [Fact]
     public void IlFindings_RelocatedBlock_IsDetectedAsMoved()
     {
-        // old: c0 c1 c2 c3 c4 c5 c6 ret ; new moves the [c3,c4] block to the front.
         var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
         var @new = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
 
         var result = IlFindings.Compare(old, null, @new, null, IlSubject);
 
         Assert.Null(result.Failure);
-        Assert.Equal(2, result.Rows.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
-        Assert.Equal(0, result.Rows.Count(r => r.Kind is FindingKind.Added or FindingKind.Removed));
+        Assert.Equal(2, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
+        Assert.Equal(0, result.Pairs.Count(p => p.Kind is PairKind.Added or PairKind.Removed));
         Assert.False(result.IsExact);
-        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Rows));
+        Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Pairs));
     }
 
     [Fact]
     public void IlFindings_CommittedCore_ReproducesIlBodyDiffResidual()
     {
-        // A body pair with no moves: pure insert/delete. The finding adapter's Added/Removed
-        // operations must match IlBodyDiff's Add/Remove rows (the committed core is the LCS).
         var old = Body(Ldc0, Ldc1, Ldc2, Ret);
         var @new = Body(Ldc0, Ldc2, Ldc3, Ret);
 
         var classic = IlBodyDiff.Compare(old, @new);
         var finding = IlFindings.Compare(old, null, @new, null, IlSubject);
 
-        Assert.Equal(0, finding.Rows.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
+        Assert.Equal(0, finding.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
 
         var classicRemoved = classic.Rows
             .Where(r => r.Kind == IlDiffKind.Remove)
             .Select(r => IlFindings.GetIdentityKey(r.Operation))
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
-        var findingRemoved = ResidualKeys(finding, FindingKind.Removed);
-        Assert.Equal(classicRemoved, findingRemoved);
+        Assert.Equal(classicRemoved, ResidualKeys(finding, PairKind.Removed));
 
         var classicAdded = classic.Rows
             .Where(r => r.Kind == IlDiffKind.Add)
             .Select(r => IlFindings.GetIdentityKey(r.Operation))
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
-        var findingAdded = ResidualKeys(finding, FindingKind.Added);
-        Assert.Equal(classicAdded, findingAdded);
+        Assert.Equal(classicAdded, ResidualKeys(finding, PairKind.Added));
     }
 
     [Fact]
@@ -433,24 +423,24 @@ public class FindingPilotTests
 
         var result = IlFindings.Compare(old, null, @new, null, IlSubject);
 
-        Assert.Equal(0, result.Rows.Count(r => r.DifferenceKind == FindingDifferenceKind.Moved));
-        Assert.Equal(1, result.Rows.Count(r => r.Kind == FindingKind.Added));
-        Assert.Equal(1, result.Rows.Count(r => r.Kind == FindingKind.Removed));
+        Assert.Equal(0, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
+        Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Added));
+        Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Removed));
     }
 
-    static string[] ResidualKeys(IlFindingsResult result, FindingKind polarity)
-        => result.Rows
-            .Where(r => r.Kind == polarity)
-            .Select(r => r.Anchor.IdentityKey)
+    static string[] ResidualKeys(IlFindingsResult result, PairKind polarity)
+        => result.Pairs
+            .Where(p => p.Kind == polarity)
+            .Select(p => (p.New ?? p.Old)!.Key.IdentityKey)
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
 
     // ---- IL adapter: real-assembly corpus ----------------------------------------------------
 
     [Theory]
-    [InlineData(typeof(IlBodyDiff))]                    // ILInspector.Instructions: diverse real IL.
-    [InlineData(typeof(FindingPilotTests))]            // the test assembly itself.
-    [InlineData(typeof(System.Linq.Enumerable))]        // System.Linq: a larger BCL corpus.
+    [InlineData(typeof(IlBodyDiff))]
+    [InlineData(typeof(FindingPilotTests))]
+    [InlineData(typeof(System.Linq.Enumerable))]
     public void IlFindings_SelfCompare_IsExactAcrossWholeAssembly(Type anchorType)
     {
         using var stream = File.OpenRead(anchorType.Assembly.Location);
@@ -463,7 +453,7 @@ public class FindingPilotTests
         {
             var method = reader.GetMethodDefinition(handle);
             if (method.RelativeVirtualAddress == 0)
-                continue; // abstract/extern/pinvoke: no body.
+                continue;
 
             MethodInstructions body;
             try
@@ -482,17 +472,14 @@ public class FindingPilotTests
             var finding = IlFindings.Compare(body, reader, body, reader, subject);
             if (finding.Failure is not null)
             {
-                declined++; // rare token-resolution edge cases; tracked, not asserted.
+                declined++;
                 continue;
             }
 
-            // A body compared to itself must be exact: all Present, no moves, no add/remove.
             Assert.True(finding.IsExact, $"IlFindings self-compare not exact for RVA {method.RelativeVirtualAddress}");
             canonicalized++;
         }
 
-        // The adapter canonicalizes the overwhelming majority of real IL (a real reader resolves
-        // tokens): declines must be a small tail, not the common case.
         Assert.True(canonicalized > 50, $"expected a substantial corpus; canonicalized={canonicalized} declined={declined}");
         Assert.True(declined <= canonicalized / 10, $"too many canonicalization declines: canonicalized={canonicalized} declined={declined}");
     }

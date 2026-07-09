@@ -33,7 +33,7 @@ public sealed record FindingEdge(FindingEdgeKind Kind, int OldIndex, int NewInde
 /// </summary>
 public sealed record FindingMoveCandidate(int OldIndex, int NewIndex, int Confidence, string Reason);
 
-/// <summary>The result of matching two occurrence streams.</summary>
+/// <summary>The result of matching two key streams (see FindingKey).</summary>
 /// <param name="Edges">
 /// The committed, conservative interpretation: order-preserving matches, committed moves,
 /// and Added/Removed for everything else (including the endpoints of every fringe candidate).
@@ -60,7 +60,7 @@ public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
 /// <summary>
 /// The single, domain-free matcher every finding stream shares. It commits an
 /// order-preserving LCS core (which reproduces a classic sequence diff when there are no moves)
-/// and then recovers relocations as a scored move pass over the residual. It never decides
+/// and then recovers relocations as a scored move pass over the residual. It never inspects a payload and never decides
 /// equivalence: it emits a classified alignment (a set of edges), and a consumer <see cref="FindingFold"/>
 /// folds it.
 /// </summary>
@@ -74,29 +74,36 @@ public static class FindingMatcher
     const long MaxOrderedMatchCells = 64_000_000;
 
     public static FindingMatch Match(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        IEnumerable<FindingKey> oldStream,
+        IEnumerable<FindingKey> newStream,
         FindingMatchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(oldStream);
         ArgumentNullException.ThrowIfNull(newStream);
         options ??= FindingMatchOptions.Default;
 
-        long cells = ((long)oldStream.Count + 1) * ((long)newStream.Count + 1);
+        // The ordered committer needs random access and two passes, so materialize once to a
+        // concrete FindingKey[] — the LCS hot loop then indexes an array directly (no interface
+        // dispatch). A streaming set committer (issue #2585) can instead consume the IEnumerable
+        // straight into its dictionary without this array.
+        var oldKeys = oldStream as FindingKey[] ?? oldStream.ToArray();
+        var newKeys = newStream as FindingKey[] ?? newStream.ToArray();
+
+        long cells = ((long)oldKeys.Length + 1) * ((long)newKeys.Length + 1);
         if (cells > MaxOrderedMatchCells)
         {
             throw new ArgumentException(
                 $"Ordered matching is bounded to {MaxOrderedMatchCells:N0} matrix cells " +
-                $"({oldStream.Count}x{newStream.Count} requested). Streams this large need the " +
+                $"({oldKeys.Length}x{newKeys.Length} requested). Streams this large need the " +
                 "identity-set committer, not the ordered LCS (see issue #2585).");
         }
 
-        var matchedOld = new bool[oldStream.Count];
-        var matchedNew = new bool[newStream.Count];
+        var matchedOld = new bool[oldKeys.Length];
+        var matchedNew = new bool[newKeys.Length];
         var edges = ImmutableArray.CreateBuilder<FindingEdge>();
 
         // 1. Committed core: order-preserving LCS over content keys.
-        foreach (var (oldIndex, newIndex) in LongestCommonSubsequence(oldStream, newStream))
+        foreach (var (oldIndex, newIndex) in LongestCommonSubsequence(oldKeys, newKeys))
         {
             matchedOld[oldIndex] = true;
             matchedNew[newIndex] = true;
@@ -110,10 +117,10 @@ public static class FindingMatcher
         // 3. Move pass: commit maximal common contiguous residual runs (>= MinMoveRunLength).
         var committedOld = new bool[residualOld.Length];
         var committedNew = new bool[residualNew.Length];
-        DetectMoveRuns(oldStream, newStream, residualOld, residualNew, committedOld, committedNew, options.MinMoveRunLength, edges);
+        DetectMoveRuns(oldKeys, newKeys, residualOld, residualNew, committedOld, committedNew, options.MinMoveRunLength, edges);
 
         // 4. Leftover residual: score singleton content matches as fringe, emit the rest as add/remove.
-        var fringe = BuildFringe(oldStream, newStream, residualOld, residualNew, committedOld, committedNew);
+        var fringe = BuildFringe(oldKeys, newKeys, residualOld, residualNew, committedOld, committedNew);
 
         foreach (var (localIndex, oldIndex) in Indexed(residualOld))
         {
@@ -149,8 +156,8 @@ public static class FindingMatcher
     }
 
     static void DetectMoveRuns(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        FindingKey[] oldStream,
+        FindingKey[] newStream,
         int[] residualOld,
         int[] residualNew,
         bool[] committedOld,
@@ -225,8 +232,8 @@ public static class FindingMatcher
     // (higher-scored) pairings win over incidental index-order pairings. This is the "scored fringe"
     // half of committed-core-plus-scored-fringe.
     static ImmutableArray<FindingMoveCandidate> BuildFringe(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
+        FindingKey[] oldStream,
+        FindingKey[] newStream,
         int[] residualOld,
         int[] residualNew,
         bool[] committedOld,
@@ -262,11 +269,11 @@ public static class FindingMatcher
     // Same construction and tiebreak as ILInspector.Instructions.IlBodyDiff so the committed
     // core reproduces the existing IL sequence diff exactly on move-free inputs.
     static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream)
+        FindingKey[] oldStream,
+        FindingKey[] newStream)
     {
-        int oldLength = oldStream.Count;
-        int newLength = newStream.Count;
+        int oldLength = oldStream.Length;
+        int newLength = newStream.Length;
         var lengths = new int[oldLength + 1, newLength + 1];
         for (int oldIndex = oldLength - 1; oldIndex >= 0; oldIndex--)
         {

@@ -3,34 +3,32 @@ using System.Collections.Immutable;
 namespace ILInspector.Findings;
 
 /// <summary>
-/// Projects a <see cref="FindingMatch"/> into finding rows. This is the generic diff Fold:
-/// it never decides equivalence, it materializes classified rows (Present / Added / Removed,
-/// with a <see cref="FindingDifferenceKind"/> facet). Move <em>acceptance</em> is itself a
-/// fold: the default threshold (100) commits nothing from the fringe, while a recall-hungry
-/// consumer can lower it to promote scored candidates into moves.
+/// Projects a <see cref="FindingMatch"/> plus the two atom streams into <see cref="PairFinding{T}"/>
+/// transitions. This is the generic diff fold: it never decides equivalence, it materializes
+/// classified pairs (Present / Added / Removed, with a <see cref="FindingDifferenceKind"/> facet).
+/// Move <em>acceptance</em> is itself a fold: the default threshold (100) commits nothing from the
+/// fringe, while a recall-hungry consumer can lower it to promote scored candidates into moves.
+/// Subject and descriptor are read from the atoms, not threaded in — the thing you found already
+/// carries them.
 /// </summary>
 public static class FindingFold
 {
-    public static ImmutableArray<Finding> ToRows(
+    public static ImmutableArray<PairFinding<T>> ToPairs<T>(
         FindingMatch match,
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
-        FindingSubject subject,
-        FindingDescriptor descriptor,
+        IReadOnlyList<Finding<T>> oldStream,
+        IReadOnlyList<Finding<T>> newStream,
         int acceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(match);
         ArgumentNullException.ThrowIfNull(oldStream);
         ArgumentNullException.ThrowIfNull(newStream);
-        ArgumentNullException.ThrowIfNull(subject);
-        ArgumentNullException.ThrowIfNull(descriptor);
 
         var edges = ApplyAcceptance(match, acceptanceThreshold);
-        var rows = ImmutableArray.CreateBuilder<Finding>(edges.Length);
+        var pairs = ImmutableArray.CreateBuilder<PairFinding<T>>(edges.Length);
         foreach (var edge in edges)
-            rows.Add(ToRow(edge, oldStream, newStream, subject, descriptor));
+            pairs.Add(ToPair(edge, oldStream, newStream));
 
-        return rows.ToImmutable();
+        return pairs.ToImmutable();
     }
 
     static ImmutableArray<FindingEdge> ApplyAcceptance(FindingMatch match, int threshold)
@@ -79,66 +77,44 @@ public static class FindingFold
         return result.ToImmutable();
     }
 
-    static Finding ToRow(
+    static PairFinding<T> ToPair<T>(
         FindingEdge edge,
-        IReadOnlyList<FindingOccurrence> oldStream,
-        IReadOnlyList<FindingOccurrence> newStream,
-        FindingSubject subject,
-        FindingDescriptor descriptor)
+        IReadOnlyList<Finding<T>> oldStream,
+        IReadOnlyList<Finding<T>> newStream)
     {
         switch (edge.Kind)
         {
             case FindingEdgeKind.Matched:
-            {
-                var oldOcc = oldStream[edge.OldIndex];
-                var newOcc = newStream[edge.NewIndex];
-                return new Finding(
-                    subject,
-                    descriptor,
-                    FindingKind.Present,
-                    new FindingAnchor(oldOcc.IdentityKey, edge.OldIndex, edge.NewIndex, oldOcc.ScopeKey),
+                return new PairFinding<T>(
+                    PairKind.Present,
                     FindingDifferenceKind.None,
-                    Payload: newOcc.Payload);
-            }
+                    oldStream[edge.OldIndex],
+                    newStream[edge.NewIndex]);
 
             case FindingEdgeKind.Moved:
             {
-                var oldOcc = oldStream[edge.OldIndex];
-                var newOcc = newStream[edge.NewIndex];
                 int delta = edge.NewIndex - edge.OldIndex;
-                return new Finding(
-                    subject,
-                    descriptor,
-                    FindingKind.Present,
-                    new FindingAnchor(oldOcc.IdentityKey, edge.OldIndex, edge.NewIndex, oldOcc.ScopeKey),
+                return new PairFinding<T>(
+                    PairKind.Present,
                     FindingDifferenceKind.Moved,
-                    Detail: $"moved {delta:+#;-#;0}",
-                    Payload: newOcc.Payload);
+                    oldStream[edge.OldIndex],
+                    newStream[edge.NewIndex],
+                    Detail: $"moved {delta:+#;-#;0}");
             }
 
             case FindingEdgeKind.Added:
-            {
-                var newOcc = newStream[edge.NewIndex];
-                return new Finding(
-                    subject,
-                    descriptor,
-                    FindingKind.Added,
-                    new FindingAnchor(newOcc.IdentityKey, -1, edge.NewIndex, newOcc.ScopeKey),
+                return new PairFinding<T>(
+                    PairKind.Added,
                     FindingDifferenceKind.None,
-                    Payload: newOcc.Payload);
-            }
+                    Old: null,
+                    New: newStream[edge.NewIndex]);
 
             case FindingEdgeKind.Removed:
-            {
-                var oldOcc = oldStream[edge.OldIndex];
-                return new Finding(
-                    subject,
-                    descriptor,
-                    FindingKind.Removed,
-                    new FindingAnchor(oldOcc.IdentityKey, edge.OldIndex, -1, oldOcc.ScopeKey),
+                return new PairFinding<T>(
+                    PairKind.Removed,
                     FindingDifferenceKind.None,
-                    Payload: oldOcc.Payload);
-            }
+                    Old: oldStream[edge.OldIndex],
+                    New: null);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(edge), edge.Kind, "Unknown edge kind.");
