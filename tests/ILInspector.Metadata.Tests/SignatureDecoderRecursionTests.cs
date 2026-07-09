@@ -102,6 +102,26 @@ public class SignatureDecoderRecursionTests
     }
 
     [Fact]
+    public void HugeGenericArityTypeName_FormatDisplayName_DegradesWithoutOom()
+    {
+        // A type name whose `N arity marker encodes ~2e9. FormatDisplayName renders arity placeholder
+        // parameters, so an unbounded arity from this 15-char untrusted #Strings-heap name would drive
+        // a multi-billion-iteration allocation and OOM. It must instead degrade to the raw name.
+        var text = TypeResolver.FormatDisplayName("Foo`2000000000");
+
+        Assert.Equal("Foo`2000000000", text);
+    }
+
+    [Theory]
+    [InlineData("List`1", "List<T>")]
+    [InlineData("Dictionary`2", "Dictionary<T1, T2>")]
+    [InlineData("Plain", "Plain")]
+    public void FormatDisplayName_RealArities_Unchanged(string input, string expected)
+    {
+        Assert.Equal(expected, TypeResolver.FormatDisplayName(input));
+    }
+
+    [Fact]
     public void CyclicTypeReferenceResolutionScope_ThroughResolver_DoesNotStackOverflow()
     {
         // A nested TypeReference whose resolution scope points at itself (row 1). SignatureDecoder

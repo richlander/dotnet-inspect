@@ -21,6 +21,13 @@ public static class TypeResolver
     static int s_climbDepth;
     const int MaxClimbDepth = 256;
 
+    // FormatDisplayName renders a generic type name's `N arity marker as N placeholder parameters
+    // (<T1, ..., TN>). The arity is parsed from an untrusted #Strings-heap type name, so an absurd
+    // arity (e.g. "Foo`2000000000") would drive a multi-billion-iteration StringBuilder append and
+    // OOM the process from a 15-byte string. Real generic arities are tiny (<= a couple dozen), so a
+    // name whose arity exceeds this ceiling is malformed and is rendered raw instead of expanded.
+    const int MaxGenericArity = 1024;
+
     /// <summary>
     /// Gets the fully qualified type name from an entity handle.
     /// Handles TypeReference, TypeDefinition, and TypeSpecification.
@@ -199,7 +206,7 @@ public static class TypeResolver
             while (digitEnd < typeName.Length && char.IsDigit(typeName[digitEnd]))
                 digitEnd++;
 
-            if (digitEnd == digitStart || !int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity) || arity <= 0)
+            if (digitEnd == digitStart || !int.TryParse(typeName.AsSpan(digitStart, digitEnd - digitStart), out var arity) || arity <= 0 || arity > MaxGenericArity)
             {
                 result.Append(typeName[i]);
                 continue;
