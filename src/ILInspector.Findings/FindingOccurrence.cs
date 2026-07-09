@@ -1,8 +1,8 @@
-namespace ILInspector.Evidence;
+namespace ILInspector.Findings;
 
 /// <summary>
 /// A single domain-free item within an ordered stream, presented to the
-/// <see cref="EvidenceMatcher"/> for cross-version matching. Domain producers
+/// <see cref="FindingMatcher"/> for cross-version matching. Domain producers
 /// project their nodes (IL operations, IR nodes, API members) into this shape.
 /// </summary>
 /// <param name="IdentityKey">
@@ -16,10 +16,10 @@ namespace ILInspector.Evidence;
 /// when unknown or not modeled.
 /// </param>
 /// <param name="Payload">
-/// Opaque domain detail carried onto the produced <see cref="EvidenceRow"/> for
+/// Opaque domain detail carried onto the produced <see cref="Finding"/> for
 /// display. Never inspected by the matcher.
 /// </param>
-public sealed record EvidenceOccurrence(
+public sealed record FindingOccurrence(
     string IdentityKey,
     string? ScopeKey = null,
     object? Payload = null);

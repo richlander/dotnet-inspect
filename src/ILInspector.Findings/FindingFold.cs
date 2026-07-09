@@ -1,22 +1,22 @@
 using System.Collections.Immutable;
 
-namespace ILInspector.Evidence;
+namespace ILInspector.Findings;
 
 /// <summary>
-/// Projects a <see cref="EvidenceMatch"/> into evidence rows. This is the generic diff Fold:
+/// Projects a <see cref="FindingMatch"/> into finding rows. This is the generic diff Fold:
 /// it never decides equivalence, it materializes classified rows (Present / Added / Removed,
-/// with a <see cref="EvidenceDifferenceKind"/> facet). Move <em>acceptance</em> is itself a
+/// with a <see cref="FindingDifferenceKind"/> facet). Move <em>acceptance</em> is itself a
 /// fold: the default threshold (100) commits nothing from the fringe, while a recall-hungry
 /// consumer can lower it to promote scored candidates into moves.
 /// </summary>
-public static class EvidenceFold
+public static class FindingFold
 {
-    public static ImmutableArray<EvidenceRow> ToRows(
-        EvidenceMatch correspondence,
-        IReadOnlyList<EvidenceOccurrence> oldStream,
-        IReadOnlyList<EvidenceOccurrence> newStream,
-        EvidenceSubject subject,
-        EvidenceDescriptor descriptor,
+    public static ImmutableArray<Finding> ToRows(
+        FindingMatch correspondence,
+        IReadOnlyList<FindingOccurrence> oldStream,
+        IReadOnlyList<FindingOccurrence> newStream,
+        FindingSubject subject,
+        FindingDescriptor descriptor,
         int acceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(correspondence);
@@ -26,21 +26,21 @@ public static class EvidenceFold
         ArgumentNullException.ThrowIfNull(descriptor);
 
         var links = ApplyAcceptance(correspondence, acceptanceThreshold);
-        var rows = ImmutableArray.CreateBuilder<EvidenceRow>(links.Length);
+        var rows = ImmutableArray.CreateBuilder<Finding>(links.Length);
         foreach (var link in links)
             rows.Add(ToRow(link, oldStream, newStream, subject, descriptor));
 
         return rows.ToImmutable();
     }
 
-    static ImmutableArray<EvidenceMatchEntry> ApplyAcceptance(EvidenceMatch correspondence, int threshold)
+    static ImmutableArray<FindingMatchEntry> ApplyAcceptance(FindingMatch correspondence, int threshold)
     {
         if (threshold > 99 || correspondence.MoveCandidates.IsDefaultOrEmpty)
             return correspondence.Entries;
 
         var usedOld = new HashSet<int>();
         var usedNew = new HashSet<int>();
-        var accepted = new List<EvidenceMoveCandidate>();
+        var accepted = new List<FindingMoveCandidate>();
         foreach (var candidate in correspondence.MoveCandidates
             .OrderByDescending(c => c.Confidence)
             .ThenBy(c => c.OldIndex)
@@ -62,81 +62,81 @@ public static class EvidenceFold
         if (accepted.Count == 0)
             return correspondence.Entries;
 
-        var result = ImmutableArray.CreateBuilder<EvidenceMatchEntry>();
+        var result = ImmutableArray.CreateBuilder<FindingMatchEntry>();
         foreach (var link in correspondence.Entries)
         {
-            if (link.Kind == EvidenceMatchKind.Removed && usedOld.Contains(link.OldIndex))
+            if (link.Kind == FindingMatchKind.Removed && usedOld.Contains(link.OldIndex))
                 continue;
-            if (link.Kind == EvidenceMatchKind.Added && usedNew.Contains(link.NewIndex))
+            if (link.Kind == FindingMatchKind.Added && usedNew.Contains(link.NewIndex))
                 continue;
 
             result.Add(link);
         }
 
         foreach (var candidate in accepted)
-            result.Add(new EvidenceMatchEntry(EvidenceMatchKind.Moved, candidate.OldIndex, candidate.NewIndex, candidate.Confidence));
+            result.Add(new FindingMatchEntry(FindingMatchKind.Moved, candidate.OldIndex, candidate.NewIndex, candidate.Confidence));
 
         return result.ToImmutable();
     }
 
-    static EvidenceRow ToRow(
-        EvidenceMatchEntry link,
-        IReadOnlyList<EvidenceOccurrence> oldStream,
-        IReadOnlyList<EvidenceOccurrence> newStream,
-        EvidenceSubject subject,
-        EvidenceDescriptor descriptor)
+    static Finding ToRow(
+        FindingMatchEntry link,
+        IReadOnlyList<FindingOccurrence> oldStream,
+        IReadOnlyList<FindingOccurrence> newStream,
+        FindingSubject subject,
+        FindingDescriptor descriptor)
     {
         switch (link.Kind)
         {
-            case EvidenceMatchKind.Matched:
+            case FindingMatchKind.Matched:
             {
                 var oldOcc = oldStream[link.OldIndex];
                 var newOcc = newStream[link.NewIndex];
-                return new EvidenceRow(
+                return new Finding(
                     subject,
                     descriptor,
-                    EvidenceRowKind.Present,
-                    new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
-                    EvidenceDifferenceKind.None,
+                    FindingKind.Present,
+                    new FindingAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
+                    FindingDifferenceKind.None,
                     Payload: newOcc.Payload);
             }
 
-            case EvidenceMatchKind.Moved:
+            case FindingMatchKind.Moved:
             {
                 var oldOcc = oldStream[link.OldIndex];
                 var newOcc = newStream[link.NewIndex];
                 int delta = link.NewIndex - link.OldIndex;
-                return new EvidenceRow(
+                return new Finding(
                     subject,
                     descriptor,
-                    EvidenceRowKind.Present,
-                    new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
-                    EvidenceDifferenceKind.Moved,
+                    FindingKind.Present,
+                    new FindingAnchor(oldOcc.IdentityKey, link.OldIndex, link.NewIndex, oldOcc.ScopeKey),
+                    FindingDifferenceKind.Moved,
                     Detail: $"moved {delta:+#;-#;0}",
                     Payload: newOcc.Payload);
             }
 
-            case EvidenceMatchKind.Added:
+            case FindingMatchKind.Added:
             {
                 var newOcc = newStream[link.NewIndex];
-                return new EvidenceRow(
+                return new Finding(
                     subject,
                     descriptor,
-                    EvidenceRowKind.Added,
-                    new EvidenceAnchor(newOcc.IdentityKey, -1, link.NewIndex, newOcc.ScopeKey),
-                    EvidenceDifferenceKind.None,
+                    FindingKind.Added,
+                    new FindingAnchor(newOcc.IdentityKey, -1, link.NewIndex, newOcc.ScopeKey),
+                    FindingDifferenceKind.None,
                     Payload: newOcc.Payload);
             }
 
-            case EvidenceMatchKind.Removed:
+            case FindingMatchKind.Removed:
             {
                 var oldOcc = oldStream[link.OldIndex];
-                return new EvidenceRow(
+                return new Finding(
                     subject,
                     descriptor,
-                    EvidenceRowKind.Removed,
-                    new EvidenceAnchor(oldOcc.IdentityKey, link.OldIndex, -1, oldOcc.ScopeKey),
-                    EvidenceDifferenceKind.None,
+                    FindingKind.Removed,
+                    new FindingAnchor(oldOcc.IdentityKey, link.OldIndex, -1, oldOcc.ScopeKey),
+                    FindingDifferenceKind.None,
                     Payload: oldOcc.Payload);
             }
 
