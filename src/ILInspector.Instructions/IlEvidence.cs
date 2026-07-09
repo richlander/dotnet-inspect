@@ -59,23 +59,23 @@ public static class IlEvidence
         var alignment = new Dictionary<int, int>(IlBodyDiff.BuildAlignmentMap(oldOps, newOps));
         foreach (var row in rows)
         {
-            if (row.Difference == EvidenceDifferenceClass.Moved
-                && row.Anchor.OldPosition >= 0
-                && row.Anchor.NewPosition >= 0)
+            if (row.DifferenceKind == EvidenceDifferenceKind.Moved
+                && row.Anchor.OldIndex >= 0
+                && row.Anchor.NewIndex >= 0)
             {
-                alignment[row.Anchor.OldPosition] = row.Anchor.NewPosition;
+                alignment[row.Anchor.OldIndex] = row.Anchor.NewIndex;
             }
         }
 
         var builder = ImmutableArray.CreateBuilder<EvidenceRow>(rows.Length);
         foreach (var row in rows)
         {
-            if (row.Polarity == EvidencePolarity.Present
-                && row.Anchor.OldPosition >= 0
-                && row.Anchor.NewPosition >= 0
-                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, row.Anchor.OldPosition, newInstructions, row.Anchor.NewPosition, alignment))
+            if (row.Kind == EvidenceRowKind.Present
+                && row.Anchor.OldIndex >= 0
+                && row.Anchor.NewIndex >= 0
+                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, row.Anchor.OldIndex, newInstructions, row.Anchor.NewIndex, alignment))
             {
-                builder.Add(row with { Polarity = EvidencePolarity.Changed, Detail = "branch retargeted" });
+                builder.Add(row with { Kind = EvidenceRowKind.Changed, Detail = "branch retargeted" });
             }
             else
             {
@@ -93,7 +93,7 @@ public static class IlEvidence
         {
             // ScopeKey is left null in the pilot: move detection is corroborated by run
             // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
-            builder.Add(new EvidenceOccurrence(IdentityKey(operation), ScopeKey: null, Payload: operation));
+            builder.Add(new EvidenceOccurrence(GetIdentityKey(operation), ScopeKey: null, Payload: operation));
         }
 
         return builder.MoveToImmutable();
@@ -104,7 +104,7 @@ public static class IlEvidence
     /// <see cref="IlBodyDiff"/> canonical-equality relation (branch targets ignored; switch
     /// arms compared by count). This keeps the committed core aligned with the existing diff.
     /// </summary>
-    public static string IdentityKey(CanonicalIlOperation operation)
+    public static string GetIdentityKey(CanonicalIlOperation operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (operation.Operand is null)
@@ -122,14 +122,14 @@ public static class IlEvidence
 /// <summary>The outcome of an <see cref="IlEvidence.Compare"/> call.</summary>
 public sealed record IlEvidenceResult(
     ImmutableArray<EvidenceRow> Rows,
-    EvidenceCorrespondence Correspondence,
-    ImmutableArray<EvidenceOccurrence> OldStream,
-    ImmutableArray<EvidenceOccurrence> NewStream,
+    EvidenceMatch Match,
+    ImmutableArray<EvidenceOccurrence> OldOccurrences,
+    ImmutableArray<EvidenceOccurrence> NewOccurrences,
     string? Failure)
 {
     /// <summary>True when the bodies are exact under the fidelity fold (no adds/removes/moves).</summary>
     public bool IsExact => Failure is null && EvidenceEquivalence.Exact.IsEquivalent(Rows);
 
     public static IlEvidenceResult Failed(string failure)
-        => new([], new EvidenceCorrespondence([], []), [], [], failure);
+        => new([], new EvidenceMatch([], []), [], [], failure);
 }

@@ -20,9 +20,9 @@ public sealed record EvidenceDescriptor(string Id, string Title);
 /// Whether an evidence row asserts presence or a diff transition. A move is
 /// deliberately <em>not</em> a polarity: a moved occurrence keeps
 /// <see cref="Present"/> polarity (its content is unchanged) and carries the move
-/// on the orthogonal <see cref="EvidenceDifferenceClass"/> facet.
+/// on the orthogonal <see cref="EvidenceDifferenceKind"/> facet.
 /// </summary>
-public enum EvidencePolarity
+public enum EvidenceRowKind
 {
     /// <summary>Present on both sides (or a single-stream audit fact).</summary>
     Present,
@@ -39,13 +39,13 @@ public enum EvidencePolarity
 
 /// <summary>
 /// The kind of difference a Fold observed for a matched pair, orthogonal to
-/// <see cref="EvidencePolarity"/> and to the content-kind carried by
+/// <see cref="EvidenceRowKind"/> and to the content-kind carried by
 /// <see cref="EvidenceDescriptor"/>. Consumers select an equivalence by allow-listing
 /// classes (see <see cref="EvidenceEquivalence"/>), which is why this is a
 /// separate axis: the same class is folded away by one consumer and is the salient
 /// signal for another.
 /// </summary>
-public enum EvidenceDifferenceClass
+public enum EvidenceDifferenceKind
 {
     /// <summary>No observable difference for this pair.</summary>
     None,
@@ -73,13 +73,13 @@ public enum EvidenceDifferenceClass
 /// </summary>
 public sealed record EvidenceAnchor(
     string IdentityKey,
-    int OldPosition = -1,
-    int NewPosition = -1,
+    int OldIndex = -1,
+    int NewIndex = -1,
     string? ScopeKey = null)
 {
     /// <summary>The signed position delta for a matched pair, or null if added/removed.</summary>
-    public int? PositionDelta
-        => OldPosition >= 0 && NewPosition >= 0 ? NewPosition - OldPosition : null;
+    public int? IndexDelta
+        => OldIndex >= 0 && NewIndex >= 0 ? NewIndex - OldIndex : null;
 }
 
 /// <summary>
@@ -91,8 +91,8 @@ public sealed record EvidenceAnchor(
 public sealed record EvidenceRow(
     EvidenceSubject Subject,
     EvidenceDescriptor Descriptor,
-    EvidencePolarity Polarity,
+    EvidenceRowKind Kind,
     EvidenceAnchor Anchor,
-    EvidenceDifferenceClass Difference = EvidenceDifferenceClass.None,
+    EvidenceDifferenceKind DifferenceKind = EvidenceDifferenceKind.None,
     string? Detail = null,
     object? Payload = null);

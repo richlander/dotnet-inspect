@@ -20,8 +20,8 @@ public class EvidencePilotTests
     static readonly EvidenceSubject Subject = new("test", "test");
     static readonly EvidenceDescriptor Descriptor = new("test.item", "item");
 
-    static int Count(EvidenceCorrespondence c, EvidenceLinkKind kind)
-        => c.Links.Count(l => l.Kind == kind);
+    static int Count(EvidenceMatch c, EvidenceMatchKind kind)
+        => c.Entries.Count(l => l.Kind == kind);
 
     [Fact]
     public void CommittedCore_IsAnOptimalLcs_OnManyShapes()
@@ -41,7 +41,7 @@ public class EvidencePilotTests
         foreach (var (old, @new) in cases)
         {
             var correspondence = EvidenceMatcher.Match(Stream(old), Stream(@new));
-            var matched = correspondence.Links.Where(l => l.Kind == EvidenceLinkKind.Matched).ToArray();
+            var matched = correspondence.Entries.Where(l => l.Kind == EvidenceMatchKind.Matched).ToArray();
 
             // Optimality: as long as a classic LCS.
             Assert.Equal(ReferenceLcsLength(old, @new), matched.Length);
@@ -68,9 +68,9 @@ public class EvidencePilotTests
 
         var correspondence = EvidenceMatcher.Match(old, @new);
 
-        Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Moved));
-        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Added));
-        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Removed));
+        Assert.Equal(2, Count(correspondence, EvidenceMatchKind.Moved));
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Added));
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Removed));
     }
 
     [Fact]
@@ -82,11 +82,11 @@ public class EvidencePilotTests
 
         var correspondence = EvidenceMatcher.Match(old, @new);
 
-        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Moved));
-        Assert.Equal(1, Count(correspondence, EvidenceLinkKind.Added));
-        Assert.Equal(1, Count(correspondence, EvidenceLinkKind.Removed));
-        var candidate = Assert.Single(correspondence.Fringe);
-        Assert.Equal(50, candidate.Score);
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Moved));
+        Assert.Equal(1, Count(correspondence, EvidenceMatchKind.Added));
+        Assert.Equal(1, Count(correspondence, EvidenceMatchKind.Removed));
+        var candidate = Assert.Single(correspondence.MoveCandidates);
+        Assert.Equal(50, candidate.Confidence);
     }
 
     [Fact]
@@ -97,14 +97,14 @@ public class EvidencePilotTests
         var correspondence = EvidenceMatcher.Match(old, @new);
 
         var strict = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor);
-        Assert.Equal(0, strict.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
-        Assert.Equal(1, strict.Count(r => r.Polarity == EvidencePolarity.Added));
-        Assert.Equal(1, strict.Count(r => r.Polarity == EvidencePolarity.Removed));
+        Assert.Equal(0, strict.Count(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
+        Assert.Equal(1, strict.Count(r => r.Kind == EvidenceRowKind.Added));
+        Assert.Equal(1, strict.Count(r => r.Kind == EvidenceRowKind.Removed));
 
         var recall = EvidenceFold.ToRows(correspondence, old, @new, Subject, Descriptor, acceptanceThreshold: 50);
-        Assert.Equal(1, recall.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
-        Assert.Equal(0, recall.Count(r => r.Polarity == EvidencePolarity.Added));
-        Assert.Equal(0, recall.Count(r => r.Polarity == EvidencePolarity.Removed));
+        Assert.Equal(1, recall.Count(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
+        Assert.Equal(0, recall.Count(r => r.Kind == EvidenceRowKind.Added));
+        Assert.Equal(0, recall.Count(r => r.Kind == EvidenceRowKind.Removed));
     }
 
     [Fact]
@@ -120,8 +120,8 @@ public class EvidencePilotTests
             new EvidenceOccurrence("c0", ScopeKey: "loop1"));
 
         var correspondence = EvidenceMatcher.Match(old, @new);
-        var candidate = Assert.Single(correspondence.Fringe);
-        Assert.Equal(75, candidate.Score);
+        var candidate = Assert.Single(correspondence.MoveCandidates);
+        Assert.Equal(75, candidate.Confidence);
         Assert.Equal("content+scope", candidate.Reason);
     }
 
@@ -146,7 +146,7 @@ public class EvidencePilotTests
         var correspondence = EvidenceMatcher.Match(stream, stream);
         var rows = EvidenceFold.ToRows(correspondence, stream, stream, Subject, Descriptor);
 
-        Assert.All(rows, r => Assert.Equal(EvidencePolarity.Present, r.Polarity));
+        Assert.All(rows, r => Assert.Equal(EvidenceRowKind.Present, r.Kind));
         Assert.True(EvidenceEquivalence.Exact.IsEquivalent(rows));
     }
 
@@ -160,9 +160,9 @@ public class EvidencePilotTests
 
         var correspondence = EvidenceMatcher.Match(old, @new);
 
-        Assert.Equal(0, Count(correspondence, EvidenceLinkKind.Moved));
-        Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Added));
-        Assert.Equal(2, Count(correspondence, EvidenceLinkKind.Removed));
+        Assert.Equal(0, Count(correspondence, EvidenceMatchKind.Moved));
+        Assert.Equal(2, Count(correspondence, EvidenceMatchKind.Added));
+        Assert.Equal(2, Count(correspondence, EvidenceMatchKind.Removed));
     }
 
     [Fact]
@@ -175,9 +175,9 @@ public class EvidencePilotTests
 
         var correspondence = EvidenceMatcher.Match(old, @new);
 
-        Assert.Equal(2, correspondence.Fringe.Length);
-        Assert.All(correspondence.Fringe, c => Assert.Equal("A", old[c.OldIndex].IdentityKey));
-        Assert.All(correspondence.Fringe, c => Assert.Equal("A", @new[c.NewIndex].IdentityKey));
+        Assert.Equal(2, correspondence.MoveCandidates.Length);
+        Assert.All(correspondence.MoveCandidates, c => Assert.Equal("A", old[c.OldIndex].IdentityKey));
+        Assert.All(correspondence.MoveCandidates, c => Assert.Equal("A", @new[c.NewIndex].IdentityKey));
     }
 
     [Fact]
@@ -189,8 +189,8 @@ public class EvidencePilotTests
         var first = EvidenceMatcher.Match(old, @new);
         var second = EvidenceMatcher.Match(old, @new);
 
-        Assert.Equal(first.Links, second.Links);
-        Assert.Equal(first.Fringe, second.Fringe);
+        Assert.Equal(first.Entries, second.Entries);
+        Assert.Equal(first.MoveCandidates, second.MoveCandidates);
     }
 
     [Fact]
@@ -213,18 +213,18 @@ public class EvidencePilotTests
         // come from IL, C#, or a fact producer. Here we drive it from the IL adapter.
         var identical = Body(Ldc0, Ldc1, Ret);
         var identicalRows = IlEvidence.Compare(identical, null, identical, null, IlSubject).Rows;
-        Assert.Equal(EvidenceVerdict.Identical, EvidenceDiffSummary.Summarize(identicalRows).Verdict);
+        Assert.Equal(EvidenceFinding.Identical, EvidenceDiffSummary.Summarize(identicalRows).Finding);
 
         var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
         var reordered = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
         var reorderRows = IlEvidence.Compare(old, null, reordered, null, IlSubject).Rows;
         var reorderSummary = EvidenceDiffSummary.Summarize(reorderRows);
-        Assert.Equal(EvidenceVerdict.ReorderOnly, reorderSummary.Verdict);
+        Assert.Equal(EvidenceFinding.ReorderOnly, reorderSummary.Finding);
         Assert.Equal(2, reorderSummary.Moved);
 
         var changed = Body(Ldc0, Ldc2, Ldc3, Ret);
         var changedRows = IlEvidence.Compare(old, null, changed, null, IlSubject).Rows;
-        Assert.Equal(EvidenceVerdict.Structural, EvidenceDiffSummary.Summarize(changedRows).Verdict);
+        Assert.Equal(EvidenceFinding.Structural, EvidenceDiffSummary.Summarize(changedRows).Finding);
     }
 
     [Fact]
@@ -235,12 +235,12 @@ public class EvidencePilotTests
         var descriptor = new EvidenceDescriptor("any.kind", "any");
         EvidenceRow[] rows =
         [
-            new(subject, descriptor, EvidencePolarity.Present, new EvidenceAnchor("k0", 0, 0)),
-            new(subject, descriptor, EvidencePolarity.Added, new EvidenceAnchor("k1", -1, 1)),
+            new(subject, descriptor, EvidenceRowKind.Present, new EvidenceAnchor("k0", 0, 0)),
+            new(subject, descriptor, EvidenceRowKind.Added, new EvidenceAnchor("k1", -1, 1)),
         ];
 
         var summary = EvidenceDiffSummary.Summarize(rows);
-        Assert.Equal(EvidenceVerdict.Structural, summary.Verdict);
+        Assert.Equal(EvidenceFinding.Structural, summary.Finding);
         Assert.Equal(1, summary.Added);
         Assert.Equal(1, summary.Present);
     }
@@ -281,7 +281,7 @@ public class EvidencePilotTests
 
         Assert.Null(result.Failure);
         Assert.False(result.IsExact);
-        Assert.Contains(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
+        Assert.Contains(result.Rows, r => r.Kind == EvidenceRowKind.Changed);
         Assert.False(IlBodyDiff.Compare(old, @new).IsExact);
     }
 
@@ -298,8 +298,8 @@ public class EvidencePilotTests
         var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
 
         Assert.Null(result.Failure);
-        Assert.DoesNotContain(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
-        Assert.Equal(2, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.DoesNotContain(result.Rows, r => r.Kind == EvidenceRowKind.Changed);
+        Assert.Equal(2, result.Rows.Count(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
         Assert.True(EvidenceEquivalence.Multiset.IsEquivalent(result.Rows));
     }
 
@@ -337,9 +337,9 @@ public class EvidencePilotTests
         var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
 
         Assert.Null(result.Failure);
-        Assert.DoesNotContain(result.Rows, r => r.Polarity == EvidencePolarity.Changed);
-        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Added));
-        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Removed));
+        Assert.DoesNotContain(result.Rows, r => r.Kind == EvidenceRowKind.Changed);
+        Assert.Equal(1, result.Rows.Count(r => r.Kind == EvidenceRowKind.Added));
+        Assert.Equal(1, result.Rows.Count(r => r.Kind == EvidenceRowKind.Removed));
     }
 
     [Fact]
@@ -361,7 +361,7 @@ public class EvidencePilotTests
 
         Assert.Null(result.Failure);
         Assert.True(result.IsExact);
-        Assert.All(result.Rows, r => Assert.Equal(EvidencePolarity.Present, r.Polarity));
+        Assert.All(result.Rows, r => Assert.Equal(EvidenceRowKind.Present, r.Kind));
     }
 
     [Fact]
@@ -374,8 +374,8 @@ public class EvidencePilotTests
         var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
 
         Assert.Null(result.Failure);
-        Assert.Equal(2, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
-        Assert.Equal(0, result.Rows.Count(r => r.Polarity is EvidencePolarity.Added or EvidencePolarity.Removed));
+        Assert.Equal(2, result.Rows.Count(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
+        Assert.Equal(0, result.Rows.Count(r => r.Kind is EvidenceRowKind.Added or EvidenceRowKind.Removed));
         Assert.False(result.IsExact);
         Assert.True(EvidenceEquivalence.Multiset.IsEquivalent(result.Rows));
     }
@@ -391,22 +391,22 @@ public class EvidencePilotTests
         var classic = IlBodyDiff.Compare(old, @new);
         var evidence = IlEvidence.Compare(old, null, @new, null, IlSubject);
 
-        Assert.Equal(0, evidence.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
+        Assert.Equal(0, evidence.Rows.Count(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
 
         var classicRemoved = classic.Rows
             .Where(r => r.Kind == IlDiffKind.Remove)
-            .Select(r => IlEvidence.IdentityKey(r.Operation))
+            .Select(r => IlEvidence.GetIdentityKey(r.Operation))
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
-        var evidenceRemoved = ResidualKeys(evidence, EvidencePolarity.Removed);
+        var evidenceRemoved = ResidualKeys(evidence, EvidenceRowKind.Removed);
         Assert.Equal(classicRemoved, evidenceRemoved);
 
         var classicAdded = classic.Rows
             .Where(r => r.Kind == IlDiffKind.Add)
-            .Select(r => IlEvidence.IdentityKey(r.Operation))
+            .Select(r => IlEvidence.GetIdentityKey(r.Operation))
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
-        var evidenceAdded = ResidualKeys(evidence, EvidencePolarity.Added);
+        var evidenceAdded = ResidualKeys(evidence, EvidenceRowKind.Added);
         Assert.Equal(classicAdded, evidenceAdded);
     }
 
@@ -418,14 +418,14 @@ public class EvidencePilotTests
 
         var result = IlEvidence.Compare(old, null, @new, null, IlSubject);
 
-        Assert.Equal(0, result.Rows.Count(r => r.Difference == EvidenceDifferenceClass.Moved));
-        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Added));
-        Assert.Equal(1, result.Rows.Count(r => r.Polarity == EvidencePolarity.Removed));
+        Assert.Equal(0, result.Rows.Count(r => r.DifferenceKind == EvidenceDifferenceKind.Moved));
+        Assert.Equal(1, result.Rows.Count(r => r.Kind == EvidenceRowKind.Added));
+        Assert.Equal(1, result.Rows.Count(r => r.Kind == EvidenceRowKind.Removed));
     }
 
-    static string[] ResidualKeys(IlEvidenceResult result, EvidencePolarity polarity)
+    static string[] ResidualKeys(IlEvidenceResult result, EvidenceRowKind polarity)
         => result.Rows
-            .Where(r => r.Polarity == polarity)
+            .Where(r => r.Kind == polarity)
             .Select(r => r.Anchor.IdentityKey)
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();

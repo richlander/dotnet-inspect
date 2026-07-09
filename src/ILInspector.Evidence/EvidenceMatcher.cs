@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 namespace ILInspector.Evidence;
 
 /// <summary>How an old/new occurrence pair (or singleton) is related across versions.</summary>
-public enum EvidenceLinkKind
+public enum EvidenceMatchKind
 {
     /// <summary>Order-preserving content match found by the committed LCS core.</summary>
     Matched,
@@ -19,40 +19,40 @@ public enum EvidenceLinkKind
 }
 
 /// <summary>
-/// One correspondence edge. <see cref="OldIndex"/> is -1 for <see cref="EvidenceLinkKind.Added"/>;
-/// <see cref="NewIndex"/> is -1 for <see cref="EvidenceLinkKind.Removed"/>. <see cref="Confidence"/>
+/// One correspondence edge. <see cref="OldIndex"/> is -1 for <see cref="EvidenceMatchKind.Added"/>;
+/// <see cref="NewIndex"/> is -1 for <see cref="EvidenceMatchKind.Removed"/>. <see cref="Confidence"/>
 /// is 100 for the committed matching; lower values are reserved for accepted fringe.
 /// </summary>
-public sealed record EvidenceLink(EvidenceLinkKind Kind, int OldIndex, int NewIndex, int Confidence);
+public sealed record EvidenceMatchEntry(EvidenceMatchKind Kind, int OldIndex, int NewIndex, int Confidence);
 
 /// <summary>
 /// A deferred, ambiguous correspondence the committed core did not commit (a content-equal
 /// singleton that lacks a corroborating run). Acceptance is a <em>consumer</em> decision:
-/// <see cref="EvidenceFold"/> promotes candidates whose <see cref="Score"/> meets a caller
+/// <see cref="EvidenceFold"/> promotes candidates whose <see cref="Confidence"/> meets a caller
 /// threshold. The default (100) accepts none, so these stay Added+Removed.
 /// </summary>
-public sealed record EvidenceMoveCandidate(int OldIndex, int NewIndex, int Score, string Reason);
+public sealed record EvidenceMoveCandidate(int OldIndex, int NewIndex, int Confidence, string Reason);
 
 /// <summary>The result of matching two occurrence streams.</summary>
-/// <param name="Links">
+/// <param name="Entries">
 /// The committed, conservative interpretation: order-preserving matches, committed moves,
 /// and Added/Removed for everything else (including the endpoints of every fringe candidate).
 /// </param>
-/// <param name="Fringe">
+/// <param name="MoveCandidates">
 /// Scored move candidates a recall-hungry consumer may accept to reclassify an Added+Removed
 /// pair into a move. Empty when nothing is ambiguous.
 /// </param>
-public sealed record EvidenceCorrespondence(
-    ImmutableArray<EvidenceLink> Links,
-    ImmutableArray<EvidenceMoveCandidate> Fringe);
+public sealed record EvidenceMatch(
+    ImmutableArray<EvidenceMatchEntry> Entries,
+    ImmutableArray<EvidenceMoveCandidate> MoveCandidates);
 
 /// <summary>Tunables for <see cref="EvidenceMatcher.Match"/>.</summary>
-/// <param name="MinMoveRun">
+/// <param name="MinMoveRunLength">
 /// The minimum length of a common contiguous residual run to commit as a move. Runs shorter
 /// than this are left to the fringe, which is what gives the conservative default its
 /// mismatch resistance (a lone content-equal occurrence is not silently treated as a move).
 /// </param>
-public sealed record EvidenceMatchOptions(int MinMoveRun = 2)
+public sealed record EvidenceMatchOptions(int MinMoveRunLength = 2)
 {
     public static readonly EvidenceMatchOptions Default = new();
 }
@@ -73,7 +73,7 @@ public static class EvidenceMatcher
     // committer (hash bijection, no matrix) — see issue #2585.
     const long MaxOrderedMatchCells = 64_000_000;
 
-    public static EvidenceCorrespondence Match(
+    public static EvidenceMatch Match(
         IReadOnlyList<EvidenceOccurrence> oldStream,
         IReadOnlyList<EvidenceOccurrence> newStream,
         EvidenceMatchOptions? options = null)
@@ -93,24 +93,24 @@ public static class EvidenceMatcher
 
         var matchedOld = new bool[oldStream.Count];
         var matchedNew = new bool[newStream.Count];
-        var links = ImmutableArray.CreateBuilder<EvidenceLink>();
+        var links = ImmutableArray.CreateBuilder<EvidenceMatchEntry>();
 
         // 1. Committed core: order-preserving LCS over content keys.
         foreach (var (oldIndex, newIndex) in LongestCommonSubsequence(oldStream, newStream))
         {
             matchedOld[oldIndex] = true;
             matchedNew[newIndex] = true;
-            links.Add(new EvidenceLink(EvidenceLinkKind.Matched, oldIndex, newIndex, 100));
+            links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Matched, oldIndex, newIndex, 100));
         }
 
         // 2. Residual (what the order-preserving core could not match).
         var residualOld = ResidualIndices(matchedOld);
         var residualNew = ResidualIndices(matchedNew);
 
-        // 3. Move pass: commit maximal common contiguous residual runs (>= MinMoveRun).
+        // 3. Move pass: commit maximal common contiguous residual runs (>= MinMoveRunLength).
         var committedOld = new bool[residualOld.Length];
         var committedNew = new bool[residualNew.Length];
-        DetectMoveRuns(oldStream, newStream, residualOld, residualNew, committedOld, committedNew, options.MinMoveRun, links);
+        DetectMoveRuns(oldStream, newStream, residualOld, residualNew, committedOld, committedNew, options.MinMoveRunLength, links);
 
         // 4. Leftover residual: score singleton content matches as fringe, emit the rest as add/remove.
         var fringe = BuildFringe(oldStream, newStream, residualOld, residualNew, committedOld, committedNew);
@@ -118,16 +118,16 @@ public static class EvidenceMatcher
         foreach (var (localIndex, oldIndex) in Indexed(residualOld))
         {
             if (!committedOld[localIndex])
-                links.Add(new EvidenceLink(EvidenceLinkKind.Removed, oldIndex, -1, 100));
+                links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Removed, oldIndex, -1, 100));
         }
 
         foreach (var (localIndex, newIndex) in Indexed(residualNew))
         {
             if (!committedNew[localIndex])
-                links.Add(new EvidenceLink(EvidenceLinkKind.Added, -1, newIndex, 100));
+                links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Added, -1, newIndex, 100));
         }
 
-        return new EvidenceCorrespondence(links.ToImmutable(), fringe);
+        return new EvidenceMatch(links.ToImmutable(), fringe);
     }
 
     static int[] ResidualIndices(bool[] matched)
@@ -156,7 +156,7 @@ public static class EvidenceMatcher
         bool[] committedOld,
         bool[] committedNew,
         int minRun,
-        ImmutableArray<EvidenceLink>.Builder links)
+        ImmutableArray<EvidenceMatchEntry>.Builder links)
     {
         // A committed move is a run of >= minRun operations that is contiguous in BOTH original
         // streams (a relocated block), not merely adjacent in the residual arrays. Requiring
@@ -214,7 +214,7 @@ public static class EvidenceMatcher
             {
                 committedOld[bestA + k] = true;
                 committedNew[bestB + k] = true;
-                links.Add(new EvidenceLink(EvidenceLinkKind.Moved, residualOld[bestA + k], residualNew[bestB + k], 100));
+                links.Add(new EvidenceMatchEntry(EvidenceMatchKind.Moved, residualOld[bestA + k], residualNew[bestB + k], 100));
             }
         }
     }

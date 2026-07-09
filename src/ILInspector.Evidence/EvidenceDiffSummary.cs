@@ -1,7 +1,7 @@
 namespace ILInspector.Evidence;
 
 /// <summary>A coarse, stream-agnostic classification of a diff read from the skeleton alone.</summary>
-public enum EvidenceVerdict
+public enum EvidenceFinding
 {
     /// <summary>No differences at all.</summary>
     Identical,
@@ -15,7 +15,7 @@ public enum EvidenceVerdict
 
 /// <summary>
 /// A minimal, stream-agnostic consumer of evidence rows. It reads only the skeleton
-/// (<see cref="EvidencePolarity"/> and <see cref="EvidenceDifferenceClass"/>) — never the opaque
+/// (<see cref="EvidenceRowKind"/> and <see cref="EvidenceDifferenceKind"/>) — never the opaque
 /// payload — so the same code summarizes an IL diff, a C# diff, or a semantic-fact stream. This
 /// is the shape a cross-stream consumer (e.g. Performance Triage) is built from: uniform queries
 /// over one row envelope, regardless of which producer emitted the rows.
@@ -27,7 +27,7 @@ public sealed record EvidenceDiffSummary(
     int Removed,
     int Changed,
     int Moved,
-    EvidenceVerdict Verdict)
+    EvidenceFinding Finding)
 {
     public static EvidenceDiffSummary Summarize(IReadOnlyList<EvidenceRow> rows)
     {
@@ -41,30 +41,30 @@ public sealed record EvidenceDiffSummary(
 
         foreach (var row in rows)
         {
-            switch (row.Polarity)
+            switch (row.Kind)
             {
-                case EvidencePolarity.Present:
+                case EvidenceRowKind.Present:
                     present++;
                     break;
-                case EvidencePolarity.Added:
+                case EvidenceRowKind.Added:
                     added++;
                     break;
-                case EvidencePolarity.Removed:
+                case EvidenceRowKind.Removed:
                     removed++;
                     break;
-                case EvidencePolarity.Changed:
+                case EvidenceRowKind.Changed:
                     changed++;
                     break;
             }
 
-            if (row.Difference == EvidenceDifferenceClass.Moved)
+            if (row.DifferenceKind == EvidenceDifferenceKind.Moved)
                 moved++;
         }
 
         bool structural = added > 0 || removed > 0 || changed > 0;
         var verdict = structural
-            ? EvidenceVerdict.Structural
-            : moved > 0 ? EvidenceVerdict.ReorderOnly : EvidenceVerdict.Identical;
+            ? EvidenceFinding.Structural
+            : moved > 0 ? EvidenceFinding.ReorderOnly : EvidenceFinding.Identical;
 
         return new EvidenceDiffSummary(rows.Count, present, added, removed, changed, moved, verdict);
     }

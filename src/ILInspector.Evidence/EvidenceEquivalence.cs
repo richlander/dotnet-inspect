@@ -10,17 +10,17 @@ namespace ILInspector.Evidence;
 /// consumer picks which classes it forgives.
 /// </summary>
 public sealed record EvidenceEquivalence(
-    ImmutableHashSet<EvidencePolarity> EquivalentPolarities,
-    ImmutableHashSet<EvidenceDifferenceClass> EquivalentClasses)
+    ImmutableHashSet<EvidenceRowKind> AllowedRowKinds,
+    ImmutableHashSet<EvidenceDifferenceKind> AllowedDifferenceKinds)
 {
     public bool IsEquivalent(IReadOnlyList<EvidenceRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
         foreach (var row in rows)
         {
-            if (!EquivalentPolarities.Contains(row.Polarity))
+            if (!AllowedRowKinds.Contains(row.Kind))
                 return false;
-            if (!EquivalentClasses.Contains(row.Difference))
+            if (!AllowedDifferenceKinds.Contains(row.DifferenceKind))
                 return false;
         }
 
@@ -33,14 +33,14 @@ public sealed record EvidenceEquivalence(
     /// reordered body is not exact.
     /// </summary>
     public static readonly EvidenceEquivalence Exact = new(
-        [EvidencePolarity.Present],
-        [EvidenceDifferenceClass.None, EvidenceDifferenceClass.EncodingOnly]);
+        [EvidenceRowKind.Present],
+        [EvidenceDifferenceKind.None, EvidenceDifferenceKind.EncodingOnly]);
 
     /// <summary>
     /// "Same operations, order aside": moves are forgiven, but additions and removals are not.
     /// Appropriate for a consumer that only cares whether the multiset of operations changed.
     /// </summary>
     public static readonly EvidenceEquivalence Multiset = new(
-        [EvidencePolarity.Present],
-        [EvidenceDifferenceClass.None, EvidenceDifferenceClass.EncodingOnly, EvidenceDifferenceClass.Moved]);
+        [EvidenceRowKind.Present],
+        [EvidenceDifferenceKind.None, EvidenceDifferenceKind.EncodingOnly, EvidenceDifferenceKind.Moved]);
 }
