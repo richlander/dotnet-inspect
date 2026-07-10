@@ -739,8 +739,18 @@ public static class CompileBackSourceComposer
         {
             targetMembers.Add(typedEqualsSibling);
         }
-        if (!includeRecordSurface)
-            AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        if (includeRecordSurface)
+        {
+            // AddRequiredMembers above preserves every IR-gathered dependency (e.g. generic
+            // same-type helpers the metadata surface enumeration filters out). Drop only the
+            // loosely-typed PrintMembers/EqualityContract *stubs* so AddClosureMemberSurface
+            // can re-emit them with faithful `protected virtual` accessibility. The target
+            // body itself (StubBody == TargetBody) is never removed.
+            targetMembers.RemoveAll(member =>
+                member.StubBody != CompileBackStubBodyKind.TargetBody
+                && member.Identity.Method is "PrintMembers" or "EqualityContract" or "get_EqualityContract");
+        }
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -1436,7 +1446,7 @@ public static class CompileBackSourceComposer
                 && signature.ParameterTypes.Length == 0)
             || (methodName == "PrintMembers"
                 && signature.ReturnType == "bool"
-                && signature.ParameterTypes.Length == 1);
+                && signature.ParameterTypes is ["System.Text.StringBuilder"]);
     }
 
     static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)

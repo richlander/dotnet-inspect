@@ -2830,6 +2830,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RecordSurfaceHelperKeepsGenericDependency()
+    {
+        // A record with a custom ToString that calls a generic same-type helper: the record
+        // surface path reconstructs the faithful member surface, but the metadata surface
+        // enumeration skips generic methods — so the IR-gathered generic dependency must still
+        // be carried (via AddRequiredMembers) or compile-back regresses to a non-Exact floor.
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value)
+            {
+                public override string ToString() => Render<int>();
+
+                private string Render<T>() => Name + Value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("Render", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
