@@ -584,20 +584,72 @@ public class FindingPilotTests
     static MethodInstructions Body(params byte[] il)
         => MethodInstructions.Decode(il, il.Length, Array.Empty<ExceptionRegion>());
 
+    static MethodInstructions OverLimitBody()
+    {
+        var il = new byte[IlFindings.MaxCanonicalOperations + 1];
+        il[^1] = Ret;
+        return Body(il);
+    }
+
     const byte Ldc0 = 0x16, Ldc1 = 0x17, Ldc2 = 0x18, Ldc3 = 0x19, Ldc4 = 0x1A, Ldc5 = 0x1B, Ldc6 = 0x1C, Ret = 0x2A;
     const byte BrS = 0x2B, Nop = 0x00;
 
     static readonly FindingSubject IlSubject = new("M", "M");
 
     [Fact]
-    public void IlFindings_PathologicallyLargeBody_PropagatesMatcherContractViolation()
+    public void IlFindings_Inspect_OverLimitBodyFailsBeforeMatching()
     {
-        var il = new byte[9000];
-        il[^1] = Ret;
-        var body = Body(il);
+        var inspection = IlFindings.Inspect(OverLimitBody(), null, IlSubject);
 
-        Assert.Throws<ArgumentException>(
-            () => IlFindings.Compare(body, null, body, null, IlSubject));
+        var failed = inspection switch
+        {
+            FindingInspection<CanonicalIlOperation>.Failed value => value,
+            _ => throw new InvalidOperationException("Expected a failed IL inspection."),
+        };
+        Assert.Equal(IlFindings.InspectionDescriptor, failed.Error.Descriptor);
+        Assert.Contains("limit", failed.Error.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IlFindings_Compare_OneSidedOverLimitFailsWithoutAddRemovePairs()
+    {
+        var result = IlFindings.Compare(
+            OverLimitBody(),
+            null,
+            Body(Ret),
+            null,
+            IlSubject);
+
+        var failed = result switch
+        {
+            FindingComparison<CanonicalIlOperation>.Failed value => value,
+            _ => throw new InvalidOperationException("Expected a failed IL comparison."),
+        };
+        Assert.True(failed.OldInspection is FindingInspection<CanonicalIlOperation>.Failed);
+        Assert.True(failed.NewInspection is FindingInspection<CanonicalIlOperation>.Complete);
+        Assert.Contains("old:", failed.Failure, StringComparison.Ordinal);
+        Assert.DoesNotContain("new:", failed.Failure, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IlFindings_Compare_TwoSidedOverLimitFailsWithoutMatcherException()
+    {
+        var result = IlFindings.Compare(
+            OverLimitBody(),
+            null,
+            OverLimitBody(),
+            null,
+            IlSubject);
+
+        var failed = result switch
+        {
+            FindingComparison<CanonicalIlOperation>.Failed value => value,
+            _ => throw new InvalidOperationException("Expected a failed IL comparison."),
+        };
+        Assert.True(failed.OldInspection is FindingInspection<CanonicalIlOperation>.Failed);
+        Assert.True(failed.NewInspection is FindingInspection<CanonicalIlOperation>.Failed);
+        Assert.Contains("old:", failed.Failure, StringComparison.Ordinal);
+        Assert.Contains("new:", failed.Failure, StringComparison.Ordinal);
     }
 
     [Fact]

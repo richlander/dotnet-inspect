@@ -99,7 +99,8 @@ public static class FindingMatcher
     // would otherwise silently attempt a multi-gigabyte allocation. Guard the matrix with a documented
     // cell cap and fail loudly instead of OOMing. Large/unordered streams belong on the identity-set
     // committer (hash bijection, no matrix) — see issue #2585.
-    const long MaxOrderedMatchCells = 64_000_000;
+    /// <summary>The maximum dynamic-programming matrix cells accepted by ordered matching.</summary>
+    public const long MaxOrderedMatchCells = 64_000_000;
 
     public static FindingMatch Match(
         IEnumerable<FindingKey> oldStream,
