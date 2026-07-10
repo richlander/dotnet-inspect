@@ -33,6 +33,36 @@ public class FindingPilotTests
     static int Count(FindingMatch c, FindingEdgeKind kind) => c.Edges.Count(e => e.Kind == kind);
 
     [Fact]
+    public void FindingInspection_CasesRemainDistinctWithAnEmptyCensus()
+    {
+        FindingInspection<string> complete = new FindingInspection<string>.Complete([]);
+        FindingInspection<string> absent = new FindingInspection<string>.Absent();
+        var error = new CensusError(Subject, Descriptor, "declined");
+        FindingInspection<string> failed = new FindingInspection<string>.Failed(error);
+
+        Assert.True(complete is FindingInspection<string>.Complete);
+        Assert.True(absent is FindingInspection<string>.Absent);
+        Assert.True(failed is FindingInspection<string>.Failed);
+        Assert.IsAssignableFrom<IFinding>(error);
+        Assert.Equal("declined", error.Detail);
+    }
+
+    [Fact]
+    public void FindingInspection_CasesRejectInvalidPayloads()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new FindingInspection<string>.Complete(default));
+        Assert.Throws<ArgumentNullException>(
+            () => new FindingInspection<string>.Failed(null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new CensusError(null!, Descriptor, "declined"));
+        Assert.Throws<ArgumentNullException>(
+            () => new CensusError(Subject, null!, "declined"));
+        Assert.Throws<ArgumentNullException>(
+            () => new CensusError(Subject, Descriptor, null!));
+    }
+
+    [Fact]
     public void CommittedCore_IsAnOptimalLcs_OnManyShapes()
     {
         (string[] Old, string[] New)[] cases =

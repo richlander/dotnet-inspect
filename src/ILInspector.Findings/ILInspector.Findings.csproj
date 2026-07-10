@@ -15,4 +15,8 @@
 
   <!-- Leaf floor: references nothing by design. -->
 
+  <ItemGroup>
+    <Compile Include="..\UnionPolyfill.cs" Link="UnionPolyfill.cs" />
+  </ItemGroup>
+
 </Project>

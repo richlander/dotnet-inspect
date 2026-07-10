@@ -5,6 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Security.Cryptography;
 using System.Text;
+using System.Runtime.CompilerServices;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -40,6 +41,54 @@ public sealed record CSharpDiffOperation(CSharpDiffOperationKind Kind, string Va
         CSharpDiffOperationKind.Invocation => Value,
         _ => Value,
     };
+}
+
+enum CSharpRenderState
+{
+    Rendered,
+    Absent,
+    Failed,
+}
+
+public sealed record CSharpCanonicalLine(
+    int Line,
+    string Text,
+    string IdentityKey)
+{
+    public CSharpDiffOperation Operation => new(CSharpDiffOperationKind.Line, Text);
+}
+
+[Union]
+sealed record CSharpCanonicalization
+{
+    public CSharpCanonicalization(Body value) => Value = Guard(value);
+    public CSharpCanonicalization(Absent value) => Value = Guard(value);
+    public CSharpCanonicalization(Failed value) => Value = Guard(value);
+
+    static object Guard(object value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value;
+    }
+
+    public object? Value { get; }
+
+    public sealed record Body(
+        ImmutableArray<CSharpCanonicalLine> Lines)
+    {
+        public ImmutableArray<CSharpCanonicalLine> Lines { get; }
+            = Lines.IsDefault
+                ? throw new ArgumentException("Lines must be initialized.", nameof(Lines))
+                : Lines;
+    }
+
+    public sealed record Absent(string? Detail = null);
+
+    public sealed record Failed(string Reason)
+    {
+        public string Reason { get; }
+            = Reason ?? throw new ArgumentNullException(nameof(Reason));
+    }
 }
 
 public sealed record CSharpDiffRow(
@@ -203,6 +252,41 @@ public static class CSharpBodyDiff
         return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
     }
 
+    /// <summary>
+    /// Canonicalizes a decompiled method body into the rendered line stream the C# body diff
+    /// aligns over. Exposed so finding producers can reuse the decompiler render and line
+    /// identity normalization instead of independently reconstructing C# text.
+    /// </summary>
+    internal static CSharpCanonicalization Canonicalize(
+        MetadataSource source,
+        MethodDefinitionHandle method)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (method.IsNil)
+            throw new ArgumentException("Method handle must not be nil.", nameof(method));
+
+        try
+        {
+            var entry = CreateMethodEntry(source, source.Reader.GetMethodDefinition(method).GetDeclaringType(), method, StableAssemblyKey(source));
+            var render = Decompile(entry, source);
+            if (render.State == CSharpRenderState.Absent)
+                return new CSharpCanonicalization.Absent("method has no body");
+            if (render.State == CSharpRenderState.Failed)
+                return new CSharpCanonicalization.Failed(
+                    render.Lines.Length == 0 ? "C# body rendering failed" : render.Lines[0]);
+
+            if (render.Lines.Length > MaxLcsLines)
+                return new CSharpCanonicalization.Failed(
+                    $"C# body has {render.Lines.Length} lines; limit is {MaxLcsLines}");
+
+            return new CSharpCanonicalization.Body(CanonicalizeRenderedLines(render.Lines));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            return new CSharpCanonicalization.Failed(ex.Message);
+        }
+    }
+
     public static CSharpBodyDiffResult CompareAssemblies(IReadOnlyList<string> oldPaths, IReadOnlyList<string> newPaths, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
     {
         ArgumentNullException.ThrowIfNull(oldPaths);
@@ -289,17 +373,17 @@ public static class CSharpBodyDiff
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, MetadataSource source)
     {
         if (!entry.HasBody)
-            return new CSharpMethodRender(CSharpMethodRenderState.NoBody, ["/* no method body */"], DecompilationFidelity.IlOnly);
+            return new CSharpMethodRender(CSharpRenderState.Absent, ["/* no method body */"], DecompilationFidelity.IlOnly);
 
         var function = IrImporter.Import(source, entry.TypeFullName, entry.MethodName, entry.OverloadIndex, publicOnly: false);
         if (function is null)
-            return new CSharpMethodRender(CSharpMethodRenderState.NoBody, ["/* no method body */"], DecompilationFidelity.IlOnly);
+            return new CSharpMethodRender(CSharpRenderState.Absent, ["/* no method body */"], DecompilationFidelity.IlOnly);
 
         var result = CSharpPrinter.PrintRaised(function);
         return result.Succeeded
-            ? new CSharpMethodRender(CSharpMethodRenderState.Body, SplitLines(result.Output), result.Fidelity)
+            ? new CSharpMethodRender(CSharpRenderState.Rendered, SplitLines(result.Output), result.Fidelity)
             : new CSharpMethodRender(
-                CSharpMethodRenderState.Failed,
+                CSharpRenderState.Failed,
                 [$"/* decompile failed: {string.Join("; ", result.Diagnostics.Select(diagnostic => diagnostic.Message))} */"],
                 result.Fidelity);
     }
@@ -828,7 +912,7 @@ public static class CSharpBodyDiff
         if (oldRender.State == newRender.State && oldLines.SequenceEqual(newLines))
             return;
 
-        if (oldRender.State != CSharpMethodRenderState.Body || newRender.State != CSharpMethodRenderState.Body)
+        if (oldRender.State != CSharpRenderState.Rendered || newRender.State != CSharpRenderState.Rendered)
         {
             AddRenderStateRows(rows, failureRows, entry, oldRender, newRender, ref hunkId);
             return;
@@ -896,7 +980,7 @@ public static class CSharpBodyDiff
         ref int hunkId)
     {
         int hunk = hunkId++;
-        if (oldRender.State is CSharpMethodRenderState.Body && newRender.State is CSharpMethodRenderState.NoBody)
+        if (oldRender.State is CSharpRenderState.Rendered && newRender.State is CSharpRenderState.Absent)
         {
             failureRows.Add(CreateFailureRow(
                 entry,
@@ -909,7 +993,7 @@ public static class CSharpBodyDiff
             return;
         }
 
-        if (oldRender.State is CSharpMethodRenderState.NoBody && newRender.State is CSharpMethodRenderState.Body)
+        if (oldRender.State is CSharpRenderState.Absent && newRender.State is CSharpRenderState.Rendered)
         {
             failureRows.Add(CreateFailureRow(
                 entry,
@@ -922,7 +1006,7 @@ public static class CSharpBodyDiff
             return;
         }
 
-        if (oldRender.State is CSharpMethodRenderState.Failed)
+        if (oldRender.State is CSharpRenderState.Failed)
         {
             failureRows.Add(CreateFailureRow(
                 entry,
@@ -934,7 +1018,7 @@ public static class CSharpBodyDiff
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.decompile.failed", "Old method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
         }
 
-        if (newRender.State is CSharpMethodRenderState.Failed)
+        if (newRender.State is CSharpRenderState.Failed)
         {
             failureRows.Add(CreateFailureRow(
                 entry,
@@ -946,7 +1030,7 @@ public static class CSharpBodyDiff
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.decompile.failed", "New method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
         }
 
-        if (oldRender.State is CSharpMethodRenderState.NoBody)
+        if (oldRender.State is CSharpRenderState.Absent)
         {
             failureRows.Add(CreateFailureRow(
                 entry,
@@ -958,7 +1042,7 @@ public static class CSharpBodyDiff
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.method.no-body", "Old method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
         }
 
-        if (newRender.State is CSharpMethodRenderState.NoBody)
+        if (newRender.State is CSharpRenderState.Absent)
         {
             failureRows.Add(CreateFailureRow(
                 entry,
@@ -970,9 +1054,9 @@ public static class CSharpBodyDiff
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.method.no-body", "New method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
         }
 
-        if (oldRender.State is CSharpMethodRenderState.Body)
+        if (oldRender.State is CSharpRenderState.Rendered)
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
-        if (newRender.State is CSharpMethodRenderState.Body)
+        if (newRender.State is CSharpRenderState.Rendered)
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
     }
 
@@ -1683,6 +1767,26 @@ public static class CSharpBodyDiff
         return normalized.Length == 0 ? [] : normalized.Split('\n');
     }
 
+    internal static ImmutableArray<CSharpCanonicalLine> CanonicalizeRenderedLines(IReadOnlyList<string> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var builder = ImmutableArray.CreateBuilder<CSharpCanonicalLine>(lines.Count);
+        for (int i = 0; i < lines.Count; i++)
+        {
+            string text = lines[i];
+            builder.Add(new CSharpCanonicalLine(i + 1, text, GetLineIdentityKey(text)));
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    public static string GetLineIdentityKey(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return text.Trim();
+    }
+
     sealed record CSharpMethodEntry(
         string Path,
         string AssemblyName,
@@ -1698,14 +1802,7 @@ public static class CSharpBodyDiff
         bool HasBody,
         string BodyFingerprint);
 
-    enum CSharpMethodRenderState
-    {
-        Body,
-        NoBody,
-        Failed,
-    }
-
-    sealed record CSharpMethodRender(CSharpMethodRenderState State, string[] Lines, DecompilationFidelity Fidelity);
+    sealed record CSharpMethodRender(CSharpRenderState State, string[] Lines, DecompilationFidelity Fidelity);
 
     sealed class SourceCache : IDisposable
     {

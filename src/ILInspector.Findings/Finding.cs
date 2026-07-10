@@ -48,9 +48,6 @@ public enum FindingDifferenceKind
     /// <summary>No observable difference for this pair.</summary>
     None,
 
-    /// <summary>Only incidental encoding differed (short/long form, ldc family).</summary>
-    EncodingOnly,
-
     /// <summary>Same content, different location (a matched pair with a position delta).</summary>
     Moved,
 }
