@@ -50,6 +50,7 @@ internal static class FindingInspectionExtensions
         this FindingInspection<T>? inspection,
         bool hasPresence)
         where T : notnull
-        => inspection is not FindingInspection<T>.Failed
-           && (inspection.HasFindings() || hasPresence);
+        => inspection is FindingInspection<T>.Failed
+            ? false
+            : inspection.HasFindings() || hasPresence;
 }

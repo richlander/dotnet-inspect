@@ -219,8 +219,18 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
 
+    private FindingInspection<AssemblyReference>? _assemblyReferenceInspection;
+
     [JsonIgnore]
-    public FindingInspection<AssemblyReference>? AssemblyReferenceInspection { get; set; }
+    public FindingInspection<AssemblyReference>? AssemblyReferenceInspection
+    {
+        get => _assemblyReferenceInspection;
+        set
+        {
+            _assemblyReferenceInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSurface? ApiSurface { get; set; }
@@ -293,8 +303,18 @@ public class LibraryInspection
         set => _asyncMethods = value;
     }
 
+    private FindingInspection<ClassifiedMethodObservation>? _classifiedMethodInspection;
+
     [JsonIgnore]
-    public FindingInspection<ClassifiedMethodObservation>? ClassifiedMethodInspection { get; set; }
+    public FindingInspection<ClassifiedMethodObservation>? ClassifiedMethodInspection
+    {
+        get => _classifiedMethodInspection;
+        set
+        {
+            _classifiedMethodInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore]
     public int UnsafeMethodCount =>
@@ -318,32 +338,114 @@ public class LibraryInspection
         }
     }
 
-    [JsonIgnore]
-    public FindingInspection<EcosystemIntegrationSignalInfo>? EcosystemIntegrationInspection { get; set; }
+    private FindingInspection<EcosystemIntegrationSignalInfo>? _ecosystemIntegrationInspection;
+    private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;
+    private FindingInspection<ManifestResourceInfo>? _resourceInspection;
+    private FindingInspection<AssemblyAttributeInfo>? _assemblyAttributeInspection;
+    private FindingInspection<TypeForwarderInfo>? _typeForwarderInspection;
+    private FindingInspection<UnionTypeInfo>? _unionTypeInspection;
+    private FindingInspection<SwitchInfo>? _switchInspection;
 
     [JsonIgnore]
-    public FindingInspection<OpenTelemetrySignalInfo>? OpenTelemetryInspection { get; set; }
+    public FindingInspection<EcosystemIntegrationSignalInfo>? EcosystemIntegrationInspection
+    {
+        get => _ecosystemIntegrationInspection;
+        set
+        {
+            _ecosystemIntegrationInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore]
-    public FindingInspection<ManifestResourceInfo>? ResourceInspection { get; set; }
+    public FindingInspection<OpenTelemetrySignalInfo>? OpenTelemetryInspection
+    {
+        get => _openTelemetryInspection;
+        set
+        {
+            _openTelemetryInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore]
-    public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection { get; set; }
+    public FindingInspection<ManifestResourceInfo>? ResourceInspection
+    {
+        get => _resourceInspection;
+        set
+        {
+            _resourceInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore]
-    public FindingInspection<TypeForwarderInfo>? TypeForwarderInspection { get; set; }
+    public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection
+    {
+        get => _assemblyAttributeInspection;
+        set
+        {
+            _assemblyAttributeInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore]
-    public FindingInspection<UnionTypeInfo>? UnionTypeInspection { get; set; }
+    public FindingInspection<TypeForwarderInfo>? TypeForwarderInspection
+    {
+        get => _typeForwarderInspection;
+        set
+        {
+            _typeForwarderInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore]
-    public FindingInspection<SwitchInfo>? SwitchInspection { get; set; }
+    public FindingInspection<UnionTypeInfo>? UnionTypeInspection
+    {
+        get => _unionTypeInspection;
+        set
+        {
+            _unionTypeInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    [JsonIgnore]
+    public FindingInspection<SwitchInfo>? SwitchInspection
+    {
+        get => _switchInspection;
+        set
+        {
+            _switchInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private bool _inspectionFailuresInitialized;
+    private List<LibraryInspectionFailureJson>? _inspectionFailures;
+    private bool _integrationsInitialized;
+    private List<LibraryIntegrationSummaryJson>? _integrations;
+    private Dictionary<LibraryIntegrationDescriptor, List<LibraryIntegrationSignalJson>?>? _integrationSignals;
+    private bool _resourcesInitialized;
+    private List<LibraryResourceJson>? _resources;
+    private bool _customAttributesInitialized;
+    private List<AssemblyAttributeInfo>? _customAttributes;
+    private bool _typeForwardersInitialized;
+    private List<TypeForwarderInfo>? _typeForwarders;
+    private bool _unionTypesInitialized;
+    private List<UnionTypeInfo>? _unionTypes;
+    private bool _switchesInitialized;
+    private List<SwitchInfo>? _switches;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<LibraryInspectionFailureJson>? InspectionFailures
-    {
-        get
-        {
+    public List<LibraryInspectionFailureJson>? InspectionFailures =>
+        GetOrCreate(
+            ref _inspectionFailuresInitialized,
+            ref _inspectionFailures,
+            () =>
+            {
             List<LibraryInspectionFailureJson> failures = [];
             AddFailure(failures, "References", AssemblyReferenceInspection);
             AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
@@ -355,22 +457,24 @@ public class LibraryInspection
             AddFailure(failures, "Union Types", UnionTypeInspection);
             AddFailure(failures, "Switches", SwitchInspection);
             return NullIfEmpty(failures);
-        }
-    }
+            });
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryIntegrationSummaryJson>? Integrations =>
-        NullIfEmpty(
-            LibraryIntegrationCatalog.All
-                .Select(descriptor =>
-                {
-                    var signals = descriptor.GetSignals(this);
-                    return new LibraryIntegrationSummaryJson(
-                        descriptor.Name,
-                        descriptor.CountRenderedRows(signals));
-                })
-                .Where(summary => summary.Count > 0)
-                .ToList());
+        GetOrCreate(
+            ref _integrationsInitialized,
+            ref _integrations,
+            () => NullIfEmpty(
+                LibraryIntegrationCatalog.All
+                    .Select(descriptor =>
+                    {
+                        var signals = descriptor.GetSignals(this);
+                        return new LibraryIntegrationSummaryJson(
+                            descriptor.Name,
+                            descriptor.CountRenderedRows(signals));
+                    })
+                    .Where(summary => summary.Count > 0)
+                    .ToList()));
 
     /// <summary>
     /// Potential integration categories suggested by package-owned API shapes.
@@ -419,13 +523,16 @@ public class LibraryInspection
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryResourceJson>? Resources =>
-        NullIfEmpty(
-            ResourceInspection.PayloadsForRendering()
-                .Select(resource => new LibraryResourceJson(
-                    resource.Name,
-                    resource.IsPublic ? "public" : "private",
-                    resource.Size))
-                .ToList());
+        GetOrCreate(
+            ref _resourcesInitialized,
+            ref _resources,
+            () => NullIfEmpty(
+                ResourceInspection.PayloadsForRendering()
+                    .Select(resource => new LibraryResourceJson(
+                        resource.Name,
+                        resource.IsPublic ? "public" : "private",
+                        resource.Size))
+                    .ToList()));
 
     /// <summary>
     /// File size of the assembly in bytes.
@@ -435,7 +542,10 @@ public class LibraryInspection
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AssemblyAttributeInfo>? CustomAttributes =>
-        NullIfEmpty(AssemblyAttributeInspection.PayloadsForRendering().ToList());
+        GetOrCreate(
+            ref _customAttributesInitialized,
+            ref _customAttributes,
+            () => NullIfEmpty(AssemblyAttributeInspection.PayloadsForRendering().ToList()));
 
     /// <summary>
     /// Metadata audit signals. These are observations, not a trust verdict.
@@ -445,15 +555,24 @@ public class LibraryInspection
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<TypeForwarderInfo>? TypeForwarders =>
-        NullIfEmpty(TypeForwarderInspection.PayloadsForRendering().ToList());
+        GetOrCreate(
+            ref _typeForwardersInitialized,
+            ref _typeForwarders,
+            () => NullIfEmpty(TypeForwarderInspection.PayloadsForRendering().ToList()));
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<UnionTypeInfo>? UnionTypes =>
-        NullIfEmpty(UnionTypeInspection.PayloadsForRendering().ToList());
+        GetOrCreate(
+            ref _unionTypesInitialized,
+            ref _unionTypes,
+            () => NullIfEmpty(UnionTypeInspection.PayloadsForRendering().ToList()));
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<SwitchInfo>? Switches =>
-        NullIfEmpty(SwitchInspection.PayloadsForRendering().ToList());
+        GetOrCreate(
+            ref _switchesInitialized,
+            ref _switches,
+            () => NullIfEmpty(SwitchInspection.PayloadsForRendering().ToList()));
 
     /// <summary>
     /// SourceLink URL rows for public types in this assembly. Populated only
@@ -554,16 +673,57 @@ public class LibraryInspection
 
     private List<LibraryIntegrationSignalJson>? IntegrationSignals(
         LibraryIntegrationDescriptor descriptor)
-        => NullIfEmpty(
+    {
+        _integrationSignals ??= [];
+        if (_integrationSignals.TryGetValue(descriptor, out var cached))
+            return cached;
+
+        var signals = NullIfEmpty(
             descriptor.GetSignals(this)
                 .Select(signal => new LibraryIntegrationSignalJson(
                     signal.Kind,
                     signal.Name,
                     signal.Shape))
                 .ToList());
+        _integrationSignals.Add(descriptor, signals);
+        return signals;
+    }
 
     private static List<T>? NullIfEmpty<T>(List<T> values)
         => values.Count > 0 ? values : null;
+
+    private static List<T>? GetOrCreate<T>(
+        ref bool initialized,
+        ref List<T>? value,
+        Func<List<T>?> factory)
+    {
+        if (!initialized)
+        {
+            value = factory();
+            initialized = true;
+        }
+
+        return value;
+    }
+
+    private void ResetFindingProjectionCaches()
+    {
+        _inspectionFailuresInitialized = false;
+        _inspectionFailures = null;
+        _integrationsInitialized = false;
+        _integrations = null;
+        _integrationSignals = null;
+        _resourcesInitialized = false;
+        _resources = null;
+        _customAttributesInitialized = false;
+        _customAttributes = null;
+        _typeForwardersInitialized = false;
+        _typeForwarders = null;
+        _unionTypesInitialized = false;
+        _unionTypes = null;
+        _switchesInitialized = false;
+        _switches = null;
+    }
 
     private int CountClassifiedMethods(MethodClassification classification, int fallback)
         => ClassifiedMethodInspection is null

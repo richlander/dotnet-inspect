@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
@@ -143,5 +144,56 @@ public class LibraryFindingConsumerTests
         var failure = Assert.Single(inspection.InspectionFailures!);
         Assert.Equal("Classified Methods", failure.Section);
         Assert.Equal("method scan failed", failure.Reason);
+    }
+
+    [Fact]
+    public void FindingJsonProjections_AreCachedAndInvalidatedWithTheirInspection()
+    {
+        var inspection = new LibraryInspection
+        {
+            ResourceInspection = MetadataFindings.InspectResources(
+                [new ManifestResourceInfo("First", true, true, 1)],
+                FindingTestData.Subject),
+            EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
+                [new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.AI, "Chat", "Test.Chat")],
+                FindingTestData.Subject),
+            SwitchInspection = new FindingInspection<SwitchInfo>.Failed(
+                new InspectionError(
+                    FindingTestData.Subject,
+                    MetadataFindings.SwitchDescriptor,
+                    "first failure")),
+        };
+
+        var resources = inspection.Resources;
+        var ai = inspection.AI;
+        var failures = inspection.InspectionFailures;
+
+        Assert.Same(resources, inspection.Resources);
+        Assert.Same(ai, inspection.AI);
+        Assert.Same(failures, inspection.InspectionFailures);
+
+        inspection.ResourceInspection = MetadataFindings.InspectResources(
+            [new ManifestResourceInfo("Second", true, true, 2)],
+            FindingTestData.Subject);
+        inspection.EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
+            [new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Logging, "Logger", "Test.Logger")],
+            FindingTestData.Subject);
+        inspection.SwitchInspection = MetadataFindings.InspectSwitches([], FindingTestData.Subject);
+
+        Assert.NotSame(resources, inspection.Resources);
+        Assert.Equal("Second", Assert.Single(inspection.Resources!).Name);
+        Assert.Null(inspection.AI);
+        Assert.Null(inspection.InspectionFailures);
+    }
+
+    [Fact]
+    public void ExplicitSelectionFailureWarnings_AreCorrelatedToAffectedSections()
+    {
+        Assert.True(LibraryCommand.FailureAffectsSection("Classified Methods", "P/Invoke Methods"));
+        Assert.True(LibraryCommand.FailureAffectsSection("Switches", "Library Info"));
+        Assert.True(LibraryCommand.FailureAffectsSection(
+            LibraryIntegrationCatalog.RollupName,
+            EcosystemIntegrationNames.AI));
+        Assert.False(LibraryCommand.FailureAffectsSection("Custom Attributes", "Type Forwarders"));
     }
 }

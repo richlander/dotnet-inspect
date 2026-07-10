@@ -1460,22 +1460,59 @@ public class LibraryCommand
     {
         var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
         var failures = inspection.InspectionFailures;
-        if (empty.Count > 0 && failures is { Count: > 0 })
+        List<LibraryInspectionFailureJson> relevantFailures = failures?
+            .Where(failure => empty.Any(section => FailureAffectsSection(failure.Section, section)))
+            .ToList() ?? [];
+        foreach (var failure in relevantFailures)
         {
-            foreach (var failure in failures)
-            {
-                Console.Error.WriteLine(
-                    $"Warning: {failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
-            }
-
-            return;
+            Console.Error.WriteLine(
+                $"Warning: {failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
         }
 
-        if (empty.Count > 0 && empty.Count == requested)
+        var unexplained = empty
+            .Where(section => !relevantFailures.Any(
+                failure => FailureAffectsSection(failure.Section, section)))
+            .ToList();
+        if (unexplained.Count > 0 && empty.Count == requested)
         {
-            var label = empty.Count == 1 ? "section has" : "sections have";
-            Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
+            var label = unexplained.Count == 1 ? "section has" : "sections have";
+            Console.Error.WriteLine(
+                $"Note: {unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
         }
+    }
+
+    internal static bool FailureAffectsSection(string failureSection, string section)
+    {
+        if (failureSection.Equals(section, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (failureSection.Equals("Classified Methods", StringComparison.Ordinal))
+        {
+            return section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
+                   || section.Equals("P/Invoke Methods", StringComparison.OrdinalIgnoreCase)
+                   || section.Equals("Async Methods", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
+        {
+            return failureSection is "Resources"
+                or "Custom Attributes"
+                or "Type Forwarders"
+                or "Union Types"
+                or "Switches"
+                or LibraryIntegrationCatalog.RollupName
+                or EcosystemIntegrationNames.OpenTelemetry;
+        }
+
+        if (section.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.OrdinalIgnoreCase))
+        {
+            return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
+                   || failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal);
+        }
+
+        return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
+               && LibraryIntegrationCatalog.All.Any(
+                   descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options, VerboseLogger logger)
