@@ -50,7 +50,7 @@ public sealed record FindingMatch(
 /// Whether a finding stream's order carries meaning. The choice is per <see cref="FindingMatcher.Match"/>
 /// invocation and per occurrence level — the same producer can be ordered at one level and a set at another.
 /// </summary>
-public enum FindingStreamKind
+public enum FindingMatchMode
 {
     /// <summary>Order is semantic (an IL/C# body); use the LCS committer plus the scored move pass.</summary>
     Ordered,
@@ -69,7 +69,7 @@ public enum FindingStreamKind
 /// The minimum length of a common contiguous residual run to commit as a move. Runs shorter
 /// than this are left to the fringe, which is what gives the conservative default its
 /// mismatch resistance (a lone content-equal occurrence is not silently treated as a move).
-/// Applies only to <see cref="FindingStreamKind.Ordered"/> matching.
+/// Applies only to <see cref="FindingMatchMode.Ordered"/> matching.
 /// </param>
 public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
 {
@@ -78,16 +78,16 @@ public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
     /// second positional parameter) so adding it keeps the record's <c>(int)</c> constructor and
     /// <c>Deconstruct</c> — no source or binary break for existing callers.
     /// </summary>
-    public FindingStreamKind StreamKind { get; init; } = FindingStreamKind.Ordered;
+    public FindingMatchMode MatchMode { get; init; } = FindingMatchMode.Ordered;
 
     public static readonly FindingMatchOptions Default = new();
 }
 
 /// <summary>
-/// The single, domain-free matcher every finding stream shares. For <see cref="FindingStreamKind.Ordered"/>
+/// The single, domain-free matcher every finding stream shares. For <see cref="FindingMatchMode.Ordered"/>
 /// streams it commits an order-preserving LCS core (which reproduces a classic sequence diff when there are
 /// no moves) and then recovers relocations as a scored move pass over the residual; for
-/// <see cref="FindingStreamKind.IdentitySet"/> streams it commits an identity-key bijection by multiset with
+/// <see cref="FindingMatchMode.IdentitySet"/> streams it commits an identity-key bijection by multiset with
 /// no notion of order (and no matrix, so it scales past the ordered cell cap). It never inspects a payload and
 /// never decides equivalence: it emits a classified alignment (a set of edges), and a consumer
 /// <see cref="FindingFold"/> folds it.
@@ -116,7 +116,7 @@ public static class FindingMatcher
         var oldKeys = oldStream as FindingKey[] ?? oldStream.ToArray();
         var newKeys = newStream as FindingKey[] ?? newStream.ToArray();
 
-        return options.StreamKind == FindingStreamKind.IdentitySet
+        return options.MatchMode == FindingMatchMode.IdentitySet
             ? MatchIdentitySet(oldKeys, newKeys)
             : MatchOrdered(oldKeys, newKeys, options);
     }
@@ -184,7 +184,7 @@ public static class FindingMatcher
             throw new ArgumentException(
                 $"Ordered matching is bounded to {MaxOrderedMatchCells:N0} matrix cells " +
                 $"({oldKeys.Length}x{newKeys.Length} requested). Streams this large need the " +
-                "identity-set committer (FindingStreamKind.IdentitySet), not the ordered LCS (see issue #2585).");
+                "identity-set committer (FindingMatchMode.IdentitySet), not the ordered LCS (see issue #2585).");
         }
 
         var matchedOld = new bool[oldKeys.Length];

@@ -213,7 +213,7 @@ public class FindingPilotTests
     public void Match_NullStream_Throws()
         => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
 
-    static readonly FindingMatchOptions IdentitySet = new() { StreamKind = FindingStreamKind.IdentitySet };
+    static readonly FindingMatchOptions IdentitySet = new() { MatchMode = FindingMatchMode.IdentitySet };
 
     [Fact]
     public void IdentitySet_Permutation_IsAllMatched_NoAddRemoveOrMove()
