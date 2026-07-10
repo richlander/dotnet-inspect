@@ -180,6 +180,15 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
 
+        var apiComparison = Assert.IsType<ApiFindingComparison>(diff.ApiComparison);
+        var memberComparison = apiComparison.Members switch
+        {
+            FindingComparison<ApiMemberHandle>.Complete complete => complete,
+            _ => throw new Xunit.Sdk.XunitException("Expected a complete API member comparison."),
+        };
+        Assert.Contains(memberComparison.Pairs, pair =>
+            pair is PairFinding<ApiMemberHandle>.Added added
+            && added.New.Payload.MemberName == "Added");
         var changed = Assert.Single(diff.MembersWhere(member => member.ApiChanged));
         Assert.Equal("Added", changed.Subject.MemberName);
         Assert.True(changed.HasChange("api.member-added"));
@@ -378,7 +387,38 @@ public class ResearchDiffTests
         var combined = ResearchDiff.Combine(apiResult, ilResult);
 
         Assert.Same(api, combined.ApiDiff);
+        Assert.Null(combined.ApiComparison);
         Assert.Single(combined.Changes);
+    }
+
+    [Fact]
+    public void Combine_PreservesStructuredApiComparison()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var apiResult = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
+
+        var combined = ResearchDiff.Combine(apiResult, ilResult);
+
+        Assert.Same(apiResult.ApiComparison, combined.ApiComparison);
+        Assert.Same(apiResult.ApiDiff, combined.ApiDiff);
+    }
+
+    [Fact]
+    public void Combine_PrefersStructuredApiComparisonOverEarlierLegacyApiDiff()
+    {
+        var legacySurface = Surface("Legacy", Member("Existing"));
+        var legacyResult = ResearchDiff.FromApiDiff(
+            ApiDiffAnalyzer.Compare(legacySurface, Surface("Legacy", Member("Added"))));
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var structuredResult = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+
+        var combined = ResearchDiff.Combine(legacyResult, structuredResult);
+
+        Assert.Same(structuredResult.ApiComparison, combined.ApiComparison);
+        Assert.Same(structuredResult.ApiDiff, combined.ApiDiff);
     }
 
     [Fact]

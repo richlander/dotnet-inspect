@@ -203,9 +203,15 @@ public static class ResearchDiff
         ArgumentNullException.ThrowIfNull(results);
         if (results.Any(result => result is null))
             throw new ArgumentException("Results cannot contain null entries.", nameof(results));
+        var apiComparison = results
+            .Select(result => result.ApiComparison)
+            .FirstOrDefault(comparison => comparison is not null);
+        var apiDiff = apiComparison?.ApiDiff
+            ?? results.FirstOrDefault(result => result.ApiDiff is not null)?.ApiDiff;
         return new ResearchComparison(
             [.. results.SelectMany(result => result.Changes)],
-            results.FirstOrDefault(result => result.ApiDiff is not null)?.ApiDiff);
+            apiDiff,
+            apiComparison);
     }
 
     public static ResearchComparison CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
@@ -245,8 +251,13 @@ public static class ResearchDiff
         if (oldSurface is null || newSurface is null)
             return;
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(apiScope));
-        builder.ApiDiff = diff;
+        var findings = MetadataFindings.CompareApi(
+            oldSurface,
+            newSurface,
+            new FindingSubject("api", "API surface"),
+            new ApiDiffOptions(apiScope));
+        var diff = findings.ApiDiff;
+        builder.ApiComparison = findings;
         foreach (var typeDiff in diff.TypeDiffs)
         {
             foreach (var change in typeDiff.Changes)
@@ -997,12 +1008,12 @@ public static class ResearchDiff
     {
         readonly List<ResearchChange> _changes = [];
 
-        public ApiDiff? ApiDiff { get; set; }
+        public ApiFindingComparison? ApiComparison { get; set; }
 
         public void Add(ResearchChange change) => _changes.Add(change);
 
         public ResearchComparison ToResult()
-            => new([.. _changes], ApiDiff);
+            => new([.. _changes], apiComparison: ApiComparison);
     }
 
     sealed class MethodBodyLookup : IDisposable

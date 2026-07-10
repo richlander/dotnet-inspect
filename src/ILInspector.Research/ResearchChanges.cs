@@ -243,18 +243,29 @@ public sealed record ResearchComparison
 {
     public ResearchComparison(
         ImmutableArray<ResearchChange> changes,
-        ApiDiff? apiDiff = null)
+        ApiDiff? apiDiff = null,
+        ApiFindingComparison? apiComparison = null)
     {
         if (changes.IsDefault)
             throw new ArgumentException("Changes must be initialized.", nameof(changes));
         if (changes.Any(change => change is null))
             throw new ArgumentException("Changes cannot contain null entries.", nameof(changes));
+        if (apiDiff is not null
+            && apiComparison is not null
+            && !ReferenceEquals(apiDiff, apiComparison.ApiDiff))
+        {
+            throw new ArgumentException(
+                "The API diff must be the diff carried by the API Finding comparison.",
+                nameof(apiDiff));
+        }
         Changes = changes;
-        ApiDiff = apiDiff;
+        ApiComparison = apiComparison;
+        ApiDiff = apiComparison?.ApiDiff ?? apiDiff;
     }
 
     public ImmutableArray<ResearchChange> Changes { get; }
     public ApiDiff? ApiDiff { get; }
+    public ApiFindingComparison? ApiComparison { get; }
     public bool IsEmpty => Changes.IsEmpty;
 
     public IReadOnlyList<ResearchSubjectChanges> BySubject()

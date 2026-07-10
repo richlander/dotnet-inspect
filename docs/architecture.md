@@ -136,7 +136,9 @@ single overlay layer:
   structured `Facts` rows. For two-version operations, it also owns
   `ResearchComparison`: one flat collection of `ResearchChange` values from API,
   body-signal, IL/body, C#, and round-trip mechanisms, with subject grouping
-  computed as a view rather than stored as duplicate state.
+  computed as a view rather than stored as duplicate state. API comparisons
+  retain Metadata's `ApiFindingComparison` (type/member `FindingComparison<T>`
+  envelopes plus the classified `ApiDiff`) alongside the Research projection.
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact

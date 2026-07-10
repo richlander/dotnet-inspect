@@ -26,10 +26,11 @@ cannot observe divergent copies of the same result.
 Each `ResearchChange` carries one mechanism, a `FindingDescriptor`, an
 added/removed/changed classification, its subject, and any native producer
 payload needed for typed presentation. It is deliberately not a
-`PairFinding<T>`. API, C#, IL/body, body-signal, and ReturnToSender producers do
-not all expose genuine old/new `Finding<T>` censuses yet, so Research must not
-manufacture Finding atoms or misuse `PairKind`. A producer can migrate to
-`PairFinding<T>` when it owns both observations and their matching policy.
+`PairFinding<T>`. Metadata now exposes genuine API type/member comparisons and
+`ResearchComparison.ApiComparison` retains that producer-owned envelope. C#,
+IL/body, body-signal, and ReturnToSender mechanisms do not all expose equivalent
+old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
+must not manufacture Finding atoms or misuse `PairKind`.
 
 ## Consumer contract
 
@@ -63,7 +64,8 @@ and row limits without changing the product change primitive.
 
 - It does not prove semantic equivalence; IL/body rows are evidence, not a
   verifier.
-- It does not own API compatibility rows. API diff remains a separate Research
-  mechanism that can be joined by callers when needed.
+- It does not own API compatibility rows. Metadata owns API observations,
+  matching, and compatibility classification; Research retains and projects
+  that comparison separately from `ImplementationDiff`.
 - It does not compile source artifacts or plan closure. ReturnToSender and other
   harnesses own artifact requests and compilation.
