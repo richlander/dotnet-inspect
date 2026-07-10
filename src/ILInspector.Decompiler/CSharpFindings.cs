@@ -18,11 +18,16 @@ public static class CSharpFindings
     /// <summary>The finding descriptor for a single decompiled C# line occurrence.</summary>
     public static readonly FindingDescriptor LineDescriptor = new("csharp.line", "C# line");
 
+    /// <summary>The descriptor for a failure to inspect a decompiled C# line census.</summary>
+    public static readonly FindingDescriptor InspectionDescriptor = new(
+        "csharp.inspect",
+        "C# inspection");
+
     /// <summary>
     /// Inspects a single decompiled method body and returns an explicit body, absence, or failure
     /// outcome. A body may contain zero rendered lines.
     /// </summary>
-    public static CSharpFindingsInspection Inspect(
+    public static FindingInspection<CSharpCanonicalLine> Inspect(
         MetadataSource source,
         MethodDefinitionHandle method,
         FindingSubject subject)
@@ -30,16 +35,16 @@ public static class CSharpFindings
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(subject);
 
-        bool succeeded = CSharpBodyDiff.TryCanonicalize(
-            source, method, out var lines, out var state, out var failure);
-        if (!succeeded)
-            return new CSharpFindingsInspection.Failed(failure ?? "C# body inspection failed");
-
-        return state switch
+        return CSharpBodyDiff.Canonicalize(source, method) switch
         {
-            CSharpBodyState.Body => new CSharpFindingsInspection.Body(ProjectAtoms(lines, subject)),
-            CSharpBodyState.Absent => new CSharpFindingsInspection.Absent(),
-            _ => new CSharpFindingsInspection.Failed(failure ?? "C# body inspection failed"),
+            CSharpCanonicalization.Body body =>
+                new FindingInspection<CSharpCanonicalLine>.Complete(
+                    ProjectAtoms(body.Lines, subject)),
+            CSharpCanonicalization.Absent absent =>
+                new FindingInspection<CSharpCanonicalLine>.Absent(absent.Detail),
+            CSharpCanonicalization.Failed failed =>
+                new FindingInspection<CSharpCanonicalLine>.Failed(
+                    InspectionError(subject, failed.Reason)),
         };
     }
 
@@ -57,19 +62,9 @@ public static class CSharpFindings
 
         var oldInspection = Inspect(oldSource, oldMethod, subject);
         var newInspection = Inspect(newSource, newMethod, subject);
-        if (oldInspection is CSharpFindingsInspection.Failed
-            || newInspection is CSharpFindingsInspection.Failed)
-        {
-            var failures = new List<string>(2);
-            if (oldInspection is CSharpFindingsInspection.Failed oldFailed)
-                failures.Add($"old: {oldFailed.Reason}");
-            if (newInspection is CSharpFindingsInspection.Failed newFailed)
-                failures.Add($"new: {newFailed.Reason}");
-            return CSharpFindingsResult.Failed(
-                oldInspection,
-                newInspection,
-                string.Join("; ", failures));
-        }
+        if (oldInspection is FindingInspection<CSharpCanonicalLine>.Failed
+            || newInspection is FindingInspection<CSharpCanonicalLine>.Failed)
+            return CSharpFindingsResult.Failed(oldInspection, newInspection);
 
         return CompareInspections(oldInspection, newInspection, acceptanceThreshold);
     }
@@ -80,36 +75,38 @@ public static class CSharpFindings
         FindingSubject subject,
         int acceptanceThreshold = 100)
         => CompareInspections(
-            new CSharpFindingsInspection.Body(ProjectAtoms(oldLines, subject)),
-            new CSharpFindingsInspection.Body(ProjectAtoms(newLines, subject)),
+            new FindingInspection<CSharpCanonicalLine>.Complete(ProjectAtoms(oldLines, subject)),
+            new FindingInspection<CSharpCanonicalLine>.Complete(ProjectAtoms(newLines, subject)),
             acceptanceThreshold);
 
     static CSharpFindingsResult CompareInspections(
-        CSharpFindingsInspection oldInspection,
-        CSharpFindingsInspection newInspection,
+        FindingInspection<CSharpCanonicalLine> oldInspection,
+        FindingInspection<CSharpCanonicalLine> newInspection,
         int acceptanceThreshold)
     {
-        var oldAtoms = CSharpFindingsInspection.Atoms(oldInspection);
-        var newAtoms = CSharpFindingsInspection.Atoms(newInspection);
+        var oldAtoms = InspectionAtoms(oldInspection);
+        var newAtoms = InspectionAtoms(newInspection);
 
-        FindingMatch match;
-        try
-        {
-            match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
-        }
-        catch (ArgumentException ex)
-        {
-            return CSharpFindingsResult.Failed(oldInspection, newInspection, ex.Message);
-        }
-
+        var match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
         var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
         return new CSharpFindingsResult(
             pairs,
             match,
             oldInspection,
-            newInspection,
-            Failure: null);
+            newInspection);
     }
+
+    internal static ImmutableArray<Finding<CSharpCanonicalLine>> InspectionAtoms(
+        FindingInspection<CSharpCanonicalLine> inspection)
+        => inspection switch
+        {
+            FindingInspection<CSharpCanonicalLine>.Complete complete => complete.Findings,
+            FindingInspection<CSharpCanonicalLine>.Absent => [],
+            FindingInspection<CSharpCanonicalLine>.Failed => [],
+        };
+
+    static CensusError InspectionError(FindingSubject subject, string reason)
+        => new(subject, InspectionDescriptor, reason);
 
     static ImmutableArray<Finding<CSharpCanonicalLine>> ProjectAtoms(
         ImmutableArray<CSharpCanonicalLine> lines,
@@ -130,50 +127,12 @@ public static class CSharpFindings
     }
 }
 
-/// <summary>
-/// The result of inspecting one method's rendered C# line census. Absence is a valid method state
-/// for abstract and extern methods; failure means the body could not be inspected.
-/// </summary>
-public abstract record CSharpFindingsInspection
-{
-    private CSharpFindingsInspection()
-    {
-    }
-
-    public sealed record Body(
-        ImmutableArray<Finding<CSharpCanonicalLine>> Findings) : CSharpFindingsInspection
-    {
-        public ImmutableArray<Finding<CSharpCanonicalLine>> Findings { get; }
-            = Findings.IsDefault
-                ? throw new ArgumentException("Findings must be initialized.", nameof(Findings))
-                : Findings;
-    }
-
-    public sealed record Absent : CSharpFindingsInspection;
-
-    public sealed record Failed(string Reason) : CSharpFindingsInspection
-    {
-        public string Reason { get; } = Reason ?? throw new ArgumentNullException(nameof(Reason));
-    }
-
-    internal static ImmutableArray<Finding<CSharpCanonicalLine>> Atoms(
-        CSharpFindingsInspection inspection)
-        => inspection switch
-        {
-            Body body => body.Findings,
-            Absent => [],
-            Failed => [],
-            _ => throw new ArgumentOutOfRangeException(nameof(inspection)),
-        };
-}
-
 /// <summary>The outcome of a <see cref="CSharpFindings.Compare"/> call.</summary>
 public sealed record CSharpFindingsResult(
     ImmutableArray<PairFinding<CSharpCanonicalLine>> Pairs,
     FindingMatch Match,
-    CSharpFindingsInspection OldInspection,
-    CSharpFindingsInspection NewInspection,
-    string? Failure)
+    FindingInspection<CSharpCanonicalLine> OldInspection,
+    FindingInspection<CSharpCanonicalLine> NewInspection)
 {
     public ImmutableArray<PairFinding<CSharpCanonicalLine>> Pairs { get; }
         = Pairs.IsDefault
@@ -183,17 +142,30 @@ public sealed record CSharpFindingsResult(
     public FindingMatch Match { get; }
         = Match ?? throw new ArgumentNullException(nameof(Match));
 
-    public CSharpFindingsInspection OldInspection { get; }
+    public FindingInspection<CSharpCanonicalLine> OldInspection { get; }
         = OldInspection ?? throw new ArgumentNullException(nameof(OldInspection));
 
-    public CSharpFindingsInspection NewInspection { get; }
+    public FindingInspection<CSharpCanonicalLine> NewInspection { get; }
         = NewInspection ?? throw new ArgumentNullException(nameof(NewInspection));
 
     public ImmutableArray<Finding<CSharpCanonicalLine>> OldAtoms
-        => CSharpFindingsInspection.Atoms(OldInspection);
+        => CSharpFindings.InspectionAtoms(OldInspection);
 
     public ImmutableArray<Finding<CSharpCanonicalLine>> NewAtoms
-        => CSharpFindingsInspection.Atoms(NewInspection);
+        => CSharpFindings.InspectionAtoms(NewInspection);
+
+    public string? Failure
+        => (OldInspection, NewInspection) switch
+        {
+            (FindingInspection<CSharpCanonicalLine>.Failed oldFailed,
+                FindingInspection<CSharpCanonicalLine>.Failed newFailed) =>
+                $"old: {oldFailed.Error.Reason}; new: {newFailed.Error.Reason}",
+            (FindingInspection<CSharpCanonicalLine>.Failed oldFailed, _) =>
+                $"old: {oldFailed.Error.Reason}",
+            (_, FindingInspection<CSharpCanonicalLine>.Failed newFailed) =>
+                $"new: {newFailed.Error.Reason}",
+            _ => null,
+        };
 
     /// <summary>
     /// True when both methods have the same body-presence state and their lines are exact under the
@@ -204,24 +176,33 @@ public sealed record CSharpFindingsResult(
            && SameBodyState(OldInspection, NewInspection)
            && FindingEquivalence.Exact.IsEquivalent(Pairs);
 
-    public static CSharpFindingsResult Failed(
-        CSharpFindingsInspection oldInspection,
-        CSharpFindingsInspection newInspection,
-        string failure)
-        => new(
+    internal static CSharpFindingsResult Failed(
+        FindingInspection<CSharpCanonicalLine> oldInspection,
+        FindingInspection<CSharpCanonicalLine> newInspection)
+    {
+        if (oldInspection is not FindingInspection<CSharpCanonicalLine>.Failed
+            && newInspection is not FindingInspection<CSharpCanonicalLine>.Failed)
+        {
+            throw new ArgumentException("At least one inspection must have failed.");
+        }
+
+        return new(
             [],
             new FindingMatch([], []),
             oldInspection,
-            newInspection,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
+            newInspection);
+    }
 
     static bool SameBodyState(
-        CSharpFindingsInspection oldInspection,
-        CSharpFindingsInspection newInspection)
+        FindingInspection<CSharpCanonicalLine> oldInspection,
+        FindingInspection<CSharpCanonicalLine> newInspection)
         => (oldInspection, newInspection) switch
         {
-            (CSharpFindingsInspection.Body, CSharpFindingsInspection.Body) => true,
-            (CSharpFindingsInspection.Absent, CSharpFindingsInspection.Absent) => true,
+            (FindingInspection<CSharpCanonicalLine>.Complete,
+                FindingInspection<CSharpCanonicalLine>.Complete) => true,
+            (FindingInspection<CSharpCanonicalLine>.Absent,
+                FindingInspection<CSharpCanonicalLine>.Absent) => true,
             _ => false,
         };
+
 }

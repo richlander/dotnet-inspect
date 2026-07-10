@@ -131,7 +131,7 @@ public class CSharpFindingsTests
         var method = FindMethod(source, "DiffFixtureSample.DiffSample", "ConstantValue");
 
         var inspection = CSharpFindings.Inspect(source, method, Subject);
-        var body = Assert.IsType<CSharpFindingsInspection.Body>(inspection);
+        var body = CompleteInspection(inspection);
         IEnumerable<Finding<CSharpCanonicalLine>> census = body.Findings;
 
         Assert.Contains(census, finding => finding.Descriptor.Id == "csharp.line");
@@ -147,7 +147,7 @@ public class CSharpFindingsTests
         var method = FindMethod(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Noop));
 
         var inspection = CSharpFindings.Inspect(source, method, Subject);
-        var body = Assert.IsType<CSharpFindingsInspection.Body>(inspection);
+        var body = CompleteInspection(inspection);
 
         Assert.Empty(body.Findings);
     }
@@ -160,7 +160,7 @@ public class CSharpFindingsTests
 
         var inspection = CSharpFindings.Inspect(source, method, Subject);
 
-        Assert.IsType<CSharpFindingsInspection.Absent>(inspection);
+        Assert.True(inspection is FindingInspection<CSharpCanonicalLine>.Absent);
     }
 
     [Fact]
@@ -175,8 +175,8 @@ public class CSharpFindingsTests
             oldSource, oldMethod, newSource, newMethod, Subject);
 
         Assert.Null(result.Failure);
-        Assert.IsType<CSharpFindingsInspection.Absent>(result.OldInspection);
-        Assert.IsType<CSharpFindingsInspection.Body>(result.NewInspection);
+        Assert.True(result.OldInspection is FindingInspection<CSharpCanonicalLine>.Absent);
+        Assert.True(result.NewInspection is FindingInspection<CSharpCanonicalLine>.Complete);
         Assert.False(result.IsExact);
         Assert.All(result.Pairs, pair => Assert.Equal(PairKind.Added, pair.Kind));
     }
@@ -195,8 +195,8 @@ public class CSharpFindingsTests
             bodySource, bodyMethod, absentSource, absentMethod, Subject);
 
         Assert.Null(result.Failure);
-        Assert.IsType<CSharpFindingsInspection.Body>(result.OldInspection);
-        Assert.IsType<CSharpFindingsInspection.Absent>(result.NewInspection);
+        Assert.True(result.OldInspection is FindingInspection<CSharpCanonicalLine>.Complete);
+        Assert.True(result.NewInspection is FindingInspection<CSharpCanonicalLine>.Absent);
         Assert.Empty(result.Pairs);
         Assert.False(result.IsExact);
     }
@@ -211,8 +211,8 @@ public class CSharpFindingsTests
             source, method, source, method, Subject);
 
         Assert.Null(result.Failure);
-        Assert.IsType<CSharpFindingsInspection.Absent>(result.OldInspection);
-        Assert.IsType<CSharpFindingsInspection.Absent>(result.NewInspection);
+        Assert.True(result.OldInspection is FindingInspection<CSharpCanonicalLine>.Absent);
+        Assert.True(result.NewInspection is FindingInspection<CSharpCanonicalLine>.Absent);
         Assert.Empty(result.Pairs);
         Assert.True(result.IsExact);
     }
@@ -220,15 +220,37 @@ public class CSharpFindingsTests
     [Fact]
     public void CSharpFindingsResult_RejectsInvalidPublicStates()
     {
-        var body = new CSharpFindingsInspection.Body([]);
+        FindingInspection<CSharpCanonicalLine> body
+            = new FindingInspection<CSharpCanonicalLine>.Complete([]);
         var match = new FindingMatch([], []);
 
         Assert.Throws<ArgumentException>(
-            () => new CSharpFindingsResult(default, match, body, body, Failure: null));
+            () => new CSharpFindingsResult(default, match, body, body));
         Assert.Throws<ArgumentNullException>(
-            () => new CSharpFindingsResult([], null!, body, body, Failure: null));
-        Assert.Throws<ArgumentNullException>(
-            () => CSharpFindingsResult.Failed(body, body, null!));
+            () => new CSharpFindingsResult([], null!, body, body));
+        Assert.Throws<ArgumentException>(
+            () => CSharpFindingsResult.Failed(body, body));
+    }
+
+    [Fact]
+    public void CSharpFindingsResult_DerivesFailureFromCensusErrors()
+    {
+        FindingInspection<CSharpCanonicalLine> body
+            = new FindingInspection<CSharpCanonicalLine>.Complete([]);
+        FindingInspection<CSharpCanonicalLine> oldFailed
+            = new FindingInspection<CSharpCanonicalLine>.Failed(
+                new CensusError(Subject, CSharpFindings.InspectionDescriptor, "old failure"));
+        FindingInspection<CSharpCanonicalLine> newFailed
+            = new FindingInspection<CSharpCanonicalLine>.Failed(
+                new CensusError(Subject, CSharpFindings.InspectionDescriptor, "new failure"));
+
+        var oldOnly = CSharpFindingsResult.Failed(oldFailed, body);
+        var both = CSharpFindingsResult.Failed(oldFailed, newFailed);
+
+        Assert.Equal("old: old failure", oldOnly.Failure);
+        Assert.Equal("old: old failure; new: new failure", both.Failure);
+        Assert.False(oldOnly.IsExact);
+        Assert.False(both.IsExact);
     }
 
     [Theory]
@@ -268,6 +290,14 @@ public class CSharpFindingsTests
 
     static ImmutableArray<CSharpCanonicalLine> Statements(params string[] lines)
         => CSharpBodyDiff.CanonicalizeRenderedLines(lines);
+
+    static FindingInspection<CSharpCanonicalLine>.Complete CompleteInspection(
+        FindingInspection<CSharpCanonicalLine> inspection)
+        => inspection switch
+        {
+            FindingInspection<CSharpCanonicalLine>.Complete complete => complete,
+            _ => throw new InvalidOperationException("Expected a complete inspection."),
+        };
 
     static MethodDefinitionHandle FindMethod(MetadataSource source, string typeName, string methodName)
     {
