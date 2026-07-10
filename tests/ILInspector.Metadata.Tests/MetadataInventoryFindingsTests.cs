@@ -127,6 +127,41 @@ public sealed class MetadataInventoryFindingsTests
     }
 
     [Fact]
+    public void AttributeIdentity_DistinguishesNullAndEmptyValues()
+    {
+        var comparison = MetadataFindings.CompareAssemblyAttributes(
+            [new AssemblyAttributeInfo("Tag", "Assembly", null)],
+            [new AssemblyAttributeInfo("Tag", "Assembly", "")],
+            Subject);
+
+        Assert.Equal(1, Pairs(comparison).Count(static pair => pair.Kind == PairKind.Added));
+        Assert.Equal(1, Pairs(comparison).Count(static pair => pair.Kind == PairKind.Removed));
+        Assert.DoesNotContain(Pairs(comparison), static pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
+    public void CompareInventory_ValidatesPublicInputsBeforeEnumeration()
+    {
+        bool enumerated = false;
+        IEnumerable<AssemblyReference> oldReferences = Enumerate();
+
+        var exception = Assert.Throws<ArgumentNullException>(
+            () => MetadataFindings.CompareAssemblyReferences(
+                oldReferences,
+                null!,
+                Subject));
+
+        Assert.Equal("newReferences", exception.ParamName);
+        Assert.False(enumerated);
+
+        IEnumerable<AssemblyReference> Enumerate()
+        {
+            enumerated = true;
+            yield break;
+        }
+    }
+
+    [Fact]
     public void RealScannerOutputs_ProjectWithoutChangingTheCensus()
     {
         using var stream = File.OpenRead(typeof(ApiSurfaceExtractor).Assembly.Location);

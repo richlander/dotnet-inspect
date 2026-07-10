@@ -26,7 +26,11 @@ public static partial class MetadataFindings
     public static FindingInspection<AssemblyReference> InspectAssemblyReferences(
         IEnumerable<AssemblyReference> references,
         FindingSubject subject)
-        => InspectInventory(
+    {
+        ArgumentNullException.ThrowIfNull(references);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectInventory(
             references,
             subject,
             AssemblyReferenceDescriptor,
@@ -36,37 +40,59 @@ public static partial class MetadataFindings
                 reference.Version,
                 reference.Culture,
                 reference.PublicKeyToken));
+    }
 
     public static FindingComparison<AssemblyReference> CompareAssemblyReferences(
         IEnumerable<AssemblyReference> oldReferences,
         IEnumerable<AssemblyReference> newReferences,
         FindingSubject subject)
-        => CompareInventory(
+    {
+        ArgumentNullException.ThrowIfNull(oldReferences);
+        ArgumentNullException.ThrowIfNull(newReferences);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
             InspectAssemblyReferences(oldReferences, subject),
             InspectAssemblyReferences(newReferences, subject));
+    }
 
     public static FindingInspection<TypeForwarderInfo> InspectTypeForwarders(
         IEnumerable<TypeForwarderInfo> forwarders,
         FindingSubject subject)
-        => InspectInventory(
+    {
+        ArgumentNullException.ThrowIfNull(forwarders);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectInventory(
             forwarders,
             subject,
             TypeForwarderDescriptor,
             static forwarder => forwarder.TypeName,
             static forwarder => JoinSortKey(forwarder.TypeName, forwarder.TargetAssembly));
+    }
 
     public static FindingComparison<TypeForwarderInfo> CompareTypeForwarders(
         IEnumerable<TypeForwarderInfo> oldForwarders,
         IEnumerable<TypeForwarderInfo> newForwarders,
         FindingSubject subject)
-        => CompareInventory(
+    {
+        ArgumentNullException.ThrowIfNull(oldForwarders);
+        ArgumentNullException.ThrowIfNull(newForwarders);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
             InspectTypeForwarders(oldForwarders, subject),
             InspectTypeForwarders(newForwarders, subject));
+    }
 
     public static FindingInspection<ManifestResourceInfo> InspectResources(
         IEnumerable<ManifestResourceInfo> resources,
         FindingSubject subject)
-        => InspectInventory(
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectInventory(
             resources,
             subject,
             ResourceDescriptor,
@@ -76,32 +102,50 @@ public static partial class MetadataFindings
                 resource.IsPublic ? "1" : "0",
                 resource.IsEmbedded ? "1" : "0",
                 resource.Size.ToString(CultureInfo.InvariantCulture)));
+    }
 
     public static FindingComparison<ManifestResourceInfo> CompareResources(
         IEnumerable<ManifestResourceInfo> oldResources,
         IEnumerable<ManifestResourceInfo> newResources,
         FindingSubject subject)
-        => CompareInventory(
+    {
+        ArgumentNullException.ThrowIfNull(oldResources);
+        ArgumentNullException.ThrowIfNull(newResources);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
             InspectResources(oldResources, subject),
             InspectResources(newResources, subject));
+    }
 
     public static FindingInspection<AssemblyAttributeInfo> InspectAssemblyAttributes(
         IEnumerable<AssemblyAttributeInfo> attributes,
         FindingSubject subject)
-        => InspectInventory(
+    {
+        ArgumentNullException.ThrowIfNull(attributes);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectInventory(
             attributes,
             subject,
             AssemblyAttributeDescriptor,
             static attribute => JoinSortKey(attribute.Target, attribute.Name, attribute.Value),
             static attribute => JoinSortKey(attribute.Target, attribute.Name, attribute.Value));
+    }
 
     public static FindingComparison<AssemblyAttributeInfo> CompareAssemblyAttributes(
         IEnumerable<AssemblyAttributeInfo> oldAttributes,
         IEnumerable<AssemblyAttributeInfo> newAttributes,
         FindingSubject subject)
-        => CompareInventory(
+    {
+        ArgumentNullException.ThrowIfNull(oldAttributes);
+        ArgumentNullException.ThrowIfNull(newAttributes);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
             InspectAssemblyAttributes(oldAttributes, subject),
             InspectAssemblyAttributes(newAttributes, subject));
+    }
 
     static FindingInspection<T> InspectInventory<T>(
         IEnumerable<T> observations,
@@ -219,7 +263,13 @@ public static partial class MetadataFindings
 
     static void AppendSortKeyPart(StringBuilder builder, string? value)
     {
-        value ??= "";
+        if (value is null)
+        {
+            builder.Append('N');
+            return;
+        }
+
+        builder.Append('S');
         builder.Append(value.Length);
         builder.Append(':');
         builder.Append(value);
