@@ -5,10 +5,10 @@ namespace ILInspector.Findings;
 
 /// <summary>
 /// A whole-census inspection failure on the non-generic finding skeleton. This is not a
-/// <c>Finding&lt;CensusError&gt;</c>: there is no diffable domain occurrence, only a failure to
+/// <c>Finding&lt;InspectionError&gt;</c>: there is no diffable domain occurrence, only a failure to
 /// produce the requested census.
 /// </summary>
-public sealed record CensusError(
+public sealed record InspectionError(
     FindingSubject Subject,
     FindingDescriptor Descriptor,
     string Reason) : IFinding
@@ -29,7 +29,7 @@ public sealed record CensusError(
 /// The explicit outcome of inspecting one subject for a stream of findings. This replaces a
 /// <c>TryInspect(..., out findings)</c> contract when absence and failure are distinct states:
 /// <see cref="Complete"/> may contain an empty census, <see cref="Absent"/> means the subject has
-/// no applicable producer input, and <see cref="Failed"/> carries a <see cref="CensusError"/>.
+/// no applicable producer input, and <see cref="Failed"/> carries an <see cref="InspectionError"/>.
 /// </summary>
 [Union]
 public sealed record FindingInspection<T>
@@ -62,9 +62,9 @@ public sealed record FindingInspection<T>
     public sealed record Absent(string? Detail = null);
 
     /// <summary>The producer could not complete the inspection.</summary>
-    public sealed record Failed(CensusError Error)
+    public sealed record Failed(InspectionError Error)
     {
-        public CensusError Error { get; }
+        public InspectionError Error { get; }
             = Error ?? throw new ArgumentNullException(nameof(Error));
     }
 }

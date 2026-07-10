@@ -50,13 +50,13 @@ public class TextFindingsTests
         Assert.Equal(
             expected.Select(f => f.Payload),
             actual.Select(f => f.Payload));
-        Assert.True(TextFindings.Compare("one\ntwo\nthree\n", "one\r\ntwo\rthree\r", Subject).IsExact);
+        Assert.True(Compare("one\ntwo\nthree\n", "one\r\ntwo\rthree\r").IsExact);
     }
 
     [Fact]
     public void IdenticalText_IsAllPresentAndIdentical()
     {
-        var result = TextFindings.Compare("alpha\nbeta", "alpha\nbeta", Subject);
+        var result = Compare("alpha\nbeta", "alpha\nbeta");
 
         Assert.True(result.IsExact);
         Assert.All(result.Pairs, pair =>
@@ -70,7 +70,7 @@ public class TextFindingsTests
     [Fact]
     public void Compare_ReportsAddedAndRemovedLines()
     {
-        var result = TextFindings.Compare("shared\nremoved", "shared\nadded", Subject);
+        var result = Compare("shared\nremoved", "shared\nadded");
 
         Assert.False(result.IsExact);
         Assert.Equal(1, result.Pairs.Count(pair => pair is PairFinding<string>.Present));
@@ -96,7 +96,7 @@ public class TextFindingsTests
         const string oldText = "A\nB\nC\nmoved-one\nmoved-two\nD\nE";
         const string newText = "moved-one\nmoved-two\nA\nB\nC\nD\nE";
 
-        var result = TextFindings.Compare(oldText, newText, Subject);
+        var result = Compare(oldText, newText);
 
         Assert.Equal(2, result.Pairs.Count(pair => pair.Difference == FindingDifferenceKind.Moved));
         Assert.All(result.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
@@ -106,7 +106,7 @@ public class TextFindingsTests
     [Fact]
     public void WhitespaceDifference_IsStructuralText()
     {
-        var result = TextFindings.Compare("value ", "value", Subject);
+        var result = Compare("value ", "value");
 
         Assert.False(result.IsExact);
         Assert.Equal(1, result.Pairs.Count(pair => pair.Kind == PairKind.Added));
@@ -125,7 +125,7 @@ public class TextFindingsTests
         Assert.Equal(["value"], withoutNewline.Select(f => f.Payload));
         Assert.Equal(["value", ""], withNewline.Select(f => f.Payload));
 
-        var result = TextFindings.Compare("value", "value\n", Subject);
+        var result = Compare("value", "value\n");
         var added = Assert.Single(
             result.Pairs.Where(pair => pair is PairFinding<string>.Added)) switch
         {
@@ -146,7 +146,7 @@ public class TextFindingsTests
         "New summary")]
     public void Compare_IsDomainNeutral(string oldText, string newText, string expectedNewLine)
     {
-        var result = TextFindings.Compare(oldText, newText, Subject);
+        var result = Compare(oldText, newText);
 
         Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(result.Pairs).Shape);
         Assert.Contains(
@@ -166,29 +166,27 @@ public class TextFindingsTests
     }
 
     [Fact]
-    public void Result_RejectsInvalidPublicStates()
+    public void Compare_NormalizesTotalCensusesToCompleteInspections()
     {
-        var valid = TextFindings.Compare("", "", Subject);
+        var comparison = TextFindings.Compare("", "", Subject);
+        var complete = CompleteComparison(comparison);
 
-        Assert.Throws<ArgumentException>(() =>
-            new TextFindingsResult(default, valid.Match, valid.OldAtoms, valid.NewAtoms));
-        Assert.Throws<ArgumentNullException>(() =>
-            new TextFindingsResult(valid.Pairs, null!, valid.OldAtoms, valid.NewAtoms));
-        Assert.Throws<ArgumentException>(() =>
-            new TextFindingsResult(
-                valid.Pairs,
-                new FindingMatch(default, []),
-                valid.OldAtoms,
-                valid.NewAtoms));
-        Assert.Throws<ArgumentException>(() =>
-            new TextFindingsResult(
-                valid.Pairs,
-                new FindingMatch([], default),
-                valid.OldAtoms,
-                valid.NewAtoms));
-        Assert.Throws<ArgumentException>(() =>
-            new TextFindingsResult(valid.Pairs, valid.Match, default, valid.NewAtoms));
-        Assert.Throws<ArgumentException>(() =>
-            new TextFindingsResult(valid.Pairs, valid.Match, valid.OldAtoms, default));
+        Assert.True(comparison is FindingComparison<string>.Complete);
+        Assert.True(complete.OldInspection is FindingInspection<string>.Complete);
+        Assert.True(complete.NewInspection is FindingInspection<string>.Complete);
+        Assert.Empty(complete.Pairs);
+        Assert.True(complete.IsExact);
     }
+
+    static FindingComparison<string>.Complete Compare(string oldText, string newText)
+        => CompleteComparison(TextFindings.Compare(oldText, newText, Subject));
+
+    static FindingComparison<string>.Complete CompleteComparison(
+        FindingComparison<string> comparison)
+        => comparison switch
+        {
+            FindingComparison<string>.Complete complete => complete,
+            FindingComparison<string>.Failed failed => throw new InvalidOperationException(
+                $"Expected a completed text comparison: {failed.Failure}"),
+        };
 }

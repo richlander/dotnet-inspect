@@ -22,9 +22,9 @@ public class CSharpFindingsTests
             "    Sink(value);",
             "    return value;");
 
-        var result = CSharpFindings.CompareCanonicalized(body, body, Subject);
+        var result = CompleteComparison(
+            CSharpFindings.CompareCanonicalized(body, body, Subject));
 
-        Assert.Null(result.Failure);
         Assert.True(result.IsExact);
         Assert.All(result.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
     }
@@ -38,9 +38,9 @@ public class CSharpFindingsTests
         var newMethod = FindMethod(newSource, "DiffFixtureSample.DiffSample", "ConstantValue");
 
         var classic = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-        var findings = CSharpFindings.Compare(oldSource, oldMethod, newSource, newMethod, Subject);
+        var findings = CompleteComparison(
+            CSharpFindings.Compare(oldSource, oldMethod, newSource, newMethod, Subject));
 
-        Assert.Null(findings.Failure);
         Assert.False(findings.IsExact);
         AssertRemovedAddedLineTextAgree(classic, findings);
     }
@@ -61,9 +61,9 @@ public class CSharpFindingsTests
             "    int second = value + 2;",
             "    return first + second;");
 
-        var result = CSharpFindings.CompareCanonicalized(old, @new, Subject);
+        var result = CompleteComparison(
+            CSharpFindings.CompareCanonicalized(old, @new, Subject));
 
-        Assert.Null(result.Failure);
         Assert.False(result.IsExact);
         Assert.Equal(2, result.Pairs.Count(pair => pair.Difference == FindingDifferenceKind.Moved));
         Assert.Equal(0, result.Pairs.Count(pair => pair.Kind is PairKind.Added or PairKind.Removed));
@@ -83,9 +83,9 @@ public class CSharpFindingsTests
         var newMethod = FindMethod(newSource, "DiffFixtureSample.DiffSample", methodName);
 
         var classic = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-        var findings = CSharpFindings.Compare(oldSource, oldMethod, newSource, newMethod, Subject);
+        var findings = CompleteComparison(
+            CSharpFindings.Compare(oldSource, oldMethod, newSource, newMethod, Subject));
 
-        Assert.Null(findings.Failure);
         Assert.Equal(classic.IsExact, findings.IsExact);
     }
 
@@ -98,9 +98,9 @@ public class CSharpFindingsTests
         var newMethod = FindMethod(newSource, "DiffFixtureSample.DiffSample", "MultipleHunks");
 
         var classic = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-        var findings = CSharpFindings.Compare(oldSource, oldMethod, newSource, newMethod, Subject);
+        var findings = CompleteComparison(
+            CSharpFindings.Compare(oldSource, oldMethod, newSource, newMethod, Subject));
 
-        Assert.Null(findings.Failure);
         Assert.Equal(0, findings.Pairs.Count(pair => pair.Difference == FindingDifferenceKind.Moved));
         AssertRemovedAddedLineTextAgree(classic, findings);
     }
@@ -117,7 +117,8 @@ public class CSharpFindingsTests
             "    Third();",
             "    First();");
 
-        var result = CSharpFindings.CompareCanonicalized(old, @new, Subject);
+        var result = CompleteComparison(
+            CSharpFindings.CompareCanonicalized(old, @new, Subject));
 
         Assert.Equal(0, result.Pairs.Count(pair => pair.Difference == FindingDifferenceKind.Moved));
         Assert.Equal(1, result.Pairs.Count(pair => pair.Kind == PairKind.Added));
@@ -171,10 +172,9 @@ public class CSharpFindingsTests
         var oldMethod = FindMethod(oldSource, "DiffFixtureSample.BodyStateSample", "BodyState");
         var newMethod = FindMethod(newSource, "DiffFixtureSample.BodyStateSample", "BodyState");
 
-        var result = CSharpFindings.Compare(
-            oldSource, oldMethod, newSource, newMethod, Subject);
+        var result = CompleteComparison(CSharpFindings.Compare(
+            oldSource, oldMethod, newSource, newMethod, Subject));
 
-        Assert.Null(result.Failure);
         Assert.True(result.OldInspection is FindingInspection<CSharpCanonicalLine>.Absent);
         Assert.True(result.NewInspection is FindingInspection<CSharpCanonicalLine>.Complete);
         Assert.False(result.IsExact);
@@ -191,10 +191,9 @@ public class CSharpFindingsTests
         var absentMethod = FindMethod(
             absentSource, "DiffFixtureSample.BodyStateSample", "BodyState");
 
-        var result = CSharpFindings.Compare(
-            bodySource, bodyMethod, absentSource, absentMethod, Subject);
+        var result = CompleteComparison(CSharpFindings.Compare(
+            bodySource, bodyMethod, absentSource, absentMethod, Subject));
 
-        Assert.Null(result.Failure);
         Assert.True(result.OldInspection is FindingInspection<CSharpCanonicalLine>.Complete);
         Assert.True(result.NewInspection is FindingInspection<CSharpCanonicalLine>.Absent);
         Assert.Empty(result.Pairs);
@@ -207,50 +206,13 @@ public class CSharpFindingsTests
         using var source = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
         var method = FindMethod(source, "DiffFixtureSample.BodyStateSample", "BodyState");
 
-        var result = CSharpFindings.Compare(
-            source, method, source, method, Subject);
+        var result = CompleteComparison(CSharpFindings.Compare(
+            source, method, source, method, Subject));
 
-        Assert.Null(result.Failure);
         Assert.True(result.OldInspection is FindingInspection<CSharpCanonicalLine>.Absent);
         Assert.True(result.NewInspection is FindingInspection<CSharpCanonicalLine>.Absent);
         Assert.Empty(result.Pairs);
         Assert.True(result.IsExact);
-    }
-
-    [Fact]
-    public void CSharpFindingsResult_RejectsInvalidPublicStates()
-    {
-        FindingInspection<CSharpCanonicalLine> body
-            = new FindingInspection<CSharpCanonicalLine>.Complete([]);
-        var match = new FindingMatch([], []);
-
-        Assert.Throws<ArgumentException>(
-            () => new CSharpFindingsResult(default, match, body, body));
-        Assert.Throws<ArgumentNullException>(
-            () => new CSharpFindingsResult([], null!, body, body));
-        Assert.Throws<ArgumentException>(
-            () => CSharpFindingsResult.Failed(body, body));
-    }
-
-    [Fact]
-    public void CSharpFindingsResult_DerivesFailureFromCensusErrors()
-    {
-        FindingInspection<CSharpCanonicalLine> body
-            = new FindingInspection<CSharpCanonicalLine>.Complete([]);
-        FindingInspection<CSharpCanonicalLine> oldFailed
-            = new FindingInspection<CSharpCanonicalLine>.Failed(
-                new CensusError(Subject, CSharpFindings.InspectionDescriptor, "old failure"));
-        FindingInspection<CSharpCanonicalLine> newFailed
-            = new FindingInspection<CSharpCanonicalLine>.Failed(
-                new CensusError(Subject, CSharpFindings.InspectionDescriptor, "new failure"));
-
-        var oldOnly = CSharpFindingsResult.Failed(oldFailed, body);
-        var both = CSharpFindingsResult.Failed(oldFailed, newFailed);
-
-        Assert.Equal("old: old failure", oldOnly.Failure);
-        Assert.Equal("old: old failure; new: new failure", both.Failure);
-        Assert.False(oldOnly.IsExact);
-        Assert.False(both.IsExact);
     }
 
     [Theory]
@@ -272,13 +234,14 @@ public class CSharpFindingsTests
 
             var token = MetadataTokens.GetToken(handle).ToString(CultureInfo.InvariantCulture);
             var subject = new FindingSubject(token, "m");
-            var findings = CSharpFindings.Compare(source, handle, source, handle, subject);
-            if (findings.Failure is not null)
+            var comparison = CSharpFindings.Compare(source, handle, source, handle, subject);
+            if (comparison is FindingComparison<CSharpCanonicalLine>.Failed)
             {
                 declined++;
                 continue;
             }
 
+            var findings = CompleteComparison(comparison);
             Assert.True(findings.IsExact, $"CSharpFindings self-compare not exact for token {token}");
             Assert.All(findings.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
             canonicalized++;
@@ -319,7 +282,9 @@ public class CSharpFindingsTests
         throw new InvalidOperationException($"Could not find {typeName}.{methodName}.");
     }
 
-    static void AssertRemovedAddedLineTextAgree(CSharpBodyDiffResult classic, CSharpFindingsResult findings)
+    static void AssertRemovedAddedLineTextAgree(
+        CSharpBodyDiffResult classic,
+        FindingComparison<CSharpCanonicalLine>.Complete findings)
     {
         Assert.Equal(ClassicLineTexts(classic, CSharpDiffKind.Remove), FindingTexts(findings, PairKind.Removed));
         Assert.Equal(ClassicLineTexts(classic, CSharpDiffKind.Add), FindingTexts(findings, PairKind.Added));
@@ -333,7 +298,9 @@ public class CSharpFindingsTests
             .OrderBy(text => text, StringComparer.Ordinal)
             .ToArray();
 
-    static string[] FindingTexts(CSharpFindingsResult findings, PairKind kind)
+    static string[] FindingTexts(
+        FindingComparison<CSharpCanonicalLine>.Complete findings,
+        PairKind kind)
         => findings.Pairs
             .Where(pair => pair.Kind == kind)
             .Select(pair => AtomForKind(pair, kind).Payload.Text)
@@ -348,5 +315,14 @@ public class CSharpFindingsTests
             (PairFinding<CSharpCanonicalLine>.Present present, PairKind.Present) => present.New,
             (PairFinding<CSharpCanonicalLine>.Changed changed, PairKind.Changed) => changed.New,
             _ => throw new ArgumentException("Pair kind does not match the requested atom side.", nameof(pair)),
+        };
+
+    static FindingComparison<CSharpCanonicalLine>.Complete CompleteComparison(
+        FindingComparison<CSharpCanonicalLine> comparison)
+        => comparison switch
+        {
+            FindingComparison<CSharpCanonicalLine>.Complete complete => complete,
+            FindingComparison<CSharpCanonicalLine>.Failed failed => throw new InvalidOperationException(
+                $"Expected a completed C# comparison: {failed.Failure}"),
         };
 }
