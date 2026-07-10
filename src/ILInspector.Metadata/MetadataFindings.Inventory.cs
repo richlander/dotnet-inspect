@@ -23,11 +23,6 @@ public static partial class MetadataFindings
     public static readonly FindingDescriptor AssemblyAttributeDescriptor =
         new("metadata.assembly-attribute", "Assembly or module attribute");
 
-    static readonly FindingMatchOptions InventoryMatchOptions = new()
-    {
-        MatchMode = FindingMatchMode.IdentitySet,
-    };
-
     public static FindingInspection<AssemblyReference> InspectAssemblyReferences(
         IEnumerable<AssemblyReference> references,
         FindingSubject subject)
@@ -78,9 +73,9 @@ public static partial class MetadataFindings
             static resource => resource.Name,
             static resource => JoinSortKey(
                 resource.Name,
-                resource.IsPublic,
-                resource.IsEmbedded,
-                resource.Size));
+                resource.IsPublic ? "1" : "0",
+                resource.IsEmbedded ? "1" : "0",
+                resource.Size.ToString(CultureInfo.InvariantCulture)));
 
     public static FindingComparison<ManifestResourceInfo> CompareResources(
         IEnumerable<ManifestResourceInfo> oldResources,
@@ -97,7 +92,7 @@ public static partial class MetadataFindings
             attributes,
             subject,
             AssemblyAttributeDescriptor,
-            static attribute => JoinSortKey(attribute.Target, attribute.Name),
+            static attribute => JoinSortKey(attribute.Target, attribute.Name, attribute.Value),
             static attribute => JoinSortKey(attribute.Target, attribute.Name, attribute.Value));
 
     public static FindingComparison<AssemblyAttributeInfo> CompareAssemblyAttributes(
@@ -153,12 +148,12 @@ public static partial class MetadataFindings
         FindingInspection<T> newInspection)
         where T : notnull
     {
-        var oldFindings = CompleteFindings(oldInspection);
-        var newFindings = CompleteFindings(newInspection);
+        var oldFindings = InspectionFindings(oldInspection);
+        var newFindings = InspectionFindings(newInspection);
         var match = FindingMatcher.Match(
             oldFindings.Keys(),
             newFindings.Keys(),
-            InventoryMatchOptions);
+            IdentitySetOptions);
         var pairs = FindingFold.ToPairs(match, oldFindings, newFindings);
         pairs = PromoteChangedPayloads(pairs);
 
@@ -195,24 +190,39 @@ public static partial class MetadataFindings
         return builder.MoveToImmutable();
     }
 
-    static ImmutableArray<Finding<T>> CompleteFindings<T>(
-        FindingInspection<T> inspection)
-        where T : notnull
-        => inspection is FindingInspection<T>.Complete complete
-            ? complete.Findings
-            : throw new InvalidOperationException("An in-memory inventory inspection must complete.");
-
-    static string JoinSortKey(params object?[] parts)
+    static string JoinSortKey(string? first, string? second)
     {
         var builder = new StringBuilder();
-        foreach (var part in parts)
-        {
-            string value = Convert.ToString(part, CultureInfo.InvariantCulture) ?? "";
-            builder.Append(value.Length);
-            builder.Append(':');
-            builder.Append(value);
-        }
+        AppendSortKeyPart(builder, first);
+        AppendSortKeyPart(builder, second);
         return builder.ToString();
+    }
+
+    static string JoinSortKey(string? first, string? second, string? third)
+    {
+        var builder = new StringBuilder();
+        AppendSortKeyPart(builder, first);
+        AppendSortKeyPart(builder, second);
+        AppendSortKeyPart(builder, third);
+        return builder.ToString();
+    }
+
+    static string JoinSortKey(string? first, string? second, string? third, string? fourth)
+    {
+        var builder = new StringBuilder();
+        AppendSortKeyPart(builder, first);
+        AppendSortKeyPart(builder, second);
+        AppendSortKeyPart(builder, third);
+        AppendSortKeyPart(builder, fourth);
+        return builder.ToString();
+    }
+
+    static void AppendSortKeyPart(StringBuilder builder, string? value)
+    {
+        value ??= "";
+        builder.Append(value.Length);
+        builder.Append(':');
+        builder.Append(value);
     }
 
     sealed record InventoryObservation<T>(

@@ -97,23 +97,33 @@ public sealed class MetadataInventoryFindingsTests
     }
 
     [Fact]
-    public void DuplicateAttributes_AreMatchedDeterministicallyByValue()
+    public void DuplicateAttributes_UseValueAsExactIdentityWithoutShiftingExistingPairs()
     {
-        AssemblyAttributeInfo first = new("Tag", "Assembly", "A");
-        AssemblyAttributeInfo second = new("Tag", "Assembly", "B");
+        AssemblyAttributeInfo a = new("Tag", "Assembly", "A");
+        AssemblyAttributeInfo b = new("Tag", "Assembly", "B");
+        AssemblyAttributeInfo c = new("Tag", "Assembly", "C");
 
         var reordered = MetadataFindings.CompareAssemblyAttributes(
-            [first, second],
-            [second, first],
+            [b, c],
+            [c, b],
             Subject);
-        var changed = MetadataFindings.CompareAssemblyAttributes(
-            [first, second],
-            [first, second with { Value = "C" }],
+        var inserted = MetadataFindings.CompareAssemblyAttributes(
+            [b, c],
+            [a, b, c],
+            Subject);
+        var replaced = MetadataFindings.CompareAssemblyAttributes(
+            [a, b],
+            [a, c],
             Subject);
 
         Assert.All(Pairs(reordered), static pair => Assert.Equal(PairKind.Present, pair.Kind));
-        Assert.Equal(1, Pairs(changed).Count(static pair => pair.Kind == PairKind.Present));
-        Assert.Equal(1, Pairs(changed).Count(static pair => pair.Kind == PairKind.Changed));
+        Assert.Equal(2, Pairs(inserted).Count(static pair => pair.Kind == PairKind.Present));
+        Assert.Equal(1, Pairs(inserted).Count(static pair => pair.Kind == PairKind.Added));
+        Assert.Equal(1, Pairs(replaced).Count(static pair => pair.Kind == PairKind.Present));
+        Assert.Equal(1, Pairs(replaced).Count(static pair => pair.Kind == PairKind.Added));
+        Assert.Equal(1, Pairs(replaced).Count(static pair => pair.Kind == PairKind.Removed));
+        Assert.DoesNotContain(Pairs(inserted), static pair => pair.Kind == PairKind.Changed);
+        Assert.DoesNotContain(Pairs(replaced), static pair => pair.Kind == PairKind.Changed);
     }
 
     [Fact]

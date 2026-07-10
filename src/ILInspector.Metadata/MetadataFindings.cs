@@ -371,7 +371,7 @@ public static partial class MetadataFindings
         where T : notnull
         => inspection is FindingInspection<T>.Complete complete
             ? complete.Findings
-            : throw new InvalidOperationException("API-surface inspection unexpectedly failed.");
+            : throw new InvalidOperationException("Metadata inspection unexpectedly failed.");
 
     static IEnumerable<(ApiType Type, ApiMember Member)> EnumerateMembers(ApiSurface surface)
     {
