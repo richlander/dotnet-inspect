@@ -117,14 +117,19 @@ public static class IlFindings
         foreach (var pair in pairs)
         {
             if (pair is PairFinding<CanonicalIlOperation>.Present { Difference: FindingDifferenceKind.Moved } moved)
-                alignment[moved.Old.Position] = moved.New.Position;
+                alignment[RequiredOrdinal(moved.Old)] = RequiredOrdinal(moved.New);
         }
 
         var builder = ImmutableArray.CreateBuilder<PairFinding<CanonicalIlOperation>>(pairs.Length);
         foreach (var pair in pairs)
         {
             if (pair is PairFinding<CanonicalIlOperation>.Present present
-                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, present.Old.Position, newInstructions, present.New.Position, alignment))
+                && !IlBodyDiff.BranchTargetsMatch(
+                    oldInstructions,
+                    RequiredOrdinal(present.Old),
+                    newInstructions,
+                    RequiredOrdinal(present.New),
+                    alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so
                 // neither the distance nor the retarget note is lost. Promoting the Present case to
@@ -144,7 +149,11 @@ public static class IlFindings
         return builder.ToImmutable();
     }
 
-    // One Finding per operation, carrying its content key and stream position. Private:
+    static int RequiredOrdinal(Finding<CanonicalIlOperation> finding)
+        => finding.Ordinal
+            ?? throw new InvalidOperationException("An IL operation finding must retain its stream ordinal.");
+
+    // One Finding per operation, carrying its content key and stream ordinal. Private:
     // canonicalized operations remain an internal shape.
     static IEnumerable<Finding<CanonicalIlOperation>> ProjectAtoms(
         ImmutableArray<CanonicalIlOperation> operations,
@@ -158,8 +167,8 @@ public static class IlFindings
                 subject,
                 OperationDescriptor,
                 new FindingKey(GetIdentityKey(operations[i])),
-                i,
-                operations[i]);
+                operations[i],
+                Ordinal: i);
         }
     }
 

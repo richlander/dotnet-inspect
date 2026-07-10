@@ -27,11 +27,10 @@ public static partial class MetadataFindings
 
         return new FindingInspection<ApiTypeHandle>.Complete(
         [
-            .. surface.Types.Select((type, position) => new Finding<ApiTypeHandle>(
+            .. surface.Types.Select(type => new Finding<ApiTypeHandle>(
                 subject,
                 TypeDescriptor,
                 new FindingKey(type.FullName),
-                position,
                 new ApiTypeHandle(type))),
         ]);
     }
@@ -45,7 +44,7 @@ public static partial class MetadataFindings
 
         return new FindingInspection<ApiMemberHandle>.Complete(
         [
-            .. EnumerateMembers(surface).Select((item, position) =>
+            .. EnumerateMembers(surface).Select(item =>
             {
                 var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member);
                 return new Finding<ApiMemberHandle>(
@@ -54,7 +53,6 @@ public static partial class MetadataFindings
                     new FindingKey(
                         handle.CanonicalSignature ?? handle.Identity,
                         item.Type.FullName),
-                    position,
                     handle);
             }),
         ]);

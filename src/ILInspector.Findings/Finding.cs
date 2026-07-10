@@ -78,7 +78,7 @@ public enum FindingDifferenceKind
     /// <summary>No observable difference for this pair.</summary>
     None,
 
-    /// <summary>Same content, different location (a matched pair with a position delta).</summary>
+    /// <summary>Same content, different location in the compared streams.</summary>
     Moved,
 }
 
@@ -97,11 +97,13 @@ public interface IFinding
 /// <summary>
 /// The atom: a single observation projected from a domain node (an IL op, an allocation, an API
 /// member). A single-version query is just a <c>Finding&lt;T&gt;[]</c> census — no matcher, no
-/// diff. It carries its content <see cref="Key"/> and a single <see cref="Position"/> in its own
-/// stream; the transition concepts (add/remove/change, an old-vs-new delta) belong to
-/// <see cref="PairFinding{T}"/>, never here. The payload is non-null and a type parameter rather
-/// than <c>object?</c>, so a value-typed payload is not boxed and consumers read it without a
-/// cast; heterogeneous consumers use <see cref="IFinding"/> and pattern-match the concrete
+/// diff. It carries its content <see cref="Key"/> and may retain its <see cref="Ordinal"/> in an
+/// ordered producer stream. The ordinal is observation metadata, not matching authority:
+/// <see cref="FindingMatcher"/> uses the order of the collections it receives. Identity-set
+/// observations leave it null. Transition concepts (add/remove/change, an old-vs-new delta) belong
+/// to <see cref="PairFinding{T}"/>, never here. The payload is non-null and a type parameter rather
+/// than <c>object?</c>, so a value-typed payload is not boxed and consumers read it without a cast;
+/// heterogeneous consumers use <see cref="IFinding"/> and pattern-match the concrete
 /// <c>Finding&lt;T&gt;</c> when they need its payload.
 /// </summary>
 public sealed record Finding<T> : IFinding
@@ -111,41 +113,41 @@ public sealed record Finding<T> : IFinding
         FindingSubject Subject,
         FindingDescriptor Descriptor,
         FindingKey Key,
-        int Position,
         T Payload,
+        int? Ordinal = null,
         string? Detail = null)
     {
         this.Subject = Subject ?? throw new ArgumentNullException(nameof(Subject));
         this.Descriptor = Descriptor ?? throw new ArgumentNullException(nameof(Descriptor));
         if (Key.IdentityKey is null)
             throw new ArgumentException("Finding key must be initialized.", nameof(Key));
-        if (Position < 0)
-            throw new ArgumentOutOfRangeException(nameof(Position), Position, "Position must be non-negative.");
         if (Payload is null)
             throw new ArgumentNullException(nameof(Payload));
+        if (Ordinal is < 0)
+            throw new ArgumentOutOfRangeException(nameof(Ordinal), Ordinal, "Ordinal must be non-negative.");
 
         this.Key = Key;
-        this.Position = Position;
         this.Payload = Payload;
+        this.Ordinal = Ordinal;
         this.Detail = Detail;
     }
 
     public FindingSubject Subject { get; }
     public FindingDescriptor Descriptor { get; }
     public FindingKey Key { get; }
-    public int Position { get; }
     public T Payload { get; }
+    public int? Ordinal { get; }
     public string? Detail { get; }
 
     public void Deconstruct(
         out FindingSubject subject,
         out FindingDescriptor descriptor,
         out FindingKey key,
-        out int position,
         out T payload,
+        out int? ordinal,
         out string? detail)
-        => (subject, descriptor, key, position, payload, detail)
-            = (Subject, Descriptor, Key, Position, Payload, Detail);
+        => (subject, descriptor, key, payload, ordinal, detail)
+            = (Subject, Descriptor, Key, Payload, Ordinal, Detail);
 }
 
 /// <summary>

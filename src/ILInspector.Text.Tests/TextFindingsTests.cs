@@ -12,7 +12,7 @@ public class TextFindingsTests
         var findings = TextFindings.Inspect("first\r\n second\nthird", Subject).ToArray();
 
         Assert.Equal(["first", " second", "third"], findings.Select(f => f.Payload));
-        Assert.Equal([0, 1, 2], findings.Select(f => f.Position));
+        Assert.Equal([0, 1, 2], findings.Select(f => f.Ordinal));
         Assert.All(findings, finding =>
         {
             Assert.Same(Subject, finding.Subject);
@@ -38,7 +38,7 @@ public class TextFindingsTests
 
         var whitespace = Assert.Single(TextFindings.Inspect(" \t", Subject));
         Assert.Equal(" \t", whitespace.Payload);
-        Assert.Equal(0, whitespace.Position);
+        Assert.Equal(0, whitespace.Ordinal);
     }
 
     [Fact]

@@ -12,7 +12,7 @@ public static class TextFindings
 
     /// <summary>
     /// Lazily yields an exact line census. Each string payload is the line content and
-    /// <see cref="Finding{T}.Position"/> is its zero-based position in the logical line stream.
+    /// <see cref="Finding{T}.Ordinal"/> is its zero-based position in the logical line stream.
     /// CRLF, CR, and LF are equivalent boundaries.
     /// Empty text has zero lines. A terminating boundary produces a final empty line, preserving
     /// the distinction between a document with and without a final newline.
@@ -82,8 +82,8 @@ public static class TextFindings
                 subject,
                 LineDescriptor,
                 new FindingKey(content),
-                position++,
-                content);
+                content,
+                Ordinal: position++);
         }
     }
 }

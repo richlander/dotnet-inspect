@@ -21,6 +21,16 @@ public sealed class MetadataInventoryFindingsTests
     }
 
     [Fact]
+    public void IdentitySetInventory_DoesNotFabricateOrdinals()
+    {
+        var findings = Findings(MetadataFindings.InspectResources(
+            [new ManifestResourceInfo("data.json", IsPublic: true, IsEmbedded: true, Size: 10)],
+            Subject));
+
+        Assert.Null(Assert.Single(findings).Ordinal);
+    }
+
+    [Fact]
     public void AssemblyReferences_IgnoreOrderAndPromoteVersionChanges()
     {
         AssemblyReference systemRuntimeV1 = new(

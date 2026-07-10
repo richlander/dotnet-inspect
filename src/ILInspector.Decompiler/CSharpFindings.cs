@@ -98,8 +98,8 @@ public static class CSharpFindings
                 subject,
                 LineDescriptor,
                 new FindingKey(lines[i].IdentityKey),
-                i,
-                lines[i]));
+                lines[i],
+                Ordinal: i));
         }
 
         return builder.MoveToImmutable();

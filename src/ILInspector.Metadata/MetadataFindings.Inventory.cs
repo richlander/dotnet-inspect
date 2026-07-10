@@ -205,14 +205,12 @@ public static partial class MetadataFindings
             .ToArray();
 
         var findings = ImmutableArray.CreateBuilder<Finding<T>>(projected.Length);
-        for (int position = 0; position < projected.Length; position++)
+        foreach (var observation in projected)
         {
-            var observation = projected[position];
             findings.Add(new Finding<T>(
                 subject,
                 descriptor,
                 new FindingKey(observation.Identity),
-                position,
                 observation.Payload));
         }
 

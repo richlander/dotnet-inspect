@@ -143,6 +143,20 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void ApiIdentitySetFindings_DoNotFabricateOrdinals()
+    {
+        var surface = Surface(Type("Widget", members: [Method("Run", "void Run()")]));
+
+        var type = Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(
+            MetadataFindings.InspectApiTypes(surface, Subject).Value);
+        var member = Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(
+            MetadataFindings.InspectApiMembers(surface, Subject).Value);
+
+        Assert.Null(Assert.Single(type.Findings).Ordinal);
+        Assert.Null(Assert.Single(member.Findings).Ordinal);
+    }
+
+    [Fact]
     public void SignatureChangesRemainConservativeAddRemovePairs()
     {
         var oldSurface = Surface(Type("Widget", members: [Method("Run", "void Run(int value)")]));
