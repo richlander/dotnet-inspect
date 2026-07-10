@@ -94,11 +94,11 @@ public static class LibrarySections
             .Add(ScannerClassifiedMethods, ctx =>
                 LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerResources, ctx =>
-                ctx.Model.Resources = LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.ResourceInspection = LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerCustomAttributes, ctx =>
                 LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerUnionTypes, ctx =>
-                ctx.Model.UnionTypes = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
                 LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerInfoCounts, ctx =>
@@ -106,7 +106,7 @@ public static class LibrarySections
             .Add(ScannerAuditSignals, ctx =>
                 AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerSwitches, ctx =>
-                ctx.Model.Switches = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerUnsafeMembers, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodySession, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, ctx =>
@@ -252,7 +252,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerSwitches;
         public static bool CanRender(LibraryInspection model)
-            => model.Switches is { Count: > 0 } || model.HasSwitches;
+            => model.SwitchInspection.Findings().Length > 0 || model.HasSwitches;
     }
 
     public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>
@@ -451,7 +451,7 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
-            => model.AssemblyInfo?.References is { Count: > 0 }
+            => model.AssemblyReferenceInspection.Findings().Length > 0
                && model.AssemblyInfo?.TransitiveReferences is not { Count: > 0 };
     }
 
@@ -532,7 +532,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerResources;
         public static bool CanRender(LibraryInspection model)
-            => model.Resources is { Count: > 0 } || model.HasManifestResources;
+            => model.ResourceInspection.Findings().Length > 0 || model.HasManifestResources;
     }
 
     public sealed class CustomAttributes : ISectionDescriptor<LibraryInspection>
@@ -542,7 +542,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerCustomAttributes;
         public static bool CanRender(LibraryInspection model)
-            => model.CustomAttributes is { Count: > 0 } || model.HasAssemblyAttributes;
+            => model.AssemblyAttributeInspection.Findings().Length > 0 || model.HasAssemblyAttributes;
     }
 
     public sealed class UnionTypes : ISectionDescriptor<LibraryInspection>
@@ -552,7 +552,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerUnionTypes;
         public static bool CanRender(LibraryInspection model)
-            => model.UnionTypes is { Count: > 0 } || model.HasUnionTypes;
+            => model.UnionTypeInspection.Findings().Length > 0 || model.HasUnionTypes;
     }
 
     public sealed class TypeForwarders : ISectionDescriptor<LibraryInspection>
@@ -562,7 +562,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerTypeForwarders;
         public static bool CanRender(LibraryInspection model)
-            => model.TypeForwarders is { Count: > 0 } || model.HasExportedTypeForwarders;
+            => model.TypeForwarderInspection.Findings().Length > 0 || model.HasExportedTypeForwarders;
     }
 
     public sealed class NonNormalizedPaths : ISectionDescriptor<LibraryInspection>

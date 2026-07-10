@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Models;
@@ -218,6 +219,9 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
 
+    [JsonIgnore]
+    public FindingInspection<AssemblyReference>? AssemblyReferenceInspection { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSurface? ApiSurface { get; set; }
 
@@ -268,11 +272,11 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AsyncMethodSummary>? AsyncMethods { get; set; }
 
-    /// <summary>
-    /// Ecosystem integrations detected from package references and metadata usage.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSummary>? Integrations { get; set; }
+    [JsonIgnore]
+    public FindingInspection<EcosystemIntegrationSignalInfo>? EcosystemIntegrationInspection { get; set; }
+
+    [JsonIgnore]
+    public FindingInspection<OpenTelemetrySignalInfo>? OpenTelemetryInspection { get; set; }
 
     /// <summary>
     /// Potential integration categories suggested by package-owned API shapes.
@@ -280,89 +284,8 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<IntegrationOpportunityInfo>? IntegrationOpportunities { get; set; }
 
-    /// <summary>
-    /// Metadata evidence of ASP.NET Core middleware/endpoint integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? AspNetCore { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of Aspire resource integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? Aspire { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of Microsoft.Extensions.AI integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? AI { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of authentication/authorization integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? Authentication { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of configuration integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? Configuration { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of dependency injection integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? DependencyInjection { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of logging integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? Logging { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of OpenTelemetry packages or .NET diagnostics primitives.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? OpenTelemetry { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of options-pattern integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? Options { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of hosting integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? Hosting { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of health-check integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? HealthChecks { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of HttpClientFactory integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? HttpClient { get; set; }
-
-    /// <summary>
-    /// Metadata evidence of OpenAPI/Swagger integration.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationSignal>? OpenApi { get; set; }
-
-    /// <summary>
-    /// Manifest resources embedded in this assembly.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ResourceSummary>? Resources { get; set; }
+    [JsonIgnore]
+    public FindingInspection<ManifestResourceInfo>? ResourceInspection { get; set; }
 
     /// <summary>
     /// File size of the assembly in bytes.
@@ -370,11 +293,8 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public long FileSize { get; set; }
 
-    /// <summary>
-    /// Assembly-level and module-level custom attributes.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<CustomAttributeSummary>? CustomAttributes { get; set; }
+    [JsonIgnore]
+    public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection { get; set; }
 
     /// <summary>
     /// Metadata audit signals. These are observations, not a trust verdict.
@@ -382,23 +302,93 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AuditSignal>? AuditSignals { get; set; }
 
-    /// <summary>
-    /// Type forwarders defined in this assembly.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<TypeForwarderSummary>? TypeForwarders { get; set; }
+    [JsonIgnore]
+    public FindingInspection<TypeForwarderInfo>? TypeForwarderInspection { get; set; }
 
-    /// <summary>
-    /// Types annotated with System.Runtime.CompilerServices.UnionAttribute.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnionTypeSummary>? UnionTypes { get; set; }
+    [JsonIgnore]
+    public FindingInspection<UnionTypeInfo>? UnionTypeInspection { get; set; }
 
-    /// <summary>
-    /// Feature, compatibility, and runtime switches discovered in metadata or IL.
-    /// </summary>
+    [JsonIgnore]
+    public FindingInspection<SwitchInfo>? SwitchInspection { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<SwitchInfo>? Switches { get; set; }
+    public List<LibraryIntegrationSummaryJson>? Integrations =>
+        NullIfEmpty(
+            LibraryIntegrationCatalog.All
+                .Select(descriptor =>
+                {
+                    var signals = descriptor.GetSignals(this);
+                    return new LibraryIntegrationSummaryJson(
+                        descriptor.Name,
+                        descriptor.CountRenderedRows(signals));
+                })
+                .Where(summary => summary.Count > 0)
+                .ToList());
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? AI => IntegrationSignals(LibraryIntegrationCatalog.AI);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? AspNetCore => IntegrationSignals(LibraryIntegrationCatalog.AspNetCore);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Authentication => IntegrationSignals(LibraryIntegrationCatalog.Authentication);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Aspire => IntegrationSignals(LibraryIntegrationCatalog.Aspire);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Configuration => IntegrationSignals(LibraryIntegrationCatalog.Configuration);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? DependencyInjection => IntegrationSignals(LibraryIntegrationCatalog.DependencyInjection);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Logging => IntegrationSignals(LibraryIntegrationCatalog.Logging);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? OpenTelemetry => IntegrationSignals(LibraryIntegrationCatalog.OpenTelemetry);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? OpenApi => IntegrationSignals(LibraryIntegrationCatalog.OpenAPI);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Options => IntegrationSignals(LibraryIntegrationCatalog.Options);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Hosting => IntegrationSignals(LibraryIntegrationCatalog.Hosting);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? HealthChecks => IntegrationSignals(LibraryIntegrationCatalog.HealthChecks);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? HttpClient => IntegrationSignals(LibraryIntegrationCatalog.HttpClient);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryResourceJson>? Resources =>
+        NullIfEmpty(
+            ResourceInspection.Payloads()
+                .Select(resource => new LibraryResourceJson(
+                    resource.Name,
+                    resource.IsPublic ? "public" : "private",
+                    resource.Size))
+                .ToList());
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AssemblyAttributeInfo>? CustomAttributes =>
+        NullIfEmpty(AssemblyAttributeInspection.Payloads().ToList());
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<TypeForwarderInfo>? TypeForwarders =>
+        NullIfEmpty(TypeForwarderInspection.Payloads().ToList());
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<UnionTypeInfo>? UnionTypes =>
+        NullIfEmpty(UnionTypeInspection.Payloads().ToList());
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SwitchInfo>? Switches =>
+        NullIfEmpty(SwitchInspection.Payloads().ToList());
 
     /// <summary>
     /// SourceLink URL rows for public types in this assembly. Populated only
@@ -496,6 +486,19 @@ public class LibraryInspection
     /// <summary>Whether the assembly contains OpenAPI/Swagger primitives.</summary>
     [JsonIgnore]
     public bool HasOpenApiSupport { get; set; }
+
+    private List<LibraryIntegrationSignalJson>? IntegrationSignals(
+        LibraryIntegrationDescriptor descriptor)
+        => NullIfEmpty(
+            descriptor.GetSignals(this)
+                .Select(signal => new LibraryIntegrationSignalJson(
+                    signal.Kind,
+                    signal.Name,
+                    signal.Shape))
+                .ToList());
+
+    private static List<T>? NullIfEmpty<T>(List<T> values)
+        => values.Count > 0 ? values : null;
 
     /// <summary>Number of integration categories discovered by the presence scan.</summary>
     [JsonIgnore]
@@ -748,9 +751,17 @@ public record class OptimizationOpportunitySummary
 /// </summary>
 public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
 
-public record IntegrationSummary(string Integration, int Count);
+public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
 
-public record IntegrationSignal(string Kind, string Name, string Shape = IntegrationSignalShape.Type);
+public sealed record LibraryIntegrationSignalJson(
+    string Kind,
+    string Name,
+    string Shape = IntegrationSignalShape.Type);
+
+public sealed record LibraryResourceJson(
+    string Name,
+    string Visibility,
+    int Size);
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic
@@ -770,45 +781,4 @@ public record class AsyncMethodSummary
 
     /// <summary>"Runtime" for runtime async, "State machine" for classic compiler async.</summary>
     public string Kind { get; init; } = "";
-}
-
-/// <summary>
-/// Summary of a manifest resource in a library.
-/// </summary>
-public record class ResourceSummary
-{
-    public string Name { get; init; } = "";
-    public string Visibility { get; init; } = "";
-    public int Size { get; init; }
-}
-
-/// <summary>
-/// Summary of a custom attribute on the assembly or module.
-/// </summary>
-public record class CustomAttributeSummary
-{
-    public string Name { get; init; } = "";
-    public string Target { get; init; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Value { get; init; }
-}
-
-/// <summary>
-/// Summary of a type forwarder in a library.
-/// </summary>
-public record class TypeForwarderSummary
-{
-    public string TypeName { get; init; } = "";
-    public string TargetAssembly { get; init; } = "";
-}
-
-/// <summary>
-/// Summary of a C# union-shaped type in a library.
-/// </summary>
-public record class UnionTypeSummary
-{
-    public string TypeName { get; init; } = "";
-    public string Kind { get; init; } = "";
-    public bool ImplementsIUnion { get; init; }
-    public List<string> CaseTypes { get; init; } = [];
 }

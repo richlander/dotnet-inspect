@@ -835,15 +835,12 @@ public class OutputFormatterTests
             packageResult, packageOptions, PackageSectionDescriptors.CreatePipeline());
 
         var libraryInspection = CreateTestAudit("Test.dll", "net9.0");
-        libraryInspection.Integrations =
-        [
-            new IntegrationSummary("OpenTelemetry", 2)
-        ];
-        libraryInspection.OpenTelemetry =
-        [
-            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
-            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.UpDownCounter<T>")
-        ];
+        libraryInspection.OpenTelemetryInspection = MetadataFindings.InspectOpenTelemetrySignals(
+            [
+                new OpenTelemetrySignalInfo("Tracing", "System.Diagnostics.ActivitySource"),
+                new OpenTelemetrySignalInfo("Metrics", "System.Diagnostics.Metrics.UpDownCounter<T>"),
+            ],
+            FindingTestData.Subject);
         libraryInspection.SourceIntegrityChecked = true;
         libraryInspection.SourceIntegrityMismatched = 1;
         libraryInspection.SourceIntegrityMismatches = ["/_/src/A.cs"];
@@ -1086,11 +1083,12 @@ public class OutputFormatterTests
         inspection.HasDependencyInjectionSupport = true;
         inspection.HasLoggingSupport = true;
         inspection.HasOpenTelemetrySupport = true;
-        inspection.OpenTelemetry =
-        [
-            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
-            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.Meter")
-        ];
+        inspection.OpenTelemetryInspection = MetadataFindings.InspectOpenTelemetrySignals(
+            [
+                new OpenTelemetrySignalInfo("Tracing", "System.Diagnostics.ActivitySource"),
+                new OpenTelemetrySignalInfo("Metrics", "System.Diagnostics.Metrics.Meter"),
+            ],
+            FindingTestData.Subject);
 
         var output = Serialize(inspection);
 
@@ -1161,12 +1159,13 @@ public class OutputFormatterTests
     public void SingleAudit_CustomAttributes_AreSortedByName()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
-        inspection.CustomAttributes =
-        [
-            new CustomAttributeSummary { Name = "NeutralResourcesLanguage", Target = "Assembly", Value = "en-US" },
-            new CustomAttributeSummary { Name = "AssemblyMetadata(Serviceable)", Target = "Assembly", Value = "True" },
-            new CustomAttributeSummary { Name = "AssemblyDefaultAlias", Target = "Assembly", Value = "Test" }
-        ];
+        inspection.AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
+            [
+                new AssemblyAttributeInfo("NeutralResourcesLanguage", "Assembly", "en-US"),
+                new AssemblyAttributeInfo("AssemblyMetadata(Serviceable)", "Assembly", "True"),
+                new AssemblyAttributeInfo("AssemblyDefaultAlias", "Assembly", "Test"),
+            ],
+            FindingTestData.Subject);
 
         var output = Serialize(inspection);
 
