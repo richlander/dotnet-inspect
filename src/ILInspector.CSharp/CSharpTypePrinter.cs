@@ -59,17 +59,17 @@ public sealed class CSharpTypePrinter
                 IncludeCustomAttributes = options.IncludeCustomAttributes
             };
 
-            var members = request.Members ?? request.Type.Members
+            var memberArray = (request.Members ?? request.Type.Members
                 ?? throw new ArgumentException(
                     $"Type '{request.Type.FullName}' has a null member collection.",
-                    nameof(requests));
-            if (members.Any(member => member is null))
+                    nameof(requests)))
+                .ToArray();
+            if (memberArray.Any(member => member is null))
             {
                 throw new ArgumentException(
                     $"Type '{request.Type.FullName}' has a null member entry.",
                     nameof(requests));
             }
-            var memberArray = members.ToArray();
             ValidateResolvedBodyPolicies(request, memberArray, nameof(requests));
 
             var rendered = CSharpDeclarationWriter.RenderTypeUnit(
