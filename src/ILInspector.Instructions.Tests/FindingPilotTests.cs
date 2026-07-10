@@ -221,10 +221,10 @@ public class FindingPilotTests
 
         // Each union case fixes its own polarity; there is no Kind field to set out of step with the
         // sides. The cases convert implicitly to the union.
-        Assert.Equal(PairKind.Present, ((PairFinding<string>)new Present<string>(a, b)).Kind);
-        Assert.Equal(PairKind.Changed, ((PairFinding<string>)new Changed<string>(a, b)).Kind);
-        Assert.Equal(PairKind.Added, ((PairFinding<string>)new Added<string>(b)).Kind);
-        Assert.Equal(PairKind.Removed, ((PairFinding<string>)new Removed<string>(a)).Kind);
+        Assert.Equal(PairKind.Present, ((PairFinding<string>)new PairFinding<string>.Present(a, b)).Kind);
+        Assert.Equal(PairKind.Changed, ((PairFinding<string>)new PairFinding<string>.Changed(a, b)).Kind);
+        Assert.Equal(PairKind.Added, ((PairFinding<string>)new PairFinding<string>.Added(b)).Kind);
+        Assert.Equal(PairKind.Removed, ((PairFinding<string>)new PairFinding<string>.Removed(a)).Kind);
 
         // A both-null pair is not a runtime error to reject — it is unrepresentable: every case
         // requires the atom(s) it carries, so there is no constructor that takes neither side.
@@ -232,7 +232,7 @@ public class FindingPilotTests
         //   _ = new PairFinding<string>(null, null);
 
         // Value equality holds across the union (record class over its case).
-        Assert.Equal((PairFinding<string>)new Present<string>(a, b), new Present<string>(a, b));
+        Assert.Equal((PairFinding<string>)new PairFinding<string>.Present(a, b), new PairFinding<string>.Present(a, b));
     }
 
     [Fact]
@@ -242,14 +242,14 @@ public class FindingPilotTests
 
         // A plain null literal is already a compile error under the non-null annotations; a
         // null-forgiving caller is caught at construction so a case can never hold a missing side.
-        Assert.Throws<ArgumentNullException>(() => new Added<string>(null!));
-        Assert.Throws<ArgumentNullException>(() => new Removed<string>(null!));
-        Assert.Throws<ArgumentNullException>(() => new Present<string>(a, null!));
-        Assert.Throws<ArgumentNullException>(() => new Present<string>(null!, a));
-        Assert.Throws<ArgumentNullException>(() => new Changed<string>(a, null!));
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>.Added(null!));
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>.Removed(null!));
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>.Present(a, null!));
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>.Present(null!, a));
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>.Changed(a, null!));
 
         // The union wrapper likewise never holds a null case.
-        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>((Added<string>)null!));
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>((PairFinding<string>.Added)null!));
     }
 
     [Fact]
@@ -283,8 +283,8 @@ public class FindingPilotTests
 
         IPairFinding[] pairs =
         [
-            new Present<string>(Atom("k0", 0), Atom("k0", 0)),
-            new Added<string>(Atom("k1", 1)),
+            new PairFinding<string>.Present(Atom("k0", 0), Atom("k0", 0)),
+            new PairFinding<string>.Added(Atom("k1", 1)),
         ];
 
         var summary = FindingSummary.Summarize(pairs);
@@ -496,10 +496,10 @@ public class FindingPilotTests
     // adding a fifth case makes this fail to build rather than fall through at runtime.
     static Finding<CanonicalIlOperation> CurrentAtom(PairFinding<CanonicalIlOperation> pair) => pair switch
     {
-        Added<CanonicalIlOperation> a => a.New,
-        Removed<CanonicalIlOperation> r => r.Old,
-        Present<CanonicalIlOperation> p => p.New,
-        Changed<CanonicalIlOperation> c => c.New,
+        PairFinding<CanonicalIlOperation>.Added a => a.New,
+        PairFinding<CanonicalIlOperation>.Removed r => r.Old,
+        PairFinding<CanonicalIlOperation>.Present p => p.New,
+        PairFinding<CanonicalIlOperation>.Changed c => c.New,
     };
 
     // ---- IL adapter: real-assembly corpus ----------------------------------------------------

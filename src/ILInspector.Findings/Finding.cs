@@ -111,95 +111,31 @@ public interface IPairFinding : IFinding
     IFinding? New { get; }
 }
 
-/// <summary>A transition present only on the new side: a one-sided addition.</summary>
-public sealed record Added<T>(Finding<T> New, string? Detail = null) : IPairFinding
-    where T : notnull
-{
-    // A null-forgiving (`null!`) caller could otherwise slip a missing atom past the non-null
-    // annotation and reintroduce a case with no side; guard the required atom at construction.
-    public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
-
-    public PairKind Kind => PairKind.Added;
-    public FindingDifferenceKind Difference => FindingDifferenceKind.None;
-    public FindingSubject Subject => New.Subject;
-    public FindingDescriptor Descriptor => New.Descriptor;
-    IFinding? IPairFinding.Old => null;
-    IFinding? IPairFinding.New => New;
-}
-
-/// <summary>A transition present only on the old side: a one-sided removal.</summary>
-public sealed record Removed<T>(Finding<T> Old, string? Detail = null) : IPairFinding
-    where T : notnull
-{
-    public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
-
-    public PairKind Kind => PairKind.Removed;
-    public FindingDifferenceKind Difference => FindingDifferenceKind.None;
-    public FindingSubject Subject => Old.Subject;
-    public FindingDescriptor Descriptor => Old.Descriptor;
-    IFinding? IPairFinding.Old => Old;
-    IFinding? IPairFinding.New => null;
-}
-
-/// <summary>
-/// A matched pair whose content is unchanged. May still carry a non-structural
-/// <see cref="Difference"/> (e.g. <see cref="FindingDifferenceKind.Moved"/>): a move keeps Present
-/// polarity because the content is the same, only the location differs.
-/// </summary>
-public sealed record Present<T>(
-    Finding<T> Old,
-    Finding<T> New,
-    FindingDifferenceKind Difference = FindingDifferenceKind.None,
-    string? Detail = null) : IPairFinding
-    where T : notnull
-{
-    public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
-    public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
-
-    public PairKind Kind => PairKind.Present;
-    public FindingSubject Subject => New.Subject;
-    public FindingDescriptor Descriptor => New.Descriptor;
-    IFinding? IPairFinding.Old => Old;
-    IFinding? IPairFinding.New => New;
-}
-
-/// <summary>A matched pair whose content changed across the two sides.</summary>
-public sealed record Changed<T>(
-    Finding<T> Old,
-    Finding<T> New,
-    FindingDifferenceKind Difference = FindingDifferenceKind.None,
-    string? Detail = null) : IPairFinding
-    where T : notnull
-{
-    public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
-    public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
-
-    public PairKind Kind => PairKind.Changed;
-    public FindingSubject Subject => New.Subject;
-    public FindingDescriptor Descriptor => New.Descriptor;
-    IFinding? IPairFinding.Old => Old;
-    IFinding? IPairFinding.New => New;
-}
-
 /// <summary>
 /// A classified transition between two <see cref="Finding{T}"/> atoms — the diff row, modeled as a
-/// discriminated union (.NET 11 <c>[Union]</c>) over its four cases. Because each case carries
+/// discriminated union (.NET 11 <c>[Union]</c>) over four nested cases (<see cref="Added"/>,
+/// <see cref="Removed"/>, <see cref="Present"/>, <see cref="Changed"/>). Because each case carries
 /// exactly the atoms it has, an inconsistent transition — a polarity that disagrees with its sides,
 /// or a pair with neither side — is <em>unrepresentable by construction</em>. There is no invariant
 /// to enforce and nothing a <c>with</c> expression can desync: the closed set of cases is the
 /// invariant. A reference union (a <c>record class</c>, not the struct sugar) so there is no
 /// <c>default</c>/empty state to guard and no boxing when a case is viewed as <see cref="IPairFinding"/>.
-/// Pattern-match the union itself (<c>pair switch { Added&lt;T&gt; … }</c>, not <c>pair.Value switch</c>)
-/// to recover a case and its typed atoms with compiler-checked exhaustiveness.
+/// <para>
+/// The cases are <em>nested</em> so their four otherwise-generic names stay scoped to the union
+/// (<c>PairFinding&lt;T&gt;.Present</c>) rather than claiming the producer-facing namespace, and each
+/// inherits <typeparamref name="T"/> from the enclosing union. Pattern-match the union itself
+/// (<c>pair switch { PairFinding&lt;T&gt;.Added … }</c>, not <c>pair.Value switch</c>) for
+/// compiler-checked exhaustiveness; a fifth case then breaks the build rather than falling through.
+/// </para>
 /// </summary>
 [Union]
 public sealed record PairFinding<T> : IPairFinding
     where T : notnull
 {
-    public PairFinding(Added<T> value) => Value = Guard(value);
-    public PairFinding(Removed<T> value) => Value = Guard(value);
-    public PairFinding(Present<T> value) => Value = Guard(value);
-    public PairFinding(Changed<T> value) => Value = Guard(value);
+    public PairFinding(Added value) => Value = Guard(value);
+    public PairFinding(Removed value) => Value = Guard(value);
+    public PairFinding(Present value) => Value = Guard(value);
+    public PairFinding(Changed value) => Value = Guard(value);
 
     // A constructed wrapper always holds a case. (A `default`/null PairFinding<T> reference is a
     // separate, NRT-visible concern inherent to any reference type, not an empty union state.)
@@ -209,7 +145,7 @@ public sealed record PairFinding<T> : IPairFinding
         return value;
     }
 
-    /// <summary>The active case: <see cref="Added{T}"/>, <see cref="Removed{T}"/>, <see cref="Present{T}"/>, or <see cref="Changed{T}"/>.</summary>
+    /// <summary>The active case: <see cref="Added"/>, <see cref="Removed"/>, <see cref="Present"/>, or <see cref="Changed"/>.</summary>
     public object? Value { get; }
 
     private IPairFinding Case => (IPairFinding)Value!;
@@ -221,6 +157,72 @@ public sealed record PairFinding<T> : IPairFinding
     public string? Detail => Case.Detail;
     IFinding? IPairFinding.Old => Case.Old;
     IFinding? IPairFinding.New => Case.New;
+
+    /// <summary>A transition present only on the new side: a one-sided addition.</summary>
+    public sealed record Added(Finding<T> New, string? Detail = null) : IPairFinding
+    {
+        // A null-forgiving (`null!`) caller could otherwise slip a missing atom past the non-null
+        // annotation and reintroduce a case with no side; guard the required atom at construction.
+        public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public PairKind Kind => PairKind.Added;
+        public FindingDifferenceKind Difference => FindingDifferenceKind.None;
+        public FindingSubject Subject => New.Subject;
+        public FindingDescriptor Descriptor => New.Descriptor;
+        IFinding? IPairFinding.Old => null;
+        IFinding? IPairFinding.New => New;
+    }
+
+    /// <summary>A transition present only on the old side: a one-sided removal.</summary>
+    public sealed record Removed(Finding<T> Old, string? Detail = null) : IPairFinding
+    {
+        public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
+
+        public PairKind Kind => PairKind.Removed;
+        public FindingDifferenceKind Difference => FindingDifferenceKind.None;
+        public FindingSubject Subject => Old.Subject;
+        public FindingDescriptor Descriptor => Old.Descriptor;
+        IFinding? IPairFinding.Old => Old;
+        IFinding? IPairFinding.New => null;
+    }
+
+    /// <summary>
+    /// A matched pair whose content is unchanged. May still carry a non-structural
+    /// <see cref="Difference"/> (e.g. <see cref="FindingDifferenceKind.Moved"/>): a move keeps Present
+    /// polarity because the content is the same, only the location differs.
+    /// </summary>
+    public sealed record Present(
+        Finding<T> Old,
+        Finding<T> New,
+        FindingDifferenceKind Difference = FindingDifferenceKind.None,
+        string? Detail = null) : IPairFinding
+    {
+        public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
+        public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public PairKind Kind => PairKind.Present;
+        public FindingSubject Subject => New.Subject;
+        public FindingDescriptor Descriptor => New.Descriptor;
+        IFinding? IPairFinding.Old => Old;
+        IFinding? IPairFinding.New => New;
+    }
+
+    /// <summary>A matched pair whose content changed across the two sides.</summary>
+    public sealed record Changed(
+        Finding<T> Old,
+        Finding<T> New,
+        FindingDifferenceKind Difference = FindingDifferenceKind.None,
+        string? Detail = null) : IPairFinding
+    {
+        public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
+        public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public PairKind Kind => PairKind.Changed;
+        public FindingSubject Subject => New.Subject;
+        public FindingDescriptor Descriptor => New.Descriptor;
+        IFinding? IPairFinding.Old => Old;
+        IFinding? IPairFinding.New => New;
+    }
 }
 
 /// <summary>Projections over finding streams shared by producers and the matcher seam.</summary>

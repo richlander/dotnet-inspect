@@ -100,20 +100,20 @@ public static class IlFindings
         var alignment = new Dictionary<int, int>(IlBodyDiff.BuildAlignmentMap(oldOps, newOps));
         foreach (var pair in pairs)
         {
-            if (pair.Value is Present<CanonicalIlOperation> { Difference: FindingDifferenceKind.Moved } moved)
+            if (pair.Value is PairFinding<CanonicalIlOperation>.Present { Difference: FindingDifferenceKind.Moved } moved)
                 alignment[moved.Old.Position] = moved.New.Position;
         }
 
         var builder = ImmutableArray.CreateBuilder<PairFinding<CanonicalIlOperation>>(pairs.Length);
         foreach (var pair in pairs)
         {
-            if (pair.Value is Present<CanonicalIlOperation> present
+            if (pair.Value is PairFinding<CanonicalIlOperation>.Present present
                 && !IlBodyDiff.BranchTargetsMatch(oldInstructions, present.Old.Position, newInstructions, present.New.Position, alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so
                 // neither the distance nor the retarget note is lost. Promoting the Present case to
                 // Changed keeps both sides while flipping the polarity.
-                builder.Add(new Changed<CanonicalIlOperation>(
+                builder.Add(new PairFinding<CanonicalIlOperation>.Changed(
                     present.Old,
                     present.New,
                     present.Difference,
