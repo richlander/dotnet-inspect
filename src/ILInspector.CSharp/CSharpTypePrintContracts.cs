@@ -10,24 +10,9 @@ public enum CSharpBodyPolicy
     Stub
 }
 
-public sealed record CSharpMemberPolicy
-{
-    public CSharpMemberPolicy(ApiMember member, CSharpBodyPolicy bodyPolicy)
-    {
-        ArgumentNullException.ThrowIfNull(member);
-        if (!Enum.IsDefined(bodyPolicy))
-            throw new ArgumentOutOfRangeException(nameof(bodyPolicy));
+public sealed record CSharpMemberPolicy(ApiMember Member, CSharpBodyPolicy BodyPolicy);
 
-        Member = member;
-        BodyPolicy = bodyPolicy;
-    }
-
-    public ApiMember Member { get; }
-
-    public CSharpBodyPolicy BodyPolicy { get; }
-}
-
-public sealed record CSharpTypePrintRequest
+public sealed class CSharpTypePrintRequest
 {
     public CSharpTypePrintRequest(
         ApiType type,
@@ -38,19 +23,39 @@ public sealed record CSharpTypePrintRequest
         ArgumentNullException.ThrowIfNull(type);
         if (!Enum.IsDefined(bodyPolicy))
             throw new ArgumentOutOfRangeException(nameof(bodyPolicy));
-        if (members?.Any(member => member is null) == true)
+
+        var memberArray = members?.ToArray();
+        if (memberArray?.Any(member => member is null) == true)
             throw new ArgumentException("Type print members cannot contain null entries.", nameof(members));
-        if (memberPolicyOverrides?.Any(policy => policy is null) == true)
+
+        var memberPolicyArray = memberPolicyOverrides?.ToArray() ?? [];
+        if (memberPolicyArray.Any(policy => policy is null))
         {
             throw new ArgumentException(
                 "Member policy overrides cannot contain null entries.",
                 nameof(memberPolicyOverrides));
         }
+        foreach (var policy in memberPolicyArray)
+        {
+            if (policy.Member is null)
+            {
+                throw new ArgumentException(
+                    "Member policy overrides require a member.",
+                    nameof(memberPolicyOverrides));
+            }
+            if (!Enum.IsDefined(policy.BodyPolicy))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(memberPolicyOverrides),
+                    policy.BodyPolicy,
+                    "Member policy overrides require a defined body policy.");
+            }
+        }
 
         Type = type;
         BodyPolicy = bodyPolicy;
-        Members = members?.ToArray();
-        MemberPolicyOverrides = memberPolicyOverrides?.ToArray() ?? [];
+        Members = memberArray;
+        MemberPolicyOverrides = memberPolicyArray;
     }
 
     public ApiType Type { get; }

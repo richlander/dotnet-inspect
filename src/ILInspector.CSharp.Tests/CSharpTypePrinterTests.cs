@@ -278,6 +278,34 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("multiple policy overrides", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RequestSnapshotsMembersBeforeValidation()
+    {
+        var member = CreateMethod("Run");
+        var changingMembers = new DifferentEachEnumerationList<ApiMember>(member, null!);
+
+        var request = new CSharpTypePrintRequest(
+            CreateEmptyType("Samples", "Widget"),
+            members: changingMembers);
+
+        Assert.Same(member, Assert.Single(request.Members!));
+    }
+
+    [Fact]
+    public void RequestSnapshotsMemberPoliciesBeforeValidation()
+    {
+        var member = CreateMethod("Run");
+        var policy = new CSharpMemberPolicy(member, CSharpBodyPolicy.Skeleton);
+        var changingPolicies = new DifferentEachEnumerationList<CSharpMemberPolicy>(policy, null!);
+
+        var request = new CSharpTypePrintRequest(
+            CreateEmptyType("Samples", "Widget"),
+            members: [member],
+            memberPolicyOverrides: changingPolicies);
+
+        Assert.Same(policy, Assert.Single(request.MemberPolicyOverrides));
+    }
+
     [Theory]
     [InlineData("enum")]
     [InlineData("delegate")]
@@ -427,4 +455,21 @@ public sealed class CSharpTypePrinterTests
                 MemberName = name
             }
         };
+
+    sealed class DifferentEachEnumerationList<T>(T first, T later) : IReadOnlyList<T>
+    {
+        int _enumerationCount;
+
+        public int Count => 1;
+
+        public T this[int index] => index == 0 ? first : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            yield return _enumerationCount++ == 0 ? first : later;
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+            => GetEnumerator();
+    }
 }
