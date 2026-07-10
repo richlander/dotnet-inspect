@@ -115,6 +115,34 @@ public sealed class CSharpTypePrinter
     {
         if (string.IsNullOrWhiteSpace(type.Name))
             throw new ArgumentException("Type print requests require a non-empty type name.");
+        if (type.TypeParameters is null)
+            throw new ArgumentException($"Type '{type.FullName}' has a null type-parameter collection.");
+        if (type.Name.Contains('<', StringComparison.Ordinal)
+            || type.Name.Contains('>', StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Type '{type.FullName}' must use a metadata name rather than C# type-argument spelling.");
+        }
+
+        var tick = type.Name.LastIndexOf('`');
+        if (tick < 0)
+        {
+            if (type.TypeParameters.Count > 0)
+            {
+                throw new ArgumentException(
+                    $"Generic type '{type.FullName}' requires metadata arity in its name.");
+            }
+
+            return;
+        }
+
+        if (!int.TryParse(type.Name.AsSpan(tick + 1), out var arity)
+            || arity <= 0
+            || arity != type.TypeParameters.Count)
+        {
+            throw new ArgumentException(
+                $"Type '{type.FullName}' has inconsistent metadata arity and type parameters.");
+        }
     }
 
     static void ValidateTopLevelSkeletonType(ApiType type)

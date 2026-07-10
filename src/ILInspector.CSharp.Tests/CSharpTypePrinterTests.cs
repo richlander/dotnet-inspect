@@ -131,7 +131,8 @@ public sealed class CSharpTypePrinterTests
         var type = new ApiType
         {
             Namespace = "Samples",
-            Name = "Converter<T>",
+            Name = "Converter`1",
+            MetadataName = "Converter`1",
             Kind = "class",
             TypeParameters = [new TypeParameter { Name = "T" }],
             Members =
@@ -155,9 +156,14 @@ public sealed class CSharpTypePrinterTests
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains(
+            "public class Converter<T>",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "public TResult Convert<TResult>(T value) where TResult : class;",
             result.Units[0].Source,
             StringComparison.Ordinal);
+        Assert.DoesNotContain("Converter<T><T>", result.Units[0].Source, StringComparison.Ordinal);
         Assert.DoesNotContain("broken compatibility signature", result.Units[0].Source, StringComparison.Ordinal);
     }
 
@@ -253,10 +259,12 @@ public sealed class CSharpTypePrinterTests
     [Fact]
     public void CanonicalMetadataIdentityRejectsDuplicateGenericDeclarations()
     {
-        var first = CreateEmptyType("Samples", "Converter<T>");
+        var first = CreateEmptyType("Samples", "Converter`1");
         first.MetadataName = "Converter`1";
-        var second = CreateEmptyType("Samples", "Converter<U>");
+        first.TypeParameters = [new TypeParameter { Name = "T" }];
+        var second = CreateEmptyType("Samples", "Other`1");
         second.MetadataName = "Converter`1";
+        second.TypeParameters = [new TypeParameter { Name = "U" }];
 
         var exception = Assert.Throws<ArgumentException>(
             () => _printer.PrintBatch(
@@ -266,6 +274,40 @@ public sealed class CSharpTypePrinterTests
             ]));
 
         Assert.Contains("duplicate C# type", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CSharpSpelledGenericTypeNameFailsExplicitly()
+    {
+        var type = CreateEmptyType("Samples", "Converter<T>");
+        type.TypeParameters = [new TypeParameter { Name = "T" }];
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("must use a metadata name", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Converter", 1)]
+    [InlineData("Converter`2", 1)]
+    [InlineData("Converter`x", 1)]
+    public void InconsistentGenericMetadataArityFailsExplicitly(string name, int parameterCount)
+    {
+        var type = CreateEmptyType("Samples", name);
+        type.TypeParameters = Enumerable.Range(0, parameterCount)
+            .Select(index => new TypeParameter { Name = $"T{index}" })
+            .ToList();
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains(
+            name.Contains('`', StringComparison.Ordinal)
+                ? "inconsistent metadata arity"
+                : "requires metadata arity",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
