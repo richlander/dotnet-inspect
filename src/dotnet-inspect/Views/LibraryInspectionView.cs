@@ -790,11 +790,13 @@ public class LibraryInspectionView
     {
         var findingCount = LibraryIntegrationCatalog.All.Count(
             descriptor => descriptor.HasSignals(inspection));
-        return Math.Max(
-            findingCount,
-            Math.Max(
-                inspection.IntegrationCount,
-                LibraryIntegrationCatalog.CountPresence(inspection)));
+        if (findingCount > 0)
+            return findingCount;
+
+        if (inspection.IntegrationCount > 0)
+            return inspection.IntegrationCount;
+
+        return LibraryIntegrationCatalog.CountPresence(inspection);
     }
 
     private static int CountSwitches(LibraryInspection inspection)

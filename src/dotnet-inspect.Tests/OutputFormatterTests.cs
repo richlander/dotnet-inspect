@@ -1083,6 +1083,18 @@ public class OutputFormatterTests
         inspection.HasDependencyInjectionSupport = true;
         inspection.HasLoggingSupport = true;
         inspection.HasOpenTelemetrySupport = true;
+        inspection.EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
+            [
+                new EcosystemIntegrationSignalInfo(
+                    EcosystemIntegrationNames.DependencyInjection,
+                    "Service registration",
+                    "Microsoft.Extensions.DependencyInjection.IServiceCollection"),
+                new EcosystemIntegrationSignalInfo(
+                    EcosystemIntegrationNames.Logging,
+                    "Logging",
+                    "Microsoft.Extensions.Logging.ILogger"),
+            ],
+            FindingTestData.Subject);
         inspection.OpenTelemetryInspection = MetadataFindings.InspectOpenTelemetrySignals(
             [
                 new OpenTelemetrySignalInfo("Tracing", "System.Diagnostics.ActivitySource"),
