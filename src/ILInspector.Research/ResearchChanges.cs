@@ -124,6 +124,7 @@ public sealed record ResearchChange
             throw new ArgumentOutOfRangeException(nameof(kind));
         if (!Enum.IsDefined(category))
             throw new ArgumentOutOfRangeException(nameof(category));
+        ArgumentNullException.ThrowIfNull(descriptor);
 
         ValidatePayloadMechanism(
             apiChange is not null,
@@ -182,7 +183,7 @@ public sealed record ResearchChange
             nameof(cSharpDisplayFailureRow));
 
         Mechanism = mechanism;
-        Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+        Descriptor = descriptor;
         Kind = kind;
         OldValue = oldValue;
         NewValue = newValue;

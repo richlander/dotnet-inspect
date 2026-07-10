@@ -113,6 +113,29 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ResearchChange_ValidatesRequiredFieldsBeforePayloadOwnership()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var row = new IlDiffRow(
+            0,
+            IlDiffKind.Add,
+            new CanonicalIlOperation(0, "nop", Operand: null),
+            "Added IL operation 'nop'");
+
+        var error = Assert.Throws<ArgumentNullException>(() => new ResearchChange(
+            subject,
+            ResearchChangeMechanism.Api,
+            null!,
+            ResearchChangeKind.Added,
+            ilRow: row));
+
+        Assert.Equal("descriptor", error.ParamName);
+    }
+
+    [Fact]
     public void ResearchChange_AllowsMatchingOrAbsentNativePayload()
     {
         var subject = new ResearchSubjectKey(
