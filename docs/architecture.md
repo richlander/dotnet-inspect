@@ -523,6 +523,10 @@ Research overlay bridge, and the application layer:
 │  PackageExtractor, NuGetCache, TfmResolver                  │
 │  DependencyGroup, PackageDependency                         │
 ├─────────────────────────────────────────────────────────────┤
+│  ILInspector.CSharp (C# type views)                         │
+│                                                             │
+│  CSharpTypePrinter, namespace/type skeleton composition      │
+├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Metadata (Domain provider — PE/Assembly)       │
 │                                                             │
 │  AssemblyReader, ApiSurface models, PdbReader                │
@@ -533,6 +537,7 @@ Research overlay bridge, and the application layer:
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
+- **CSharp** owns C# spelling and body-independent type views over Metadata models. It does not depend on Decompiler or Research.
 - **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading.
 - **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
 - **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
@@ -568,6 +573,7 @@ src/dotnet-inspect/
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
 src/ILInspector.Metadata/       # PE/assembly domain provider
+src/ILInspector.CSharp/         # C# spelling and namespace/type views
 src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels
 src/ILInspector.Analysis/       # R1 whole-assembly method-body evidence
 src/ILInspector.Decompiler/     # R2 per-method IR and source/IL projection
