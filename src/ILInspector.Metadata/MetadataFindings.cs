@@ -161,24 +161,25 @@ public static class MetadataFindings
         var builder = ImmutableArray.CreateBuilder<PairFinding<ApiTypeHandle>>(pairs.Length);
         foreach (var pair in pairs)
         {
-            if (pair is not PairFinding<ApiTypeHandle>.Present present)
+            if (pair is PairFinding<ApiTypeHandle>.Present present)
+            {
+                var details = new List<string>();
+                if (changesByKey.TryGetValue(present.New.Payload.TypeFullName, out var changes))
+                    details.AddRange(changes.Select(FormatApiChange));
+                AddTypeFacetDetails(present.Old.Payload.Type, present.New.Payload.Type, scope, details);
+
+                builder.Add(details.Count == 0
+                    ? pair
+                    : new PairFinding<ApiTypeHandle>.Changed(
+                        present.Old,
+                        present.New,
+                        present.Difference,
+                        string.Join("; ", details.Distinct(StringComparer.Ordinal))));
+            }
+            else
             {
                 builder.Add(pair);
-                continue;
             }
-
-            var details = new List<string>();
-            if (changesByKey.TryGetValue(present.New.Payload.TypeFullName, out var changes))
-                details.AddRange(changes.Select(FormatApiChange));
-            AddTypeFacetDetails(present.Old.Payload.Type, present.New.Payload.Type, scope, details);
-
-            builder.Add(details.Count == 0
-                ? pair
-                : new PairFinding<ApiTypeHandle>.Changed(
-                    present.Old,
-                    present.New,
-                    present.Difference,
-                    string.Join("; ", details.Distinct(StringComparer.Ordinal))));
         }
 
         return builder.ToImmutable();
@@ -193,25 +194,26 @@ public static class MetadataFindings
         var builder = ImmutableArray.CreateBuilder<PairFinding<ApiMemberHandle>>(pairs.Length);
         foreach (var pair in pairs)
         {
-            if (pair is not PairFinding<ApiMemberHandle>.Present present)
+            if (pair is PairFinding<ApiMemberHandle>.Present present)
+            {
+                string key = present.New.Key.IdentityKey;
+                var details = new List<string>();
+                if (changesByKey.TryGetValue(key, out var changes))
+                    details.AddRange(changes.Select(FormatApiChange));
+                AddMemberFacetDetails(present.Old.Payload.Member, present.New.Payload.Member, scope, details);
+
+                builder.Add(details.Count == 0
+                    ? pair
+                    : new PairFinding<ApiMemberHandle>.Changed(
+                        present.Old,
+                        present.New,
+                        present.Difference,
+                        string.Join("; ", details.Distinct(StringComparer.Ordinal))));
+            }
+            else
             {
                 builder.Add(pair);
-                continue;
             }
-
-            string key = present.New.Key.IdentityKey;
-            var details = new List<string>();
-            if (changesByKey.TryGetValue(key, out var changes))
-                details.AddRange(changes.Select(FormatApiChange));
-            AddMemberFacetDetails(present.Old.Payload.Member, present.New.Payload.Member, scope, details);
-
-            builder.Add(details.Count == 0
-                ? pair
-                : new PairFinding<ApiMemberHandle>.Changed(
-                    present.Old,
-                    present.New,
-                    present.Difference,
-                    string.Join("; ", details.Distinct(StringComparer.Ordinal))));
         }
 
         return builder.ToImmutable();
