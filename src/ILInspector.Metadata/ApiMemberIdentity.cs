@@ -24,6 +24,34 @@ public sealed record MethodAnchorInfo(
     }
 }
 
+public sealed record ExtensionMemberAnchorInfo(
+    MemberAnchor Anchor,
+    string ReturnType,
+    string ExtendedType)
+{
+    MemberAnchor _anchor = Anchor ?? throw new ArgumentNullException(nameof(Anchor));
+    string _returnType = ReturnType ?? throw new ArgumentNullException(nameof(ReturnType));
+    string _extendedType = ExtendedType ?? throw new ArgumentNullException(nameof(ExtendedType));
+
+    public MemberAnchor Anchor
+    {
+        get => _anchor;
+        init => _anchor = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public string ReturnType
+    {
+        get => _returnType;
+        init => _returnType = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public string ExtendedType
+    {
+        get => _extendedType;
+        init => _extendedType = value ?? throw new ArgumentNullException(nameof(value));
+    }
+}
+
 /// <summary>
 /// Metadata-owned API identity helpers for durable member selectors. These
 /// helpers compose identity strings from queryable metadata facts, not from C#
@@ -71,7 +99,7 @@ public static class ApiMemberIdentity
         public string GetSZArrayType(string elementType) => $"{elementType}[]";
 
         public string GetArrayType(string elementType, ArrayShape shape)
-            => $"{elementType}[{(shape.Rank == 1 ? "*" : new string(',', shape.Rank - 1))}]";
+            => $"{elementType}[{(shape.Rank <= 1 ? "*" : new string(',', shape.Rank - 1))}]";
 
         public string GetByReferenceType(string elementType) => $"{elementType}&";
 
@@ -90,7 +118,7 @@ public static class ApiMemberIdentity
         public string GetGenericMethodParameter(GenericContext? context, int index)
             => context is not null && index >= 0 && index < context.MethodParameters.Count
                 ? context.MethodParameters[index]
-                : $"!{index}";
+                : $"!!{index}";
 
         public string GetFunctionPointerType(MethodSignature<string> signature)
             => $"delegate*<{string.Join(",", signature.ParameterTypes.Append(signature.ReturnType))}>";
@@ -183,9 +211,74 @@ public static class ApiMemberIdentity
         MethodDefinition method,
         bool isExtensionMethod = false)
     {
+        var shape = CreateMethodAnchorShape(reader, typeHandle, method, isExtensionMethod);
+        return new MethodAnchorInfo(shape.Anchor, shape.ReturnType);
+    }
+
+    public static ExtensionMemberAnchorInfo CreateExtensionMethodAnchorInfo(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method)
+    {
+        var shape = CreateMethodAnchorShape(reader, typeHandle, method, isExtensionMethod: true);
+        if (shape.ParameterTypes.Length == 0)
+            throw new BadImageFormatException("An extension method must have a receiver parameter.");
+
+        return new ExtensionMemberAnchorInfo(
+            shape.Anchor,
+            shape.ReturnType,
+            shape.ParameterTypes[0]);
+    }
+
+    public static ExtensionMemberAnchorInfo CreateExtensionPropertyAnchorInfo(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition accessor,
+        string propertyName)
+    {
+        var type = reader.GetTypeDefinition(typeHandle);
+        string accessorName = reader.GetString(accessor.Name);
+        var signature = accessor.DecodeSignature(
+            AnchorSignatureTypeProvider.Instance,
+            GenericContext.ForMethod(reader, type, accessor));
+        if (signature.ParameterTypes.Length == 0)
+            throw new BadImageFormatException("An extension property must have a receiver parameter.");
+
+        string typeFullName = FormatDefinitionName(reader, typeHandle);
+        string extendedType = signature.ParameterTypes[0];
+        bool isSetter = accessorName.StartsWith("set_", StringComparison.Ordinal);
+        if (isSetter && signature.ParameterTypes.Length < 2)
+            throw new BadImageFormatException("An extension property setter must have a value parameter.");
+
+        string returnType = isSetter ? signature.ParameterTypes[^1] : signature.ReturnType;
+        IReadOnlyList<string> identityParameters = isSetter
+            ? signature.ParameterTypes.Take(signature.ParameterTypes.Length - 1).ToArray()
+            : signature.ParameterTypes;
+        string canonicalSignature = MemberCanonicalSignature.BuildExtensionProperty(
+            typeFullName,
+            propertyName,
+            identityParameters);
+        return new ExtensionMemberAnchorInfo(
+            CreateAnchor(
+                typeFullName,
+                $"extension:{propertyName}",
+                propertyName,
+                canonicalSignature),
+            returnType,
+            extendedType);
+    }
+
+    static (MemberAnchor Anchor, string ReturnType, ImmutableArray<string> ParameterTypes) CreateMethodAnchorShape(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method,
+        bool isExtensionMethod)
+    {
         var type = reader.GetTypeDefinition(typeHandle);
         string methodName = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(AnchorSignatureTypeProvider.Instance, GenericContext.ForMethod(reader, type, method));
+        var signature = method.DecodeSignature(
+            AnchorSignatureTypeProvider.Instance,
+            GenericContext.ForMethod(reader, type, method));
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
         // Route the SRM-direct producer through the single full-name grammar core so it
@@ -198,9 +291,10 @@ public static class ApiMemberIdentity
             signature.ParameterTypes,
             IsConversionOperator(methodName) ? signature.ReturnType : null);
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
-        return new MethodAnchorInfo(
+        return (
             CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
-            signature.ReturnType);
+            signature.ReturnType,
+            signature.ParameterTypes);
     }
 
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)

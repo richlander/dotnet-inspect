@@ -38,4 +38,14 @@ public static class MemberCanonicalSignature
             ? signature
             : $"{signature}~{conversionReturnType}";
     }
+
+    /// <summary>
+    /// Builds a canonical signature for a C# extension property. Unlike an
+    /// ordinary property, its receiver type is part of member identity.
+    /// </summary>
+    public static string BuildExtensionProperty(
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<string> parameterTypeFullNames)
+        => $"P:{typeFullName}.{memberName}({string.Join(",", parameterTypeFullNames)})";
 }

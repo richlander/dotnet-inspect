@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -14,7 +15,40 @@ public record ExtensionMethodInfo(
     string ExtendedType,
     string Signature,
     string? Assembly = null,
-    string Kind = "method");
+    string Kind = "method")
+{
+    public MemberAnchor? Anchor { get; init; }
+    public string? ReturnType { get; init; }
+    public string? CanonicalExtendedType { get; init; }
+
+    // Preserve the original seven-field record contract. The structured fields
+    // are derived from the same metadata and intentionally do not affect equality.
+    public virtual bool Equals(ExtensionMethodInfo? other)
+        => ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && string.Equals(MethodName, other.MethodName, StringComparison.Ordinal)
+        && string.Equals(ExtensionClass, other.ExtensionClass, StringComparison.Ordinal)
+        && string.Equals(Namespace, other.Namespace, StringComparison.Ordinal)
+        && string.Equals(ExtendedType, other.ExtendedType, StringComparison.Ordinal)
+        && string.Equals(Signature, other.Signature, StringComparison.Ordinal)
+        && string.Equals(Assembly, other.Assembly, StringComparison.Ordinal)
+        && string.Equals(Kind, other.Kind, StringComparison.Ordinal);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(EqualityContract);
+        hash.Add(MethodName, StringComparer.Ordinal);
+        hash.Add(ExtensionClass, StringComparer.Ordinal);
+        hash.Add(Namespace, StringComparer.Ordinal);
+        hash.Add(ExtendedType, StringComparer.Ordinal);
+        hash.Add(Signature, StringComparer.Ordinal);
+        hash.Add(Assembly, StringComparer.Ordinal);
+        hash.Add(Kind, StringComparer.Ordinal);
+        return hash.ToHashCode();
+    }
+}
 
 /// <summary>
 /// Scans assemblies for extension methods targeting a specific type.
@@ -54,7 +88,7 @@ public static class ExtensionMethodScanner
             string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
             // Track property accessors seen (for deduplication of get_/set_ pairs)
-            var seenPropertyNames = new HashSet<string>(StringComparer.Ordinal);
+            var seenProperties = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -86,7 +120,9 @@ public static class ExtensionMethodScanner
                     if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))
                     {
                         string propertyName = methodName.Substring(4); // strip get_ or set_
-                        if (!seenPropertyNames.Add(propertyName)) continue; // deduplicate
+                        var anchorInfo = ApiMemberIdentity.CreateExtensionPropertyAnchorInfo(
+                            reader, typeDefHandle, method, propertyName);
+                        if (!seenProperties.Add(anchorInfo.Anchor.CanonicalSignature)) continue;
 
                         var propSignature = FormatPropertySignature(signature, extendedType, propertyName);
                         yield return new ExtensionMethodInfo(
@@ -95,7 +131,12 @@ public static class ExtensionMethodScanner
                             Namespace: classNs,
                             ExtendedType: extendedType,
                             Signature: propSignature,
-                            Kind: "property");
+                            Kind: "property")
+                        {
+                            Anchor = anchorInfo.Anchor,
+                            ReturnType = anchorInfo.ReturnType,
+                            CanonicalExtendedType = anchorInfo.ExtendedType,
+                        };
                     }
                     continue;
                 }
@@ -118,12 +159,19 @@ public static class ExtensionMethodScanner
                     // Match against target
                     if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))
                     {
+                        var anchorInfo = ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
+                            reader, typeDefHandle, method);
                         yield return new ExtensionMethodInfo(
                             MethodName: methodName,
                             ExtensionClass: fullClassName,
                             Namespace: classNs,
                             ExtendedType: extendedType,
-                            Signature: FormatMethodSignature(reader, typeDef, method, context));
+                            Signature: FormatMethodSignature(reader, typeDef, method, context))
+                        {
+                            Anchor = anchorInfo.Anchor,
+                            ReturnType = anchorInfo.ReturnType,
+                            CanonicalExtendedType = anchorInfo.ExtendedType,
+                        };
                     }
                 }
             }
@@ -168,7 +216,7 @@ public static class ExtensionMethodScanner
             string classNs = reader.GetString(typeDef.Namespace);
             string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
-            var seenPropertyNames = new HashSet<string>(StringComparer.Ordinal);
+            var seenProperties = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -192,7 +240,9 @@ public static class ExtensionMethodScanner
 
                     var extendedType = signature.ParameterTypes[0];
                     string propertyName = methodName.Substring(4);
-                    if (!seenPropertyNames.Add(propertyName)) continue;
+                    var anchorInfo = ApiMemberIdentity.CreateExtensionPropertyAnchorInfo(
+                        reader, typeDefHandle, method, propertyName);
+                    if (!seenProperties.Add(anchorInfo.Anchor.CanonicalSignature)) continue;
 
                     var propSignature = FormatPropertySignature(signature, extendedType, propertyName);
                     yield return new ExtensionMethodInfo(
@@ -201,7 +251,12 @@ public static class ExtensionMethodScanner
                         Namespace: classNs,
                         ExtendedType: extendedType,
                         Signature: propSignature,
-                        Kind: "property");
+                        Kind: "property")
+                    {
+                        Anchor = anchorInfo.Anchor,
+                        ReturnType = anchorInfo.ReturnType,
+                        CanonicalExtendedType = anchorInfo.ExtendedType,
+                    };
                     continue;
                 }
 
@@ -217,12 +272,19 @@ public static class ExtensionMethodScanner
 
                     var extendedType = signature.ParameterTypes[0];
 
+                    var anchorInfo = ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
+                        reader, typeDefHandle, method);
                     yield return new ExtensionMethodInfo(
                         MethodName: methodName,
                         ExtensionClass: fullClassName,
                         Namespace: classNs,
                         ExtendedType: extendedType,
-                        Signature: FormatMethodSignature(reader, typeDef, method, context));
+                        Signature: FormatMethodSignature(reader, typeDef, method, context))
+                    {
+                        Anchor = anchorInfo.Anchor,
+                        ReturnType = anchorInfo.ReturnType,
+                        CanonicalExtendedType = anchorInfo.ExtendedType,
+                    };
                 }
             }
         }

@@ -50,4 +50,15 @@ public class MemberCanonicalSignatureTests
         // Parameter list is ignored for P/F/E even if provided.
         Assert.Equal(expected, MemberCanonicalSignature.Build(kind, typeName, memberName, ["System.Int32"]));
     }
+
+    [Fact]
+    public void BuildExtensionProperty_IncludesReceiverAndIndexerParameters()
+    {
+        Assert.Equal(
+            "P:Sample.Extensions.Item(System.String,System.Int32)",
+            MemberCanonicalSignature.BuildExtensionProperty(
+                "Sample.Extensions",
+                "Item",
+                ["System.String", "System.Int32"]));
+    }
 }
