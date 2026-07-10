@@ -10,10 +10,14 @@ namespace ILInspector.Metadata;
 public sealed record ClassifiedMethodObservation(
     MemberAnchor Anchor,
     MethodClassification Classification,
+    string ReturnType,
     string? ModuleName = null)
 {
     public MemberAnchor Anchor { get; }
         = Anchor ?? throw new ArgumentNullException(nameof(Anchor));
+
+    public string ReturnType { get; }
+        = ReturnType ?? throw new ArgumentNullException(nameof(ReturnType));
 }
 
 public static partial class MetadataFindings
@@ -44,19 +48,20 @@ public static partial class MetadataFindings
                 : method)
             .ToArray();
 
-        if (materialized.Any(static method => method.Anchor is null))
+        if (materialized.Any(static method => method.Anchor is null || method.ReturnType is null))
         {
             return new FindingInspection<ClassifiedMethodObservation>.Failed(
                 new InspectionError(
                     subject,
                     ClassifiedMethodDescriptor,
-                    "One or more classified methods do not have structured member identity."));
+                    "One or more classified methods do not have structured method shape."));
         }
 
         return InspectInventory(
             materialized.Select(static method => new ClassifiedMethodObservation(
                 method.Anchor!,
                 method.Classification,
+                method.ReturnType!,
                 method.ModuleName)),
             subject,
             ClassifiedMethodDescriptor,
@@ -66,6 +71,7 @@ public static partial class MetadataFindings
             static method => JoinSortKey(
                 method.Anchor.CanonicalSignature,
                 method.Classification.ToString(),
+                method.ReturnType,
                 method.ModuleName),
             parameterName);
     }

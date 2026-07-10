@@ -29,6 +29,7 @@ public class MethodClassificationScannerTests
         Assert.Equal("DotnetInspector.Tests.SampleUnsafeClass", pointerMethod.DeclaringType);
         Assert.Contains("*", pointerMethod.Signature);
         Assert.NotNull(pointerMethod.Anchor);
+        Assert.Equal("int", pointerMethod.ReturnType);
     }
 
     [Fact]
@@ -46,6 +47,7 @@ public class MethodClassificationScannerTests
         Assert.Equal("DotnetInspector.Tests.SamplePInvokeClass", method.DeclaringType);
         Assert.Equal("kernel32.dll", method.ModuleName);
         Assert.NotNull(method.Anchor);
+        Assert.Equal("int", method.ReturnType);
     }
 
     [Fact]
@@ -85,6 +87,7 @@ public class MethodClassificationScannerTests
         Assert.NotNull(method);
         Assert.Equal(MethodClassification.RuntimeAsync, method.Classification);
         Assert.NotNull(method.Anchor);
+        Assert.Equal("System.Threading.Tasks.Task<int>", method.ReturnType);
     }
 
     [Fact]
@@ -101,6 +104,7 @@ public class MethodClassificationScannerTests
         Assert.NotNull(method);
         Assert.Equal(MethodClassification.StateMachineAsync, method.Classification);
         Assert.NotNull(method.Anchor);
+        Assert.Equal("System.Threading.Tasks.Task<int>", method.ReturnType);
     }
 
     [Fact]

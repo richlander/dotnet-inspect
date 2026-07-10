@@ -25,6 +25,7 @@ public sealed class MetadataMethodFindingsTests
             method.Anchor.CanonicalSignature,
             StringComparison.Ordinal);
         Assert.Contains("System.Int32*", method.Anchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.Equal("int*", method.ReturnType);
     }
 
     [Fact]
@@ -37,8 +38,11 @@ public sealed class MetadataMethodFindingsTests
             "Sample",
             "int M(int value)",
             MethodClassification.PInvoke,
-            "native",
-            anchor);
+            "native")
+        {
+            Anchor = anchor,
+            ReturnType = "int",
+        };
         ClassifiedMethodInfo newMethod = oldMethod with
         {
             Signature = "System.Int32 M(System.Int32 value)",
@@ -66,12 +70,19 @@ public sealed class MetadataMethodFindingsTests
             "Sample",
             "void M()",
             MethodClassification.PInvoke,
-            "old",
-            anchor);
+            "old")
+        {
+            Anchor = anchor,
+            ReturnType = "void",
+        };
 
         var moduleChange = MetadataFindings.CompareClassifiedMethods(
             [pinvoke],
             [pinvoke with { ModuleName = "new" }],
+            Subject);
+        var returnChange = MetadataFindings.CompareClassifiedMethods(
+            [pinvoke],
+            [pinvoke with { ReturnType = "nint" }],
             Subject);
         var classificationChange = MetadataFindings.CompareClassifiedMethods(
             [pinvoke],
@@ -81,6 +92,7 @@ public sealed class MetadataMethodFindingsTests
         var changed = Assert.Single(Pairs(moduleChange));
         Assert.Equal(PairKind.Changed, changed.Kind);
         Assert.Null(changed.Detail);
+        Assert.Equal(PairKind.Changed, Assert.Single(Pairs(returnChange)).Kind);
         Assert.Equal(1, Pairs(classificationChange).Count(static pair => pair.Kind == PairKind.Added));
         Assert.Equal(1, Pairs(classificationChange).Count(static pair => pair.Kind == PairKind.Removed));
     }
@@ -99,7 +111,7 @@ public sealed class MetadataMethodFindingsTests
         var comparison = MetadataFindings.CompareClassifiedMethods([unbound], [], Subject);
 
         var failedInspection = Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(inspection.Value);
-        Assert.Contains("structured member identity", failedInspection.Error.Reason, StringComparison.Ordinal);
+        Assert.Contains("structured method shape", failedInspection.Error.Reason, StringComparison.Ordinal);
         var failedComparison = Assert.IsType<FindingComparison<ClassifiedMethodObservation>.Failed>(comparison.Value);
         Assert.Contains("old:", failedComparison.Failure, StringComparison.Ordinal);
     }

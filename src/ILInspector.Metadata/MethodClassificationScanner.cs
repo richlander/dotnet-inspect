@@ -14,8 +14,11 @@ public record ClassifiedMethodInfo(
     string? Namespace,
     string Signature,
     MethodClassification Classification,
-    string? ModuleName = null,
-    MemberAnchor? Anchor = null);
+    string? ModuleName = null)
+{
+    public MemberAnchor? Anchor { get; init; }
+    public string? ReturnType { get; init; }
+}
 
 /// <summary>
 /// Classification of a method based on its metadata characteristics.
@@ -108,10 +111,14 @@ public static class MethodClassificationScanner
                 if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
                 {
                     string? moduleName = GetPInvokeModuleName(reader, methodHandle);
-                    var signature = FormatSignature(reader, typeDef, method);
+                    var (signature, returnType) = FormatSignature(reader, typeDef, method);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature,
-                        MethodClassification.PInvoke, moduleName, GetAnchor()));
+                        MethodClassification.PInvoke, moduleName)
+                    {
+                        Anchor = GetAnchor(),
+                        ReturnType = returnType,
+                    });
                     continue; // P/Invoke methods are also "unsafe" but classify as P/Invoke
                 }
 
@@ -119,10 +126,13 @@ public static class MethodClassificationScanner
                 var asyncClassification = ClassifyAsyncMethod(reader, method);
                 if (asyncClassification is { } asyncKind)
                 {
-                    var signature = FormatSignature(reader, typeDef, method);
+                    var (signature, returnType) = FormatSignature(reader, typeDef, method);
                     results.Add(new ClassifiedMethodInfo(
-                        methodName, fullTypeName, ns, signature, asyncKind,
-                        Anchor: GetAnchor()));
+                        methodName, fullTypeName, ns, signature, asyncKind)
+                    {
+                        Anchor = GetAnchor(),
+                        ReturnType = returnType,
+                    });
                 }
 
                 // Check unsafe (pointer types in signature)
@@ -135,8 +145,11 @@ public static class MethodClassificationScanner
                         var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
                         results.Add(new ClassifiedMethodInfo(
                             methodName, fullTypeName, ns, signature,
-                            MethodClassification.Unsafe,
-                            Anchor: GetAnchor()));
+                            MethodClassification.Unsafe)
+                        {
+                            Anchor = GetAnchor(),
+                            ReturnType = sig.ReturnType,
+                        });
                     }
                 }
                 catch
@@ -208,18 +221,23 @@ public static class MethodClassificationScanner
         }
     }
 
-    private static string FormatSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    private static (string Signature, string? ReturnType) FormatSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
     {
         try
         {
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = method.DecodeSignature(SignatureDecoder.Instance, context);
             string methodName = reader.GetString(method.Name);
-            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
+            return (
+                SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig),
+                sig.ReturnType);
         }
         catch
         {
-            return reader.GetString(method.Name) + "(...)";
+            return (reader.GetString(method.Name) + "(...)", null);
         }
     }
 }
