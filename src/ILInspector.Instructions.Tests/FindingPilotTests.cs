@@ -214,20 +214,25 @@ public class FindingPilotTests
         => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
 
     [Fact]
-    public void PairFinding_DerivesKindFromSides_AndRejectsBothNull()
+    public void PairFinding_CasesFixTheirKind_AndBothNullIsUnrepresentable()
     {
         var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
         var b = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 1, "k");
 
-        // Kind is derived from the sides — there is no Kind to set out of step with them.
-        Assert.Equal(PairKind.Present, new PairFinding<string>(a, b).Kind);
-        Assert.Equal(PairKind.Changed, new PairFinding<string>(a, b, contentChanged: true).Kind);
-        Assert.Equal(PairKind.Added, new PairFinding<string>(null, b).Kind);
-        Assert.Equal(PairKind.Removed, new PairFinding<string>(a, null).Kind);
+        // Each union case fixes its own polarity; there is no Kind field to set out of step with the
+        // sides. The cases convert implicitly to the union.
+        Assert.Equal(PairKind.Present, ((PairFinding<string>)new Present<string>(a, b)).Kind);
+        Assert.Equal(PairKind.Changed, ((PairFinding<string>)new Changed<string>(a, b)).Kind);
+        Assert.Equal(PairKind.Added, ((PairFinding<string>)new Added<string>(b)).Kind);
+        Assert.Equal(PairKind.Removed, ((PairFinding<string>)new Removed<string>(a)).Kind);
 
-        // A with-expression cannot desync polarity from the sides (Kind is derived) nor null a side
-        // out (Old/New are get-only); the only rejected case is both-null at construction.
-        Assert.Throws<ArgumentException>(() => new PairFinding<string>(null, null));
+        // A both-null pair is not a runtime error to reject — it is unrepresentable: every case
+        // requires the atom(s) it carries, so there is no constructor that takes neither side.
+        // (Uncommenting the next line would be a compile error, which is the point.)
+        //   _ = new PairFinding<string>(null, null);
+
+        // Value equality holds across the union (record class over its case).
+        Assert.Equal((PairFinding<string>)new Present<string>(a, b), new Present<string>(a, b));
     }
 
     [Fact]
@@ -261,8 +266,8 @@ public class FindingPilotTests
 
         IPairFinding[] pairs =
         [
-            new PairFinding<string>(Atom("k0", 0), Atom("k0", 0)),
-            new PairFinding<string>(null, Atom("k1", 1)),
+            new Present<string>(Atom("k0", 0), Atom("k0", 0)),
+            new Added<string>(Atom("k1", 1)),
         ];
 
         var summary = FindingSummary.Summarize(pairs);
@@ -465,9 +470,20 @@ public class FindingPilotTests
     static string[] ResidualKeys(IlFindingsResult result, PairKind polarity)
         => result.Pairs
             .Where(p => p.Kind == polarity)
-            .Select(p => (p.New ?? p.Old)!.Key.IdentityKey)
+            .Select(p => CurrentAtom(p).Key.IdentityKey)
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
+
+    // The representative atom of a pair (new side if present, else old), recovered by matching the
+    // union's closed set of cases — a consumer that wants the typed payload must handle each case.
+    static Finding<CanonicalIlOperation> CurrentAtom(PairFinding<CanonicalIlOperation> pair) => pair.Value switch
+    {
+        Added<CanonicalIlOperation> a => a.New,
+        Removed<CanonicalIlOperation> r => r.Old,
+        Present<CanonicalIlOperation> p => p.New,
+        Changed<CanonicalIlOperation> c => c.New,
+        _ => throw new InvalidOperationException("PairFinding has no case."),
+    };
 
     // ---- IL adapter: real-assembly corpus ----------------------------------------------------
 

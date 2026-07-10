@@ -100,26 +100,24 @@ public static class IlFindings
         var alignment = new Dictionary<int, int>(IlBodyDiff.BuildAlignmentMap(oldOps, newOps));
         foreach (var pair in pairs)
         {
-            if (pair.Difference == FindingDifferenceKind.Moved && pair.Old is not null && pair.New is not null)
-                alignment[pair.Old.Position] = pair.New.Position;
+            if (pair.Value is Present<CanonicalIlOperation> { Difference: FindingDifferenceKind.Moved } moved)
+                alignment[moved.Old.Position] = moved.New.Position;
         }
 
         var builder = ImmutableArray.CreateBuilder<PairFinding<CanonicalIlOperation>>(pairs.Length);
         foreach (var pair in pairs)
         {
-            if (pair.Kind == PairKind.Present
-                && pair.Old is not null
-                && pair.New is not null
-                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, pair.Old.Position, newInstructions, pair.New.Position, alignment))
+            if (pair.Value is Present<CanonicalIlOperation> present
+                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, present.Old.Position, newInstructions, present.New.Position, alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so
-                // neither the distance nor the retarget note is lost. ContentChanged flips the
-                // derived Kind from Present to Changed while keeping both sides.
-                builder.Add(pair with
-                {
-                    ContentChanged = true,
-                    Detail = pair.Detail is null ? "branch retargeted" : $"{pair.Detail}; branch retargeted",
-                });
+                // neither the distance nor the retarget note is lost. Promoting the Present case to
+                // Changed keeps both sides while flipping the polarity.
+                builder.Add(new Changed<CanonicalIlOperation>(
+                    present.Old,
+                    present.New,
+                    present.Difference,
+                    present.Detail is null ? "branch retargeted" : $"{present.Detail}; branch retargeted"));
             }
             else
             {
