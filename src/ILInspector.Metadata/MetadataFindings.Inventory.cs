@@ -1,0 +1,304 @@
+using System.Collections.Immutable;
+using System.Globalization;
+using System.Text;
+using ILInspector.Findings;
+
+namespace ILInspector.Metadata;
+
+/// <summary>
+/// Finding producers over typed Metadata inventories. These operations consume already-extracted
+/// data; acquisition and presentation remain outside the producer.
+/// </summary>
+public static partial class MetadataFindings
+{
+    public static readonly FindingDescriptor AssemblyReferenceDescriptor =
+        new("metadata.assembly-reference", "Assembly reference");
+
+    public static readonly FindingDescriptor TypeForwarderDescriptor =
+        new("metadata.type-forwarder", "Type forwarder");
+
+    public static readonly FindingDescriptor ResourceDescriptor =
+        new("metadata.resource", "Manifest resource");
+
+    public static readonly FindingDescriptor AssemblyAttributeDescriptor =
+        new("metadata.assembly-attribute", "Assembly or module attribute");
+
+    public static FindingInspection<AssemblyReference> InspectAssemblyReferences(
+        IEnumerable<AssemblyReference> references,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(references);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectAssemblyReferencesCore(references, subject, nameof(references));
+    }
+
+    static FindingInspection<AssemblyReference> InspectAssemblyReferencesCore(
+        IEnumerable<AssemblyReference> references,
+        FindingSubject subject,
+        string parameterName)
+        => InspectInventory(
+            references,
+            subject,
+            AssemblyReferenceDescriptor,
+            static reference => reference.Name.ToUpperInvariant(),
+            static reference => JoinSortKey(
+                reference.Name.ToUpperInvariant(),
+                reference.Version,
+                reference.Culture,
+                reference.PublicKeyToken),
+            parameterName);
+
+    public static FindingComparison<AssemblyReference> CompareAssemblyReferences(
+        IEnumerable<AssemblyReference> oldReferences,
+        IEnumerable<AssemblyReference> newReferences,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(oldReferences);
+        ArgumentNullException.ThrowIfNull(newReferences);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
+            InspectAssemblyReferencesCore(oldReferences, subject, nameof(oldReferences)),
+            InspectAssemblyReferencesCore(newReferences, subject, nameof(newReferences)));
+    }
+
+    public static FindingInspection<TypeForwarderInfo> InspectTypeForwarders(
+        IEnumerable<TypeForwarderInfo> forwarders,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(forwarders);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectTypeForwardersCore(forwarders, subject, nameof(forwarders));
+    }
+
+    static FindingInspection<TypeForwarderInfo> InspectTypeForwardersCore(
+        IEnumerable<TypeForwarderInfo> forwarders,
+        FindingSubject subject,
+        string parameterName)
+        => InspectInventory(
+            forwarders,
+            subject,
+            TypeForwarderDescriptor,
+            static forwarder => forwarder.TypeName,
+            static forwarder => JoinSortKey(forwarder.TypeName, forwarder.TargetAssembly),
+            parameterName);
+
+    public static FindingComparison<TypeForwarderInfo> CompareTypeForwarders(
+        IEnumerable<TypeForwarderInfo> oldForwarders,
+        IEnumerable<TypeForwarderInfo> newForwarders,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(oldForwarders);
+        ArgumentNullException.ThrowIfNull(newForwarders);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
+            InspectTypeForwardersCore(oldForwarders, subject, nameof(oldForwarders)),
+            InspectTypeForwardersCore(newForwarders, subject, nameof(newForwarders)));
+    }
+
+    public static FindingInspection<ManifestResourceInfo> InspectResources(
+        IEnumerable<ManifestResourceInfo> resources,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectResourcesCore(resources, subject, nameof(resources));
+    }
+
+    static FindingInspection<ManifestResourceInfo> InspectResourcesCore(
+        IEnumerable<ManifestResourceInfo> resources,
+        FindingSubject subject,
+        string parameterName)
+        => InspectInventory(
+            resources,
+            subject,
+            ResourceDescriptor,
+            static resource => resource.Name,
+            static resource => JoinSortKey(
+                resource.Name,
+                resource.IsPublic ? "1" : "0",
+                resource.IsEmbedded ? "1" : "0",
+                resource.Size.ToString(CultureInfo.InvariantCulture)),
+            parameterName);
+
+    public static FindingComparison<ManifestResourceInfo> CompareResources(
+        IEnumerable<ManifestResourceInfo> oldResources,
+        IEnumerable<ManifestResourceInfo> newResources,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(oldResources);
+        ArgumentNullException.ThrowIfNull(newResources);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
+            InspectResourcesCore(oldResources, subject, nameof(oldResources)),
+            InspectResourcesCore(newResources, subject, nameof(newResources)));
+    }
+
+    public static FindingInspection<AssemblyAttributeInfo> InspectAssemblyAttributes(
+        IEnumerable<AssemblyAttributeInfo> attributes,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(attributes);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return InspectAssemblyAttributesCore(attributes, subject, nameof(attributes));
+    }
+
+    static FindingInspection<AssemblyAttributeInfo> InspectAssemblyAttributesCore(
+        IEnumerable<AssemblyAttributeInfo> attributes,
+        FindingSubject subject,
+        string parameterName)
+        => InspectInventory(
+            attributes,
+            subject,
+            AssemblyAttributeDescriptor,
+            static attribute => JoinSortKey(attribute.Target, attribute.Name, attribute.Value),
+            static attribute => JoinSortKey(attribute.Target, attribute.Name, attribute.Value),
+            parameterName);
+
+    public static FindingComparison<AssemblyAttributeInfo> CompareAssemblyAttributes(
+        IEnumerable<AssemblyAttributeInfo> oldAttributes,
+        IEnumerable<AssemblyAttributeInfo> newAttributes,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(oldAttributes);
+        ArgumentNullException.ThrowIfNull(newAttributes);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return CompareInventory(
+            InspectAssemblyAttributesCore(oldAttributes, subject, nameof(oldAttributes)),
+            InspectAssemblyAttributesCore(newAttributes, subject, nameof(newAttributes)));
+    }
+
+    static FindingInspection<T> InspectInventory<T>(
+        IEnumerable<T> observations,
+        FindingSubject subject,
+        FindingDescriptor descriptor,
+        Func<T, string> identity,
+        Func<T, string> sortKey,
+        string observationsParameterName)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(observations);
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(sortKey);
+        ArgumentException.ThrowIfNullOrEmpty(observationsParameterName);
+
+        var projected = observations
+            .Select(observation => observation is null
+                ? throw new ArgumentException(
+                    "Inventory cannot contain null observations.",
+                    observationsParameterName)
+                : new InventoryObservation<T>(
+                    observation,
+                    identity(observation),
+                    sortKey(observation)))
+            .OrderBy(static observation => observation.Identity, StringComparer.Ordinal)
+            .ThenBy(static observation => observation.SortKey, StringComparer.Ordinal)
+            .ToArray();
+
+        var findings = ImmutableArray.CreateBuilder<Finding<T>>(projected.Length);
+        for (int position = 0; position < projected.Length; position++)
+        {
+            var observation = projected[position];
+            findings.Add(new Finding<T>(
+                subject,
+                descriptor,
+                new FindingKey(observation.Identity),
+                position,
+                observation.Payload));
+        }
+
+        return new FindingInspection<T>.Complete(findings.MoveToImmutable());
+    }
+
+    static FindingComparison<T> CompareInventory<T>(
+        FindingInspection<T> oldInspection,
+        FindingInspection<T> newInspection)
+        where T : notnull
+        => FindingComparison.Compare(
+            oldInspection,
+            newInspection,
+            IdentitySetOptions)
+            .TransformPairs(PromoteChangedPayloads);
+
+    static ImmutableArray<PairFinding<T>> PromoteChangedPayloads<T>(
+        ImmutableArray<PairFinding<T>> pairs)
+        where T : notnull
+    {
+        var builder = ImmutableArray.CreateBuilder<PairFinding<T>>(pairs.Length);
+        foreach (var pair in pairs)
+        {
+            if (pair is PairFinding<T>.Present present
+                && !EqualityComparer<T>.Default.Equals(
+                    present.Old.Payload,
+                    present.New.Payload))
+            {
+                builder.Add(new PairFinding<T>.Changed(
+                    present.Old,
+                    present.New,
+                    present.Difference));
+            }
+            else
+            {
+                builder.Add(pair);
+            }
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    static string JoinSortKey(string? first, string? second)
+    {
+        var builder = new StringBuilder();
+        AppendSortKeyPart(builder, first);
+        AppendSortKeyPart(builder, second);
+        return builder.ToString();
+    }
+
+    static string JoinSortKey(string? first, string? second, string? third)
+    {
+        var builder = new StringBuilder();
+        AppendSortKeyPart(builder, first);
+        AppendSortKeyPart(builder, second);
+        AppendSortKeyPart(builder, third);
+        return builder.ToString();
+    }
+
+    static string JoinSortKey(string? first, string? second, string? third, string? fourth)
+    {
+        var builder = new StringBuilder();
+        AppendSortKeyPart(builder, first);
+        AppendSortKeyPart(builder, second);
+        AppendSortKeyPart(builder, third);
+        AppendSortKeyPart(builder, fourth);
+        return builder.ToString();
+    }
+
+    static void AppendSortKeyPart(StringBuilder builder, string? value)
+    {
+        if (value is null)
+        {
+            builder.Append('N');
+            return;
+        }
+
+        builder.Append('S');
+        builder.Append(value.Length);
+        builder.Append(':');
+        builder.Append(value);
+    }
+
+    sealed record InventoryObservation<T>(
+        T Payload,
+        string Identity,
+        string SortKey)
+        where T : notnull;
+}

@@ -8,7 +8,7 @@ namespace ILInspector.Metadata;
 /// Types and members are unordered identity sets; compatibility classification remains
 /// the responsibility of <see cref="ApiDiffAnalyzer"/>.
 /// </summary>
-public static class MetadataFindings
+public static partial class MetadataFindings
 {
     public static readonly FindingDescriptor TypeDescriptor = new("api.type", "API type");
     public static readonly FindingDescriptor MemberDescriptor = new("api.member", "API member");
