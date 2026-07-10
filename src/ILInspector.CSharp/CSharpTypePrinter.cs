@@ -10,10 +10,10 @@ public sealed class CSharpTypePrinter
         CSharpTypePrintOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return Print([request], options);
+        return PrintBatch([request], options);
     }
 
-    public CSharpTypePrintResult Print(
+    public CSharpTypePrintResult PrintBatch(
         IEnumerable<CSharpTypePrintRequest> requests,
         CSharpTypePrintOptions? options = null)
     {
@@ -24,7 +24,10 @@ public sealed class CSharpTypePrinter
         if (requestList.Any(request => request is null))
             throw new ArgumentException("Type print requests cannot contain null entries.", nameof(requests));
 
+        var preparedTypes = new List<PreparedTypeSource>();
+        var canonicalIdentities = new HashSet<TypeOutputIdentity>();
         var outputIdentities = new HashSet<TypeOutputIdentity>();
+        var diagnostics = ImmutableArray.CreateBuilder<CSharpTypePrintDiagnostic>();
         foreach (var request in requestList)
         {
             if (request.BodyPolicy != CSharpTypeBodyPolicy.Skeleton)
@@ -34,56 +37,68 @@ public sealed class CSharpTypePrinter
                     + "this printer currently supports skeleton requests.");
             }
 
+            ValidateRequiredShape(request.Type);
             ValidateTopLevelSkeletonType(request.Type);
 
+            var containingNamespace = NormalizeNamespace(request.Type.Namespace);
+            var canonicalIdentity = new TypeOutputIdentity(
+                containingNamespace,
+                string.IsNullOrWhiteSpace(request.Type.MetadataName)
+                    ? request.Type.Name
+                    : request.Type.MetadataName);
             var outputIdentity = new TypeOutputIdentity(
-                NormalizeNamespace(request.Type.Namespace),
+                containingNamespace,
                 request.Type.Name);
-            if (!outputIdentities.Add(outputIdentity))
+            if (!canonicalIdentities.Add(canonicalIdentity)
+                || !outputIdentities.Add(outputIdentity))
             {
                 throw new ArgumentException(
                     $"Type print requests contain duplicate C# type '{request.Type.FullName}'.",
                     nameof(requests));
             }
-        }
 
-        var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
-        var diagnostics = ImmutableArray.CreateBuilder<CSharpTypePrintDiagnostic>();
-
-        foreach (var group in requestList.GroupBy(
-                     request => NormalizeNamespace(request.Type.Namespace),
-                     StringComparer.Ordinal))
-        {
-            var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             var declarationOptions = new CSharpDeclarationOptions
             {
                 TypeNameMode = CSharpTypeNameMode.ContextualShort,
-                ContainingNamespace = containingNamespace,
+                ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
                 NamespaceMode = CSharpNamespaceMode.Omit,
                 TerminateMemberDeclaration = true,
                 IncludeCustomAttributes = options.IncludeCustomAttributes
             };
 
-            var typeSources = new List<string>();
-            foreach (var request in group)
+            var members = request.Members ?? request.Type.Members
+                ?? throw new ArgumentException(
+                    $"Type '{request.Type.FullName}' has a null member collection.",
+                    nameof(requests));
+            if (members.Any(member => member is null))
             {
-                var rendered = CSharpDeclarationWriter.RenderTypeUnit(
-                    request.Type,
-                    request.Members ?? request.Type.Members,
-                    declarationOptions);
-
-                if (rendered.Usings.Count > 0)
-                {
-                    throw new InvalidOperationException(
-                        "Namespace-batched type source cannot contain declaration-local using directives.");
-                }
-
-                typeSources.Add(rendered.Source);
-                diagnostics.AddRange(rendered.Diagnostics.Select(
-                    diagnostic => new CSharpTypePrintDiagnostic(request.Type.FullName, diagnostic)));
+                throw new ArgumentException(
+                    $"Type '{request.Type.FullName}' has a null member entry.",
+                    nameof(requests));
             }
 
-            var source = string.Join("\n\n", typeSources);
+            var rendered = CSharpDeclarationWriter.RenderTypeUnit(
+                request.Type,
+                members.ToArray(),
+                declarationOptions);
+
+            if (rendered.Usings.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "Namespace-batched type source cannot contain declaration-local using directives.");
+            }
+
+            var typeName = request.Type.FullName;
+            preparedTypes.Add(new PreparedTypeSource(containingNamespace, rendered.Source));
+            diagnostics.AddRange(rendered.Diagnostics.Select(
+                diagnostic => new CSharpTypePrintDiagnostic(typeName, diagnostic)));
+        }
+
+        var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
+        foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
+        {
+            var containingNamespace = group.Key.Length == 0 ? null : group.Key;
+            var source = string.Join("\n\n", group.Select(type => type.Source));
             if (containingNamespace is not null)
                 source = $"namespace {containingNamespace};\n\n{source}";
 
@@ -95,6 +110,12 @@ public sealed class CSharpTypePrinter
 
     static string NormalizeNamespace(string? value)
         => string.IsNullOrWhiteSpace(value) ? "" : value;
+
+    static void ValidateRequiredShape(ApiType type)
+    {
+        if (string.IsNullOrWhiteSpace(type.Name))
+            throw new ArgumentException("Type print requests require a non-empty type name.");
+    }
 
     static void ValidateTopLevelSkeletonType(ApiType type)
     {
@@ -112,6 +133,8 @@ public sealed class CSharpTypePrinter
                 $"C# skeleton printing does not yet support type kind '{type.Kind}' for '{type.FullName}'.");
         }
     }
+
+    readonly record struct PreparedTypeSource(string Namespace, string Source);
 
     readonly record struct TypeOutputIdentity(string Namespace, string Name);
 }

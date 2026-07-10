@@ -79,7 +79,7 @@ public sealed class CSharpTypePrinterTests
             new CSharpTypePrintRequest(CreateEmptyType("Samples", "Second"))
         };
 
-        var result = _printer.Print(requests);
+        var result = _printer.PrintBatch(requests);
 
         Assert.Collection(
             result.Units,
@@ -245,9 +245,58 @@ public sealed class CSharpTypePrinterTests
             new CSharpTypePrintRequest(type)
         };
 
-        var exception = Assert.Throws<ArgumentException>(() => _printer.Print(requests));
+        var exception = Assert.Throws<ArgumentException>(() => _printer.PrintBatch(requests));
 
         Assert.Contains("duplicate C# type 'Samples.Widget'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CanonicalMetadataIdentityRejectsDuplicateGenericDeclarations()
+    {
+        var first = CreateEmptyType("Samples", "Converter<T>");
+        first.MetadataName = "Converter`1";
+        var second = CreateEmptyType("Samples", "Converter<U>");
+        second.MetadataName = "Converter`1";
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _printer.PrintBatch(
+            [
+                new CSharpTypePrintRequest(first),
+                new CSharpTypePrintRequest(second)
+            ]));
+
+        Assert.Contains("duplicate C# type", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MalformedTypeNameFailsExplicitly()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Name = null!;
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("non-empty type name", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MalformedMemberCollectionFailsExplicitly()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members = null!;
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("null member collection", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NullCallsResolveToExplicitArgumentFailures()
+    {
+        Assert.Throws<ArgumentNullException>(() => _printer.Print(null!));
+        Assert.Throws<ArgumentNullException>(() => _printer.PrintBatch(null!));
     }
 
     static ApiType CreateEmptyType(string? @namespace, string name)

@@ -21,6 +21,8 @@ public sealed record CSharpTypePrintRequest
         ArgumentNullException.ThrowIfNull(type);
         if (!Enum.IsDefined(bodyPolicy))
             throw new ArgumentOutOfRangeException(nameof(bodyPolicy));
+        if (members?.Any(member => member is null) == true)
+            throw new ArgumentException("Type print members cannot contain null entries.", nameof(members));
 
         Type = type;
         BodyPolicy = bodyPolicy;
