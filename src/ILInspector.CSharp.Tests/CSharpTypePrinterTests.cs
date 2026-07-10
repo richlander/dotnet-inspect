@@ -169,6 +169,92 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void StubTypePolicySynthesizesPropertyAccessorBodies()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                    new ApiAccessor { Kind = "set" }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(property);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub));
+
+        Assert.Contains(
+            """
+                public int Value
+                {
+                    get
+                    {
+                        throw null;
+                    }
+                    set
+                    {
+                        throw null;
+                    }
+                }
+            """,
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StubTypePolicyKeepsFieldLikeEventsAsDeclarations()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed"
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub));
+
+        Assert.Contains("public event System.EventHandler Changed;", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Changed {", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StubConstructorOnPrimaryConstructorTypeCallsThis()
+    {
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature()
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(constructor);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            members: [constructor],
+            memberPolicyOverrides: [new CSharpMemberPolicy(constructor, CSharpBodyPolicy.Stub)],
+            primaryConstructorParameters: [new ApiParameter { Type = "int", Name = "value" }]));
+
+        Assert.Contains(
+            "public Widget() : this(default) { throw null; }",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SkeletonPrefersStructuredGenericSignature()
     {
         var type = new ApiType
@@ -245,6 +331,28 @@ public sealed class CSharpTypePrinterTests
             "public long GetTicks([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(0)] System.DateTime when);",
             result.Units[0].Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneratedGenericCanonicalIdentityUsesRawFallbackMetadataNames()
+    {
+        var first = CreateEmptyType("Samples", "<State>d__0`1");
+        first.TypeParameters = [new TypeParameter { Name = "T" }];
+        var second = CreateEmptyType("Samples", "<State>d__0`2");
+        second.TypeParameters =
+        [
+            new TypeParameter { Name = "T" },
+            new TypeParameter { Name = "U" }
+        ];
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(first),
+            new CSharpTypePrintRequest(second)
+        ]);
+
+        Assert.Contains("public class __State_d__0<T>", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.Contains("public class __State_d__0<T, U>", result.Units[0].Source, StringComparison.Ordinal);
     }
 
 

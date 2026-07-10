@@ -90,6 +90,9 @@ public sealed class CSharpTypePrinter
         var type = SnapshotTypeForRendering(request.Type, memberArray);
         if (string.IsNullOrWhiteSpace(type.Name))
             throw new ArgumentException("Type print requests require a non-empty type name.");
+        var metadataName = string.IsNullOrWhiteSpace(type.MetadataName)
+            ? type.Name
+            : type.MetadataName;
         bool hasGeneratedMetadataName = IsGeneratedMetadataName(type.Name);
         type.Name = SourceTypeName(type.Name);
         ValidateRequiredShape(type, hasGeneratedMetadataName);
@@ -107,9 +110,6 @@ public sealed class CSharpTypePrinter
                 parameterName);
         }
 
-        var metadataName = string.IsNullOrWhiteSpace(type.MetadataName)
-            ? type.Name
-            : type.MetadataName;
         var outputName = DisplayTypeName(type);
         var canonicalPath = canonicalParent is null ? metadataName : $"{canonicalParent}+{metadataName}";
         var outputPath = outputParent is null ? outputName : $"{outputParent}.{outputName}";
@@ -255,8 +255,16 @@ public sealed class CSharpTypePrinter
         {
             return [$"{pad}{EnsureTerminated(memberDeclaration)}"];
         }
+        if (member.Member.Kind == "event")
+            return [$"{pad}{EnsureTerminated(memberDeclaration)}"];
+
+        string initializer = member.Member.Kind == "constructor"
+            && member.Policy == CSharpBodyPolicy.Stub
+            && type.PrimaryConstructorParameters.Length > 0
+                ? $" : this({string.Join(", ", Enumerable.Repeat("default", type.PrimaryConstructorParameters.Length))})"
+                : "";
         if (member.Body is null && member.Policy == CSharpBodyPolicy.Stub)
-            return [$"{pad}{memberDeclaration} {{ throw null; }}"];
+            return [$"{pad}{memberDeclaration}{initializer} {{ throw null; }}"];
 
         var body = member.Body switch
         {
@@ -264,11 +272,6 @@ public sealed class CSharpTypePrinter
             _ => throw new InvalidOperationException(
                 $"Member '{member.Member.Name}' has no renderable block body."),
         };
-        string initializer = member.Member.Kind == "constructor"
-            && member.Policy == CSharpBodyPolicy.Stub
-            && type.PrimaryConstructorParameters.Length > 0
-                ? $" : this({string.Join(", ", Enumerable.Repeat("default", type.PrimaryConstructorParameters.Length))})"
-                : "";
         return RenderBlock(memberDeclaration + initializer, body, indent);
     }
 
@@ -288,9 +291,21 @@ public sealed class CSharpTypePrinter
             return [$"{pad}{EnsureTerminated(skeleton)}"];
         }
 
-        var body = member.Body as CSharpPropertyBody
-            ?? throw new InvalidOperationException(
+        var body = member.Body as CSharpPropertyBody;
+        if (body is null && member.Policy == CSharpBodyPolicy.Stub)
+        {
+            var accessors = member.Member.SignatureModel?.Accessors
+                ?? throw new InvalidOperationException(
+                    $"Stub property '{member.Member.Name}' requires structured accessors.");
+            body = new CSharpPropertyBody(
+                accessors.Any(accessor => accessor.Kind == "get") ? CSharpAccessorBody.Throw : null,
+                accessors.Any(accessor => accessor.Kind == "set") ? CSharpAccessorBody.Throw : null);
+        }
+        if (body is null)
+        {
+            throw new InvalidOperationException(
                 $"Property '{member.Member.Name}' requires an accessor body shape.");
+        }
         string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
             type.Type,
             member.Member,
