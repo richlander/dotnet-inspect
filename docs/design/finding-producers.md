@@ -137,6 +137,12 @@ Some useful product concepts are intentionally not one raw Finding stream:
 Evidence is a role those values may play; it is not a reason to flatten them
 into a parallel generic row.
 
+While `ResearchChange` remains a migration projection, every populated native
+payload must belong to its declared mechanism. A payload may be absent for a
+status- or failure-only row, but an API-tagged change cannot carry an IL, C#, or
+body-signal payload. This construction invariant retires with the projection
+fields as mechanisms adopt honest observations and transitions.
+
 ## Review checklist
 
 Before approving a producer, answer:

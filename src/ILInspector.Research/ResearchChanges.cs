@@ -75,7 +75,8 @@ public sealed record ResearchSubjectKey
 /// One Research-level change projected from a two-version mechanism. This is not a
 /// <see cref="PairFinding{T}"/>: mechanisms that do not yet expose old/new Finding censuses cannot
 /// honestly manufacture Finding atoms. The native producer payload remains attached for typed
-/// presentation and future producer migration.
+/// presentation and future producer migration. Common-field-only status and failure rows are valid;
+/// any populated native payload must belong to <see cref="Mechanism"/>.
 /// </summary>
 public sealed record ResearchChange
 {
@@ -124,6 +125,62 @@ public sealed record ResearchChange
         if (!Enum.IsDefined(category))
             throw new ArgumentOutOfRangeException(nameof(category));
 
+        ValidatePayloadMechanism(
+            apiChange is not null,
+            mechanism,
+            ResearchChangeMechanism.Api,
+            nameof(apiChange));
+        ValidatePayloadMechanism(
+            ilRow is not null,
+            mechanism,
+            ResearchChangeMechanism.IlBody,
+            nameof(ilRow));
+        ValidatePayloadMechanism(
+            ilFailureRow is not null,
+            mechanism,
+            ResearchChangeMechanism.IlBody,
+            nameof(ilFailureRow));
+        ValidatePayloadMechanism(
+            bodySignalRow is not null,
+            mechanism,
+            ResearchChangeMechanism.BodySignals,
+            nameof(bodySignalRow));
+        ValidatePayloadMechanism(
+            cSharpRow is not null,
+            mechanism,
+            ResearchChangeMechanism.CSharp,
+            nameof(cSharpRow));
+        ValidatePayloadMechanism(
+            cSharpFailureRow is not null,
+            mechanism,
+            ResearchChangeMechanism.CSharp,
+            nameof(cSharpFailureRow));
+        ValidatePayloadMechanism(
+            !ilDisplayRows.IsDefaultOrEmpty,
+            mechanism,
+            ResearchChangeMechanism.IlBody,
+            nameof(ilDisplayRows));
+        ValidatePayloadMechanism(
+            ilDisplayFailureRow is not null,
+            mechanism,
+            ResearchChangeMechanism.IlBody,
+            nameof(ilDisplayFailureRow));
+        ValidatePayloadMechanism(
+            ilMemberDiff is not null,
+            mechanism,
+            ResearchChangeMechanism.IlBody,
+            nameof(ilMemberDiff));
+        ValidatePayloadMechanism(
+            !cSharpDisplayRows.IsDefaultOrEmpty,
+            mechanism,
+            ResearchChangeMechanism.CSharp,
+            nameof(cSharpDisplayRows));
+        ValidatePayloadMechanism(
+            cSharpDisplayFailureRow is not null,
+            mechanism,
+            ResearchChangeMechanism.CSharp,
+            nameof(cSharpDisplayFailureRow));
+
         Mechanism = mechanism;
         Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
         Kind = kind;
@@ -151,6 +208,20 @@ public sealed record ResearchChange
         IlMemberDiff = ilMemberDiff;
         CSharpDisplayRows = cSharpDisplayRows.IsDefault ? [] : cSharpDisplayRows;
         CSharpDisplayFailureRow = cSharpDisplayFailureRow;
+    }
+
+    static void ValidatePayloadMechanism(
+        bool populated,
+        ResearchChangeMechanism actual,
+        ResearchChangeMechanism expected,
+        string parameterName)
+    {
+        if (populated && actual != expected)
+        {
+            throw new ArgumentException(
+                $"{parameterName} is valid only for the {expected} mechanism.",
+                parameterName);
+        }
     }
 
     public ResearchSubjectKey Subject { get; }

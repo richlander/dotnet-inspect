@@ -59,6 +59,90 @@ public class ResearchDiffTests
             ResearchChangeKind.Changed));
     }
 
+    [Theory]
+    [InlineData(ResearchChangeMechanism.Api)]
+    [InlineData(ResearchChangeMechanism.IlBody)]
+    [InlineData(ResearchChangeMechanism.CSharp)]
+    [InlineData(ResearchChangeMechanism.ReturnToSender)]
+    public void ResearchChange_RejectsPayloadFromAnotherMechanism(
+        ResearchChangeMechanism mechanism)
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var row = new BodySignalDiffRow(
+            BodySignalDiffKind.Added,
+            "allocation",
+            "Sample.Widget.M()",
+            "newobj",
+            0,
+            "newobj Sample.Widget");
+
+        var error = Assert.Throws<ArgumentException>(() => new ResearchChange(
+            subject,
+            mechanism,
+            new FindingDescriptor("analysis.signal.added", "Body signal"),
+            ResearchChangeKind.Added,
+            bodySignalRow: row));
+
+        Assert.Equal("bodySignalRow", error.ParamName);
+    }
+
+    [Fact]
+    public void ResearchChange_RejectsIlPayloadForApiMechanism()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var row = new IlDiffRow(
+            0,
+            IlDiffKind.Add,
+            new CanonicalIlOperation(0, "nop", Operand: null),
+            "Added IL operation 'nop'");
+
+        var error = Assert.Throws<ArgumentException>(() => new ResearchChange(
+            subject,
+            ResearchChangeMechanism.Api,
+            new FindingDescriptor("api.member-added", "API member"),
+            ResearchChangeKind.Added,
+            ilRow: row));
+
+        Assert.Equal("ilRow", error.ParamName);
+    }
+
+    [Fact]
+    public void ResearchChange_AllowsMatchingOrAbsentNativePayload()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var row = new BodySignalDiffRow(
+            BodySignalDiffKind.Added,
+            "allocation",
+            "Sample.Widget.M()",
+            "newobj",
+            0,
+            "newobj Sample.Widget");
+
+        var bodySignal = new ResearchChange(
+            subject,
+            ResearchChangeMechanism.BodySignals,
+            new FindingDescriptor("analysis.signal.added", "Body signal"),
+            ResearchChangeKind.Added,
+            bodySignalRow: row);
+        var statusOnly = new ResearchChange(
+            subject,
+            ResearchChangeMechanism.ReturnToSender,
+            new FindingDescriptor("rts.status.pass", "Return to sender status"),
+            ResearchChangeKind.Changed);
+
+        Assert.Same(row, bodySignal.BodySignalRow);
+        Assert.Equal(ResearchChangeMechanism.ReturnToSender, statusOnly.Mechanism);
+    }
+
     [Fact]
     public void ResearchMemberIdentity_SubjectFromAnchor_PreservesAnchorIdentityAndDisplay()
     {
