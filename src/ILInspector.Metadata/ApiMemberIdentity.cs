@@ -4,6 +4,26 @@ using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
+public sealed record MethodAnchorInfo(
+    MemberAnchor Anchor,
+    string ReturnType)
+{
+    MemberAnchor _anchor = Anchor ?? throw new ArgumentNullException(nameof(Anchor));
+    string _returnType = ReturnType ?? throw new ArgumentNullException(nameof(ReturnType));
+
+    public MemberAnchor Anchor
+    {
+        get => _anchor;
+        init => _anchor = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public string ReturnType
+    {
+        get => _returnType;
+        init => _returnType = value ?? throw new ArgumentNullException(nameof(value));
+    }
+}
+
 /// <summary>
 /// Metadata-owned API identity helpers for durable member selectors. These
 /// helpers compose identity strings from queryable metadata facts, not from C#
@@ -155,6 +175,13 @@ public static class ApiMemberIdentity
         TypeDefinitionHandle typeHandle,
         MethodDefinition method,
         bool isExtensionMethod = false)
+        => CreateMethodAnchorInfo(reader, typeHandle, method, isExtensionMethod).Anchor;
+
+    public static MethodAnchorInfo CreateMethodAnchorInfo(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method,
+        bool isExtensionMethod = false)
     {
         var type = reader.GetTypeDefinition(typeHandle);
         string methodName = reader.GetString(method.Name);
@@ -171,7 +198,9 @@ public static class ApiMemberIdentity
             signature.ParameterTypes,
             IsConversionOperator(methodName) ? signature.ReturnType : null);
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
-        return CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature);
+        return new MethodAnchorInfo(
+            CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
+            signature.ReturnType);
     }
 
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)

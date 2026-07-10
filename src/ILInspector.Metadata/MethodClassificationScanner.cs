@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -13,7 +14,35 @@ public record ClassifiedMethodInfo(
     string? Namespace,
     string Signature,
     MethodClassification Classification,
-    string? ModuleName = null);
+    string? ModuleName = null)
+{
+    public MemberAnchor? Anchor { get; init; }
+    public string? ReturnType { get; init; }
+
+    public virtual bool Equals(ClassifiedMethodInfo? other)
+        => ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && string.Equals(MethodName, other.MethodName, StringComparison.Ordinal)
+        && string.Equals(DeclaringType, other.DeclaringType, StringComparison.Ordinal)
+        && string.Equals(Namespace, other.Namespace, StringComparison.Ordinal)
+        && string.Equals(Signature, other.Signature, StringComparison.Ordinal)
+        && Classification == other.Classification
+        && string.Equals(ModuleName, other.ModuleName, StringComparison.Ordinal);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(EqualityContract);
+        hash.Add(MethodName, StringComparer.Ordinal);
+        hash.Add(DeclaringType, StringComparer.Ordinal);
+        hash.Add(Namespace, StringComparer.Ordinal);
+        hash.Add(Signature, StringComparer.Ordinal);
+        hash.Add(Classification);
+        hash.Add(ModuleName, StringComparer.Ordinal);
+        return hash.ToHashCode();
+    }
+}
 
 /// <summary>
 /// Classification of a method based on its metadata characteristics.
@@ -81,6 +110,19 @@ public static class MethodClassificationScanner
                     continue;
 
                 string methodName = reader.GetString(method.Name);
+                MethodAnchorInfo? methodIdentity = null;
+                bool identityAttempted = false;
+
+                MethodAnchorInfo? GetMethodIdentity()
+                {
+                    if (!identityAttempted)
+                    {
+                        methodIdentity = TryCreateMethodIdentity(reader, typeDefHandle, method);
+                        identityAttempted = true;
+                    }
+
+                    return methodIdentity;
+                }
 
                 // Skip accessors and constructors
                 if (methodName.StartsWith("get_", StringComparison.Ordinal) ||
@@ -96,7 +138,11 @@ public static class MethodClassificationScanner
                     var signature = FormatSignature(reader, typeDef, method);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature,
-                        MethodClassification.PInvoke, moduleName));
+                        MethodClassification.PInvoke, moduleName)
+                    {
+                        Anchor = GetMethodIdentity()?.Anchor,
+                        ReturnType = GetMethodIdentity()?.ReturnType,
+                    });
                     continue; // P/Invoke methods are also "unsafe" but classify as P/Invoke
                 }
 
@@ -106,7 +152,11 @@ public static class MethodClassificationScanner
                 {
                     var signature = FormatSignature(reader, typeDef, method);
                     results.Add(new ClassifiedMethodInfo(
-                        methodName, fullTypeName, ns, signature, asyncKind));
+                        methodName, fullTypeName, ns, signature, asyncKind)
+                    {
+                        Anchor = GetMethodIdentity()?.Anchor,
+                        ReturnType = GetMethodIdentity()?.ReturnType,
+                    });
                 }
 
                 // Check unsafe (pointer types in signature)
@@ -119,7 +169,11 @@ public static class MethodClassificationScanner
                         var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
                         results.Add(new ClassifiedMethodInfo(
                             methodName, fullTypeName, ns, signature,
-                            MethodClassification.Unsafe));
+                            MethodClassification.Unsafe)
+                        {
+                            Anchor = GetMethodIdentity()?.Anchor,
+                            ReturnType = GetMethodIdentity()?.ReturnType,
+                        });
                     }
                 }
                 catch
@@ -176,7 +230,25 @@ public static class MethodClassificationScanner
         return reader.GetString(moduleRef.Name);
     }
 
-    private static string FormatSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    private static MethodAnchorInfo? TryCreateMethodIdentity(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition method)
+    {
+        try
+        {
+            return ApiMemberIdentity.CreateMethodAnchorInfo(reader, typeHandle, method);
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string FormatSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
     {
         try
         {
