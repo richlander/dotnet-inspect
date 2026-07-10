@@ -11,13 +11,13 @@ public class TextFindingsTests
     {
         var findings = TextFindings.Inspect("first\r\n second\nthird", Subject).ToArray();
 
-        Assert.Equal(["first", " second", "third"], findings.Select(f => f.Payload.Content));
+        Assert.Equal(["first", " second", "third"], findings.Select(f => f.Payload));
         Assert.Equal([0, 1, 2], findings.Select(f => f.Position));
         Assert.All(findings, finding =>
         {
             Assert.Same(Subject, finding.Subject);
             Assert.Same(TextFindings.LineDescriptor, finding.Descriptor);
-            Assert.Equal(finding.Payload.Content, finding.Key.IdentityKey);
+            Assert.Equal(finding.Payload, finding.Key.IdentityKey);
         });
     }
 
@@ -26,9 +26,9 @@ public class TextFindingsTests
     {
         var findings = TextFindings.Inspect("first\nsecond\nthird", Subject);
 
-        Assert.False(findings is IReadOnlyCollection<Finding<TextLine>>);
+        Assert.False(findings is IReadOnlyCollection<Finding<string>>);
         var first = Assert.Single(findings.Take(1));
-        Assert.Equal("first", first.Payload.Content);
+        Assert.Equal("first", first.Payload);
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class TextFindingsTests
         Assert.Empty(TextFindings.Inspect("", Subject));
 
         var whitespace = Assert.Single(TextFindings.Inspect(" \t", Subject));
-        Assert.Equal(" \t", whitespace.Payload.Content);
+        Assert.Equal(" \t", whitespace.Payload);
         Assert.Equal(0, whitespace.Position);
     }
 
@@ -48,8 +48,8 @@ public class TextFindingsTests
         var actual = TextFindings.Inspect("one\r\ntwo\rthree\n", Subject).ToArray();
 
         Assert.Equal(
-            expected.Select(f => f.Payload.Content),
-            actual.Select(f => f.Payload.Content));
+            expected.Select(f => f.Payload),
+            actual.Select(f => f.Payload));
         Assert.True(TextFindings.Compare("one\ntwo\nthree\n", "one\r\ntwo\rthree\r", Subject).IsExact);
     }
 
@@ -60,7 +60,7 @@ public class TextFindingsTests
 
         Assert.True(result.IsExact);
         Assert.All(result.Pairs, pair =>
-            Assert.True(pair is PairFinding<TextLine>.Present
+            Assert.True(pair is PairFinding<string>.Present
             {
                 Difference: FindingDifferenceKind.None
             }));
@@ -73,21 +73,21 @@ public class TextFindingsTests
         var result = TextFindings.Compare("shared\nremoved", "shared\nadded", Subject);
 
         Assert.False(result.IsExact);
-        Assert.Equal(1, result.Pairs.Count(pair => pair is PairFinding<TextLine>.Present));
+        Assert.Equal(1, result.Pairs.Count(pair => pair is PairFinding<string>.Present));
         var removed = Assert.Single(
-            result.Pairs.Where(pair => pair is PairFinding<TextLine>.Removed)) switch
+            result.Pairs.Where(pair => pair is PairFinding<string>.Removed)) switch
         {
-            PairFinding<TextLine>.Removed value => value,
+            PairFinding<string>.Removed value => value,
             _ => throw new InvalidOperationException(),
         };
         var added = Assert.Single(
-            result.Pairs.Where(pair => pair is PairFinding<TextLine>.Added)) switch
+            result.Pairs.Where(pair => pair is PairFinding<string>.Added)) switch
         {
-            PairFinding<TextLine>.Added value => value,
+            PairFinding<string>.Added value => value,
             _ => throw new InvalidOperationException(),
         };
-        Assert.Equal("removed", removed.Old.Payload.Content);
-        Assert.Equal("added", added.New.Payload.Content);
+        Assert.Equal("removed", removed.Old.Payload);
+        Assert.Equal("added", added.New.Payload);
     }
 
     [Fact]
@@ -122,17 +122,17 @@ public class TextFindingsTests
         var withoutNewline = TextFindings.Inspect("value", Subject).ToArray();
         var withNewline = TextFindings.Inspect("value\n", Subject).ToArray();
 
-        Assert.Equal(["value"], withoutNewline.Select(f => f.Payload.Content));
-        Assert.Equal(["value", ""], withNewline.Select(f => f.Payload.Content));
+        Assert.Equal(["value"], withoutNewline.Select(f => f.Payload));
+        Assert.Equal(["value", ""], withNewline.Select(f => f.Payload));
 
         var result = TextFindings.Compare("value", "value\n", Subject);
         var added = Assert.Single(
-            result.Pairs.Where(pair => pair is PairFinding<TextLine>.Added)) switch
+            result.Pairs.Where(pair => pair is PairFinding<string>.Added)) switch
         {
-            PairFinding<TextLine>.Added value => value,
+            PairFinding<string>.Added value => value,
             _ => throw new InvalidOperationException(),
         };
-        Assert.Equal("", added.New.Payload.Content);
+        Assert.Equal("", added.New.Payload);
     }
 
     [Theory]
@@ -151,8 +151,8 @@ public class TextFindingsTests
         Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(result.Pairs).Shape);
         Assert.Contains(
             result.Pairs,
-            pair => pair is PairFinding<TextLine>.Added added
-                && added.New.Payload.Content == expectedNewLine);
+            pair => pair is PairFinding<string>.Added added
+                && added.New.Payload == expectedNewLine);
     }
 
     [Fact]
@@ -163,6 +163,5 @@ public class TextFindingsTests
         Assert.Throws<ArgumentNullException>(() => TextFindings.Compare(null!, "", Subject));
         Assert.Throws<ArgumentNullException>(() => TextFindings.Compare("", null!, Subject));
         Assert.Throws<ArgumentNullException>(() => TextFindings.Compare("", "", null!));
-        Assert.Throws<ArgumentNullException>(() => new TextLine(null!));
     }
 }

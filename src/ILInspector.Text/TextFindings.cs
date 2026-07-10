@@ -4,21 +4,6 @@ using ILInspector.Findings;
 
 namespace ILInspector.Text;
 
-/// <summary>A logical text line whose content excludes its line terminator.</summary>
-public sealed record TextLine
-{
-    public TextLine(string content)
-    {
-        ArgumentNullException.ThrowIfNull(content);
-        Content = content;
-    }
-
-    /// <summary>The exact line content, including any whitespace.</summary>
-    public string Content { get; }
-
-    public override string ToString() => Content;
-}
-
 /// <summary>Projects arbitrary text onto the ordered finding spine.</summary>
 public static class TextFindings
 {
@@ -26,11 +11,13 @@ public static class TextFindings
     public static readonly FindingDescriptor LineDescriptor = new("text.line", "Text line");
 
     /// <summary>
-    /// Lazily yields an exact line census. CRLF, CR, and LF are equivalent boundaries.
+    /// Lazily yields an exact line census. Each string payload is the line content and
+    /// <see cref="Finding{T}.Position"/> is its zero-based position in the logical line stream.
+    /// CRLF, CR, and LF are equivalent boundaries.
     /// Empty text has zero lines. A terminating boundary produces a final empty line, preserving
     /// the distinction between a document with and without a final newline.
     /// </summary>
-    public static IEnumerable<Finding<TextLine>> Inspect(string text, FindingSubject subject)
+    public static IEnumerable<Finding<string>> Inspect(string text, FindingSubject subject)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(subject);
@@ -80,30 +67,29 @@ public static class TextFindings
         yield return text[start..];
     }
 
-    static IEnumerable<Finding<TextLine>> ProjectAtoms(
+    static IEnumerable<Finding<string>> ProjectAtoms(
         IEnumerable<string> lines,
         FindingSubject subject)
     {
         int position = 0;
         foreach (string content in lines)
         {
-            var line = new TextLine(content);
-            yield return new Finding<TextLine>(
+            yield return new Finding<string>(
                 subject,
                 LineDescriptor,
                 new FindingKey(content),
                 position++,
-                line);
+                content);
         }
     }
 }
 
 /// <summary>The successful outcome of an in-memory text comparison.</summary>
 public sealed record TextFindingsResult(
-    ImmutableArray<PairFinding<TextLine>> Pairs,
+    ImmutableArray<PairFinding<string>> Pairs,
     FindingMatch Match,
-    ImmutableArray<Finding<TextLine>> OldAtoms,
-    ImmutableArray<Finding<TextLine>> NewAtoms)
+    ImmutableArray<Finding<string>> OldAtoms,
+    ImmutableArray<Finding<string>> NewAtoms)
 {
     /// <summary>True when the documents have the same logical lines in the same order.</summary>
     public bool IsExact => FindingEquivalence.Exact.IsEquivalent(Pairs);
