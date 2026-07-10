@@ -162,6 +162,24 @@ public sealed class MetadataInventoryFindingsTests
     }
 
     [Fact]
+    public void InventoryNullElements_ReportThePublicCollectionParameter()
+    {
+        AssemblyReference valid = new("System.Runtime", "9.0.0.0", null, null);
+        AssemblyReference[] containingNull = [null!];
+
+        var inspectException = Assert.Throws<ArgumentException>(
+            () => MetadataFindings.InspectAssemblyReferences(containingNull, Subject));
+        var oldException = Assert.Throws<ArgumentException>(
+            () => MetadataFindings.CompareAssemblyReferences(containingNull, [valid], Subject));
+        var newException = Assert.Throws<ArgumentException>(
+            () => MetadataFindings.CompareAssemblyReferences([valid], containingNull, Subject));
+
+        Assert.Equal("references", inspectException.ParamName);
+        Assert.Equal("oldReferences", oldException.ParamName);
+        Assert.Equal("newReferences", newException.ParamName);
+    }
+
+    [Fact]
     public void RealScannerOutputs_ProjectWithoutChangingTheCensus()
     {
         using var stream = File.OpenRead(typeof(ApiSurfaceExtractor).Assembly.Location);
