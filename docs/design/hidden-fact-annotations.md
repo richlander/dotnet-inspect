@@ -13,6 +13,12 @@ decompiler-side correctness oracle this layer's validation is modelled on, and
 ("render what the IL does, not what the source probably said") that this layer
 extends.
 
+Terminology follows [Finding Nomenclature](finding-nomenclature.md). A raw
+single-version occurrence is an observation; **Fact** in this document names a
+curated Research overlay statement and the existing `Facts` product view. It is
+not a synonym for every `Finding<T>` and does not define a parallel evidence
+model.
+
 ## The model
 
 Modelled on Roslyn analyzers — a registry of independent producers, a

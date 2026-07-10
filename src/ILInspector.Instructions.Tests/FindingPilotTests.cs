@@ -43,8 +43,31 @@ public class FindingPilotTests
         Assert.True(complete is FindingInspection<string>.Complete);
         Assert.True(absent is FindingInspection<string>.Absent);
         Assert.True(failed is FindingInspection<string>.Failed);
-        Assert.IsAssignableFrom<IFinding>(error);
-        Assert.Equal("declined", error.Detail);
+        Assert.Equal("declined", error.Reason);
+    }
+
+    [Fact]
+    public void FindingContracts_KeepObservationsTransitionsAndFailuresDistinct()
+    {
+        var stringFinding = Atoms("a")[0];
+        var intFinding = new Finding<int>(
+            Subject,
+            Descriptor,
+            new FindingKey("1"),
+            0,
+            1);
+        IFinding[] observations = [stringFinding, intFinding];
+        IPairFinding[] transitions =
+        [
+            new PairFinding<string>.Added(stringFinding),
+            new PairFinding<int>.Added(intFinding),
+        ];
+
+        Assert.Equal(2, observations.Length);
+        Assert.Equal(2, transitions.Length);
+        Assert.False(typeof(IFinding).IsAssignableFrom(typeof(PairFinding<string>)));
+        Assert.False(typeof(IFinding).IsAssignableFrom(typeof(PairFinding<string>.Added)));
+        Assert.False(typeof(IFinding).IsAssignableFrom(typeof(InspectionError)));
     }
 
     [Fact]

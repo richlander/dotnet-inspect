@@ -141,9 +141,9 @@ public sealed record FindingComparison<T> where T : notnull
             {
                 var failures = new List<string>(2);
                 if (OldInspection is FindingInspection<T>.Failed oldFailed)
-                    failures.Add($"old: {oldFailed.Error.Detail}");
+                    failures.Add($"old: {oldFailed.Error.Reason}");
                 if (NewInspection is FindingInspection<T>.Failed newFailed)
-                    failures.Add($"new: {newFailed.Error.Detail}");
+                    failures.Add($"new: {newFailed.Error.Reason}");
                 return string.Join("; ", failures);
             }
         }

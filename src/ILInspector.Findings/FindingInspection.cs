@@ -11,7 +11,7 @@ namespace ILInspector.Findings;
 public sealed record InspectionError(
     FindingSubject Subject,
     FindingDescriptor Descriptor,
-    string Reason) : IFinding
+    string Reason)
 {
     public FindingSubject Subject { get; }
         = Subject ?? throw new ArgumentNullException(nameof(Subject));
@@ -21,8 +21,6 @@ public sealed record InspectionError(
 
     public string Reason { get; }
         = Reason ?? throw new ArgumentNullException(nameof(Reason));
-
-    public string? Detail => Reason;
 }
 
 /// <summary>
