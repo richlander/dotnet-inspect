@@ -2,12 +2,12 @@ using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
-public class SourceTextDiffTests
+public class SourceTextDiffRendererTests
 {
     [Fact]
     public void AddedAndRemovedLines_PreserveUnifiedDiffShape()
     {
-        string actual = SourceTextDiff.CreateUnifiedDiff(
+        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
             "one\nremoved\nlast",
             "one\nadded\nlast",
             "Before",
@@ -28,7 +28,7 @@ public class SourceTextDiffTests
     [Fact]
     public void MovedBlock_RendersAsInsertionAndRemovalAtItsTypedPositions()
     {
-        string actual = SourceTextDiff.CreateUnifiedDiff(
+        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
             "A\nB\nC\nmoved-one\nmoved-two\nD\nE",
             "moved-one\nmoved-two\nA\nB\nC\nD\nE",
             "Before",
@@ -54,7 +54,7 @@ public class SourceTextDiffTests
     [Fact]
     public void CrLfCrAndLf_AreEquivalent()
     {
-        string actual = SourceTextDiff.CreateUnifiedDiff(
+        string actual = SourceTextDiffRenderer.CreateUnifiedDiff(
             "one\r\ntwo\rthree\r",
             "one\ntwo\nthree\n",
             "Before",
@@ -68,9 +68,9 @@ public class SourceTextDiffTests
     {
         Assert.Equal(
             "# Before and After are identical.",
-            SourceTextDiff.CreateUnifiedDiff("", "", "Before", "After"));
+            SourceTextDiffRenderer.CreateUnifiedDiff("", "", "Before", "After"));
 
-        string whitespace = SourceTextDiff.CreateUnifiedDiff(" ", "\t", "Before", "After");
+        string whitespace = SourceTextDiffRenderer.CreateUnifiedDiff(" ", "\t", "Before", "After");
         Assert.Equal(
             Join(
                 "--- Before",
@@ -86,10 +86,10 @@ public class SourceTextDiffTests
     {
         Assert.Equal(
             "# Before unavailable; source diff requires both Before and After.",
-            SourceTextDiff.CreateUnifiedDiff(null, "text", "Before", "After"));
+            SourceTextDiffRenderer.CreateUnifiedDiff(null, "text", "Before", "After"));
         Assert.Equal(
             "# After unavailable; source diff requires both Before and After.",
-            SourceTextDiff.CreateUnifiedDiff("text", null, "Before", "After"));
+            SourceTextDiffRenderer.CreateUnifiedDiff("text", null, "Before", "After"));
     }
 
     static string Join(params string[] lines) => string.Join(Environment.NewLine, lines);

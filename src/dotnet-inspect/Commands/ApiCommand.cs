@@ -1380,7 +1380,7 @@ public class ApiCommand
         view.MemberCode ??= new MemberCodeView();
         view.MemberCode.SourceDiffCode = new Markout.CodeSection(
             "diff",
-            SourceTextDiff.CreateUnifiedDiff(
+            SourceTextDiffRenderer.CreateUnifiedDiff(
                 view.MemberCode.OriginalSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 "Original Source",

@@ -3,7 +3,7 @@ using ILInspector.Text;
 
 namespace DotnetInspector.Output;
 
-internal static class SourceTextDiff
+internal static class SourceTextDiffRenderer
 {
     static readonly FindingSubject Subject = new("source.text", "Source text");
 
@@ -14,7 +14,7 @@ internal static class SourceTextDiff
         if (after is null)
             return $"# {afterLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
 
-        var comparison = TextFindings.Compare(before, after, Subject);
+        var comparison = SourceTextDiff.Compare(before, after, Subject);
         if (comparison.IsExact)
             return $"# {beforeLabel} and {afterLabel} are identical.";
 
@@ -29,7 +29,7 @@ internal static class SourceTextDiff
         return string.Join(Environment.NewLine, output);
     }
 
-    static List<(char Prefix, string Text)> RenderLines(TextFindingsResult comparison)
+    static List<(char Prefix, string Text)> RenderLines(SourceTextDiffResult comparison)
     {
         // Unchanged Present pairs are the ordered anchors. Added, Removed, Changed, and Moved
         // pairs remain gaps, so a typed move renders conventionally as '-' at its old position
