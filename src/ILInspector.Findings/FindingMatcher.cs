@@ -116,10 +116,25 @@ public static class FindingMatcher
         // (no interface dispatch), and the set committer streams it into its buckets.
         var oldKeys = oldStream as FindingKey[] ?? oldStream.ToArray();
         var newKeys = newStream as FindingKey[] ?? newStream.ToArray();
+        ValidateKeys(oldKeys, nameof(oldStream));
+        ValidateKeys(newKeys, nameof(newStream));
 
         return options.MatchMode == FindingMatchMode.IdentitySet
             ? MatchIdentitySet(oldKeys, newKeys)
             : MatchOrdered(oldKeys, newKeys, options);
+    }
+
+    static void ValidateKeys(FindingKey[] keys, string parameterName)
+    {
+        for (int i = 0; i < keys.Length; i++)
+        {
+            if (keys[i].IdentityKey is null)
+            {
+                throw new ArgumentException(
+                    $"Finding key at index {i} must be initialized.",
+                    parameterName);
+            }
+        }
     }
 
     // Order-free committer: pair occurrences by identity-key equality via hash buckets, deterministic
@@ -129,22 +144,17 @@ public static class FindingMatcher
     // at this rung once a soft tier drops a facet (e.g. declaring type) from the identity key (#2585).
     static FindingMatch MatchIdentitySet(FindingKey[] oldKeys, FindingKey[] newKeys)
     {
-        // Bucket new occurrences by identity key. IdentityKey is non-null by contract, but the ordered
-        // committer tolerates a null key (null == null matches), so keep parity via a dedicated null
-        // bucket instead of crashing in Dictionary (which rejects a null key) on a degenerate
-        // default(FindingKey).
         var newByKey = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
-        var newNull = new Queue<int>();
         for (int j = 0; j < newKeys.Length; j++)
-            Bucket(newByKey, newNull, newKeys[j].IdentityKey).Enqueue(j);
+            Bucket(newByKey, newKeys[j].IdentityKey).Enqueue(j);
 
         var matchedNew = new bool[newKeys.Length];
         var edges = ImmutableArray.CreateBuilder<FindingEdge>();
 
         for (int i = 0; i < oldKeys.Length; i++)
         {
-            string? key = oldKeys[i].IdentityKey;
-            var queue = key is null ? newNull : (newByKey.TryGetValue(key, out var q) ? q : null);
+            string key = oldKeys[i].IdentityKey;
+            var queue = newByKey.TryGetValue(key, out var q) ? q : null;
             if (queue is { Count: > 0 })
             {
                 int j = queue.Dequeue();
@@ -165,12 +175,8 @@ public static class FindingMatcher
 
         return new FindingMatch(edges.ToImmutable(), ImmutableArray<FindingMoveCandidate>.Empty);
 
-        // Route a null identity key to a dedicated bucket (Dictionary rejects null keys); real keys
-        // bucket by ordinal equality.
-        static Queue<int> Bucket(Dictionary<string, Queue<int>> byKey, Queue<int> nullBucket, string? key)
+        static Queue<int> Bucket(Dictionary<string, Queue<int>> byKey, string key)
         {
-            if (key is null)
-                return nullBucket;
             if (!byKey.TryGetValue(key, out var queue))
                 byKey[key] = queue = new Queue<int>();
             return queue;

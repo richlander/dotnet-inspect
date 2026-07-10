@@ -53,9 +53,24 @@ public sealed record FindingInspection<T>
         ImmutableArray<Finding<T>> Findings)
     {
         public ImmutableArray<Finding<T>> Findings { get; }
-            = Findings.IsDefault
-                ? throw new ArgumentException("Findings must be initialized.", nameof(Findings))
-                : Findings;
+            = Validate(Findings);
+
+        static ImmutableArray<Finding<T>> Validate(ImmutableArray<Finding<T>> findings)
+        {
+            if (findings.IsDefault)
+                throw new ArgumentException("Findings must be initialized.", nameof(Findings));
+            for (int i = 0; i < findings.Length; i++)
+            {
+                if (findings[i] is null)
+                {
+                    throw new ArgumentException(
+                        $"Finding at index {i} must not be null.",
+                        nameof(Findings));
+                }
+            }
+
+            return findings;
+        }
     }
 
     /// <summary>The subject has no applicable input for this producer.</summary>

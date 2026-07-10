@@ -52,6 +52,8 @@ public class FindingPilotTests
     {
         Assert.Throws<ArgumentException>(
             () => new FindingInspection<string>.Complete(default));
+        Assert.Throws<ArgumentException>(
+            () => new FindingInspection<string>.Complete([null!]));
         Assert.Throws<ArgumentNullException>(
             () => new FindingInspection<string>.Failed(null!));
         Assert.Throws<ArgumentNullException>(
@@ -60,6 +62,31 @@ public class FindingPilotTests
             () => new InspectionError(Subject, null!, "declined"));
         Assert.Throws<ArgumentNullException>(
             () => new InspectionError(Subject, Descriptor, null!));
+    }
+
+    [Fact]
+    public void FindingPrimitives_RejectInvalidIdentityAndPayloadStates()
+    {
+        Assert.Throws<ArgumentNullException>(() => new FindingSubject(null!, "subject"));
+        Assert.Throws<ArgumentException>(() => new FindingSubject("", "subject"));
+        Assert.Throws<ArgumentNullException>(() => new FindingSubject("subject", null!));
+        Assert.Throws<ArgumentNullException>(() => new FindingDescriptor(null!, "item"));
+        Assert.Throws<ArgumentException>(() => new FindingDescriptor("", "item"));
+        Assert.Throws<ArgumentNullException>(() => new FindingDescriptor("test.item", null!));
+        Assert.Throws<ArgumentNullException>(() => new FindingKey(null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new Finding<string>(null!, Descriptor, new FindingKey("k"), 0, "k"));
+        Assert.Throws<ArgumentNullException>(
+            () => new Finding<string>(Subject, null!, new FindingKey("k"), 0, "k"));
+        Assert.Throws<ArgumentException>(
+            () => new Finding<string>(Subject, Descriptor, default, 0, "k"));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new Finding<string>(Subject, Descriptor, new FindingKey("k"), -1, "k"));
+        Assert.Throws<ArgumentNullException>(
+            () => new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, null!));
+
+        // Empty content is a valid identity for an empty logical text line.
+        Assert.Equal("", new FindingKey("").IdentityKey);
     }
 
     [Fact]
@@ -72,18 +99,11 @@ public class FindingPilotTests
         FindingInspection<string> failedInspection =
             new FindingInspection<string>.Failed(
                 new InspectionError(Subject, Descriptor, "declined"));
-        var emptyMatch = new FindingMatch([], []);
 
         FindingComparison<string> complete =
-            new FindingComparison<string>.Complete(
-                [],
-                emptyMatch,
-                absentInspection,
-                absentInspection);
+            FindingComparison.Compare(absentInspection, absentInspection);
         FindingComparison<string> failed =
-            new FindingComparison<string>.Failed(
-                failedInspection,
-                completeInspection);
+            FindingComparison.Compare(failedInspection, completeInspection);
 
         Assert.True(complete is FindingComparison<string>.Complete);
         Assert.True(complete.IsExact);
@@ -94,33 +114,40 @@ public class FindingPilotTests
     }
 
     [Fact]
-    public void FindingComparison_CasesRejectInvalidPublicStates()
+    public void FindingComparison_DifferentCensusesCannotReportExact()
     {
-        FindingInspection<string> complete =
-            new FindingInspection<string>.Complete([]);
-        FindingInspection<string> failed =
-            new FindingInspection<string>.Failed(
-                new InspectionError(Subject, Descriptor, "declined"));
-        var match = new FindingMatch([], []);
+        FindingInspection<string> oldInspection =
+            new FindingInspection<string>.Complete(Atoms("old"));
+        FindingInspection<string> newInspection =
+            new FindingInspection<string>.Complete(Atoms("new"));
 
-        Assert.Throws<ArgumentException>(
-            () => new FindingComparison<string>.Complete(default, match, complete, complete));
-        Assert.Throws<ArgumentNullException>(
-            () => new FindingComparison<string>.Complete([], null!, complete, complete));
-        Assert.Throws<ArgumentException>(
-            () => new FindingComparison<string>.Complete(
-                [],
-                new FindingMatch(default, []),
-                complete,
-                complete));
-        Assert.Throws<ArgumentException>(
-            () => new FindingComparison<string>.Complete([], match, failed, complete));
-        Assert.Throws<ArgumentException>(
-            () => new FindingComparison<string>.Complete([], match, complete, failed));
-        Assert.Throws<ArgumentException>(
-            () => new FindingComparison<string>.Failed(complete, complete));
-        Assert.Throws<ArgumentNullException>(
-            () => new FindingComparison<string>.Failed(null!, failed));
+        var comparison = FindingComparison.Compare(oldInspection, newInspection);
+
+        Assert.False(comparison.IsExact);
+        var complete = comparison switch
+        {
+            FindingComparison<string>.Complete value => value,
+            FindingComparison<string>.Failed failed => throw new Xunit.Sdk.XunitException(failed.Failure),
+        };
+        Assert.Equal(1, complete.Pairs.Count(pair => pair.Kind == PairKind.Added));
+        Assert.Equal(1, complete.Pairs.Count(pair => pair.Kind == PairKind.Removed));
+    }
+
+    [Fact]
+    public void FindingComparison_TransformationMustPreserveAlignmentAtoms()
+    {
+        FindingInspection<string> inspection =
+            new FindingInspection<string>.Complete(Atoms("same"));
+        var comparison = FindingComparison.Compare(inspection, inspection);
+
+        Assert.Throws<ArgumentException>(() => comparison.TransformPairs(_ => []));
+        Assert.Throws<ArgumentException>(() => comparison.TransformPairs(
+            pairs =>
+            [
+                new PairFinding<string>.Present(
+                    Atoms("replacement")[0],
+                    Atoms("replacement")[0]),
+            ]));
     }
 
     [Fact]
@@ -134,7 +161,7 @@ public class FindingPilotTests
                 new InspectionError(Subject, Descriptor, "new failure"));
 
         FindingComparison<string> comparison =
-            new FindingComparison<string>.Failed(oldFailed, newFailed);
+            FindingComparison.Compare(oldFailed, newFailed);
 
         Assert.Equal("old: old failure; new: new failure", comparison.Failure);
     }
@@ -393,19 +420,12 @@ public class FindingPilotTests
     }
 
     [Fact]
-    public void IdentitySet_NullIdentityKeys_MatchLikeOrdered_NoCrash()
+    public void UninitializedIdentityKeys_AreRejectedByBothMatchers()
     {
-        // default(FindingKey) has a null IdentityKey. The ordered committer treats null == null as a
-        // match; the set committer keeps parity (dedicated null bucket) rather than crashing in
-        // Dictionary, so a degenerate stream behaves the same on both rungs.
         var stream = new FindingKey[] { default, default };
 
-        var set = FindingMatcher.Match(stream, stream, IdentitySet);
-        Assert.Equal(2, Count(set, FindingEdgeKind.Matched));
-        Assert.Equal(0, Count(set, FindingEdgeKind.Added));
-        Assert.Equal(0, Count(set, FindingEdgeKind.Removed));
-
-        Assert.Equal(2, Count(FindingMatcher.Match(stream, stream), FindingEdgeKind.Matched));
+        Assert.Throws<ArgumentException>(() => FindingMatcher.Match(stream, stream, IdentitySet));
+        Assert.Throws<ArgumentException>(() => FindingMatcher.Match(stream, stream));
     }
 
     [Fact]

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -9,13 +8,32 @@ using ILInspector.Instructions;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// A single decoded IL instruction with its offset, opcode, and resolved operand.
+/// Selects how IL operands are rendered by <see cref="ILInstructionPrinter"/>.
 /// </summary>
-public record ILInstruction(int Offset, string OpCodeName, string? Operand = null)
+public enum ILSyntax
 {
+    /// <summary>Human-readable C#-style names (the IL section's historical format).</summary>
+    Display,
+
     /// <summary>
-    /// Formats the instruction as "IL_XXXX: opcode operand".
+    /// Canonical ilasm syntax — assembly-qualified type names, IL primitive names,
+    /// return types and calling conventions on member refs — suitable for feeding
+    /// back through an IL assembler.
     /// </summary>
+    Canonical,
+}
+
+/// <summary>
+/// A rendered projection of one decoded IL instruction: opcode display/canonical name plus
+/// formatted operand text. This is deliberately <b>not</b> a second decoded-instruction model —
+/// offset identity, opcode enum, operand kind/value, branch targets, and control-flow facts live
+/// solely on <see cref="DecodedInstruction"/> / <see cref="MethodInstructions"/>
+/// (<c>ILInspector.Instructions</c>). This record exists only so display/ilasm consumers can work
+/// with formatted text/fields without repeating metadata token/signature traversal themselves.
+/// </summary>
+public record ILInstructionText(int Offset, string OpCodeName, string? Operand = null)
+{
+    /// <summary>Formats the instruction as "IL_XXXX: opcode operand".</summary>
     public override string ToString()
     {
         return Operand is null
@@ -25,19 +43,43 @@ public record ILInstruction(int Offset, string OpCodeName, string? Operand = nul
 }
 
 /// <summary>
-/// Disassembles IL method bodies into human-readable instructions.
-/// Uses System.Reflection.Metadata to decode opcodes and resolve metadata tokens.
-/// Operand type classification uses a lookup table derived from ILSpy (MIT license).
+/// Renders decoded IL instructions (<see cref="MethodInstructions"/> — the sole decoded-body
+/// model, shared with <c>IlFindings</c>/<c>IlBodyDiff</c>) into human-readable or canonical ilasm
+/// text. Operand type classification uses a lookup table derived from ILSpy (MIT license).
 /// </summary>
-public static class ILDisassembler
+public static class ILInstructionPrinter
 {
     /// <summary>
-    /// Disassembles a method body into a list of IL instructions.
-    /// Returns null if the method has no IL body (abstract, extern, etc.).
+    /// Renders an already-decoded body. Throws <see cref="BadImageFormatException"/> when the
+    /// body failed to decode (malformed IL) — the same fail-closed contract
+    /// <see cref="MethodInstructions.Decode(MethodBodyBlock)"/> uses for its throwing callers.
+    /// </summary>
+    public static List<ILInstructionText> Render(MethodInstructions body, MetadataReader reader, ILSyntax syntax = ILSyntax.Display)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(reader);
+        if (!body.IsComplete)
+            throw new BadImageFormatException(body.Blocks.IncompleteReason ?? "IL body decode failed.");
+
+        var instructions = new List<ILInstructionText>(body.Instructions.Length);
+        foreach (var instruction in body.Instructions)
+        {
+            instructions.Add(new ILInstructionText(
+                instruction.Offset, GetDisplayName(instruction.OpCode), FormatOperand(instruction, reader, syntax)));
+        }
+
+        return instructions;
+    }
+
+    /// <summary>
+    /// Decodes and renders a method body. Returns null if the method has no IL body (abstract,
+    /// extern, etc.). Malformed IL that decodes to an incomplete body still throws
+    /// <see cref="BadImageFormatException"/> (via <see cref="Render"/>) — a null result is
+    /// reserved for the honest "no body" case, never a decode failure.
     /// <paramref name="syntax"/> selects display rendering (default) or canonical
     /// ilasm operand syntax (see <see cref="ILSyntax"/>).
     /// </summary>
-    public static List<ILInstruction>? Disassemble(PEReader peReader, MetadataReader reader, MethodDefinition method, ILSyntax syntax = ILSyntax.Display)
+    public static List<ILInstructionText>? Disassemble(PEReader peReader, MetadataReader reader, MethodDefinition method, ILSyntax syntax = ILSyntax.Display)
     {
         if (method.RelativeVirtualAddress == 0)
             return null;
@@ -52,27 +94,17 @@ public static class ILDisassembler
             return null;
         }
 
-        var ilBytes = body.GetILContent().ToArray();
-        var decoded = InstructionDecoder.Decode(ilBytes);
-
-        var instructions = new List<ILInstruction>(decoded.Length);
-        foreach (var instruction in decoded)
-        {
-            instructions.Add(new ILInstruction(
-                instruction.Offset, GetDisplayName(instruction.OpCode), FormatOperand(instruction, reader, syntax)));
-        }
-
-        return instructions;
+        return Render(MethodInstructions.Decode(body), reader, syntax);
     }
 
     /// <summary>
     /// Finds a method by name on a type and disassembles it.
     /// Returns null if the method is not found or has no IL body.
     /// </summary>
-    public static List<ILInstruction>? DisassembleMethod(PEReader peReader, string typeName, string methodName)
+    public static List<ILInstructionText>? DisassembleMethod(PEReader peReader, string typeName, string methodName)
         => DisassembleMethod(peReader, typeName, methodName, overloadIndex: 0);
 
-    public static List<ILInstruction>? DisassembleMethod(PEReader peReader, string typeName, string methodName, int overloadIndex, bool publicOnly = false)
+    public static List<ILInstructionText>? DisassembleMethod(PEReader peReader, string typeName, string methodName, int overloadIndex, bool publicOnly = false)
     {
         var reader = peReader.GetMetadataReader();
 
@@ -92,7 +124,7 @@ public static class ILDisassembler
     /// Overload for callers that have already resolved the declaring type handle, avoiding a repeated
     /// TypeDefinitions scan per method.
     /// </summary>
-    public static List<ILInstruction>? DisassembleMethod(
+    public static List<ILInstructionText>? DisassembleMethod(
         PEReader peReader, MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly = false)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);

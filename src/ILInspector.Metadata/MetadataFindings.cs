@@ -117,17 +117,11 @@ public static partial class MetadataFindings
     {
         var oldInspection = InspectApiTypes(oldSurface, subject);
         var newInspection = InspectApiTypes(newSurface, subject);
-        var oldFindings = InspectionFindings(oldInspection);
-        var newFindings = InspectionFindings(newInspection);
-        var match = FindingMatcher.Match(oldFindings.Keys(), newFindings.Keys(), IdentitySetOptions);
-        var pairs = FindingFold.ToPairs(match, oldFindings, newFindings);
-        pairs = ApplyTypeFacetChanges(pairs, diff, options.Scope);
-
-        return new FindingComparison<ApiTypeHandle>.Complete(
-            pairs,
-            match,
+        return FindingComparison.Compare(
             oldInspection,
-            newInspection);
+            newInspection,
+            IdentitySetOptions)
+            .TransformPairs(pairs => ApplyTypeFacetChanges(pairs, diff, options.Scope));
     }
 
     static FindingComparison<ApiMemberHandle> CompareApiMembers(
@@ -139,17 +133,11 @@ public static partial class MetadataFindings
     {
         var oldInspection = InspectApiMembers(oldSurface, subject);
         var newInspection = InspectApiMembers(newSurface, subject);
-        var oldFindings = InspectionFindings(oldInspection);
-        var newFindings = InspectionFindings(newInspection);
-        var match = FindingMatcher.Match(oldFindings.Keys(), newFindings.Keys(), IdentitySetOptions);
-        var pairs = FindingFold.ToPairs(match, oldFindings, newFindings);
-        pairs = ApplyMemberFacetChanges(pairs, diff, options.Scope);
-
-        return new FindingComparison<ApiMemberHandle>.Complete(
-            pairs,
-            match,
+        return FindingComparison.Compare(
             oldInspection,
-            newInspection);
+            newInspection,
+            IdentitySetOptions)
+            .TransformPairs(pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
     }
 
     static ImmutableArray<PairFinding<ApiTypeHandle>> ApplyTypeFacetChanges(
@@ -366,12 +354,6 @@ public static partial class MetadataFindings
 
     static string FormatValue(string? value)
         => string.IsNullOrEmpty(value) ? "none" : value;
-
-    static ImmutableArray<Finding<T>> InspectionFindings<T>(FindingInspection<T> inspection)
-        where T : notnull
-        => inspection is FindingInspection<T>.Complete complete
-            ? complete.Findings
-            : throw new InvalidOperationException("Metadata inspection unexpectedly failed.");
 
     static IEnumerable<(ApiType Type, ApiMember Member)> EnumerateMembers(ApiSurface surface)
     {

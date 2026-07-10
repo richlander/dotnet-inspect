@@ -223,22 +223,11 @@ public static partial class MetadataFindings
         FindingInspection<T> oldInspection,
         FindingInspection<T> newInspection)
         where T : notnull
-    {
-        var oldFindings = InspectionFindings(oldInspection);
-        var newFindings = InspectionFindings(newInspection);
-        var match = FindingMatcher.Match(
-            oldFindings.Keys(),
-            newFindings.Keys(),
-            IdentitySetOptions);
-        var pairs = FindingFold.ToPairs(match, oldFindings, newFindings);
-        pairs = PromoteChangedPayloads(pairs);
-
-        return new FindingComparison<T>.Complete(
-            pairs,
-            match,
+        => FindingComparison.Compare(
             oldInspection,
-            newInspection);
-    }
+            newInspection,
+            IdentitySetOptions)
+            .TransformPairs(PromoteChangedPayloads);
 
     static ImmutableArray<PairFinding<T>> PromoteChangedPayloads<T>(
         ImmutableArray<PairFinding<T>> pairs)

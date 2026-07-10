@@ -32,7 +32,7 @@ public class ILAssemblerRoundtripTests
         var reader = peReader.GetMetadataReader();
 
         var method = IlasmScaffold.FindMethod(reader, nameof(RoundtripFixtures), methodName);
-        var original = ILDisassembler.Disassemble(peReader, reader, method);
+        var original = ILInstructionPrinter.Disassemble(peReader, reader, method);
         Assert.NotNull(original);
 
         string il = IlasmScaffold.BuildCompilationUnit(peReader, reader, method);
@@ -292,7 +292,13 @@ public class ILAssemblerRoundtripTests
     }
 
     [Theory]
-    [InlineData("switch (12, 14)")]                 // integer offsets
+    // Switch targets are relative to the instruction *following* the switch
+    // (ECMA-335 III.3.66), and this switch has two entries (13-byte encoding:
+    // opcode + count + 2 x int32), so the real post-switch offset is 14, not
+    // the cosmetic IL_000A label. `2` and `4` are the relative offsets that
+    // land on IL_000C/IL_000E's actual assembled positions -- verified to
+    // produce byte-identical bytecode to the label-list form below.
+    [InlineData("switch (2, 4)")]                    // integer offsets
     [InlineData("switch (IL_000C, IL_000E)")]       // label list (vendor grammar fix)
     public void Switch_Assembles(string switchLine)
     {
@@ -418,7 +424,7 @@ public class ILAssemblerRoundtripTests
         var sourceImage = source.Image!;
         var reader = sourceImage.GetMetadataReader();
         var method = IlasmScaffold.FindMethod(reader, typeName, methodName);
-        var original = ILDisassembler.Disassemble(sourceImage, reader, method);
+        var original = ILInstructionPrinter.Disassemble(sourceImage, reader, method);
         Assert.NotNull(original);
         Assert.Equal(expectedOps, original.Select(i => i.OpCodeName).ToList());
 

@@ -102,7 +102,7 @@ public static class SwitchScanner
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                var instructions = ILDisassembler.Disassemble(peReader, reader, method);
+                var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method);
                 if (instructions is not { Count: > 0 })
                     continue;
 
