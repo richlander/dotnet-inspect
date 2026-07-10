@@ -27,6 +27,8 @@
     <Project Path="src/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <Project Path="src/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
+    <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
