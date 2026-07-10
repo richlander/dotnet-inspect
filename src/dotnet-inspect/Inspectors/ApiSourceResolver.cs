@@ -37,10 +37,70 @@ internal static class ApiSourceResolver
         string? apiVersion = null;
         string? projectAssetsPath = null;
         var typeName = options.TypeName;
+        var packagePath = options.PackagePath;
 
-        if (!string.IsNullOrEmpty(options.PackagePath))
+        if (!string.IsNullOrEmpty(packagePath) && !File.Exists(packagePath))
         {
-            var outcome = await PackageExtractor.ExtractPackageAsync(context.HttpClient, options.PackagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
+            bool isRange = PackageVersionRange.TryParse(packagePath, out var range, out var rangeError);
+            if (rangeError is not null)
+            {
+                Console.Error.WriteLine(rangeError);
+                return (null!, 1);
+            }
+
+            if (isRange)
+            {
+                if (string.IsNullOrWhiteSpace(options.PackageRangeAddress))
+                {
+                    Console.Error.WriteLine(
+                        $"Error: Package range '{packagePath}' requires --at <version|#N|first|last>.");
+                    Console.Error.WriteLine(
+                        $"List its addressable versions with 'dotnet-inspect package {packagePath} --versions'.");
+                    return (null!, 1);
+                }
+
+                try
+                {
+                    var vector = await PackageVersionVector.ResolveAsync(
+                        context.HttpClient,
+                        range!,
+                        options.SourceOptions,
+                        context.Logger.Log);
+                    if (!vector.TrySelect(options.PackageRangeAddress, out var address, out var addressError))
+                    {
+                        Console.Error.WriteLine($"Error: {addressError}");
+                        return (null!, 1);
+                    }
+
+                    packagePath = $"{range!.PackageId}@{address!.Version.ToNormalizedString()}";
+                    context.Logger.Log(
+                        $"Resolved {range.PackageId}@{range.Start}..{range.End} {options.PackageRangeAddress} "
+                        + $"to {address.Version} ({address.Selector} of #{vector.Addresses.Length})");
+                }
+                catch (Exception ex) when (ex is HttpRequestException
+                    or IOException
+                    or InvalidOperationException
+                    or ArgumentException)
+                {
+                    Console.Error.WriteLine($"Error: {ex.Message}");
+                    return (null!, 1);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
+            {
+                Console.Error.WriteLine("Error: --at requires a package version range such as Package@A..B.");
+                return (null!, 1);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
+        {
+            Console.Error.WriteLine("Error: --at requires --package Package@A..B.");
+            return (null!, 1);
+        }
+
+        if (!string.IsNullOrEmpty(packagePath))
+        {
+            var outcome = await PackageExtractor.ExtractPackageAsync(context.HttpClient, packagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
             if (!outcome.IsSuccess)
             {
                 Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");

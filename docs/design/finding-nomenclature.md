@@ -66,7 +66,7 @@ Information types are durable values:
 | --- | --- | --- |
 | `Finding<T>` | One | One observation with a typed payload. |
 | `PairFinding<T>` | Two | One classified transition composed from observations. |
-| Future correlation type | More than two | A version-labelled timeline, if the product later needs one. |
+| `CorrelatedFinding<T>` | More than two | Durable occurrences of one exact identity, labelled with their evaluated version addresses. |
 
 Operation outcomes describe one invocation:
 
@@ -75,6 +75,7 @@ Operation outcomes describe one invocation:
 | Match | `FindingMatch` | Alignment edges and fringe candidates. |
 | Inspect | `FindingInspection<T>` | `Complete(Finding<T>[])`, `Absent`, or `Failed(InspectionError)`. |
 | Compare | `FindingComparison<T>` | Completed pairs/match/inspections, or the failed inspections that prevented matching. |
+| Correlate | `FindingCorrelation<T>` | A sparse, ordered timeline assembled from caller-supplied version-labelled inspections. |
 
 Outcome types carry information types; information types do not depend on
 outcome envelopes. Use the nominalized operation name instead of generic
@@ -96,6 +97,33 @@ The governing invariant is:
 
 > An empty match is evidence of a trivial alignment; a manufactured match is a
 > costume.
+
+## Sparse correlation and onset
+
+`FindingCorrelation<T>` does not traverse a version range. The caller chooses
+which addresses to inspect and supplies each `FindingInspection<T>` with a
+stable `FindingVersion`. This keeps bisect, backward scanning, retry, and probe
+limits in the agent or calling workflow rather than hiding an unbounded search
+inside the Finding layer.
+
+For one exact `FindingCorrelationKey`, an evaluated address has one of four
+states:
+
+- `Present`: a completed census contains the identity;
+- `Missing`: a completed census does not contain the identity;
+- `SubjectAbsent`: the producer had no applicable subject input;
+- `Failed`: inspection did not complete.
+
+Unevaluated addresses do not appear in the correlation. They are not
+manufactured as missing, absent, or failed. `CorrelatedFinding<T>` retains only
+the durable version-labelled occurrences; the correlation timeline retains the
+operation outcomes. Any two evaluated cells can be projected through the
+existing `FindingComparison.Compare` operation.
+
+This supports the current-onset question, "when was this not there?", without
+assuming monotonic history. A caller may scan backward until the first
+successful missing census for exact recurrence-safe onset, or use a bounded
+bracket/binary strategy only when its predicate is known to be monotonic.
 
 ## Research composition
 

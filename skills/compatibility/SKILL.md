@@ -61,3 +61,18 @@ Version resolution is cache-first (local cache in milliseconds; nuget.org
 `Foo --latest-version` for the newest on nuget.org, and `Foo --versions [N]`
 (add `--preview`) to list published versions. Pin with `@`: `Foo@9.0.0`,
 `Foo@latest`.
+
+For caller-driven onset or bisect work, resolve an inclusive addressable vector,
+then probe only the cells you choose:
+
+```bash
+dnx dotnet-inspect -y -- package Foo@1.0.0..2.0.0 --versions
+dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
+dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
+```
+
+`--at` accepts an exact version, one-based `#N`, `first`, or `last`. Vector
+resolution does not download every package; only the selected probe is
+acquired. The agent owns the search policy and bound. For recurrence-safe
+current onset, walk backward from the bad version until the first successful
+absence; use binary search only for a predicate known to be monotonic.

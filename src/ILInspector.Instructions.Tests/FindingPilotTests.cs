@@ -47,6 +47,69 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void FindingCorrelation_PreservesMissingAbsentAndFailedAddresses()
+    {
+        var present = Atoms("target")[0];
+        var key = FindingCorrelationKey.From(present);
+        var error = new InspectionError(Subject, Descriptor, "declined");
+        var correlation = FindingCorrelation<string>.Create(
+            key,
+            [
+                new(new FindingVersion("v1", "1.0.0", 0), new FindingInspection<string>.Complete([])),
+                new(new FindingVersion("v2", "2.0.0", 1), new FindingInspection<string>.Absent("no body")),
+                new(new FindingVersion("v3", "3.0.0", 2), new FindingInspection<string>.Failed(error)),
+                new(new FindingVersion("v4", "4.0.0", 3), new FindingInspection<string>.Complete([present])),
+            ]);
+
+        Assert.True(correlation.Timeline[0] is FindingCorrelationPoint<string>.Missing);
+        Assert.True(correlation.Timeline[1] is FindingCorrelationPoint<string>.SubjectAbsent);
+        Assert.True(correlation.Timeline[2] is FindingCorrelationPoint<string>.Failed);
+        Assert.True(correlation.Timeline[3] is FindingCorrelationPoint<string>.Present);
+        var occurrence = Assert.Single(correlation.Finding.Occurrences);
+        Assert.Equal("v4", occurrence.Version.Key);
+        Assert.Same(present, occurrence.Finding);
+    }
+
+    [Fact]
+    public void FindingCorrelation_ProjectsAnyEvaluatedPairThroughTheSharedFold()
+    {
+        var present = Atoms("target")[0];
+        var correlation = FindingCorrelation<string>.Create(
+            FindingCorrelationKey.From(present),
+            [
+                new(new FindingVersion("old", "1.0.0", 0), new FindingInspection<string>.Complete([])),
+                new(new FindingVersion("new", "3.0.0", 2), new FindingInspection<string>.Complete([present])),
+            ]);
+
+        var comparison = correlation.Compare("old", "new") switch
+        {
+            FindingComparison<string>.Complete value => value,
+            FindingComparison<string>.Failed failed => throw new Xunit.Sdk.XunitException(failed.Failure),
+        };
+        Assert.Equal(PairKind.Added, Assert.Single(comparison.Pairs).Kind);
+        Assert.Throws<ArgumentException>(() => correlation.Compare("unevaluated", "new"));
+    }
+
+    [Fact]
+    public void FindingCorrelation_RejectsAmbiguousOrDuplicateAddresses()
+    {
+        var present = Atoms("target")[0];
+        var key = FindingCorrelationKey.From(present);
+
+        Assert.Throws<ArgumentException>(() => FindingCorrelation<string>.Create(
+            key,
+            [
+                new(new FindingVersion("same", "1.0.0", 0), new FindingInspection<string>.Complete([])),
+                new(new FindingVersion("same", "2.0.0", 1), new FindingInspection<string>.Complete([])),
+            ]));
+        Assert.Throws<ArgumentException>(() => FindingCorrelation<string>.Create(
+            key,
+            [
+                new(new FindingVersion("v1", "1.0.0", 0), new FindingInspection<string>.Complete([present, present])),
+            ]));
+    }
+
+    [Fact]
     public void FindingContracts_KeepObservationsTransitionsAndFailuresDistinct()
     {
         var stringFinding = Atoms("a")[0];

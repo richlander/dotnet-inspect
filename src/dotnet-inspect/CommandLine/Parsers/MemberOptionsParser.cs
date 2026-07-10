@@ -35,7 +35,8 @@ public static class MemberOptionsParser
         Option<string[]> KindOption,
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
-        Option<string[]> CallerPackageOption);
+        Option<string[]> CallerPackageOption,
+        Option<string?> AtOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -257,6 +258,7 @@ public static class MemberOptionsParser
         {
             TypeName = typeName,
             PackagePath = source.PackagePath,
+            PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
             ProjectPath = projectSourcePath,
