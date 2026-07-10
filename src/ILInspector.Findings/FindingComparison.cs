@@ -83,9 +83,7 @@ public sealed record FindingComparison<T> where T : notnull
 
         public bool IsExact =>
             SameInspectionState(OldInspection, NewInspection)
-            && Pairs.All(static pair =>
-                pair.Kind == PairKind.Present
-                && pair.Difference == FindingDifferenceKind.None);
+            && FindingEquivalence.Exact.IsEquivalent(Pairs);
     }
 
     /// <summary>Matching never ran because at least one inspection failed.</summary>
