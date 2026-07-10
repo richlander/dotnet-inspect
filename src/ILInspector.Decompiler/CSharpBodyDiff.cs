@@ -42,6 +42,14 @@ public sealed record CSharpDiffOperation(CSharpDiffOperationKind Kind, string Va
     };
 }
 
+public sealed record CSharpCanonicalStatement(
+    int Line,
+    string Text,
+    string IdentityKey)
+{
+    public CSharpDiffOperation Operation => new(CSharpDiffOperationKind.Line, Text);
+}
+
 public sealed record CSharpDiffRow(
     string AssemblyIdentity,
     string StableMemberKey,
@@ -201,6 +209,51 @@ public static class CSharpBodyDiff
         int hunkId = 0;
         AddLineDiffRows(rows, failureRows, oldEntry, Decompile(oldEntry, oldSource), Decompile(newEntry, newSource), ref hunkId);
         return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
+    }
+
+    /// <summary>
+    /// Canonicalizes a decompiled method body into the rendered statement stream the C# body diff
+    /// aligns over. Exposed so finding producers can reuse the decompiler render and statement
+    /// identity normalization instead of independently reconstructing C# text.
+    /// </summary>
+    public static bool TryCanonicalize(
+        MetadataSource source,
+        MethodDefinitionHandle method,
+        out ImmutableArray<CSharpCanonicalStatement> statements,
+        out string? failure)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (method.IsNil)
+            throw new ArgumentException("Method handle must not be nil.", nameof(method));
+
+        try
+        {
+            var entry = CreateMethodEntry(source, source.Reader.GetMethodDefinition(method).GetDeclaringType(), method, StableAssemblyKey(source));
+            var render = Decompile(entry, source);
+            if (render.State != CSharpMethodRenderState.Body)
+            {
+                statements = [];
+                failure = render.Lines.Length == 0 ? $"method render state was {render.State}" : render.Lines[0];
+                return false;
+            }
+
+            if (render.Lines.Length > MaxLcsLines)
+            {
+                statements = [];
+                failure = $"C# body has {render.Lines.Length} lines; limit is {MaxLcsLines}";
+                return false;
+            }
+
+            statements = CanonicalizeRenderedLines(render.Lines);
+            failure = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            statements = [];
+            failure = ex.Message;
+            return false;
+        }
     }
 
     public static CSharpBodyDiffResult CompareAssemblies(IReadOnlyList<string> oldPaths, IReadOnlyList<string> newPaths, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
@@ -1681,6 +1734,26 @@ public static class CSharpBodyDiff
         while (normalized.EndsWith('\n'))
             normalized = normalized[..^1];
         return normalized.Length == 0 ? [] : normalized.Split('\n');
+    }
+
+    internal static ImmutableArray<CSharpCanonicalStatement> CanonicalizeRenderedLines(IReadOnlyList<string> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var builder = ImmutableArray.CreateBuilder<CSharpCanonicalStatement>(lines.Count);
+        for (int i = 0; i < lines.Count; i++)
+        {
+            string text = lines[i];
+            builder.Add(new CSharpCanonicalStatement(i + 1, text, GetStatementIdentityKey(text)));
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    public static string GetStatementIdentityKey(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return text.Trim();
     }
 
     sealed record CSharpMethodEntry(
