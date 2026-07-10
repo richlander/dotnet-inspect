@@ -205,6 +205,51 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("requires a body provider", exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("enum")]
+    [InlineData("delegate")]
+    public void UnsupportedTypeKindFailsInsteadOfEmittingInvalidSkeleton(string kind)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Shape",
+            Kind = kind
+        };
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains($"type kind '{kind}'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedTypeFailsWithoutItsDeclaringType()
+    {
+        var type = CreateEmptyType("Samples", "Outer.Inner");
+        type.MetadataName = "Outer+Inner";
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("requires its declaring type", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DuplicateTypeRequestsFailInsteadOfEmittingDuplicateDeclarations()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var requests = new[]
+        {
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintRequest(type)
+        };
+
+        var exception = Assert.Throws<ArgumentException>(() => _printer.Print(requests));
+
+        Assert.Contains("duplicate C# type 'Samples.Widget'", exception.Message, StringComparison.Ordinal);
+    }
+
     static ApiType CreateEmptyType(string? @namespace, string name)
         => new()
         {

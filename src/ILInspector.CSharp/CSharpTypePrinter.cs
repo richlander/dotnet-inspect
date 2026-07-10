@@ -24,6 +24,7 @@ public sealed class CSharpTypePrinter
         if (requestList.Any(request => request is null))
             throw new ArgumentException("Type print requests cannot contain null entries.", nameof(requests));
 
+        var outputIdentities = new HashSet<TypeOutputIdentity>();
         foreach (var request in requestList)
         {
             if (request.BodyPolicy != CSharpTypeBodyPolicy.Skeleton)
@@ -31,6 +32,18 @@ public sealed class CSharpTypePrinter
                 throw new NotSupportedException(
                     $"C# type body policy '{request.BodyPolicy}' requires a body provider; "
                     + "this printer currently supports skeleton requests.");
+            }
+
+            ValidateTopLevelSkeletonType(request.Type);
+
+            var outputIdentity = new TypeOutputIdentity(
+                NormalizeNamespace(request.Type.Namespace),
+                request.Type.Name);
+            if (!outputIdentities.Add(outputIdentity))
+            {
+                throw new ArgumentException(
+                    $"Type print requests contain duplicate C# type '{request.Type.FullName}'.",
+                    nameof(requests));
             }
         }
 
@@ -82,4 +95,23 @@ public sealed class CSharpTypePrinter
 
     static string NormalizeNamespace(string? value)
         => string.IsNullOrWhiteSpace(value) ? "" : value;
+
+    static void ValidateTopLevelSkeletonType(ApiType type)
+    {
+        if (type.MetadataName?.Contains('+', StringComparison.Ordinal) == true
+            || type.Name.Contains('.', StringComparison.Ordinal)
+            || type.Name.Contains('+', StringComparison.Ordinal))
+        {
+            throw new NotSupportedException(
+                $"C# skeleton printing for nested type '{type.FullName}' requires its declaring type.");
+        }
+
+        if (type.Kind is not ("class" or "struct" or "interface" or "record"))
+        {
+            throw new NotSupportedException(
+                $"C# skeleton printing does not yet support type kind '{type.Kind}' for '{type.FullName}'.");
+        }
+    }
+
+    readonly record struct TypeOutputIdentity(string Namespace, string Name);
 }
