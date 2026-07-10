@@ -19,4 +19,18 @@ namespace ILInspector.Findings;
 /// An optional structural scope tag (enclosing loop/try/region); a corroborating signal for move
 /// detection. Null when unknown or not modeled.
 /// </param>
-public readonly record struct FindingKey(string IdentityKey, string? ScopeKey = null);
+public readonly record struct FindingKey
+{
+    public FindingKey(string IdentityKey, string? ScopeKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(IdentityKey);
+        this.IdentityKey = IdentityKey;
+        this.ScopeKey = ScopeKey;
+    }
+
+    public string IdentityKey { get; }
+    public string? ScopeKey { get; }
+
+    public void Deconstruct(out string identityKey, out string? scopeKey)
+        => (identityKey, scopeKey) = (IdentityKey, ScopeKey);
+}
