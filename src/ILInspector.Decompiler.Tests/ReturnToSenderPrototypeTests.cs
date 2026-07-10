@@ -2862,6 +2862,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RecordSurfaceHelperKeepsGenericSameNameOverload()
+    {
+        // A user generic `PrintMembers<T>` overload called by a custom ToString must survive
+        // the record-surface stub removal: the removal must match only the exact synthesized
+        // `bool PrintMembers(StringBuilder)` shape, not every member named PrintMembers (the
+        // surface enumeration cannot re-emit the generic overload).
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name)
+            {
+                public override string ToString() => PrintMembers<int>(7).ToString();
+
+                public bool PrintMembers<T>(int x) => x == 7;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("PrintMembers<T>", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""

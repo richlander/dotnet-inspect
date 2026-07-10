@@ -742,14 +742,16 @@ public static class CompileBackSourceComposer
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
         if (includeRecordSurface)
         {
-            // AddRequiredMembers above preserves every IR-gathered dependency (e.g. generic
-            // same-type helpers the metadata surface enumeration filters out). Drop only the
-            // loosely-typed PrintMembers/EqualityContract *stubs* so AddClosureMemberSurface
-            // can re-emit them with faithful `protected virtual` accessibility. The target
-            // body itself (StubBody == TargetBody) is never removed.
+            // AddRequiredMembers above preserves every IR-gathered dependency (including a
+            // user generic `PrintMembers<T>` overload the surface enumeration would skip).
+            // Drop only the *synthesized* record-helper stubs — the exact-shape
+            // `bool PrintMembers(StringBuilder)` (no type parameters) and the EqualityContract
+            // property — so AddClosureMemberSurface re-emits them with faithful
+            // `protected virtual` accessibility. The target body (StubBody == TargetBody) and
+            // any differently-shaped same-name member are never removed.
             targetMembers.RemoveAll(member =>
                 member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Identity.Method is "PrintMembers" or "EqualityContract" or "get_EqualityContract");
+                && IsSynthesizedRecordHelperStub(member));
         }
 
         var requirements = new List<CompileBackTypeRequirement>
@@ -1448,6 +1450,17 @@ public static class CompileBackSourceComposer
                 && signature.ReturnType == "bool"
                 && signature.ParameterTypes is ["System.Text.StringBuilder"]);
     }
+
+    // Matches only the exact compiler-synthesized record-helper stubs so the record surface
+    // path can replace them with faithful `protected virtual` declarations without deleting a
+    // differently-shaped same-name member (e.g. a user generic `PrintMembers<T>` overload).
+    static bool IsSynthesizedRecordHelperStub(CompileBackMemberRequirement member)
+        => (member.Kind == CompileBackMemberKind.PropertyGet
+                && member.Identity.Method == "EqualityContract")
+            || (member.Kind == CompileBackMemberKind.Method
+                && member.Identity.Method == "PrintMembers"
+                && member.TypeParameters.Count == 0
+                && member.Parameters is [{ Type.DisplayName: "System.Text.StringBuilder" }]);
 
     static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
     {
