@@ -68,13 +68,14 @@ capability.
 API inventory is the positive Metadata example:
 
 ```csharp
-Finding<ApiType>
-Finding<ApiMember>
+Finding<ApiTypeHandle>
+Finding<ApiMemberHandle>
 ```
 
 Metadata owns the structured shape, canonical identities, and compatibility
-classification. Research may project those observations and transitions into a
-product view, but it does not become their source of truth.
+classification. The handles retain the underlying API value together with its
+canonical identity and anchor. Research may project those observations and
+transitions into a product view, but it does not become their source of truth.
 
 ## 4. Choose the result shape
 
