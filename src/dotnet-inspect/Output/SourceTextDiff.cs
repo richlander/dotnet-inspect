@@ -1,74 +1,72 @@
+using ILInspector.Findings;
+using ILInspector.Text;
+
 namespace DotnetInspector.Output;
 
 internal static class SourceTextDiff
 {
+    static readonly FindingSubject Subject = new("source.text", "Source text");
+
     public static string CreateUnifiedDiff(string? before, string? after, string beforeLabel, string afterLabel)
     {
-        if (string.IsNullOrWhiteSpace(before))
+        if (before is null)
             return $"# {beforeLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
-        if (string.IsNullOrWhiteSpace(after))
+        if (after is null)
             return $"# {afterLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
 
-        var beforeLines = SplitLines(before);
-        var afterLines = SplitLines(after);
-        if (beforeLines.SequenceEqual(afterLines))
+        var comparison = TextFindings.Compare(before, after, Subject);
+        if (comparison.IsExact)
             return $"# {beforeLabel} and {afterLabel} are identical.";
 
-        var diff = DiffLines(beforeLines, afterLines);
+        var diff = RenderLines(comparison);
         var output = new List<string>(diff.Count + 3)
         {
             $"--- {beforeLabel}",
             $"+++ {afterLabel}",
-            $"@@ -1,{beforeLines.Length} +1,{afterLines.Length} @@"
+            $"@@ -1,{comparison.OldAtoms.Length} +1,{comparison.NewAtoms.Length} @@"
         };
         output.AddRange(diff.Select(item => $"{item.Prefix}{item.Text}"));
         return string.Join(Environment.NewLine, output);
     }
 
-    private static string[] SplitLines(string text)
-        => text.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n');
-
-    private static List<(char Prefix, string Text)> DiffLines(string[] before, string[] after)
+    static List<(char Prefix, string Text)> RenderLines(TextFindingsResult comparison)
     {
-        var lcs = new int[before.Length + 1, after.Length + 1];
-        for (int i = before.Length - 1; i >= 0; i--)
+        // Unchanged Present pairs are the ordered anchors. Added, Removed, Changed, and Moved
+        // pairs remain gaps, so a typed move renders conventionally as '-' at its old position
+        // and '+' at its new position without rematching in the presentation layer.
+        var anchors = new List<(int OldPosition, int NewPosition)>();
+        foreach (var pair in comparison.Pairs)
         {
-            for (int j = after.Length - 1; j >= 0; j--)
-            {
-                lcs[i, j] = before[i] == after[j]
-                    ? lcs[i + 1, j + 1] + 1
-                    : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
-            }
+            if (pair is PairFinding<string>.Present
+                {
+                    Difference: FindingDifferenceKind.None
+                } present)
+                anchors.Add((present.Old.Position, present.New.Position));
         }
 
-        var result = new List<(char Prefix, string Text)>();
-        int left = 0;
-        int right = 0;
-        while (left < before.Length && right < after.Length)
+        anchors.Sort(static (left, right) => left.OldPosition.CompareTo(right.OldPosition));
+
+        var lines = new List<(char Prefix, string Text)>(
+            comparison.OldAtoms.Length + comparison.NewAtoms.Length);
+        int oldPosition = 0;
+        int newPosition = 0;
+        foreach (var anchor in anchors)
         {
-            if (before[left] == after[right])
-            {
-                result.Add((' ', before[left]));
-                left++;
-                right++;
-            }
-            else if (lcs[left + 1, right] >= lcs[left, right + 1])
-            {
-                result.Add(('-', before[left++]));
-            }
-            else
-            {
-                result.Add(('+', after[right++]));
-            }
+            while (oldPosition < anchor.OldPosition)
+                lines.Add(('-', comparison.OldAtoms[oldPosition++].Payload));
+            while (newPosition < anchor.NewPosition)
+                lines.Add(('+', comparison.NewAtoms[newPosition++].Payload));
+
+            lines.Add((' ', comparison.NewAtoms[newPosition].Payload));
+            oldPosition++;
+            newPosition++;
         }
 
-        while (left < before.Length)
-            result.Add(('-', before[left++]));
-        while (right < after.Length)
-            result.Add(('+', after[right++]));
+        while (oldPosition < comparison.OldAtoms.Length)
+            lines.Add(('-', comparison.OldAtoms[oldPosition++].Payload));
+        while (newPosition < comparison.NewAtoms.Length)
+            lines.Add(('+', comparison.NewAtoms[newPosition++].Payload));
 
-        return result;
+        return lines;
     }
 }
