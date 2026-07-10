@@ -5,7 +5,7 @@ using ILInspector.Findings;
 namespace ILInspector.Text;
 
 /// <summary>Projects arbitrary text onto the ordered finding spine.</summary>
-public static class SourceTextDiff
+public static class TextFindings
 {
     /// <summary>The finding descriptor for one logical text line.</summary>
     public static readonly FindingDescriptor LineDescriptor = new("text.line", "Text line");
@@ -26,7 +26,7 @@ public static class SourceTextDiff
     }
 
     /// <summary>Compares two non-null text documents with exact, ordered line identity.</summary>
-    public static SourceTextDiffResult Compare(
+    public static TextFindingsResult Compare(
         string oldText,
         string newText,
         FindingSubject subject,
@@ -41,7 +41,7 @@ public static class SourceTextDiff
         var match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
         var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
 
-        return new SourceTextDiffResult(pairs, match, oldAtoms, newAtoms);
+        return new TextFindingsResult(pairs, match, oldAtoms, newAtoms);
     }
 
     static IEnumerable<string> SplitLines(string text)
@@ -85,7 +85,7 @@ public static class SourceTextDiff
 }
 
 /// <summary>The successful outcome of an in-memory text comparison.</summary>
-public sealed record SourceTextDiffResult(
+public sealed record TextFindingsResult(
     ImmutableArray<PairFinding<string>> Pairs,
     FindingMatch Match,
     ImmutableArray<Finding<string>> OldAtoms,
