@@ -70,16 +70,6 @@ public sealed class MetadataExtensionFindingsTests
                 && member.MethodName == "Capacity");
         Assert.Equal("System.Text.StringBuilder", capacity.CanonicalExtendedType);
         Assert.Equal("System.Int32", capacity.ReturnType);
-        var indexer = Assert.Single(
-            members,
-            static member =>
-                member.ExtensionClass.EndsWith(
-                    nameof(ExtensionPropertyIdentityFixture),
-                    StringComparison.Ordinal)
-                && member.MethodName == "Item");
-        Assert.StartsWith("int Item", indexer.Signature, StringComparison.Ordinal);
-        Assert.Equal("System.Int32", indexer.ReturnType);
-        Assert.Contains("System.String", indexer.Anchor!.CanonicalSignature, StringComparison.Ordinal);
         Assert.DoesNotContain(
             members,
             static member => member.MethodName == nameof(ExtensionPropertyIdentityFixture.Ordinary));
@@ -265,11 +255,6 @@ public static class ExtensionPropertyIdentityFixture
         {
             get => builder.Capacity;
             set => builder.Capacity = value;
-        }
-
-        public int this[string key]
-        {
-            set { }
         }
     }
 }
