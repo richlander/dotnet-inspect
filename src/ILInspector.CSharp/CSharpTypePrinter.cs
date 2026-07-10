@@ -64,19 +64,18 @@ public sealed class CSharpTypePrinter
                     nameof(requests));
             }
 
-            var declarationOptions = new CSharpDeclarationOptions
+            var formatter = new CSharpFormatter(new CSharpFormatOptions
             {
-                TypeNameMode = CSharpTypeNameMode.ContextualShort,
+                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
                 ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
-                NamespaceMode = CSharpNamespaceMode.Omit,
+                NamespacePolicy = CSharpNamespacePolicy.Omit,
                 TerminateMemberDeclaration = true,
                 IncludeCustomAttributes = options.IncludeCustomAttributes
-            };
+            });
 
-            var rendered = CSharpDeclarationWriter.RenderTypeUnit(
+            var rendered = formatter.FormatTypeUnit(
                 type,
-                type.Members,
-                declarationOptions);
+                type.Members);
 
             if (rendered.Usings.Count > 0)
             {
@@ -85,7 +84,7 @@ public sealed class CSharpTypePrinter
             }
 
             var typeName = type.FullName;
-            preparedTypes.Add(new PreparedTypeSource(containingNamespace, rendered.Source));
+            preparedTypes.Add(new PreparedTypeSource(containingNamespace, rendered.Text));
             diagnostics.AddRange(rendered.Diagnostics.Select(
                 diagnostic => new CSharpTypePrintDiagnostic(typeName, diagnostic)));
         }

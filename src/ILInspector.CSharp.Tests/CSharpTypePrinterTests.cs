@@ -168,7 +168,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void SkeletonMatchesMetadataDeclarationWriter()
+    public void SkeletonMatchesCSharpFormatter()
     {
         var type = CreateEmptyType("Samples", "Widget");
         type.Members.Add(new ApiMember
@@ -181,21 +181,20 @@ public sealed class CSharpTypePrinterTests
                 MemberName = "Create"
             }
         });
-        var declarationOptions = new CSharpDeclarationOptions
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
         {
-            TypeNameMode = CSharpTypeNameMode.ContextualShort,
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
             ContainingNamespace = "Samples",
-            NamespaceMode = CSharpNamespaceMode.Omit,
+            NamespacePolicy = CSharpNamespacePolicy.Omit,
             TerminateMemberDeclaration = true
-        };
-        var expectedDeclaration = CSharpDeclarationWriter.RenderTypeUnit(
+        });
+        var expectedDeclaration = formatter.FormatTypeUnit(
             type,
-            type.Members,
-            declarationOptions);
+            type.Members);
 
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
-        Assert.Equal($"namespace Samples;\n\n{expectedDeclaration.Source}", result.Units[0].Source);
+        Assert.Equal($"namespace Samples;\n\n{expectedDeclaration.Text}", result.Units[0].Source);
         Assert.Equal(expectedDeclaration.Diagnostics, result.Diagnostics.Select(diagnostic => diagnostic.Message));
     }
 

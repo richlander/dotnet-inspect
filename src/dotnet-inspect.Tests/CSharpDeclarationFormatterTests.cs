@@ -7,7 +7,7 @@ namespace DotnetInspector.Tests;
 public sealed class CSharpDeclarationFormatterTests
 {
     [Fact]
-    public void MemberSignatureSection_UsesSharedCSharpDeclarationWriter()
+    public void MemberSignatureSection_UsesCSharpFormatter()
     {
         var type = new ApiType
         {
