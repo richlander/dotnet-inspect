@@ -16,7 +16,12 @@ internal static class SourceTextDiffRenderer
         if (after is null)
             return $"# {afterLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
 
-        var comparison = TextFindings.Compare(before, after, Subject);
+        var comparison = TextFindings.Compare(before, after, Subject) switch
+        {
+            FindingComparison<string>.Complete complete => complete,
+            FindingComparison<string>.Failed failed => throw new InvalidOperationException(
+                $"The total text producer unexpectedly failed: {failed.Failure}"),
+        };
         if (comparison.IsExact)
             return $"# {beforeLabel} and {afterLabel} are identical.";
 
@@ -31,7 +36,8 @@ internal static class SourceTextDiffRenderer
         return string.Join(Environment.NewLine, output);
     }
 
-    static List<(char Prefix, string Text)> RenderLines(TextFindingsResult comparison)
+    static List<(char Prefix, string Text)> RenderLines(
+        FindingComparison<string>.Complete comparison)
     {
         // Unchanged Present pairs are the ordered anchors. Added, Removed, Changed, and Moved
         // pairs remain gaps, so a typed move renders conventionally as '-' at its old position

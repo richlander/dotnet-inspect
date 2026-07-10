@@ -19,69 +19,74 @@ public static class IlFindings
     /// <summary>The finding descriptor for a single IL operation occurrence.</summary>
     public static readonly FindingDescriptor OperationDescriptor = new("il.op", "IL operation");
 
+    /// <summary>The descriptor used when an IL inspection cannot produce a census.</summary>
+    public static readonly FindingDescriptor InspectionDescriptor = new("il.inspect", "IL inspection");
+
     /// <summary>
-    /// The census (one feed): inspects a single method body and lazily yields one
-    /// <see cref="Finding{T}"/> per operation — the complete, unjudged raw view, in the spirit of
-    /// <c>docker inspect</c>. Paired with <see cref="Compare"/> (two feeds). Like
-    /// <see cref="Compare"/> it canonicalizes the body internally (reusing <see cref="IlBodyDiff"/>)
-    /// and fails closed — an uninspectable body yields an empty census — so a caller never touches
-    /// <see cref="IlBodyDiff"/>. Existence/filter/count are LINQ over the returned stream
-    /// (<c>Any</c>/<c>Where</c>/<c>Count</c>), short-circuiting without allocating a list.
+    /// Inspects one method body into a complete census, an absent-body state, or a canonicalization
+    /// failure. A null body represents a method with no IL body, such as an abstract or extern method.
     /// </summary>
-    public static IEnumerable<Finding<CanonicalIlOperation>> Inspect(
-        MethodInstructions body,
+    public static FindingInspection<CanonicalIlOperation> Inspect(
+        MethodInstructions? body,
         MetadataReader? reader,
         FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(subject);
 
-        // Fail closed: an uninspectable body is an empty census, not an exception through a query.
-        if (!IlBodyDiff.TryCanonicalize(body, reader, out var operations, out _))
-            return [];
+        if (body is null)
+            return new FindingInspection<CanonicalIlOperation>.Absent("Method has no IL body.");
+        if (!IlBodyDiff.TryCanonicalize(body, reader, out var operations, out var failure))
+        {
+            return new FindingInspection<CanonicalIlOperation>.Failed(
+                new InspectionError(
+                    subject,
+                    InspectionDescriptor,
+                    failure ?? "IL canonicalization failed."));
+        }
 
-        return ProjectAtoms(operations, subject);
+        return new FindingInspection<CanonicalIlOperation>.Complete(
+            [.. ProjectAtoms(operations, subject)]);
     }
 
-    public static IlFindingsResult Compare(
-        MethodInstructions oldBody,
+    public static FindingComparison<CanonicalIlOperation> Compare(
+        MethodInstructions? oldBody,
         MetadataReader? oldReader,
-        MethodInstructions newBody,
+        MethodInstructions? newBody,
         MetadataReader? newReader,
         FindingSubject subject,
         int acceptanceThreshold = 100)
     {
-        ArgumentNullException.ThrowIfNull(oldBody);
-        ArgumentNullException.ThrowIfNull(newBody);
         ArgumentNullException.ThrowIfNull(subject);
 
-        if (!IlBodyDiff.TryCanonicalize(oldBody, oldReader, out var oldOps, out var oldFailure))
-            return IlFindingsResult.Failed(oldFailure ?? "old body canonicalization failed");
-        if (!IlBodyDiff.TryCanonicalize(newBody, newReader, out var newOps, out var newFailure))
-            return IlFindingsResult.Failed(newFailure ?? "new body canonicalization failed");
-
-        // The projection is lazy; the diff enumerates each side more than once (keys for Match,
-        // atoms for ToPairs, and again on the result), so materialize both once here. That is the
-        // "materialize iff you enumerate more than once" rule: a single-version census consumer
-        // (see Inspect) stays lazy, the diff pays one array per side at this boundary.
-        var oldAtoms = ProjectAtoms(oldOps, subject).ToImmutableArray();
-        var newAtoms = ProjectAtoms(newOps, subject).ToImmutableArray();
-
-        FindingMatch match;
-        try
+        var oldInspection = Inspect(oldBody, oldReader, subject);
+        var newInspection = Inspect(newBody, newReader, subject);
+        if (oldInspection is FindingInspection<CanonicalIlOperation>.Failed
+            || newInspection is FindingInspection<CanonicalIlOperation>.Failed)
         {
-            match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
-        }
-        catch (ArgumentException ex)
-        {
-            // Fail closed like the canonicalization path: a pathological body that exceeds the
-            // ordered matcher's size guard returns a failure result instead of throwing at the caller.
-            return IlFindingsResult.Failed(ex.Message);
+            return new FindingComparison<CanonicalIlOperation>.Failed(
+                oldInspection,
+                newInspection);
         }
 
+        var oldAtoms = InspectionAtoms(oldInspection);
+        var newAtoms = InspectionAtoms(newInspection);
+        var match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
         var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
-        pairs = ApplyBranchTargetValidation(pairs, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
-        return new IlFindingsResult(pairs, match, oldAtoms, newAtoms, Failure: null);
+        if (oldBody is not null && newBody is not null)
+        {
+            pairs = ApplyBranchTargetValidation(
+                pairs,
+                oldBody.Instructions,
+                [.. oldAtoms.Select(static atom => atom.Payload)],
+                newBody.Instructions,
+                [.. newAtoms.Select(static atom => atom.Payload)]);
+        }
+
+        return new FindingComparison<CanonicalIlOperation>.Complete(
+            pairs,
+            match,
+            oldInspection,
+            newInspection);
     }
 
     // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
@@ -128,10 +133,8 @@ public static class IlFindings
         return builder.ToImmutable();
     }
 
-    // The shared ops->findings projection used by Inspect (lazy) and Compare (materialized). One
-    // Finding per operation, carrying its content key and stream position. Private: canonicalized
-    // ops are an internal shape; callers reach findings through Inspect or Compare, which own
-    // canonicalization. Both callers guard their arguments before reaching here.
+    // One Finding per operation, carrying its content key and stream position. Private:
+    // canonicalized operations remain an internal shape.
     static IEnumerable<Finding<CanonicalIlOperation>> ProjectAtoms(
         ImmutableArray<CanonicalIlOperation> operations,
         FindingSubject subject)
@@ -148,6 +151,16 @@ public static class IlFindings
                 operations[i]);
         }
     }
+
+    static ImmutableArray<Finding<CanonicalIlOperation>> InspectionAtoms(
+        FindingInspection<CanonicalIlOperation> inspection)
+        => inspection switch
+        {
+            FindingInspection<CanonicalIlOperation>.Complete complete => complete.Findings,
+            FindingInspection<CanonicalIlOperation>.Absent => [],
+            FindingInspection<CanonicalIlOperation>.Failed => throw new InvalidOperationException(
+                "A failed inspection cannot be matched."),
+        };
 
     /// <summary>
     /// The canonical content key for an operation, defined so that key equality is exactly the
@@ -167,19 +180,4 @@ public static class IlFindings
             _ => $"{operation.OpcodeFamily}|{operation.Operand.Kind}:{operation.Operand.Value}",
         };
     }
-}
-
-/// <summary>The outcome of an <see cref="IlFindings.Compare"/> call.</summary>
-public sealed record IlFindingsResult(
-    ImmutableArray<PairFinding<CanonicalIlOperation>> Pairs,
-    FindingMatch Match,
-    ImmutableArray<Finding<CanonicalIlOperation>> OldAtoms,
-    ImmutableArray<Finding<CanonicalIlOperation>> NewAtoms,
-    string? Failure)
-{
-    /// <summary>True when the bodies are exact under the fidelity fold (no adds/removes/moves).</summary>
-    public bool IsExact => Failure is null && FindingEquivalence.Exact.IsEquivalent(Pairs);
-
-    public static IlFindingsResult Failed(string failure)
-        => new([], new FindingMatch([], []), [], [], failure);
 }

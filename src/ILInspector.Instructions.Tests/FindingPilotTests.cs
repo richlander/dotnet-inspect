@@ -37,7 +37,7 @@ public class FindingPilotTests
     {
         FindingInspection<string> complete = new FindingInspection<string>.Complete([]);
         FindingInspection<string> absent = new FindingInspection<string>.Absent();
-        var error = new CensusError(Subject, Descriptor, "declined");
+        var error = new InspectionError(Subject, Descriptor, "declined");
         FindingInspection<string> failed = new FindingInspection<string>.Failed(error);
 
         Assert.True(complete is FindingInspection<string>.Complete);
@@ -55,11 +55,88 @@ public class FindingPilotTests
         Assert.Throws<ArgumentNullException>(
             () => new FindingInspection<string>.Failed(null!));
         Assert.Throws<ArgumentNullException>(
-            () => new CensusError(null!, Descriptor, "declined"));
+            () => new InspectionError(null!, Descriptor, "declined"));
         Assert.Throws<ArgumentNullException>(
-            () => new CensusError(Subject, null!, "declined"));
+            () => new InspectionError(Subject, null!, "declined"));
         Assert.Throws<ArgumentNullException>(
-            () => new CensusError(Subject, Descriptor, null!));
+            () => new InspectionError(Subject, Descriptor, null!));
+    }
+
+    [Fact]
+    public void FindingComparison_CasesEnforceRanVersusNeverRan()
+    {
+        FindingInspection<string> completeInspection =
+            new FindingInspection<string>.Complete([]);
+        FindingInspection<string> absentInspection =
+            new FindingInspection<string>.Absent();
+        FindingInspection<string> failedInspection =
+            new FindingInspection<string>.Failed(
+                new InspectionError(Subject, Descriptor, "declined"));
+        var emptyMatch = new FindingMatch([], []);
+
+        FindingComparison<string> complete =
+            new FindingComparison<string>.Complete(
+                [],
+                emptyMatch,
+                absentInspection,
+                absentInspection);
+        FindingComparison<string> failed =
+            new FindingComparison<string>.Failed(
+                failedInspection,
+                completeInspection);
+
+        Assert.True(complete is FindingComparison<string>.Complete);
+        Assert.True(complete.IsExact);
+        Assert.Null(complete.Failure);
+        Assert.True(failed is FindingComparison<string>.Failed);
+        Assert.False(failed.IsExact);
+        Assert.Equal("old: declined", failed.Failure);
+    }
+
+    [Fact]
+    public void FindingComparison_CasesRejectInvalidPublicStates()
+    {
+        FindingInspection<string> complete =
+            new FindingInspection<string>.Complete([]);
+        FindingInspection<string> failed =
+            new FindingInspection<string>.Failed(
+                new InspectionError(Subject, Descriptor, "declined"));
+        var match = new FindingMatch([], []);
+
+        Assert.Throws<ArgumentException>(
+            () => new FindingComparison<string>.Complete(default, match, complete, complete));
+        Assert.Throws<ArgumentNullException>(
+            () => new FindingComparison<string>.Complete([], null!, complete, complete));
+        Assert.Throws<ArgumentException>(
+            () => new FindingComparison<string>.Complete(
+                [],
+                new FindingMatch(default, []),
+                complete,
+                complete));
+        Assert.Throws<ArgumentException>(
+            () => new FindingComparison<string>.Complete([], match, failed, complete));
+        Assert.Throws<ArgumentException>(
+            () => new FindingComparison<string>.Complete([], match, complete, failed));
+        Assert.Throws<ArgumentException>(
+            () => new FindingComparison<string>.Failed(complete, complete));
+        Assert.Throws<ArgumentNullException>(
+            () => new FindingComparison<string>.Failed(null!, failed));
+    }
+
+    [Fact]
+    public void FindingComparison_FailedDerivesBothInspectionErrors()
+    {
+        FindingInspection<string> oldFailed =
+            new FindingInspection<string>.Failed(
+                new InspectionError(Subject, Descriptor, "old failure"));
+        FindingInspection<string> newFailed =
+            new FindingInspection<string>.Failed(
+                new InspectionError(Subject, Descriptor, "new failure"));
+
+        FindingComparison<string> comparison =
+            new FindingComparison<string>.Failed(oldFailed, newFailed);
+
+        Assert.Equal("old: old failure; new: new failure", comparison.Failure);
     }
 
     [Fact]
@@ -396,18 +473,21 @@ public class FindingPilotTests
         // A stream-agnostic consumer: it reads only the pair skeleton, so the same pairs could have
         // come from IL, C#, or a fact producer. Here we drive it from the IL adapter.
         var identical = Body(Ldc0, Ldc1, Ret);
-        var identicalPairs = IlFindings.Compare(identical, null, identical, null, IlSubject).Pairs;
+        var identicalPairs = CompleteComparison(
+            IlFindings.Compare(identical, null, identical, null, IlSubject)).Pairs;
         Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(identicalPairs).Shape);
 
         var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
         var reordered = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
-        var reorderPairs = IlFindings.Compare(old, null, reordered, null, IlSubject).Pairs;
+        var reorderPairs = CompleteComparison(
+            IlFindings.Compare(old, null, reordered, null, IlSubject)).Pairs;
         var reorderSummary = FindingSummary.Summarize(reorderPairs);
         Assert.Equal(DiffShape.ReorderOnly, reorderSummary.Shape);
         Assert.Equal(2, reorderSummary.Moved);
 
         var changed = Body(Ldc0, Ldc2, Ldc3, Ret);
-        var changedPairs = IlFindings.Compare(old, null, changed, null, IlSubject).Pairs;
+        var changedPairs = CompleteComparison(
+            IlFindings.Compare(old, null, changed, null, IlSubject)).Pairs;
         Assert.Equal(DiffShape.Structural, FindingSummary.Summarize(changedPairs).Shape);
     }
 
@@ -444,20 +524,59 @@ public class FindingPilotTests
     }
 
     [Fact]
-    public void Inspect_IsALazyCensus_QueriedWithLinq()
+    public void IlFindings_Inspect_DistinguishesCompleteAbsentAndFailed()
     {
-        // The single-version shape: Inspect is the census — canonicalizes the body internally and
-        // returns a lazy IEnumerable<Finding<T>>. A consumer asks existence/count/filter with LINQ
-        // over the stream (it short-circuits on a hit and never allocates a list itself); one
-        // Finding per op, positions 0..N.
         var body = Body(Ldc0, Ldc1, Ldc2, Ret);
+        var malformed = MethodInstructions.Decode(
+            [],
+            ilLength: 1,
+            Array.Empty<ExceptionRegion>());
 
-        IEnumerable<Finding<CanonicalIlOperation>> census = IlFindings.Inspect(body, null, IlSubject);
+        var complete = IlFindings.Inspect(body, null, IlSubject) switch
+        {
+            FindingInspection<CanonicalIlOperation>.Complete value => value,
+            _ => throw new InvalidOperationException("Expected a complete IL inspection."),
+        };
+        var absent = IlFindings.Inspect(null, null, IlSubject);
+        var failed = IlFindings.Inspect(malformed, null, IlSubject);
 
-        Assert.Contains(census, f => f.Descriptor.Id == "il.op");
-        var list = census.ToList();
-        Assert.NotEmpty(list);
-        Assert.Equal(Enumerable.Range(0, list.Count), list.Select(f => f.Position));
+        Assert.Contains(complete.Findings, f => f.Descriptor.Id == "il.op");
+        Assert.Equal(
+            Enumerable.Range(0, complete.Findings.Length),
+            complete.Findings.Select(f => f.Position));
+        Assert.True(absent is FindingInspection<CanonicalIlOperation>.Absent);
+        Assert.True(failed is FindingInspection<CanonicalIlOperation>.Failed);
+    }
+
+    [Fact]
+    public void IlFindings_Compare_AbsentBodiesIsAnExactCompletedComparison()
+    {
+        var result = CompleteComparison(
+            IlFindings.Compare(null, null, null, null, IlSubject));
+
+        Assert.True(result.OldInspection is FindingInspection<CanonicalIlOperation>.Absent);
+        Assert.True(result.NewInspection is FindingInspection<CanonicalIlOperation>.Absent);
+        Assert.Empty(result.Pairs);
+        Assert.True(result.IsExact);
+    }
+
+    [Fact]
+    public void IlFindings_Compare_InspectionFailureDoesNotManufactureAMatch()
+    {
+        var malformed = MethodInstructions.Decode(
+            [],
+            ilLength: 1,
+            Array.Empty<ExceptionRegion>());
+
+        var result = IlFindings.Compare(
+            malformed,
+            null,
+            Body(Ret),
+            null,
+            IlSubject);
+
+        Assert.True(result is FindingComparison<CanonicalIlOperation>.Failed);
+        Assert.NotNull(result.Failure);
     }
 
     // ---- IL adapter: real decode + raw-byte fixtures -----------------------------------------
@@ -471,16 +590,14 @@ public class FindingPilotTests
     static readonly FindingSubject IlSubject = new("M", "M");
 
     [Fact]
-    public void IlFindings_PathologicallyLargeBody_FailsClosed()
+    public void IlFindings_PathologicallyLargeBody_PropagatesMatcherContractViolation()
     {
         var il = new byte[9000];
         il[^1] = Ret;
         var body = Body(il);
 
-        var result = IlFindings.Compare(body, null, body, null, IlSubject);
-
-        Assert.NotNull(result.Failure);
-        Assert.False(result.IsExact);
+        Assert.Throws<ArgumentException>(
+            () => IlFindings.Compare(body, null, body, null, IlSubject));
     }
 
     [Fact]
@@ -489,9 +606,9 @@ public class FindingPilotTests
         var old = Body(BrS, 0x03, Nop, Ret, Nop, Ret);
         var @new = Body(BrS, 0x01, Nop, Ret, Nop, Ret);
 
-        var result = IlFindings.Compare(old, null, @new, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(old, null, @new, null, IlSubject));
 
-        Assert.Null(result.Failure);
         Assert.False(result.IsExact);
         Assert.Contains(result.Pairs, p => p.Kind == PairKind.Changed);
         Assert.False(IlBodyDiff.Compare(old, @new).IsExact);
@@ -503,9 +620,9 @@ public class FindingPilotTests
         var old = Body(Nop, Nop, Nop, Ldc0, BrS, 0xFD, Ret);
         var @new = Body(Ldc0, BrS, 0xFD, Nop, Nop, Nop, Ret);
 
-        var result = IlFindings.Compare(old, null, @new, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(old, null, @new, null, IlSubject));
 
-        Assert.Null(result.Failure);
         Assert.DoesNotContain(result.Pairs, p => p.Kind == PairKind.Changed);
         Assert.Equal(2, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
         Assert.True(FindingEquivalence.Multiset.IsEquivalent(result.Pairs));
@@ -539,9 +656,9 @@ public class FindingPilotTests
         var old = Body(BrS, 0x00, Ldc0, Ret);
         var @new = Body(BrS, 0x00, Ldc1, Ret);
 
-        var result = IlFindings.Compare(old, null, @new, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(old, null, @new, null, IlSubject));
 
-        Assert.Null(result.Failure);
         Assert.DoesNotContain(result.Pairs, p => p.Kind == PairKind.Changed);
         Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Added));
         Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Removed));
@@ -551,9 +668,9 @@ public class FindingPilotTests
     public void IlFindings_SameBranch_IsExact()
     {
         var body = Body(BrS, 0x01, Nop, Ret, Nop, Ret);
-        var result = IlFindings.Compare(body, null, body, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(body, null, body, null, IlSubject));
 
-        Assert.Null(result.Failure);
         Assert.True(result.IsExact);
     }
 
@@ -561,9 +678,9 @@ public class FindingPilotTests
     public void IlFindings_SameBody_IsExact()
     {
         var body = Body(Ldc0, Ldc1, Ldc2, Ret);
-        var result = IlFindings.Compare(body, null, body, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(body, null, body, null, IlSubject));
 
-        Assert.Null(result.Failure);
         Assert.True(result.IsExact);
         Assert.All(result.Pairs, p => Assert.Equal(PairKind.Present, p.Kind));
     }
@@ -574,9 +691,9 @@ public class FindingPilotTests
         var old = Body(Ldc0, Ldc1, Ldc2, Ldc3, Ldc4, Ldc5, Ldc6, Ret);
         var @new = Body(Ldc3, Ldc4, Ldc0, Ldc1, Ldc2, Ldc5, Ldc6, Ret);
 
-        var result = IlFindings.Compare(old, null, @new, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(old, null, @new, null, IlSubject));
 
-        Assert.Null(result.Failure);
         Assert.Equal(2, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
         Assert.Equal(0, result.Pairs.Count(p => p.Kind is PairKind.Added or PairKind.Removed));
         Assert.False(result.IsExact);
@@ -590,7 +707,8 @@ public class FindingPilotTests
         var @new = Body(Ldc0, Ldc2, Ldc3, Ret);
 
         var classic = IlBodyDiff.Compare(old, @new);
-        var finding = IlFindings.Compare(old, null, @new, null, IlSubject);
+        var finding = CompleteComparison(
+            IlFindings.Compare(old, null, @new, null, IlSubject));
 
         Assert.Equal(0, finding.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
 
@@ -615,19 +733,31 @@ public class FindingPilotTests
         var old = Body(Ldc0, Ldc1, Ldc2, Ret);
         var @new = Body(Ldc1, Ldc2, Ldc0, Ret);
 
-        var result = IlFindings.Compare(old, null, @new, null, IlSubject);
+        var result = CompleteComparison(
+            IlFindings.Compare(old, null, @new, null, IlSubject));
 
         Assert.Equal(0, result.Pairs.Count(p => p.Difference == FindingDifferenceKind.Moved));
         Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Added));
         Assert.Equal(1, result.Pairs.Count(p => p.Kind == PairKind.Removed));
     }
 
-    static string[] ResidualKeys(IlFindingsResult result, PairKind polarity)
+    static string[] ResidualKeys(
+        FindingComparison<CanonicalIlOperation>.Complete result,
+        PairKind polarity)
         => result.Pairs
             .Where(p => p.Kind == polarity)
             .Select(p => CurrentAtom(p).Key.IdentityKey)
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
+
+    static FindingComparison<CanonicalIlOperation>.Complete CompleteComparison(
+        FindingComparison<CanonicalIlOperation> comparison)
+        => comparison switch
+        {
+            FindingComparison<CanonicalIlOperation>.Complete complete => complete,
+            FindingComparison<CanonicalIlOperation>.Failed failed => throw new InvalidOperationException(
+                $"Expected a completed IL comparison: {failed.Failure}"),
+        };
 
     // The representative atom of a pair (new side if present, else old), recovered by matching the
     // union directly (`pair switch`, not `pair.Value switch`) so the compiler enforces exhaustiveness:
@@ -674,13 +804,14 @@ public class FindingPilotTests
                 continue;
 
             var subject = new FindingSubject(handle.GetHashCode().ToString(System.Globalization.CultureInfo.InvariantCulture), "m");
-            var finding = IlFindings.Compare(body, reader, body, reader, subject);
-            if (finding.Failure is not null)
+            var comparison = IlFindings.Compare(body, reader, body, reader, subject);
+            if (comparison is FindingComparison<CanonicalIlOperation>.Failed)
             {
                 declined++;
                 continue;
             }
 
+            var finding = CompleteComparison(comparison);
             Assert.True(finding.IsExact, $"IlFindings self-compare not exact for RVA {method.RelativeVirtualAddress}");
             canonicalized++;
         }
