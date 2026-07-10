@@ -30,13 +30,6 @@ public sealed class CSharpTypePrinter
         var diagnostics = ImmutableArray.CreateBuilder<CSharpTypePrintDiagnostic>();
         foreach (var request in requestList)
         {
-            if (request.BodyPolicy != CSharpTypeBodyPolicy.Skeleton)
-            {
-                throw new NotSupportedException(
-                    $"C# type body policy '{request.BodyPolicy}' requires a body provider; "
-                    + "this printer currently supports skeleton requests.");
-            }
-
             ValidateRequiredShape(request.Type);
             ValidateTopLevelSkeletonType(request.Type);
 
@@ -76,10 +69,12 @@ public sealed class CSharpTypePrinter
                     $"Type '{request.Type.FullName}' has a null member entry.",
                     nameof(requests));
             }
+            var memberArray = members.ToArray();
+            ValidateResolvedBodyPolicies(request, memberArray, nameof(requests));
 
             var rendered = CSharpDeclarationWriter.RenderTypeUnit(
                 request.Type,
-                members.ToArray(),
+                memberArray,
                 declarationOptions);
 
             if (rendered.Usings.Count > 0)
@@ -159,6 +154,43 @@ public sealed class CSharpTypePrinter
         {
             throw new NotSupportedException(
                 $"C# skeleton printing does not yet support type kind '{type.Kind}' for '{type.FullName}'.");
+        }
+    }
+
+    static void ValidateResolvedBodyPolicies(
+        CSharpTypePrintRequest request,
+        IReadOnlyList<ApiMember> members,
+        string parameterName)
+    {
+        var selectedMembers = new HashSet<ApiMember>(members, ReferenceEqualityComparer.Instance);
+        var overrides = new Dictionary<ApiMember, CSharpBodyPolicy>(ReferenceEqualityComparer.Instance);
+        foreach (var policy in request.MemberPolicyOverrides)
+        {
+            if (!selectedMembers.Contains(policy.Member))
+            {
+                throw new ArgumentException(
+                    $"Member policy override '{policy.Member.Name}' is not in the selected member set.",
+                    parameterName);
+            }
+            if (!overrides.TryAdd(policy.Member, policy.BodyPolicy))
+            {
+                throw new ArgumentException(
+                    $"Member '{policy.Member.Name}' has multiple policy overrides.",
+                    parameterName);
+            }
+        }
+
+        foreach (var member in members)
+        {
+            var bodyPolicy = overrides.TryGetValue(member, out var memberPolicy)
+                ? memberPolicy
+                : request.BodyPolicy;
+            if (bodyPolicy != CSharpBodyPolicy.Skeleton)
+            {
+                throw new NotSupportedException(
+                    $"C# member body policy '{bodyPolicy}' for '{member.Name}' requires a body provider; "
+                    + "this printer currently supports skeleton requests.");
+            }
         }
     }
 

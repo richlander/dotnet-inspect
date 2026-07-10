@@ -202,13 +202,80 @@ public sealed class CSharpTypePrinterTests
     [Fact]
     public void NonSkeletonPolicyFailsInsteadOfDroppingBodies()
     {
-        var request = new CSharpTypePrintRequest(
-            CreateEmptyType("Samples", "Widget"),
-            CSharpTypeBodyPolicy.Full);
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(CreateMethod("Run"));
+        var request = new CSharpTypePrintRequest(type, CSharpBodyPolicy.Full);
 
         var exception = Assert.Throws<NotSupportedException>(() => _printer.Print(request));
 
         Assert.Contains("requires a body provider", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberPolicyOverridesTypeDefault()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var member = CreateMethod("Run");
+        type.Members.Add(member);
+        var request = new CSharpTypePrintRequest(
+            type,
+            CSharpBodyPolicy.Full,
+            memberPolicyOverrides: [new CSharpMemberPolicy(member, CSharpBodyPolicy.Skeleton)]);
+
+        var result = _printer.Print(request);
+
+        Assert.Contains("public void Run();", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NonSkeletonMemberPolicyFailsInsteadOfDroppingBody()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var member = CreateMethod("Run");
+        type.Members.Add(member);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [new CSharpMemberPolicy(member, CSharpBodyPolicy.Full)]);
+
+        var exception = Assert.Throws<NotSupportedException>(() => _printer.Print(request));
+
+        Assert.Contains("'Full' for 'Run' requires a body provider", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberPolicyMustTargetSelectedMember()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var selected = CreateMethod("Selected");
+        var omitted = CreateMethod("Omitted");
+        type.Members.AddRange([selected, omitted]);
+        var request = new CSharpTypePrintRequest(
+            type,
+            members: [selected],
+            memberPolicyOverrides: [new CSharpMemberPolicy(omitted, CSharpBodyPolicy.Skeleton)]);
+
+        var exception = Assert.Throws<ArgumentException>(() => _printer.Print(request));
+
+        Assert.Contains("is not in the selected member set", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberPolicyOverridesMustBeUnique()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var member = CreateMethod("Run");
+        type.Members.Add(member);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(member, CSharpBodyPolicy.Skeleton),
+                new CSharpMemberPolicy(member, CSharpBodyPolicy.Skeleton)
+            ]);
+
+        var exception = Assert.Throws<ArgumentException>(() => _printer.Print(request));
+
+        Assert.Contains("multiple policy overrides", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -347,5 +414,17 @@ public sealed class CSharpTypePrinterTests
             Namespace = @namespace,
             Name = name,
             Kind = "class"
+        };
+
+    static ApiMember CreateMethod(string name)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = name
+            }
         };
 }
