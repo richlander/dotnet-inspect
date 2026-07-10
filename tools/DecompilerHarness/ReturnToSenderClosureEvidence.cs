@@ -1,5 +1,3 @@
-using ILInspector.Decompiler;
-
 namespace ILInspector.DecompilerHarness;
 
 internal sealed record ReturnToSenderClosureEvidence(

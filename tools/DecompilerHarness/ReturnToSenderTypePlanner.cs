@@ -4,10 +4,11 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using ILInspector.CSharp;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
-namespace ILInspector.Decompiler;
+namespace ILInspector.DecompilerHarness;
 
 static class CompileBackCSharpNames
 {
@@ -87,7 +88,7 @@ static class CompileBackCSharpNames
     public static string Identifier(string name) => CSharpNaming.SafeIdentifier(name);
 
     public static string EscapeNamespace(string ns)
-        => string.Join(".", ns.Split('.').Select(Identifier));
+        => CSharpDeclarationWriter.EscapeNamespace(ns);
 
     static string EscapeTypeKeywords(string type)
     {
@@ -174,9 +175,12 @@ public sealed record CompileBackReconstructionPlan(
     string AssemblyPath,
     CompileBackMethodIdentity TargetMethod,
     CompileBackModuleRequirement Module,
-    IReadOnlyList<CompileBackTypeDeclaration> Types,
-    IReadOnlyList<CompileBackTypeRequirement> TypeRequirements,
-    IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics);
+    IReadOnlyList<CompileBackTypeRequirement> Types,
+    IReadOnlyList<CSharpTypePrintRequest> PrintRequests,
+    IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics)
+{
+    public IReadOnlyList<CompileBackTypeRequirement> TypeRequirements => Types;
+}
 
 public sealed record CompileBackMethodIdentity(
     string Type,
@@ -191,26 +195,6 @@ public sealed record CompileBackModuleRequirement(
 
 public sealed record CompileBackAttributeRequirement(string Text, string Reason);
 
-public sealed record CompileBackTypeDeclaration(
-    CompileBackTypeIdentity Identity,
-    CompileBackTypeKind Kind,
-    CompileBackAccessibility Accessibility,
-    CompileBackTypeSignature? BaseType,
-    string? PrimaryConstructorParameters,
-    IReadOnlyList<CompileBackTypeParameter> TypeParameters,
-    IReadOnlyList<CompileBackTypeSignature> Interfaces,
-    IReadOnlyList<CompileBackMemberDeclaration> Members,
-    IReadOnlyList<CompileBackFact> SourceFacts,
-    IReadOnlyList<CompileBackTypeDeclaration> NestedTypes,
-    IReadOnlyList<string>? Attributes = null,
-    bool IsAbstract = false,
-    bool IsSealed = false,
-    bool IsStatic = false)
-{
-    public string Namespace => Identity.Namespace;
-    public string Name => Identity.DisplayName;
-}
-
 public enum CompileBackTypeKind
 {
     Class,
@@ -219,31 +203,6 @@ public enum CompileBackTypeKind
     Interface,
     Enum,
     Delegate,
-}
-
-public sealed record CompileBackMemberDeclaration(
-    CompileBackMethodIdentity Identity,
-    CompileBackMemberKind Kind,
-    CompileBackAccessibility Accessibility,
-    bool IsStatic,
-    CompileBackTypeSignature? ReturnType,
-    IReadOnlyList<CompileBackParameter> Parameters,
-    IReadOnlyList<CompileBackTypeParameter> TypeParameters,
-    CompileBackStubBodyKind StubBody,
-    string? TargetBody,
-    IReadOnlyList<CompileBackFact> SourceFacts,
-    IReadOnlyList<string>? Attributes = null,
-    IReadOnlyList<string>? ReturnAttributes = null,
-    bool IsAbstract = false,
-    bool IsVirtual = false,
-    bool IsOverride = false,
-    bool IsSealed = false,
-    bool IsAsync = false,
-    bool IsExtension = false)
-{
-    public string Name => Identity.Method;
-    public string Type => ReturnType?.DisplayName ?? "";
-    public string Body => TargetBody ?? "";
 }
 
 public enum CompileBackMemberKind
@@ -336,7 +295,13 @@ public sealed record CompileBackTypeRequirement(
     CompileBackTypeKind RequiredKind,
     IReadOnlyList<CompileBackMemberRequirement> RequiredMembers,
     CompileBackPrimaryConstructor? PrimaryConstructor,
-    IReadOnlyList<CompileBackFact> SourceFacts);
+    IReadOnlyList<CompileBackFact> SourceFacts)
+{
+    public string Namespace => Type.Namespace;
+    public string Name => Type.DisplayName;
+    public CompileBackTypeKind Kind => RequiredKind;
+    public IReadOnlyList<CompileBackMemberRequirement> Members => RequiredMembers;
+}
 
 public sealed record CompileBackMemberRequirement(
     CompileBackMethodIdentity Identity,
@@ -355,16 +320,18 @@ public sealed record CompileBackMemberRequirement(
     bool IsOverride = false,
     bool IsSealed = false,
     bool IsAsync = false,
-    bool IsExtension = false);
+    bool IsExtension = false,
+    CompileBackAccessibility Accessibility = CompileBackAccessibility.Public)
+{
+    public string Name => Identity.Method;
+    public string Type => ReturnType?.DisplayName ?? "";
+    public string Body => TargetBody ?? "";
+}
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
 public static class CompileBackSourceComposer
 {
-    static readonly CSharpFormatter DefaultDeclarationFormatter = new();
-    static readonly CSharpFormatter AsyncDeclarationFormatter = new(
-        new CSharpFormatOptions { ForceAsync = true });
-
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -460,7 +427,8 @@ public static class CompileBackSourceComposer
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
-        var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
@@ -475,8 +443,8 @@ public static class CompileBackSourceComposer
             assemblyPath,
             new CompileBackMethodIdentity(fullType, methodName, overload, signatureText),
             module,
+            production.Requirements,
             declarations,
-            requirements,
             diagnostics);
         return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
     }
@@ -632,7 +600,8 @@ public static class CompileBackSourceComposer
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
-        var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
@@ -647,8 +616,8 @@ public static class CompileBackSourceComposer
             assemblyPath,
             new CompileBackMethodIdentity(fullType, methodName, overload, signatureText),
             module,
+            production.Requirements,
             declarations,
-            requirements,
             diagnostics);
         return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
     }
@@ -783,7 +752,8 @@ public static class CompileBackSourceComposer
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
-        var declarations = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
@@ -798,8 +768,8 @@ public static class CompileBackSourceComposer
             assemblyPath,
             new CompileBackMethodIdentity(fullType, methodName, overload, signatureText),
             module,
+            production.Requirements,
             declarations,
-            requirements,
             diagnostics);
         return new CompileBackSourceResult(plan, WriteCompilationUnit(plan));
     }
@@ -815,67 +785,66 @@ public static class CompileBackSourceComposer
         foreach (var ns in plan.Module.Usings.Select(CompileBackCSharpNames.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
             sb.AppendLine($"using {ns};");
 
-        foreach (var group in plan.Types.GroupBy(type => type.Namespace, StringComparer.Ordinal))
-        {
-            if (group.Key.Length > 0)
+        var printed = new CSharpTypePrinter().PrintBatch(
+            plan.PrintRequests,
+            new CSharpTypePrintOptions
             {
-                sb.AppendLine($"namespace {CompileBackCSharpNames.EscapeNamespace(group.Key)}");
-                sb.AppendLine("{");
-                foreach (var type in group)
-                    WriteType(sb, type, indent: 1);
-                sb.AppendLine("}");
-            }
-            else
-            {
-                foreach (var type in group)
-                    WriteType(sb, type, indent: 0);
-            }
-        }
+                IncludeCustomAttributes = true,
+                NamespaceStyle = CSharpNamespaceStyle.BlockScoped,
+            });
+        foreach (var unit in printed.Units)
+            sb.AppendLine(unit.Source);
 
         return sb.ToString();
     }
 
-    static IEnumerable<string> DeclarationNamespaces(IEnumerable<CompileBackTypeDeclaration> declarations)
+    static IEnumerable<string> DeclarationNamespaces(IEnumerable<CSharpTypePrintRequest> requests)
     {
         var declaredTypes = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var declaration in declarations)
-            AddDeclaredTypeNames(declaration, declaredTypes);
+        foreach (var request in requests)
+            AddDeclaredTypeNames(request, declaredTypes);
 
-        foreach (var declaration in declarations)
+        foreach (var request in requests)
         {
-            foreach (var ns in DeclarationNamespaces(declaration, declaredTypes))
+            foreach (var ns in DeclarationNamespaces(request, declaredTypes))
                 yield return ns;
         }
     }
 
-    static void AddDeclaredTypeNames(CompileBackTypeDeclaration declaration, HashSet<string> declaredTypes)
+    static void AddDeclaredTypeNames(CSharpTypePrintRequest request, HashSet<string> declaredTypes)
     {
-        string fullName = string.IsNullOrEmpty(declaration.Namespace)
-            ? declaration.Name
-            : $"{declaration.Namespace}.{declaration.Name}";
+        string name = CompileBackCSharpNames.StripArity(request.Type.Name);
+        string fullName = string.IsNullOrEmpty(request.Type.Namespace)
+            ? name
+            : $"{request.Type.Namespace}.{name}";
         declaredTypes.Add(fullName);
-        foreach (var nested in declaration.NestedTypes)
+        foreach (var nested in request.NestedTypes)
             AddDeclaredTypeNames(nested, declaredTypes);
     }
 
-    static IEnumerable<string> DeclarationNamespaces(CompileBackTypeDeclaration declaration, IReadOnlySet<string> declaredTypes)
+    static IEnumerable<string> DeclarationNamespaces(CSharpTypePrintRequest request, IReadOnlySet<string> declaredTypes)
     {
-        if (!string.IsNullOrWhiteSpace(declaration.Namespace))
-            yield return declaration.Namespace;
+        if (!string.IsNullOrWhiteSpace(request.Type.Namespace))
+            yield return request.Type.Namespace;
 
-        foreach (var iface in declaration.Interfaces)
-            foreach (var ns in TypeNamespaces(iface.DisplayName, declaredTypes))
+        foreach (var iface in request.Type.Interfaces)
+            foreach (var ns in TypeNamespaces(iface, declaredTypes))
                 yield return ns;
-        foreach (var member in declaration.Members)
+        if (request.Type.BaseType is { } baseType)
+            foreach (var ns in TypeNamespaces(baseType, declaredTypes))
+                yield return ns;
+        foreach (var member in request.Members)
         {
             if (member.ReturnType is { } returnType)
-                foreach (var ns in TypeNamespaces(returnType.DisplayName, declaredTypes))
+                foreach (var ns in TypeNamespaces(returnType, declaredTypes))
                     yield return ns;
-            foreach (var parameter in member.Parameters)
-                foreach (var ns in TypeNamespaces(parameter.Type.DisplayName, declaredTypes))
+            if (member.SignatureModel is not { } signature)
+                continue;
+            foreach (var parameter in signature.Parameters)
+                foreach (var ns in TypeNamespaces(parameter.Type, declaredTypes))
                     yield return ns;
         }
-        foreach (var nested in declaration.NestedTypes)
+        foreach (var nested in request.NestedTypes)
             foreach (var ns in DeclarationNamespaces(nested, declaredTypes))
                 yield return ns;
     }
@@ -889,244 +858,12 @@ public static class CompileBackSourceComposer
                 yield return token[..dot];
         }
     }
-
-    static void WriteType(StringBuilder sb, CompileBackTypeDeclaration type, int indent)
+    static ApiMember ToApiMember(CompileBackMemberRequirement member)
     {
-        string pad = new(' ', indent * 4);
-        if (type.Kind == CompileBackTypeKind.Delegate)
-        {
-            WriteDelegateType(sb, type, indent);
-            return;
-        }
-
-        var declaration = DefaultDeclarationFormatter.FormatTypeDeclaration(ToApiType(type));
-        if (type.PrimaryConstructorParameters is { Length: > 0 } parameters)
-            declaration = AddPrimaryConstructorParameters(declaration, parameters);
-        sb.AppendLine($"{pad}{declaration}");
-        sb.AppendLine($"{pad}{{");
-        foreach (var member in type.Members)
-            WriteMember(sb, type, member, indent + 1);
-        foreach (var nested in type.NestedTypes)
-            WriteType(sb, nested, indent + 1);
-        sb.AppendLine($"{pad}}}");
-    }
-
-    static void WriteDelegateType(StringBuilder sb, CompileBackTypeDeclaration type, int indent)
-    {
-        string pad = new(' ', indent * 4);
-        var invoke = type.Members.Single(member => member.Name == "Invoke");
-        string typeParameters = type.TypeParameters.Count == 0
-            ? ""
-            : $"<{string.Join(", ", type.TypeParameters.Select(parameter => parameter.Name))}>";
-        string parameters = string.Join(", ", invoke.Parameters.Select(RenderParameter));
-        sb.AppendLine($"{pad}public delegate {invoke.ReturnType?.DisplayName ?? "void"} {type.Name}{typeParameters}({parameters});");
-    }
-
-    static void WriteMember(StringBuilder sb, CompileBackTypeDeclaration type, CompileBackMemberDeclaration member, int indent)
-    {
-        string pad = new(' ', indent * 4);
-        if (member.Kind == CompileBackMemberKind.Field)
-        {
-            string staticText = member.IsStatic ? " static" : "";
-            string unsafeText = RequiresUnsafe(member) ? " unsafe" : "";
-            if (member.StubBody == CompileBackStubBodyKind.TargetBody && member.TargetBody is { } initializer)
-            {
-                sb.AppendLine($"{pad}public const {member.ReturnType?.DisplayName ?? "object"} {member.Name} = {initializer};");
-                return;
-            }
-            if (member.StubBody == CompileBackStubBodyKind.FieldInitializer && member.TargetBody is { } fieldInitializer)
-            {
-                sb.AppendLine($"{pad}public{staticText}{unsafeText} {member.ReturnType?.DisplayName ?? "object"} {member.Name} = {fieldInitializer};");
-                return;
-            }
-
-            sb.AppendLine($"{pad}public{staticText}{unsafeText} {member.ReturnType?.DisplayName ?? "object"} {member.Name};");
-            return;
-        }
-
-        var apiType = ToApiType(type);
-        var apiMember = ToApiMember(type, member);
-        string declaration = (member.IsAsync
-            ? AsyncDeclarationFormatter
-            : DefaultDeclarationFormatter).FormatMember(apiType, apiMember);
-        switch (member.Kind)
-        {
-            case CompileBackMemberKind.PropertyGet:
-                if (type.Kind == CompileBackTypeKind.Interface)
-                {
-                    sb.AppendLine($"{pad}{declaration}");
-                    return;
-                }
-
-                if (member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
-                {
-                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)};{(HasSetterShape(member) ? " set;" : "")} }}");
-                    break;
-                }
-                if (member.StubBody == CompileBackStubBodyKind.AutoProperty)
-                {
-                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)}; }}");
-                    break;
-                }
-                if (member.StubBody == CompileBackStubBodyKind.AutoPropertyGetSet)
-                {
-                    declaration = StripPropertyAccessorBlock(declaration);
-                    sb.AppendLine($"{pad}{declaration} {{ {GetterDeclaration(member)}; set; }}");
-                    break;
-                }
-                if (member.StubBody == CompileBackStubBodyKind.ThrowGetSet)
-                {
-                    declaration = StripPropertyAccessorBlock(declaration);
-                    sb.AppendLine($"{pad}{declaration}");
-                    sb.AppendLine($"{pad}{{");
-                    sb.AppendLine($"{pad}    {GetterDeclaration(member)}");
-                    sb.AppendLine($"{pad}    {{");
-                    sb.AppendLine($"{pad}        throw null;");
-                    sb.AppendLine($"{pad}    }}");
-                    sb.AppendLine($"{pad}    set");
-                    sb.AppendLine($"{pad}    {{");
-                    sb.AppendLine($"{pad}        throw null;");
-                    sb.AppendLine($"{pad}    }}");
-                    sb.AppendLine($"{pad}}}");
-                    break;
-                }
-
-                declaration = StripPropertyAccessorBlock(declaration);
-                sb.AppendLine($"{pad}{declaration}");
-                sb.AppendLine($"{pad}{{");
-                sb.AppendLine($"{pad}    {GetterDeclaration(member)}");
-                sb.AppendLine($"{pad}    {{");
-                if (member.StubBody == CompileBackStubBodyKind.Throw)
-                {
-                    sb.AppendLine($"{pad}        throw null;");
-                }
-                else
-                {
-                    foreach (var line in member.Body.Split('\n'))
-                    {
-                        var text = line.TrimEnd('\r');
-                        if (text.Length > 0)
-                            sb.AppendLine($"{pad}        {text}");
-                    }
-                }
-                sb.AppendLine($"{pad}    }}");
-                if (member.StubBody == CompileBackStubBodyKind.TargetGetterWithSetter)
-                {
-                    sb.AppendLine($"{pad}    set");
-                    sb.AppendLine($"{pad}    {{");
-                    sb.AppendLine($"{pad}        throw null;");
-                    sb.AppendLine($"{pad}    }}");
-                }
-                sb.AppendLine($"{pad}}}");
-                break;
-            case CompileBackMemberKind.PropertySet:
-                if (member.StubBody == CompileBackStubBodyKind.AutoPropertyGetSet)
-                {
-                    declaration = StripPropertyAccessorBlock(declaration);
-                    sb.AppendLine($"{pad}{declaration} {{ get; set; }}");
-                    break;
-                }
-
-                declaration = StripPropertyAccessorBlock(declaration);
-                sb.AppendLine($"{pad}{declaration}");
-                sb.AppendLine($"{pad}{{");
-                if (member.StubBody == CompileBackStubBodyKind.TargetSetterWithGetter)
-                {
-                    sb.AppendLine($"{pad}    get");
-                    sb.AppendLine($"{pad}    {{");
-                    sb.AppendLine($"{pad}        throw null;");
-                    sb.AppendLine($"{pad}    }}");
-                }
-                sb.AppendLine($"{pad}    set");
-                sb.AppendLine($"{pad}    {{");
-                foreach (var line in member.Body.Split('\n'))
-                {
-                    var text = line.TrimEnd('\r');
-                    if (text.Length > 0)
-                        sb.AppendLine($"{pad}        {text}");
-                }
-                sb.AppendLine($"{pad}    }}");
-                sb.AppendLine($"{pad}}}");
-                break;
-            case CompileBackMemberKind.Constructor:
-                if (member.StubBody == CompileBackStubBodyKind.TargetBody)
-                {
-                    sb.AppendLine($"{pad}{declaration}");
-                    sb.AppendLine($"{pad}{{");
-                    foreach (var line in member.Body.Split('\n'))
-                    {
-                        var text = line.TrimEnd('\r');
-                        if (text.Length > 0)
-                            sb.AppendLine($"{pad}    {text}");
-                    }
-                    sb.AppendLine($"{pad}}}");
-                    break;
-                }
-                sb.AppendLine($"{pad}{declaration}{PrimaryConstructorInitializer(type)} {{ throw null; }}");
-                break;
-            case CompileBackMemberKind.Method:
-                if (type.Kind == CompileBackTypeKind.Interface || member.IsAbstract || member.StubBody == CompileBackStubBodyKind.None)
-                {
-                    sb.AppendLine($"{pad}{(declaration.EndsWith(';') ? declaration : declaration + ";")}");
-                    break;
-                }
-                if (member.StubBody == CompileBackStubBodyKind.TargetBody)
-                {
-                    sb.AppendLine($"{pad}{declaration}");
-                    sb.AppendLine($"{pad}{{");
-                    foreach (var line in member.Body.Split('\n'))
-                    {
-                        var text = line.TrimEnd('\r');
-                        if (text.Length > 0)
-                            sb.AppendLine($"{pad}    {text}");
-                    }
-                    sb.AppendLine($"{pad}}}");
-                    break;
-                }
-                sb.AppendLine($"{pad}{declaration} {{ throw null; }}");
-                break;
-            default:
-                throw new NotSupportedException($"Unsupported member declaration kind '{member.Kind}'.");
-        }
-    }
-
-    static ApiType ToApiType(CompileBackTypeDeclaration type)
-        => new()
-        {
-            Namespace = type.Namespace,
-            Name = type.Name,
-            Kind = type.Kind switch
-            {
-                CompileBackTypeKind.Class => "class",
-                CompileBackTypeKind.Record => "record",
-                CompileBackTypeKind.Struct => "struct",
-                CompileBackTypeKind.Interface => "interface",
-                CompileBackTypeKind.Enum => "enum",
-                CompileBackTypeKind.Delegate => "delegate",
-                _ => throw new NotSupportedException($"Unsupported type declaration kind '{type.Kind}'."),
-            },
-            TypeParameters = type.TypeParameters
-                .Select(parameter => new TypeParameter
-                {
-                    Name = parameter.Name,
-                    Constraints = parameter.Constraints.ToList(),
-                })
-                .ToList(),
-            Interfaces = type.Interfaces.Select(type => type.DisplayName).ToList(),
-            BaseType = type.BaseType?.DisplayName,
-            Attributes = type.Attributes?.ToList() ?? [],
-            IsAbstract = type.IsAbstract,
-            IsSealed = type.IsSealed,
-            IsStatic = type.IsStatic,
-        };
-
-    static ApiMember ToApiMember(CompileBackTypeDeclaration type, CompileBackMemberDeclaration member)
-    {
-        string parameterList = string.Join(", ", member.Parameters.Select(RenderParameter));
         string? returnType = member.ReturnType?.DisplayName;
         var apiMember = new ApiMember
         {
-            Name = member.Name,
+            Name = member.Identity.Method,
             Kind = member.Kind switch
             {
                 CompileBackMemberKind.PropertyGet => "property",
@@ -1137,18 +874,6 @@ public static class CompileBackSourceComposer
                 _ => throw new NotSupportedException($"Unsupported member declaration kind '{member.Kind}'."),
             },
             ReturnType = returnType,
-            Signature = member.Kind switch
-            {
-                CompileBackMemberKind.PropertyGet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ get; }}",
-                CompileBackMemberKind.PropertyGet when type.Kind == CompileBackTypeKind.Interface => $"{returnType ?? "void"} {member.Name} {{ get;{(HasSetterShape(member) ? " set;" : "")} }}",
-                CompileBackMemberKind.PropertyGet => $"{returnType ?? "void"} {member.Name}",
-                CompileBackMemberKind.PropertySet when member.Parameters.Count > 0 => $"{returnType ?? "void"} this[{parameterList}] {{ set; }}",
-                CompileBackMemberKind.PropertySet => $"{returnType ?? "void"} {member.Name} {{ set; }}",
-                CompileBackMemberKind.Constructor => $"void .ctor({parameterList})",
-                CompileBackMemberKind.Method => $"{returnType ?? "void"} {member.Name}({parameterList})",
-                CompileBackMemberKind.Field => $"{returnType ?? "object"} {member.Name}",
-                _ => null,
-            },
             IsStatic = member.IsStatic,
             IsAbstract = member.IsAbstract,
             IsVirtual = member.IsVirtual,
@@ -1157,17 +882,22 @@ public static class CompileBackSourceComposer
             Accessibility = AccessibilityText(member.Accessibility),
             Attributes = member.Attributes?.ToList() ?? [],
             IsUnsafe = RequiresUnsafe(member),
+            IsAsync = member.IsAsync,
             IsExtension = member.IsExtension,
+            IsConst = member.Kind == CompileBackMemberKind.Field
+                && member.StubBody == CompileBackStubBodyKind.TargetBody,
         };
-        if (member.Kind == CompileBackMemberKind.Method)
+        if (member.Kind != CompileBackMemberKind.Field)
         {
             apiMember.SignatureModel = new ApiSignature
             {
                 ReturnType = returnType,
-                ReturnAttributes = member.ReturnAttributes?.ToList() ?? [],
+                ReturnAttributes = member.Kind == CompileBackMemberKind.Method
+                    ? member.ReturnAttributes?.ToList() ?? []
+                    : [],
                 MemberName = member.TypeParameters.Count == 0
-                    ? member.Name
-                    : $"{member.Name}<{string.Join(", ", member.TypeParameters.Select(parameter => parameter.Name))}>",
+                    ? member.Identity.Method
+                    : $"{member.Identity.Method}<{string.Join(", ", member.TypeParameters.Select(parameter => parameter.Name))}>",
                 TypeParameters = member.TypeParameters
                     .Select(parameter => new TypeParameter
                     {
@@ -1191,9 +921,97 @@ public static class CompileBackSourceComposer
                     })
                     .ToList(),
             };
+            if (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet)
+            {
+                apiMember.SignatureModel.MemberName = member.Parameters.Count > 0
+                    ? "this[]"
+                    : member.Identity.Method;
+                apiMember.SignatureModel.Accessors = PropertyAccessors(member);
+            }
         }
         return apiMember;
     }
+
+    static List<ApiAccessor> PropertyAccessors(CompileBackMemberRequirement member)
+    {
+        bool hasGetter = member.Kind == CompileBackMemberKind.PropertyGet
+            || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
+                or CompileBackStubBodyKind.ThrowGetSet
+                or CompileBackStubBodyKind.TargetSetterWithGetter;
+        bool hasSetter = member.Kind == CompileBackMemberKind.PropertySet
+            || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
+                or CompileBackStubBodyKind.ThrowGetSet
+                or CompileBackStubBodyKind.TargetGetterWithSetter;
+        var accessors = new List<ApiAccessor>();
+        if (hasGetter)
+        {
+            accessors.Add(new ApiAccessor
+            {
+                Kind = "get",
+                ReturnAttributes = member.ReturnAttributes?.ToList() ?? [],
+            });
+        }
+        if (hasSetter)
+            accessors.Add(new ApiAccessor { Kind = "set" });
+        return accessors;
+    }
+
+    static CSharpMemberPolicy ToMemberPolicy(CompileBackMemberRequirement requirement)
+    {
+        var member = ToApiMember(requirement);
+        return requirement.StubBody switch
+        {
+            CompileBackStubBodyKind.None
+                => new(member, CSharpBodyPolicy.Skeleton),
+            CompileBackStubBodyKind.AutoProperty
+                => new(member, CSharpBodyPolicy.Skeleton),
+            CompileBackStubBodyKind.AutoPropertyGetSet
+                => new(member, CSharpBodyPolicy.Skeleton),
+            CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                => new(member, CSharpBodyPolicy.Stub, PropertyBody(requirement, CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.Throw
+                => new(member, CSharpBodyPolicy.Stub),
+            CompileBackStubBodyKind.ThrowGetSet
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Field
+                => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(requirement.TargetBody!)),
+            CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetBody
+                => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(requirement.TargetBody!)),
+            CompileBackStubBodyKind.TargetGetterWithSetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.TargetSetterWithGetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Throw,
+                        CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.FieldInitializer
+                => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(requirement.TargetBody!)),
+            _ => throw new NotSupportedException(
+                $"Unsupported RTS member body shape '{requirement.StubBody}'."),
+        };
+    }
+
+    static CSharpPropertyBody PropertyBody(
+        CompileBackMemberRequirement requirement,
+        CSharpAccessorBody body)
+        => requirement.Kind == CompileBackMemberKind.PropertyGet
+            ? new CSharpPropertyBody(body, null)
+            : new CSharpPropertyBody(null, body);
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
@@ -1203,6 +1021,20 @@ public static class CompileBackSourceComposer
             parameter.Attributes,
             parameter.HasDefault,
             parameter.DefaultValueText);
+
+    static ApiParameter ToApiParameter(CompileBackParameter parameter)
+    {
+        var (type, modifier) = NormalizeParameter(parameter);
+        return new ApiParameter
+        {
+            Attributes = parameter.Attributes?.ToList() ?? [],
+            Name = parameter.Name,
+            Type = type,
+            Modifier = modifier,
+            HasDefault = parameter.HasDefault,
+            DefaultValueText = parameter.DefaultValueText,
+        };
+    }
 
     static IReadOnlyList<CompileBackParameter> ToCompileBackParameters(IEnumerable<ApiParameter> parameters)
         => parameters.Select(ToCompileBackParameter).ToArray();
@@ -1220,48 +1052,17 @@ public static class CompileBackSourceComposer
             _ => "public",
         };
 
-    static bool RequiresUnsafe(CompileBackMemberDeclaration member)
+    static bool RequiresUnsafe(CompileBackMemberRequirement member)
         => member.ReturnType?.DisplayName.Contains('*', StringComparison.Ordinal) == true
             || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal))
             || MemberBodyRequiresUnsafe(member);
 
-    static bool MemberBodyRequiresUnsafe(CompileBackMemberDeclaration member)
+    static bool MemberBodyRequiresUnsafe(CompileBackMemberRequirement member)
         => member.TargetBody is { } body
             && (body.Contains("delegate*", StringComparison.Ordinal)
                 || body.Contains("stackalloc", StringComparison.Ordinal)
                 || body.Contains('*', StringComparison.Ordinal));
 
-    static string AddPrimaryConstructorParameters(string declaration, string parameters)
-    {
-        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
-        string head = constraints >= 0 ? declaration[..constraints] : declaration;
-        string tail = constraints >= 0 ? declaration[constraints..] : "";
-        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
-        return inheritance >= 0
-            ? head[..inheritance] + $"({parameters})" + head[inheritance..] + tail
-            : $"{head}({parameters}){tail}";
-    }
-
-    static string StripPropertyAccessorBlock(string declaration)
-    {
-        foreach (var suffix in new[] { " { get; }", " { set; }" })
-        {
-            if (declaration.EndsWith(suffix, StringComparison.Ordinal))
-                return declaration[..^suffix.Length];
-        }
-
-        return declaration;
-    }
-
-    static string GetterDeclaration(CompileBackMemberDeclaration member)
-        => member.ReturnAttributes is { Count: > 0 }
-            ? $"[return: {string.Join(", ", member.ReturnAttributes)}] get"
-            : "get";
-
-    static bool HasSetterShape(CompileBackMemberDeclaration member)
-        => member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
-            or CompileBackStubBodyKind.ThrowGetSet
-            or CompileBackStubBodyKind.TargetGetterWithSetter;
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
         MetadataReader reader,
@@ -1854,42 +1655,6 @@ public static class CompileBackSourceComposer
                 FieldInitializers: []);
     }
 
-    static string PrimaryConstructorInitializer(CompileBackTypeDeclaration type)
-    {
-        if (type.PrimaryConstructorParameters is not { Length: > 0 } parameters)
-            return "";
-
-        int count = SplitTopLevelParameters(parameters).Count();
-        return count == 0
-            ? ""
-            : $" : this({string.Join(", ", Enumerable.Repeat("default", count))})";
-    }
-
-    static IEnumerable<string> SplitTopLevelParameters(string parameters)
-    {
-        int start = 0;
-        int depth = 0;
-        for (int i = 0; i < parameters.Length; i++)
-        {
-            char c = parameters[i];
-            depth += c switch
-            {
-                '<' or '(' or '[' => 1,
-                '>' or ')' or ']' => depth > 0 ? -1 : 0,
-                _ => 0,
-            };
-            if (c != ',' || depth != 0)
-                continue;
-
-            yield return parameters[start..i].Trim();
-            start = i + 1;
-        }
-
-        string last = parameters[start..].Trim();
-        if (last.Length > 0)
-            yield return last;
-    }
-
     static bool TryPrimaryConstructorParameterName(string fieldName, out string parameterName)
     {
         if (fieldName is ['<', ..]
@@ -2407,12 +2172,13 @@ public static class CompileBackSourceComposer
                 [new CompileBackFact("metadata", "typed-closure-field", fieldName)]);
         }
 
-        public static IReadOnlyList<CompileBackTypeDeclaration> Produce(
+        public static TypeProduction Produce(
             MetadataReader reader,
             IReadOnlyList<CompileBackTypeRequirement> requirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
-            var shells = new List<CompileBackTypeDeclaration>();
+            var requests = new List<CSharpTypePrintRequest>();
+            var producedRequirements = new List<CompileBackTypeRequirement>();
             var requirementsByMetadataName = requirements.ToDictionary(
                 requirement => requirement.Type.MetadataFullName,
                 requirement => requirement,
@@ -2442,11 +2208,21 @@ public static class CompileBackSourceComposer
                         SourceFacts: [new CompileBackFact("metadata", "declaring-closure-type", rootIdentity.FullName)]);
                 }
 
-                shells.Add(TypeDeclaration(reader, rootHandle, rootRequirement, requirementsByMetadataName, diagnostics));
+                requests.Add(TypeRequest(
+                    reader,
+                    rootHandle,
+                    rootRequirement,
+                    requirementsByMetadataName,
+                    producedRequirements,
+                    diagnostics));
             }
 
-            return shells;
+            return new TypeProduction(requests, producedRequirements);
         }
+
+        public sealed record TypeProduction(
+            IReadOnlyList<CSharpTypePrintRequest> Requests,
+            IReadOnlyList<CompileBackTypeRequirement> Requirements);
 
         static PropertyDefinitionHandle? TryFindPropertyForAccessor(
             MetadataReader reader,
@@ -2672,45 +2448,82 @@ public static class CompileBackSourceComposer
             return index;
         }
 
-        static CompileBackTypeDeclaration TypeDeclaration(
+        static CSharpTypePrintRequest TypeRequest(
             MetadataReader reader,
             TypeDefinitionHandle handle,
             CompileBackTypeRequirement requirement,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
+            List<CompileBackTypeRequirement> producedRequirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
             var typeDef = reader.GetTypeDefinition(handle);
             var kind = requirement.RequiredKind;
             var members = kind == CompileBackTypeKind.Delegate
-                ? [DelegateInvokeDeclaration(reader, typeDef, requirement.Type)]
-                : RequiredMemberDeclarations(requirement);
+                ? [DelegateInvokeRequirement(reader, typeDef, requirement.Type)]
+                : RequiredMemberRequirements(requirement);
             bool includeMemberSurface = requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
             if (includeMemberSurface && kind != CompileBackTypeKind.Delegate)
                 AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
+            var producedRequirement = requirement with { RequiredMembers = members };
+            producedRequirements.Add(producedRequirement);
 
-            return new CompileBackTypeDeclaration(
-                requirement.Type,
-                kind,
-                CompileBackAccessibility.Public,
-                BaseType: BaseTypeSignature(reader, typeDef),
-                PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
-                TypeParameters: TypeParameters(reader, typeDef),
-                Interfaces: InterfaceSignatures(reader, typeDef),
-                members,
-                requirement.SourceFacts,
-                NestedTypes(
+            var policies = members.Select(ToMemberPolicy).ToArray();
+            var type = new ApiType
+            {
+                Namespace = requirement.Type.Namespace,
+                Name = requirement.Type.MetadataName,
+                MetadataName = requirement.Type.MetadataName,
+                Kind = TypeKindText(kind),
+                BaseType = BaseTypeSignature(reader, typeDef)?.DisplayName,
+                TypeParameters = TypeParameters(reader, typeDef)
+                    .Select(ToApiTypeParameter)
+                    .ToList(),
+                Interfaces = InterfaceSignatures(reader, typeDef)
+                    .Select(signature => signature.DisplayName)
+                    .ToList(),
+                Members = policies.Select(policy => policy.Member).ToList(),
+                Attributes = TypeAttributeList(reader, typeDef).ToList(),
+                IsAbstract = (typeDef.Attributes & TypeAttributes.Abstract) != 0
+                    && (typeDef.Attributes & TypeAttributes.Interface) == 0,
+                IsSealed = (typeDef.Attributes & TypeAttributes.Sealed) != 0,
+                IsStatic = IsStaticType(typeDef),
+            };
+            return new CSharpTypePrintRequest(
+                type,
+                members: type.Members,
+                memberPolicyOverrides: policies,
+                primaryConstructorParameters: requirement.PrimaryConstructor?.ParameterList
+                    .Select(ToApiParameter)
+                    .ToArray(),
+                nestedTypes: NestedTypes(
                     reader,
                     typeDef,
                     requirementsByMetadataName,
                     includeMemberSurface,
-                    diagnostics),
-                TypeAttributeList(reader, typeDef),
-                IsAbstract: (typeDef.Attributes & TypeAttributes.Abstract) != 0 && (typeDef.Attributes & TypeAttributes.Interface) == 0,
-                IsSealed: (typeDef.Attributes & TypeAttributes.Sealed) != 0,
-                IsStatic: IsStaticType(typeDef));
+                    producedRequirements,
+                    diagnostics));
         }
 
-        static CompileBackMemberDeclaration DelegateInvokeDeclaration(
+        static string TypeKindText(CompileBackTypeKind kind)
+            => kind switch
+            {
+                CompileBackTypeKind.Class => "class",
+                CompileBackTypeKind.Record => "record",
+                CompileBackTypeKind.Struct => "struct",
+                CompileBackTypeKind.Interface => "interface",
+                CompileBackTypeKind.Enum => "enum",
+                CompileBackTypeKind.Delegate => "delegate",
+                _ => throw new NotSupportedException($"Unsupported RTS type kind '{kind}'."),
+            };
+
+        static TypeParameter ToApiTypeParameter(CompileBackTypeParameter parameter)
+            => new()
+            {
+                Name = parameter.Name,
+                Constraints = parameter.Constraints.ToList(),
+            };
+
+        static CompileBackMemberRequirement DelegateInvokeRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity)
@@ -2722,15 +2535,14 @@ public static class CompileBackSourceComposer
                     continue;
 
                 var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-                return new CompileBackMemberDeclaration(
+                return new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(typeIdentity.FullName, "Invoke", 0, MethodSignatureText("Invoke", signature)),
                     CompileBackMemberKind.Method,
-                    CompileBackAccessibility.Public,
                     IsStatic: false,
-                    CompileBackTypeSignature.Display(signature.ReturnType),
-                    Parameters(reader, method, signature),
+                    Parameters: Parameters(reader, method, signature),
+                    ReturnType: CompileBackTypeSignature.Display(signature.ReturnType),
                     TypeParameters: [],
-                    CompileBackStubBodyKind.None,
+                    StubBody: CompileBackStubBodyKind.None,
                     TargetBody: null,
                     [new CompileBackFact("metadata", "generated-dynamic-delegate-invoke", reader.GetString(typeDef.Name))]);
             }
@@ -2738,43 +2550,20 @@ public static class CompileBackSourceComposer
             throw new InvalidOperationException($"Generated dynamic delegate '{typeIdentity.MetadataFullName}' has no Invoke method.");
         }
 
-        static List<CompileBackMemberDeclaration> RequiredMemberDeclarations(CompileBackTypeRequirement requirement)
-        {
-            var members = new List<CompileBackMemberDeclaration>();
-            foreach (var member in requirement.RequiredMembers)
-            {
-                members.Add(new CompileBackMemberDeclaration(
-                    member.Identity,
-                    member.Kind,
-                    CompileBackAccessibility.Public,
-                    member.IsStatic,
-                    member.ReturnType,
-                    member.Parameters,
-                    member.TypeParameters,
-                    member.StubBody,
-                    member.TargetBody,
-                    member.SourceFacts,
-                    member.Attributes,
-                    member.ReturnAttributes,
-                    member.IsAbstract,
-                    member.IsVirtual,
-                    member.IsOverride,
-                    member.IsSealed,
-                    member.IsAsync,
-                    member.IsExtension));
-            }
+        static List<CompileBackMemberRequirement> RequiredMemberRequirements(CompileBackTypeRequirement requirement)
+            => requirement.RequiredMembers
+                .Select(member => member with { Accessibility = CompileBackAccessibility.Public })
+                .ToList();
 
-            return members;
-        }
-
-        static IReadOnlyList<CompileBackTypeDeclaration> NestedTypes(
+        static IReadOnlyList<CSharpTypePrintRequest> NestedTypes(
             MetadataReader reader,
             TypeDefinition typeDef,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             bool includeMemberSurface,
+            List<CompileBackTypeRequirement> producedRequirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
-            var nestedTypes = new List<CompileBackTypeDeclaration>();
+            var nestedTypes = new List<CSharpTypePrintRequest>();
             foreach (var nestedHandle in typeDef.GetNestedTypes())
             {
                 var nestedDef = reader.GetTypeDefinition(nestedHandle);
@@ -2793,27 +2582,24 @@ public static class CompileBackSourceComposer
                     RequiredMembers: [],
                     PrimaryConstructor: null,
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
-                var members = RequiredMemberDeclarations(requirement);
                 bool includeNestedMemberSurface = includeMemberSurface
                     || requirement.SourceFacts.Any(fact => fact.Id == "closure-member")
                     || IsGeneratedMetadataName(name);
-                if (includeNestedMemberSurface)
-                    AddClosureMemberSurface(reader, nestedDef, requirement, members, diagnostics, allowUnsafeSurface: true);
-                nestedTypes.Add(new CompileBackTypeDeclaration(
-                    identity,
-                    kind,
-                    CompileBackAccessibility.Public,
-                    BaseType: BaseTypeSignature(reader, nestedDef),
-                    PrimaryConstructorParameters: requirement.PrimaryConstructor?.Parameters,
-                    TypeParameters: TypeParameters(reader, nestedDef),
-                    Interfaces: InterfaceSignatures(reader, nestedDef),
-                    members,
-                    requirement.SourceFacts,
-                    NestedTypes(reader, nestedDef, requirementsByMetadataName, includeNestedMemberSurface, diagnostics),
-                    TypeAttributeList(reader, nestedDef),
-                    IsAbstract: (nestedDef.Attributes & TypeAttributes.Abstract) != 0 && (nestedDef.Attributes & TypeAttributes.Interface) == 0,
-                    IsSealed: (nestedDef.Attributes & TypeAttributes.Sealed) != 0,
-                    IsStatic: IsStaticType(nestedDef)));
+                var nestedRequirement = includeNestedMemberSurface
+                    ? requirement with
+                    {
+                        SourceFacts = requirement.SourceFacts
+                            .Append(new CompileBackFact("metadata", "closure-member", "nested surface"))
+                            .ToArray()
+                    }
+                    : requirement;
+                nestedTypes.Add(TypeRequest(
+                    reader,
+                    nestedHandle,
+                    nestedRequirement,
+                    requirementsByMetadataName,
+                    producedRequirements,
+                    diagnostics));
             }
 
             if (HasGeneratedCallSiteCache(reader, typeDef))
@@ -2822,10 +2608,10 @@ public static class CompileBackSourceComposer
                 {
                     var delegateDef = reader.GetTypeDefinition(delegateHandle);
                     var identity = CompileBackTypeIdentity.FromDefinition(reader, delegateDef);
-                    if (nestedTypes.Any(type => type.Name == identity.DisplayName))
+                    if (nestedTypes.Any(type => type.Type.Name == identity.MetadataName))
                         continue;
 
-                    nestedTypes.Add(TypeDeclaration(
+                    nestedTypes.Add(TypeRequest(
                         reader,
                         delegateHandle,
                         new CompileBackTypeRequirement(
@@ -2835,6 +2621,7 @@ public static class CompileBackSourceComposer
                             PrimaryConstructor: null,
                             SourceFacts: [new CompileBackFact("metadata", "generated-dynamic-delegate", identity.FullName)]),
                         requirementsByMetadataName,
+                        producedRequirements,
                         diagnostics));
                 }
             }
@@ -2910,7 +2697,7 @@ public static class CompileBackSourceComposer
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeRequirement requirement,
-            List<CompileBackMemberDeclaration> members,
+            List<CompileBackMemberRequirement> members,
             List<CompileBackPlanningDiagnostic> diagnostics,
             bool allowUnsafeSurface = false)
         {
@@ -2930,7 +2717,7 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                if (members.Any(member => member.Kind == CompileBackMemberKind.Field && member.Name == Identifier(fieldName)))
+                if (members.Any(member => member.Kind == CompileBackMemberKind.Field && member.Identity.Method == Identifier(fieldName)))
                     continue;
 
                 string fieldType;
@@ -2947,15 +2734,14 @@ public static class CompileBackSourceComposer
                     || (!allowUnsafeSurface && IsPointerSignature(fieldType)))
                     continue;
 
-                members.Add(new CompileBackMemberDeclaration(
+                members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(fieldName), 0, $"field {fieldType}"),
                     CompileBackMemberKind.Field,
-                    CompileBackAccessibility.Public,
-                    field.Attributes.HasFlag(FieldAttributes.Static),
-                    CompileBackTypeSignature.Display(fieldType),
+                    IsStatic: field.Attributes.HasFlag(FieldAttributes.Static),
                     Parameters: [],
+                    ReturnType: CompileBackTypeSignature.Display(fieldType),
                     TypeParameters: [],
-                    TryFormatConstantField(reader, field, out var constant)
+                    StubBody: TryFormatConstantField(reader, field, out var constant)
                         ? CompileBackStubBodyKind.TargetBody
                         : CompileBackStubBodyKind.None,
                     TargetBody: constant,
@@ -2979,7 +2765,7 @@ public static class CompileBackSourceComposer
                 }
                 if (members.Any(member =>
                         (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet or CompileBackMemberKind.Field)
-                        && member.Name == Identifier(propertyName)))
+                        && member.Identity.Method == Identifier(propertyName)))
                     continue;
 
                 MetadataPropertyDeclaration propertyDeclaration;
@@ -3022,21 +2808,23 @@ public static class CompileBackSourceComposer
                             : hasSetter
                                 ? CompileBackStubBodyKind.ThrowGetSet
                                 : CompileBackStubBodyKind.Throw;
-                members.Add(new CompileBackMemberDeclaration(
+                members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
                     CompileBackMemberKind.PropertyGet,
-                    accessor.IsNil ? CompileBackAccessibility.Public : MethodAccessibility(accessorMethod),
-                    isStatic,
-                    returnType,
+                    IsStatic: isStatic,
                     Parameters: [],
+                    ReturnType: returnType,
                     TypeParameters: [],
-                    stubBody,
+                    StubBody: stubBody,
                     TargetBody: null,
                     [new CompileBackFact("metadata", "closure-property", propertyName)],
                     propertyDeclaration.Attributes,
                     propertyDeclaration.Signature.ReturnAttributes,
                     IsAbstract: isAbstractAccessor,
-                    IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual));
+                    IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual,
+                    Accessibility: accessor.IsNil
+                        ? CompileBackAccessibility.Public
+                        : MethodAccessibility(accessorMethod)));
             }
 
             int overload = 0;
@@ -3057,7 +2845,7 @@ public static class CompileBackSourceComposer
                 string identifierName = CSharpNaming.SourceMethodName(name);
                 if (members.Any(member =>
                         member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
-                        && member.Name == identifierName))
+                        && member.Identity.Method == identifierName))
                     continue;
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
@@ -3099,15 +2887,14 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                members.Add(new CompileBackMemberDeclaration(
+                members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(identifierName, signature)),
                     isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
-                    MethodAccessibility(method),
-                    method.Attributes.HasFlag(MethodAttributes.Static),
-                    isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
-                    parameters,
-                    generatedLocalFunction ? [] : ToCompileBackTypeParameters(methodDeclaration!.Signature.TypeParameters),
-                    requirement.RequiredKind == CompileBackTypeKind.Interface || IsAbstractMethod(method)
+                    IsStatic: method.Attributes.HasFlag(MethodAttributes.Static),
+                    Parameters: parameters,
+                    ReturnType: isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
+                    TypeParameters: generatedLocalFunction ? [] : ToCompileBackTypeParameters(methodDeclaration!.Signature.TypeParameters),
+                    StubBody: requirement.RequiredKind == CompileBackTypeKind.Interface || IsAbstractMethod(method)
                         ? CompileBackStubBodyKind.None
                         : CompileBackStubBodyKind.Throw,
                     TargetBody: null,
@@ -3117,7 +2904,8 @@ public static class CompileBackSourceComposer
                     IsAbstract: !isConstructor && IsAbstractMethod(method),
                     IsVirtual: !isConstructor && IsVirtualMethod(method),
                     IsOverride: false,
-                    IsSealed: false));
+                    IsSealed: false,
+                    Accessibility: MethodAccessibility(method)));
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class
@@ -3126,17 +2914,16 @@ public static class CompileBackSourceComposer
                 && !members.Any(member => member.Kind == CompileBackMemberKind.Constructor && member.Parameters.Count == 0)
                 && !HasParameterlessInstanceConstructor(reader, typeDef))
             {
-                members.Add(new CompileBackMemberDeclaration(
+                members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, ".ctor", overload, "void .ctor()"),
                     CompileBackMemberKind.Constructor,
-                    CompileBackAccessibility.Public,
                     IsStatic: false,
                     ReturnType: null,
                     Parameters: [],
                     TypeParameters: [],
-                    CompileBackStubBodyKind.Throw,
+                    StubBody: CompileBackStubBodyKind.Throw,
                     TargetBody: null,
-                    [new CompileBackFact("metadata", "synthetic-parameterless-ctor", "same-assembly closure root")]));
+                    SourceFacts: [new CompileBackFact("metadata", "synthetic-parameterless-ctor", "same-assembly closure root")]));
             }
         }
 

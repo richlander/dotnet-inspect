@@ -126,6 +126,49 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void KeywordNamespaceSegmentsAreEscaped()
+    {
+        var type = CreateEmptyType("Samples.event", "Widget");
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        var unit = Assert.Single(result.Units);
+        Assert.Equal("Samples.event", unit.Namespace);
+        Assert.StartsWith("namespace Samples.@event;", unit.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneratedMetadataTypeNamesAreRenderedAsSafeIdentifiers()
+    {
+        var type = CreateEmptyType("Samples", "<>c");
+        type.MetadataName = "<>c";
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("public class ___c", Assert.Single(result.Units).Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneratedGenericMetadataNamesDoNotRequireAnAritySuffix()
+    {
+        var type = CreateEmptyType("Samples", "<>A{00000040}`3");
+        type.MetadataName = "<>A{00000040}`3";
+        type.TypeParameters =
+        [
+            new TypeParameter { Name = "T1" },
+            new TypeParameter { Name = "T2" },
+            new TypeParameter { Name = "T3" }
+        ];
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "public class ___A_00000040_<T1, T2, T3>",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SkeletonPrefersStructuredGenericSignature()
     {
         var type = new ApiType
@@ -168,7 +211,45 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void SkeletonMatchesCSharpFormatter()
+    public void StructuredParameterAttributesRepresentMetadataOnlyDefaults()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "GetTicks",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "long",
+                MemberName = "GetTicks",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.DateTime",
+                        Name = "when",
+                        Attributes =
+                        [
+                            "System.Runtime.InteropServices.Optional",
+                            "System.Runtime.CompilerServices.DateTimeConstant(0)"
+                        ],
+                        HasDefault = true
+                    }
+                ]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "public long GetTicks([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(0)] System.DateTime when);",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+
+    [Fact]
+    public void SkeletonMatchesMetadataDeclarationWriter()
     {
         var type = CreateEmptyType("Samples", "Widget");
         type.Members.Add(new ApiMember
@@ -181,18 +262,21 @@ public sealed class CSharpTypePrinterTests
                 MemberName = "Create"
             }
         });
-        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        var declarationOptions = new CSharpDeclarationOptions
         {
-            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            TypeNameMode = CSharpTypeNameMode.ContextualShort,
             ContainingNamespace = "Samples",
-            NamespacePolicy = CSharpNamespacePolicy.Omit,
+            NamespaceMode = CSharpNamespaceMode.Omit,
             TerminateMemberDeclaration = true
-        });
-        var expectedDeclaration = formatter.FormatTypeUnit(type);
+        };
+        var expectedDeclaration = CSharpDeclarationWriter.RenderTypeUnit(
+            type,
+            type.Members,
+            declarationOptions);
 
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
-        Assert.Equal($"namespace Samples;\n\n{expectedDeclaration.Text}", result.Units[0].Source);
+        Assert.Equal($"namespace Samples;\n\n{expectedDeclaration.Source}", result.Units[0].Source);
         Assert.Equal(expectedDeclaration.Diagnostics, result.Diagnostics.Select(diagnostic => diagnostic.Message));
     }
 
@@ -303,22 +387,206 @@ public sealed class CSharpTypePrinterTests
         Assert.Same(policy, Assert.Single(request.MemberPolicyOverrides));
     }
 
-    [Theory]
-    [InlineData("enum")]
-    [InlineData("delegate")]
-    public void UnsupportedTypeKindFailsInsteadOfEmittingInvalidSkeleton(string kind)
+    [Fact]
+    public void UnsupportedTypeKindFailsInsteadOfEmittingInvalidSkeleton()
     {
         var type = new ApiType
         {
             Namespace = "Samples",
             Name = "Shape",
-            Kind = kind
+            Kind = "union"
         };
 
         var exception = Assert.Throws<NotSupportedException>(
             () => _printer.Print(new CSharpTypePrintRequest(type)));
 
-        Assert.Contains($"type kind '{kind}'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("type kind 'union'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullAndStubBodiesAreRenderedFromMemberPolicies()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var full = CreateMethod("Full");
+        var stub = CreateMethod("Stub");
+        type.Members.AddRange([full, stub]);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(full, CSharpBodyPolicy.Full, new CSharpBlockBody("return;")),
+                new CSharpMemberPolicy(stub, CSharpBodyPolicy.Stub)
+            ]);
+
+        var result = _printer.Print(request);
+
+        Assert.Contains(
+            """
+                public void Full()
+                {
+                    return;
+                }
+            """,
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public void Stub() { throw null; }",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PropertyBodySpecifiesIndependentAccessorShapes()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get", ReturnAttributes = ["Marker"] },
+                    new ApiAccessor { Kind = "set" }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(property);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    property,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block("return 42;"),
+                        CSharpAccessorBody.Throw))
+            ]);
+
+        var result = _printer.Print(request);
+
+        Assert.Contains(
+            """
+                public int Value
+                {
+                    [return: Marker] get
+                    {
+                        return 42;
+                    }
+                    set
+                    {
+                        throw null;
+                    }
+                }
+            """,
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedTypesAndPrimaryConstructorsRenderInBlockNamespaceUnits()
+    {
+        var nested = CreateEmptyType("Samples", "Nested");
+        var outer = CreateEmptyType("Samples", "Outer`1");
+        outer.MetadataName = "Outer`1";
+        outer.TypeParameters = [new TypeParameter { Name = "T", Constraints = ["class"] }];
+        var request = new CSharpTypePrintRequest(
+            outer,
+            primaryConstructorParameters: [new ApiParameter { Type = "T", Name = "value" }],
+            nestedTypes: [new CSharpTypePrintRequest(nested)]);
+
+        var result = _printer.Print(
+            request,
+            new CSharpTypePrintOptions { NamespaceStyle = CSharpNamespaceStyle.BlockScoped });
+
+        Assert.Equal(
+            """
+            namespace Samples
+            {
+                public class Outer<T>(T value) where T : class
+                {
+                    public class Nested
+                    {
+                    }
+                }
+            }
+            """,
+            result.Units[0].Source);
+    }
+
+    [Fact]
+    public void NestedTypeWithEmptyMetadataNamespaceInheritsContainingNamespace()
+    {
+        var nested = CreateEmptyType(null, "Nested");
+        var outer = CreateEmptyType("Samples", "Outer");
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            outer,
+            nestedTypes: [new CSharpTypePrintRequest(nested)]));
+
+        Assert.Contains("public class Nested", Assert.Single(result.Units).Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EnumAndDelegateRequestsUseTheirLanguageDeclarations()
+    {
+        var value = new ApiMember
+        {
+            Name = "One",
+            Kind = "field",
+            ReturnType = "int"
+        };
+        var enumType = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Choice",
+            Kind = "enum",
+            Members = [value]
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Invoke",
+                Parameters = [new ApiParameter { Type = "string", Name = "value" }]
+            }
+        };
+        var delegateType = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Converter`1",
+            MetadataName = "Converter`1",
+            Kind = "delegate",
+            TypeParameters = [new TypeParameter { Name = "T" }],
+            Members = [invoke]
+        };
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(
+                enumType,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        value,
+                        CSharpBodyPolicy.Full,
+                        new CSharpFieldInitializer("1"))
+                ]),
+            new CSharpTypePrintRequest(delegateType)
+        ]);
+
+        Assert.Contains("public enum Choice\n{\n    One = 1\n}", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public delegate int Converter<T>(string value);",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
