@@ -704,11 +704,21 @@ public static class CompileBackSourceComposer
                 IsSealed: false,
                 IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
         ];
+        bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
         {
             if (TypeProducer.TryCreateRecordEqualityContractRequirement(reader, targetType) is { } equalityContract)
                 targetMembers.Add(equalityContract);
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
+        }
+        else if (!isConstructor && IsRecordGeneratedSurfaceHelper(reader, targetTypeDef, targetIdentity, methodName, signature))
+        {
+            // ToString / PrintMembers delegate to the record's other synthesized members
+            // rather than reading backing fields directly, so reconstruct the full record
+            // member surface (faithful `protected virtual` helpers, EqualityContract, and the
+            // record properties) via the closure-member surface path instead of field shells.
+            targetFacts.Add(new CompileBackFact("metadata", "closure-member", "record-generated-helper"));
+            includeRecordSurface = true;
         }
         if (isConstructor && primaryConstructor is null)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: false));
@@ -729,7 +739,8 @@ public static class CompileBackSourceComposer
         {
             targetMembers.Add(typedEqualsSibling);
         }
-        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        if (!includeRecordSurface)
+            AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -1405,6 +1416,27 @@ public static class CompileBackSourceComposer
             && signature.ReturnType == "bool"
             && function.Signature.Parameters is [{ Type: var parameterType }]
             && IsSelfType(parameterType, typeIdentity);
+    }
+
+    // ToString / PrintMembers are record-generated helpers that delegate to the record's
+    // other synthesized members rather than reading backing fields directly, so they need
+    // the full record surface (see IsRecordGeneratedFieldReadHelper for the field-read helpers).
+    static bool IsRecordGeneratedSurfaceHelper(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity typeIdentity,
+        string methodName,
+        MethodSignature<string> signature)
+    {
+        if (!HasRecordHelperShell(reader, typeDef, typeIdentity))
+            return false;
+
+        return (methodName == "ToString"
+                && signature.ReturnType == "string"
+                && signature.ParameterTypes.Length == 0)
+            || (methodName == "PrintMembers"
+                && signature.ReturnType == "bool"
+                && signature.ParameterTypes.Length == 1);
     }
 
     static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
