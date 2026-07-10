@@ -188,9 +188,7 @@ public sealed class CSharpTypePrinterTests
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             TerminateMemberDeclaration = true
         });
-        var expectedDeclaration = formatter.FormatTypeUnit(
-            type,
-            type.Members);
+        var expectedDeclaration = formatter.FormatTypeUnit(type);
 
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 

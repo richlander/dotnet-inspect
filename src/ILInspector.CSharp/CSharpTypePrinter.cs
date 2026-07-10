@@ -28,6 +28,7 @@ public sealed class CSharpTypePrinter
         var canonicalIdentities = new HashSet<TypeOutputIdentity>();
         var outputIdentities = new HashSet<TypeOutputIdentity>();
         var diagnostics = ImmutableArray.CreateBuilder<CSharpTypePrintDiagnostic>();
+        var formatters = new Dictionary<string, CSharpFormatter>(StringComparer.Ordinal);
         foreach (var request in requestList)
         {
             var memberArray = (request.Members ?? request.Type.Members
@@ -64,18 +65,20 @@ public sealed class CSharpTypePrinter
                     nameof(requests));
             }
 
-            var formatter = new CSharpFormatter(new CSharpFormatOptions
+            if (!formatters.TryGetValue(containingNamespace, out var formatter))
             {
-                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
-                ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
-                NamespacePolicy = CSharpNamespacePolicy.Omit,
-                TerminateMemberDeclaration = true,
-                IncludeCustomAttributes = options.IncludeCustomAttributes
-            });
+                formatter = new CSharpFormatter(new CSharpFormatOptions
+                {
+                    TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+                    ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
+                    NamespacePolicy = CSharpNamespacePolicy.Omit,
+                    TerminateMemberDeclaration = true,
+                    IncludeCustomAttributes = options.IncludeCustomAttributes
+                });
+                formatters.Add(containingNamespace, formatter);
+            }
 
-            var rendered = formatter.FormatTypeUnit(
-                type,
-                type.Members);
+            var rendered = formatter.FormatTypeUnit(type);
 
             if (rendered.Usings.Count > 0)
             {
