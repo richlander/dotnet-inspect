@@ -236,6 +236,23 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void PairFinding_Cases_RejectNullAtoms_FailClosed()
+    {
+        var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
+
+        // A plain null literal is already a compile error under the non-null annotations; a
+        // null-forgiving caller is caught at construction so a case can never hold a missing side.
+        Assert.Throws<ArgumentNullException>(() => new Added<string>(null!));
+        Assert.Throws<ArgumentNullException>(() => new Removed<string>(null!));
+        Assert.Throws<ArgumentNullException>(() => new Present<string>(a, null!));
+        Assert.Throws<ArgumentNullException>(() => new Present<string>(null!, a));
+        Assert.Throws<ArgumentNullException>(() => new Changed<string>(a, null!));
+
+        // The union wrapper likewise never holds a null case.
+        Assert.Throws<ArgumentNullException>(() => new PairFinding<string>((Added<string>)null!));
+    }
+
+    [Fact]
     public void SkeletonConsumer_ClassifiesFromPolarityAndDifferenceAlone()
     {
         // A stream-agnostic consumer: it reads only the pair skeleton, so the same pairs could have
@@ -475,14 +492,14 @@ public class FindingPilotTests
             .ToArray();
 
     // The representative atom of a pair (new side if present, else old), recovered by matching the
-    // union's closed set of cases — a consumer that wants the typed payload must handle each case.
-    static Finding<CanonicalIlOperation> CurrentAtom(PairFinding<CanonicalIlOperation> pair) => pair.Value switch
+    // union directly (`pair switch`, not `pair.Value switch`) so the compiler enforces exhaustiveness:
+    // adding a fifth case makes this fail to build rather than fall through at runtime.
+    static Finding<CanonicalIlOperation> CurrentAtom(PairFinding<CanonicalIlOperation> pair) => pair switch
     {
         Added<CanonicalIlOperation> a => a.New,
         Removed<CanonicalIlOperation> r => r.Old,
         Present<CanonicalIlOperation> p => p.New,
         Changed<CanonicalIlOperation> c => c.New,
-        _ => throw new InvalidOperationException("PairFinding has no case."),
     };
 
     // ---- IL adapter: real-assembly corpus ----------------------------------------------------

@@ -115,6 +115,10 @@ public interface IPairFinding : IFinding
 public sealed record Added<T>(Finding<T> New, string? Detail = null) : IPairFinding
     where T : notnull
 {
+    // A null-forgiving (`null!`) caller could otherwise slip a missing atom past the non-null
+    // annotation and reintroduce a case with no side; guard the required atom at construction.
+    public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
     public PairKind Kind => PairKind.Added;
     public FindingDifferenceKind Difference => FindingDifferenceKind.None;
     public FindingSubject Subject => New.Subject;
@@ -127,6 +131,8 @@ public sealed record Added<T>(Finding<T> New, string? Detail = null) : IPairFind
 public sealed record Removed<T>(Finding<T> Old, string? Detail = null) : IPairFinding
     where T : notnull
 {
+    public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
+
     public PairKind Kind => PairKind.Removed;
     public FindingDifferenceKind Difference => FindingDifferenceKind.None;
     public FindingSubject Subject => Old.Subject;
@@ -147,6 +153,9 @@ public sealed record Present<T>(
     string? Detail = null) : IPairFinding
     where T : notnull
 {
+    public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
+    public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
     public PairKind Kind => PairKind.Present;
     public FindingSubject Subject => New.Subject;
     public FindingDescriptor Descriptor => New.Descriptor;
@@ -162,6 +171,9 @@ public sealed record Changed<T>(
     string? Detail = null) : IPairFinding
     where T : notnull
 {
+    public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
+    public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
     public PairKind Kind => PairKind.Changed;
     public FindingSubject Subject => New.Subject;
     public FindingDescriptor Descriptor => New.Descriptor;
@@ -177,16 +189,25 @@ public sealed record Changed<T>(
 /// to enforce and nothing a <c>with</c> expression can desync: the closed set of cases is the
 /// invariant. A reference union (a <c>record class</c>, not the struct sugar) so there is no
 /// <c>default</c>/empty state to guard and no boxing when a case is viewed as <see cref="IPairFinding"/>.
-/// Pattern-match <see cref="Value"/> to recover a case and its typed atoms.
+/// Pattern-match the union itself (<c>pair switch { Added&lt;T&gt; … }</c>, not <c>pair.Value switch</c>)
+/// to recover a case and its typed atoms with compiler-checked exhaustiveness.
 /// </summary>
 [Union]
 public sealed record PairFinding<T> : IPairFinding
     where T : notnull
 {
-    public PairFinding(Added<T> value) => Value = value;
-    public PairFinding(Removed<T> value) => Value = value;
-    public PairFinding(Present<T> value) => Value = value;
-    public PairFinding(Changed<T> value) => Value = value;
+    public PairFinding(Added<T> value) => Value = Guard(value);
+    public PairFinding(Removed<T> value) => Value = Guard(value);
+    public PairFinding(Present<T> value) => Value = Guard(value);
+    public PairFinding(Changed<T> value) => Value = Guard(value);
+
+    // A constructed wrapper always holds a case. (A `default`/null PairFinding<T> reference is a
+    // separate, NRT-visible concern inherent to any reference type, not an empty union state.)
+    static IPairFinding Guard(IPairFinding value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value;
+    }
 
     /// <summary>The active case: <see cref="Added{T}"/>, <see cref="Removed{T}"/>, <see cref="Present{T}"/>, or <see cref="Changed{T}"/>.</summary>
     public object? Value { get; }
