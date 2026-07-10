@@ -507,7 +507,10 @@ internal static class LibraryMetadataService
     {
         try
         {
-            ApplyClassifiedMethods(session.ClassifiedMethods(), inspection);
+            ApplyClassifiedMethods(
+                session.ClassifiedMethods(),
+                inspection,
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -515,8 +518,14 @@ internal static class LibraryMetadataService
         }
     }
 
-    static void ApplyClassifiedMethods(List<ClassifiedMethodInfo> classified, LibraryInspection inspection)
+    static void ApplyClassifiedMethods(
+        List<ClassifiedMethodInfo> classified,
+        LibraryInspection inspection,
+        FindingSubject subject)
     {
+        inspection.ClassifiedMethodInspection =
+            MetadataFindings.InspectClassifiedMethods(classified, subject);
+
         if (classified.Count == 0) return;
 
         var unsafe_ = classified

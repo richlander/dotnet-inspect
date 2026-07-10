@@ -231,11 +231,22 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ExtensionMethodSummary>? ExtensionMethods { get; set; }
 
+    private List<ClassifiedMethodSummary>? _unsafeMethods;
+
     /// <summary>
-    /// Public methods with unsafe (pointer) signatures.
+    /// Presentation rows for public methods with unsafe (pointer) signatures.
+    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ClassifiedMethodSummary>? UnsafeMethods { get; set; }
+    public List<ClassifiedMethodSummary>? UnsafeMethods
+    {
+        get
+        {
+            EnsureClassifiedMethodInspectionSucceeded();
+            return _unsafeMethods;
+        }
+        set => _unsafeMethods = value;
+    }
 
     /// <summary>
     /// Members with unsafe signature or body-level unsafe evidence.
@@ -260,17 +271,64 @@ public class LibraryInspection
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
-    /// <summary>
-    /// Public P/Invoke (DllImport/LibraryImport) methods.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ClassifiedMethodSummary>? PInvokeMethods { get; set; }
+    private List<ClassifiedMethodSummary>? _pInvokeMethods;
 
     /// <summary>
-    /// Public async methods, classified as runtime async or classic state-machine async.
+    /// Presentation rows for public P/Invoke (DllImport/LibraryImport) methods.
+    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<AsyncMethodSummary>? AsyncMethods { get; set; }
+    public List<ClassifiedMethodSummary>? PInvokeMethods
+    {
+        get
+        {
+            EnsureClassifiedMethodInspectionSucceeded();
+            return _pInvokeMethods;
+        }
+        set => _pInvokeMethods = value;
+    }
+
+    private List<AsyncMethodSummary>? _asyncMethods;
+
+    /// <summary>
+    /// Presentation rows for public runtime or classic state-machine async methods.
+    /// Classification semantics come from <see cref="ClassifiedMethodInspection"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AsyncMethodSummary>? AsyncMethods
+    {
+        get
+        {
+            EnsureClassifiedMethodInspectionSucceeded();
+            return _asyncMethods;
+        }
+        set => _asyncMethods = value;
+    }
+
+    [JsonIgnore]
+    public FindingInspection<ClassifiedMethodObservation>? ClassifiedMethodInspection { get; set; }
+
+    [JsonIgnore]
+    public int UnsafeMethodCount =>
+        CountClassifiedMethods(MethodClassification.Unsafe, _unsafeMethods?.Count ?? 0);
+
+    [JsonIgnore]
+    public int PInvokeMethodCount =>
+        CountClassifiedMethods(MethodClassification.PInvoke, _pInvokeMethods?.Count ?? 0);
+
+    [JsonIgnore]
+    public int AsyncMethodCount
+    {
+        get
+        {
+            if (ClassifiedMethodInspection is null)
+                return _asyncMethods?.Count ?? 0;
+
+            return ClassifiedMethodInspection.Payloads().Count(
+                static method => method.Classification is MethodClassification.RuntimeAsync
+                    or MethodClassification.StateMachineAsync);
+        }
+    }
 
     [JsonIgnore]
     public FindingInspection<EcosystemIntegrationSignalInfo>? EcosystemIntegrationInspection { get; set; }
@@ -499,6 +557,18 @@ public class LibraryInspection
 
     private static List<T>? NullIfEmpty<T>(List<T> values)
         => values.Count > 0 ? values : null;
+
+    private int CountClassifiedMethods(MethodClassification classification, int fallback)
+        => ClassifiedMethodInspection is null
+            ? fallback
+            : ClassifiedMethodInspection.Payloads().Count(
+                method => method.Classification == classification);
+
+    private void EnsureClassifiedMethodInspectionSucceeded()
+    {
+        if (ClassifiedMethodInspection is not null)
+            _ = ClassifiedMethodInspection.Findings();
+    }
 
     /// <summary>Number of integration categories discovered by the presence scan.</summary>
     [JsonIgnore]

@@ -23,6 +23,27 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void ClassifiedMethodScanner_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ScanClassifiedMethods(
+            typeof(SampleUnsafeClass).Assembly.Location,
+            inspection,
+            new VerboseLogger(enabled: false));
+
+        var finding = Assert.Single(
+            inspection.ClassifiedMethodInspection.Findings(),
+            finding => finding.Payload.Anchor.MemberName == nameof(SampleUnsafeClass.UnsafePointerMethod));
+        Assert.Same(MetadataFindings.ClassifiedMethodDescriptor, finding.Descriptor);
+        Assert.Equal(MethodClassification.Unsafe, finding.Payload.Classification);
+        Assert.Contains(
+            inspection.UnsafeMethods!,
+            method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod)
+                      && method.Signature.Contains('*', StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void LibraryJson_ProjectsFindingPayloadsWithExistingShape()
     {
         var inspection = new LibraryInspection
@@ -80,5 +101,31 @@ public class LibraryFindingConsumerTests
 
         var exception = Assert.Throws<InvalidOperationException>(() => _ = inspection.Switches);
         Assert.Contains("scan failed", exception.Message);
+    }
+
+    [Fact]
+    public void FailedClassifiedMethodInspection_DoesNotRenderPresentationRows()
+    {
+        var inspection = new LibraryInspection
+        {
+            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
+                new InspectionError(
+                    FindingTestData.Subject,
+                    MetadataFindings.ClassifiedMethodDescriptor,
+                    "method scan failed")),
+            UnsafeMethods =
+            [
+                new ClassifiedMethodSummary
+                {
+                    MethodName = "M",
+                    DeclaringType = "Test.Type",
+                    Signature = "void M()",
+                },
+            ],
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => _ = inspection.UnsafeMethods);
+        Assert.Contains("method scan failed", exception.Message);
+        Assert.Throws<InvalidOperationException>(() => _ = inspection.UnsafeMethodCount);
     }
 }

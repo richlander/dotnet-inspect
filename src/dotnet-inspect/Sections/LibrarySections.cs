@@ -511,7 +511,7 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
-            => model.PInvokeMethods is { Count: > 0 } || model.HasPInvokeImports;
+            => model.PInvokeMethodCount > 0 || model.HasPInvokeImports;
     }
 
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
@@ -521,7 +521,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
-            => model.AsyncMethods is { Count: > 0 }
+            => model.AsyncMethodCount > 0
                || model.HasRuntimeAsync || model.HasStateMachineAsync;
     }
 

@@ -74,7 +74,7 @@ public class LibraryInspectionView
     // ===== Field Collection Sections =====
 
     [MarkoutIgnore]
-    public bool HasAsyncMethods => _data.AsyncMethods is { Count: > 0 };
+    public bool HasAsyncMethods => _data.AsyncMethodCount > 0;
 
     [MarkoutSection(Name = "Async Methods", ShowWhenProperty = nameof(HasAsyncMethods))]
     public List<AsyncMethodRow>? AsyncMethodsSection =>
@@ -136,7 +136,7 @@ public class LibraryInspectionView
     {
         Architecture = info.Architecture,
         AssemblyVersion = info.AssemblyVersion,
-        AsyncMethods = CountOrZero(_data.AsyncMethods),
+        AsyncMethods = _data.AsyncMethodCount,
         Company = info.Company,
         Compilation = info.CompilationType,
         Copyright = info.Copyright,
@@ -179,7 +179,7 @@ public class LibraryInspectionView
         _data.NonNormalizedPaths?.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
 
     [MarkoutIgnore]
-    public bool HasPInvokeMethods => _data.PInvokeMethods is { Count: > 0 };
+    public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
 
     [MarkoutSection(Name = "P/Invoke Methods", ShowWhenProperty = nameof(HasPInvokeMethods))]
     public List<PInvokeMethodRow>? PInvokeMethodsSection =>
