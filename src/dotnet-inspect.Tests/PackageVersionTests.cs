@@ -129,6 +129,27 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task Member_WithRangeAddress_UsesSelectedVersionForSourceAcquisition()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var args = new[]
+        {
+            "member", "Serilog.Core.Logger", "Write:1",
+            "--package", "Serilog@4.0.0..4.2.0",
+            "--at", "4.2.0",
+            "-S", "Original Source",
+            "--print",
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("public void Write(LogEvent logEvent)", output);
+        Assert.DoesNotContain("Invalid package version", error);
+    }
+
+    [Fact]
     public async Task Version_Bare_MatchesRouterBehavior()
     {
         await EnsurePackageCached("System.CommandLine");

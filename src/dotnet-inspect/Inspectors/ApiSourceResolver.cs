@@ -12,6 +12,7 @@ internal sealed record ApiSourceResult(
     string? RuntimeAssemblyPath,
     string? PackageName,
     string? PackageVersion,
+    string? ResolvedPackagePath,
     string? ApiSource,
     string? ApiVersion,
     string? SelectedTfm,
@@ -348,7 +349,7 @@ internal static class ApiSourceResolver
             }
         }
 
-        return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion,
+        return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
             apiSource, apiVersion, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
     }
 }
