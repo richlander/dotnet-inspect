@@ -47,14 +47,24 @@ public class LibraryFindingConsumerTests
     [Fact]
     public void LibraryJson_ProjectsFindingPayloadsWithExistingShape()
     {
+        AssemblyAttributeInfo[] attributes =
+        [
+            new("AssemblyMetadata(Serviceable)", "Assembly", "True"),
+            new("Marker", "Module", null),
+        ];
+        ManifestResourceInfo[] resources =
+        [
+            new("SKILL.md", IsPublic: true, IsEmbedded: true, Size: 42),
+            new("release-notes.md", IsPublic: true, IsEmbedded: true, Size: 43),
+        ];
         var inspection = new LibraryInspection
         {
             FileName = "Test.dll",
             ResourceInspection = MetadataFindings.InspectResources(
-                [new ManifestResourceInfo("Test.resources", IsPublic: true, IsEmbedded: true, Size: 42)],
+                resources,
                 FindingTestData.Subject),
             AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
-                [new AssemblyAttributeInfo("AssemblyMetadata(Serviceable)", "Assembly", "True")],
+                attributes,
                 FindingTestData.Subject),
             TypeForwarderInspection = MetadataFindings.InspectTypeForwarders(
                 [new TypeForwarderInfo("Test.Forwarded", "Test.Target")],
@@ -72,13 +82,25 @@ public class LibraryFindingConsumerTests
                 [new OpenTelemetrySignalInfo("Tracing", "Test.ActivitySource")],
                 FindingTestData.Subject),
         };
+        inspection.SetAssemblyAttributeInspection(
+            inspection.AssemblyAttributeInspection!,
+            attributes);
 
         var json = JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection);
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
+        var customAttributes = root.GetProperty("custom_attributes").EnumerateArray().ToArray();
+        var resourcesJson = root.GetProperty("resources").EnumerateArray().ToArray();
+        var expectedResourceOrder = resources.OrderBy(resource => resource.Name).ToArray();
 
-        Assert.Equal("public", root.GetProperty("resources")[0].GetProperty("visibility").GetString());
-        Assert.Equal("AssemblyMetadata(Serviceable)", root.GetProperty("custom_attributes")[0].GetProperty("name").GetString());
+        Assert.Equal(
+            expectedResourceOrder.Select(resource => resource.Name),
+            resourcesJson.Select(resource => resource.GetProperty("name").GetString()));
+        Assert.Equal("public", resourcesJson[0].GetProperty("visibility").GetString());
+        Assert.Equal("AssemblyMetadata(Serviceable)", customAttributes[0].GetProperty("name").GetString());
+        Assert.Equal("True", customAttributes[0].GetProperty("value").GetString());
+        Assert.Equal("Marker", customAttributes[1].GetProperty("name").GetString());
+        Assert.False(customAttributes[1].TryGetProperty("value", out _));
         Assert.Equal("Test.Forwarded", root.GetProperty("type_forwarders")[0].GetProperty("type_name").GetString());
         Assert.Equal("Test.Union", root.GetProperty("union_types")[0].GetProperty("type_name").GetString());
         Assert.Equal("Test.Switch", root.GetProperty("switches")[0].GetProperty("switch").GetString());
@@ -86,6 +108,36 @@ public class LibraryFindingConsumerTests
         Assert.Equal("Test.ChatClient", root.GetProperty("ai")[0].GetProperty("name").GetString());
         Assert.Equal("Test.ActivitySource", root.GetProperty("open_telemetry")[0].GetProperty("name").GetString());
         Assert.DoesNotContain("inspection", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FailedScannerAcquisition_RetainsFindingFailures()
+    {
+        var missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var logger = new VerboseLogger(enabled: false);
+        var inspection = new LibraryInspection
+        {
+            ResourceInspection = LibraryMetadataService.ScanResources(missingPath, logger),
+            UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(missingPath, logger),
+            SwitchInspection = LibraryMetadataService.ScanSwitches(missingPath, logger),
+        };
+
+        LibraryMetadataService.ScanClassifiedMethods(missingPath, inspection, logger);
+        LibraryMetadataService.ScanCustomAttributes(missingPath, inspection, logger);
+        LibraryMetadataService.ScanTypeForwarders(missingPath, inspection, logger);
+        LibraryMetadataService.ScanIntegrations(missingPath, inspection, logger);
+
+        AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
+        AssertFailure(inspection.ResourceInspection, MetadataFindings.ResourceDescriptor);
+        AssertFailure(inspection.AssemblyAttributeInspection, MetadataFindings.AssemblyAttributeDescriptor);
+        AssertFailure(inspection.TypeForwarderInspection, MetadataFindings.TypeForwarderDescriptor);
+        AssertFailure(inspection.UnionTypeInspection, MetadataFindings.UnionTypeDescriptor);
+        AssertFailure(inspection.SwitchInspection, MetadataFindings.SwitchDescriptor);
+        AssertFailure(inspection.EcosystemIntegrationInspection, MetadataFindings.EcosystemIntegrationDescriptor);
+        AssertFailure(inspection.OpenTelemetryInspection, MetadataFindings.OpenTelemetrySignalDescriptor);
+        Assert.Equal(8, inspection.InspectionFailures!.Count);
     }
 
     [Fact]
@@ -195,5 +247,15 @@ public class LibraryFindingConsumerTests
             LibraryIntegrationCatalog.RollupName,
             EcosystemIntegrationNames.AI));
         Assert.False(LibraryCommand.FailureAffectsSection("Custom Attributes", "Type Forwarders"));
+    }
+
+    static void AssertFailure<T>(
+        FindingInspection<T>? inspection,
+        FindingDescriptor expectedDescriptor)
+        where T : notnull
+    {
+        var failure = Assert.IsType<FindingInspection<T>.Failed>(inspection?.Value);
+        Assert.Same(expectedDescriptor, failure.Error.Descriptor);
+        Assert.False(string.IsNullOrWhiteSpace(failure.Error.Reason));
     }
 }
