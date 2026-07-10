@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Text;
 using ILInspector.Findings;
 
 namespace ILInspector.Metadata;
@@ -201,9 +203,17 @@ public static partial class MetadataFindings
             : throw new InvalidOperationException("An in-memory inventory inspection must complete.");
 
     static string JoinSortKey(params object?[] parts)
-        => string.Join(
-            '\u001F',
-            parts.Select(static part => part?.ToString() ?? ""));
+    {
+        var builder = new StringBuilder();
+        foreach (var part in parts)
+        {
+            string value = Convert.ToString(part, CultureInfo.InvariantCulture) ?? "";
+            builder.Append(value.Length);
+            builder.Append(':');
+            builder.Append(value);
+        }
+        return builder.ToString();
+    }
 
     sealed record InventoryObservation<T>(
         T Payload,
