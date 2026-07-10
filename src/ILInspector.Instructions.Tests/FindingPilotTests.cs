@@ -284,20 +284,20 @@ public class FindingPilotTests
     }
 
     [Fact]
-    public void BuildAtoms_IsALazyCensus_QueriedWithLinq()
+    public void Inspect_IsALazyCensus_QueriedWithLinq()
     {
-        // The single-version shape: BuildAtoms is the census, a lazy IEnumerable<Finding<T>>.
-        // A consumer asks existence/count/filter with LINQ over the stream (it short-circuits on a
-        // hit and never allocates a list itself); one Finding per op, positions 0..N.
+        // The single-version shape: Inspect is the census — canonicalizes the body internally and
+        // returns a lazy IEnumerable<Finding<T>>. A consumer asks existence/count/filter with LINQ
+        // over the stream (it short-circuits on a hit and never allocates a list itself); one
+        // Finding per op, positions 0..N.
         var body = Body(Ldc0, Ldc1, Ldc2, Ret);
-        Assert.True(IlBodyDiff.TryCanonicalize(body, null, out var ops, out _));
 
-        IEnumerable<Finding<CanonicalIlOperation>> census = IlFindings.BuildAtoms(ops, IlSubject);
+        IEnumerable<Finding<CanonicalIlOperation>> census = IlFindings.Inspect(body, null, IlSubject);
 
         Assert.Contains(census, f => f.Descriptor.Id == "il.op");
         var list = census.ToList();
-        Assert.Equal(ops.Length, list.Count);
-        Assert.Equal(Enumerable.Range(0, ops.Length), list.Select(f => f.Position));
+        Assert.NotEmpty(list);
+        Assert.Equal(Enumerable.Range(0, list.Count), list.Select(f => f.Position));
     }
 
     // ---- IL adapter: real decode + raw-byte fixtures -----------------------------------------

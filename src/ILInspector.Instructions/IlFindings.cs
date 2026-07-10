@@ -12,12 +12,36 @@ namespace ILInspector.Instructions;
 /// <see cref="PairFinding{T}"/> transitions. This is the "IL as finding" pilot: the committed LCS
 /// core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move pass recovers
 /// relocations that the order-preserving diff cannot. A single-version body is just its
-/// <see cref="BuildAtoms"/> census — no matcher, no pairs.
+/// <see cref="Inspect"/> census — no matcher, no pairs.
 /// </summary>
 public static class IlFindings
 {
     /// <summary>The finding descriptor for a single IL operation occurrence.</summary>
     public static readonly FindingDescriptor OperationDescriptor = new("il.op", "IL operation");
+
+    /// <summary>
+    /// The census (one feed): inspects a single method body and lazily yields one
+    /// <see cref="Finding{T}"/> per operation — the complete, unjudged raw view, in the spirit of
+    /// <c>docker inspect</c>. Paired with <see cref="Compare"/> (two feeds). Like
+    /// <see cref="Compare"/> it canonicalizes the body internally (reusing <see cref="IlBodyDiff"/>)
+    /// and fails closed — an uninspectable body yields an empty census — so a caller never touches
+    /// <see cref="IlBodyDiff"/>. Existence/filter/count are LINQ over the returned stream
+    /// (<c>Any</c>/<c>Where</c>/<c>Count</c>), short-circuiting without allocating a list.
+    /// </summary>
+    public static IEnumerable<Finding<CanonicalIlOperation>> Inspect(
+        MethodInstructions body,
+        MetadataReader? reader,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        // Fail closed: an uninspectable body is an empty census, not an exception through a query.
+        if (!IlBodyDiff.TryCanonicalize(body, reader, out var operations, out _))
+            return [];
+
+        return ProjectAtoms(operations, subject);
+    }
 
     public static IlFindingsResult Compare(
         MethodInstructions oldBody,
@@ -36,12 +60,12 @@ public static class IlFindings
         if (!IlBodyDiff.TryCanonicalize(newBody, newReader, out var newOps, out var newFailure))
             return IlFindingsResult.Failed(newFailure ?? "new body canonicalization failed");
 
-        // The census (BuildAtoms) is lazy; the diff enumerates each side more than once (keys for
-        // Match, atoms for ToPairs, and again on the result), so materialize both once here. That
-        // is the "materialize iff you enumerate more than once" rule: a single-version census
-        // consumer stays lazy, the diff pays one array per side at this boundary.
-        var oldAtoms = BuildAtoms(oldOps, subject).ToImmutableArray();
-        var newAtoms = BuildAtoms(newOps, subject).ToImmutableArray();
+        // The projection is lazy; the diff enumerates each side more than once (keys for Match,
+        // atoms for ToPairs, and again on the result), so materialize both once here. That is the
+        // "materialize iff you enumerate more than once" rule: a single-version census consumer
+        // (see Inspect) stays lazy, the diff pays one array per side at this boundary.
+        var oldAtoms = ProjectAtoms(oldOps, subject).ToImmutableArray();
+        var newAtoms = ProjectAtoms(newOps, subject).ToImmutableArray();
 
         FindingMatch match;
         try
@@ -106,36 +130,24 @@ public static class IlFindings
         return builder.ToImmutable();
     }
 
-    /// <summary>
-    /// The census: lazily projects a canonicalized body's operations into <see cref="Finding{T}"/>
-    /// atoms, one per operation, carrying its content key and stream position. This is the
-    /// single-version shape — a consumer asking "is there an X?" or filtering runs LINQ over this
-    /// stream (<c>Any</c>/<c>Where</c>/<c>Count</c>) and short-circuits without allocating a list.
-    /// A diff pairs two of these streams and materializes them (see <see cref="Compare"/>): the
-    /// rule is materialize iff you enumerate more than once.
-    /// </summary>
-    public static IEnumerable<Finding<CanonicalIlOperation>> BuildAtoms(
+    // The shared ops->findings projection used by Inspect (lazy) and Compare (materialized). One
+    // Finding per operation, carrying its content key and stream position. Private: canonicalized
+    // ops are an internal shape; callers reach findings through Inspect or Compare, which own
+    // canonicalization. Both callers guard their arguments before reaching here.
+    static IEnumerable<Finding<CanonicalIlOperation>> ProjectAtoms(
         ImmutableArray<CanonicalIlOperation> operations,
         FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(subject);
-        return Project(operations, subject);
-
-        static IEnumerable<Finding<CanonicalIlOperation>> Project(
-            ImmutableArray<CanonicalIlOperation> operations,
-            FindingSubject subject)
+        for (int i = 0; i < operations.Length; i++)
         {
-            for (int i = 0; i < operations.Length; i++)
-            {
-                // ScopeKey is left null in the pilot: move detection is corroborated by run
-                // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
-                yield return new Finding<CanonicalIlOperation>(
-                    subject,
-                    OperationDescriptor,
-                    new FindingKey(GetIdentityKey(operations[i])),
-                    i,
-                    operations[i]);
-            }
+            // ScopeKey is left null in the pilot: move detection is corroborated by run
+            // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
+            yield return new Finding<CanonicalIlOperation>(
+                subject,
+                OperationDescriptor,
+                new FindingKey(GetIdentityKey(operations[i])),
+                i,
+                operations[i]);
         }
     }
 
