@@ -46,23 +46,51 @@ public sealed record FindingMatch(
     ImmutableArray<FindingEdge> Edges,
     ImmutableArray<FindingMoveCandidate> MoveCandidates);
 
+/// <summary>
+/// Whether a finding stream's order carries meaning. The choice is per <see cref="FindingMatcher.Match"/>
+/// invocation and per occurrence level — the same producer can be ordered at one level and a set at another.
+/// </summary>
+public enum FindingMatchMode
+{
+    /// <summary>Order is semantic (an IL/C# body); use the LCS committer plus the scored move pass.</summary>
+    Ordered,
+
+    /// <summary>
+    /// Order is not semantic (an unordered set such as a type's members or an API surface); commit an
+    /// identity-key bijection by multiset (hash buckets, O(N), no matrix). A set has no position, so
+    /// there are no moves and no scored fringe. Matching considers <see cref="FindingKey.IdentityKey"/>
+    /// only; <see cref="FindingKey.ScopeKey"/> is not consulted at this rung.
+    /// </summary>
+    IdentitySet,
+}
+
 /// <summary>Tunables for <see cref="FindingMatcher.Match"/>.</summary>
 /// <param name="MinMoveRunLength">
 /// The minimum length of a common contiguous residual run to commit as a move. Runs shorter
 /// than this are left to the fringe, which is what gives the conservative default its
 /// mismatch resistance (a lone content-equal occurrence is not silently treated as a move).
+/// Applies only to <see cref="FindingMatchMode.Ordered"/> matching.
 /// </param>
 public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
 {
+    /// <summary>
+    /// Whether the streams are ordered or an unordered identity set. An <c>init</c> property (not a
+    /// second positional parameter) so adding it keeps the record's <c>(int)</c> constructor and
+    /// <c>Deconstruct</c> — no source or binary break for existing callers.
+    /// </summary>
+    public FindingMatchMode MatchMode { get; init; } = FindingMatchMode.Ordered;
+
     public static readonly FindingMatchOptions Default = new();
 }
 
 /// <summary>
-/// The single, domain-free matcher every finding stream shares. It commits an
-/// order-preserving LCS core (which reproduces a classic sequence diff when there are no moves)
-/// and then recovers relocations as a scored move pass over the residual. It never inspects a payload and never decides
-/// equivalence: it emits a classified alignment (a set of edges), and a consumer <see cref="FindingFold"/>
-/// folds it.
+/// The single, domain-free matcher every finding stream shares. For <see cref="FindingMatchMode.Ordered"/>
+/// streams it commits an order-preserving LCS core (which reproduces a classic sequence diff when there are
+/// no moves) and then recovers relocations as a scored move pass over the residual; for
+/// <see cref="FindingMatchMode.IdentitySet"/> streams it commits an identity-key bijection by multiset with
+/// no notion of order (and no matrix, so it scales past the ordered cell cap). It never inspects a payload and
+/// never decides equivalence: it emits a classified alignment (a set of edges), and a consumer
+/// <see cref="FindingFold"/> folds it.
 /// </summary>
 public static class FindingMatcher
 {
@@ -82,20 +110,81 @@ public static class FindingMatcher
         ArgumentNullException.ThrowIfNull(newStream);
         options ??= FindingMatchOptions.Default;
 
-        // The ordered committer needs random access and two passes, so materialize once to a
-        // concrete FindingKey[] — the LCS hot loop then indexes an array directly (no interface
-        // dispatch). A streaming set committer (issue #2585) can instead consume the IEnumerable
-        // straight into its dictionary without this array.
+        // Both committers need the counts and (for ordered) two-pass random access, so materialize
+        // once to a concrete FindingKey[]: the ordered LCS hot loop then indexes an array directly
+        // (no interface dispatch), and the set committer streams it into its buckets.
         var oldKeys = oldStream as FindingKey[] ?? oldStream.ToArray();
         var newKeys = newStream as FindingKey[] ?? newStream.ToArray();
 
+        return options.MatchMode == FindingMatchMode.IdentitySet
+            ? MatchIdentitySet(oldKeys, newKeys)
+            : MatchOrdered(oldKeys, newKeys, options);
+    }
+
+    // Order-free committer: pair occurrences by identity-key equality via hash buckets, deterministic
+    // by stream order (the i-th occurrence of a key on the old side pairs with the i-th on the new).
+    // A set has no position, so there are no moves and no scored fringe — and no O(N*M) matrix, so it
+    // needs no cell cap and scales to assembly-size member/API-surface sets. A relocation only appears
+    // at this rung once a soft tier drops a facet (e.g. declaring type) from the identity key (#2585).
+    static FindingMatch MatchIdentitySet(FindingKey[] oldKeys, FindingKey[] newKeys)
+    {
+        // Bucket new occurrences by identity key. IdentityKey is non-null by contract, but the ordered
+        // committer tolerates a null key (null == null matches), so keep parity via a dedicated null
+        // bucket instead of crashing in Dictionary (which rejects a null key) on a degenerate
+        // default(FindingKey).
+        var newByKey = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+        var newNull = new Queue<int>();
+        for (int j = 0; j < newKeys.Length; j++)
+            Bucket(newByKey, newNull, newKeys[j].IdentityKey).Enqueue(j);
+
+        var matchedNew = new bool[newKeys.Length];
+        var edges = ImmutableArray.CreateBuilder<FindingEdge>();
+
+        for (int i = 0; i < oldKeys.Length; i++)
+        {
+            string? key = oldKeys[i].IdentityKey;
+            var queue = key is null ? newNull : (newByKey.TryGetValue(key, out var q) ? q : null);
+            if (queue is { Count: > 0 })
+            {
+                int j = queue.Dequeue();
+                matchedNew[j] = true;
+                edges.Add(new FindingEdge(FindingEdgeKind.Matched, i, j, 100));
+            }
+            else
+            {
+                edges.Add(new FindingEdge(FindingEdgeKind.Removed, i, -1, 100));
+            }
+        }
+
+        for (int j = 0; j < newKeys.Length; j++)
+        {
+            if (!matchedNew[j])
+                edges.Add(new FindingEdge(FindingEdgeKind.Added, -1, j, 100));
+        }
+
+        return new FindingMatch(edges.ToImmutable(), ImmutableArray<FindingMoveCandidate>.Empty);
+
+        // Route a null identity key to a dedicated bucket (Dictionary rejects null keys); real keys
+        // bucket by ordinal equality.
+        static Queue<int> Bucket(Dictionary<string, Queue<int>> byKey, Queue<int> nullBucket, string? key)
+        {
+            if (key is null)
+                return nullBucket;
+            if (!byKey.TryGetValue(key, out var queue))
+                byKey[key] = queue = new Queue<int>();
+            return queue;
+        }
+    }
+
+    static FindingMatch MatchOrdered(FindingKey[] oldKeys, FindingKey[] newKeys, FindingMatchOptions options)
+    {
         long cells = ((long)oldKeys.Length + 1) * ((long)newKeys.Length + 1);
         if (cells > MaxOrderedMatchCells)
         {
             throw new ArgumentException(
                 $"Ordered matching is bounded to {MaxOrderedMatchCells:N0} matrix cells " +
                 $"({oldKeys.Length}x{newKeys.Length} requested). Streams this large need the " +
-                "identity-set committer, not the ordered LCS (see issue #2585).");
+                "identity-set committer (FindingMatchMode.IdentitySet), not the ordered LCS (see issue #2585).");
         }
 
         var matchedOld = new bool[oldKeys.Length];

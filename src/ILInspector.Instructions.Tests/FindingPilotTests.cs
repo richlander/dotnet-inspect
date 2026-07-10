@@ -213,6 +213,114 @@ public class FindingPilotTests
     public void Match_NullStream_Throws()
         => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
 
+    static readonly FindingMatchOptions IdentitySet = new() { MatchMode = FindingMatchMode.IdentitySet };
+
+    [Fact]
+    public void IdentitySet_Permutation_IsAllMatched_NoAddRemoveOrMove()
+    {
+        // Order is not semantic for a set: a permutation is a non-event, unlike the ordered matcher
+        // (which reports the relocation as moves or add/remove). Every element matches by identity key.
+        var old = Keys("a", "b", "c", "d");
+        var @new = Keys("d", "b", "a", "c");
+
+        var match = FindingMatcher.Match(old, @new, IdentitySet);
+
+        Assert.Equal(4, Count(match, FindingEdgeKind.Matched));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Added));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Removed));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
+        Assert.True(match.MoveCandidates.IsEmpty);
+    }
+
+    [Fact]
+    public void IdentitySet_DistinctMultisets_AreMatchedByIntersection()
+    {
+        // old {A,B,C,C} vs new {C,C,D,B}: multiset intersection {B,C,C} matches; old-only {A} removed;
+        // new-only {D} added. Duplicates are matched by count, not collapsed.
+        var old = Keys("A", "B", "C", "C");
+        var @new = Keys("C", "C", "D", "B");
+
+        var match = FindingMatcher.Match(old, @new, IdentitySet);
+
+        Assert.Equal(3, Count(match, FindingEdgeKind.Matched));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Removed));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Added));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Moved));
+    }
+
+    [Fact]
+    public void IdentitySet_DuplicateKeys_MatchByMultisetCount()
+    {
+        var match = FindingMatcher.Match(Keys("A", "A", "A"), Keys("A", "A"), IdentitySet);
+
+        Assert.Equal(2, Count(match, FindingEdgeKind.Matched));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Removed));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_EmptyAndOneSided_AreWhollyAddedOrRemoved()
+    {
+        Assert.Empty(FindingMatcher.Match(Keys(), Keys(), IdentitySet).Edges);
+        Assert.Equal(2, Count(FindingMatcher.Match(Keys(), Keys("a", "b"), IdentitySet), FindingEdgeKind.Added));
+        Assert.Equal(2, Count(FindingMatcher.Match(Keys("a", "b"), Keys(), IdentitySet), FindingEdgeKind.Removed));
+    }
+
+    [Fact]
+    public void IdentitySet_ScalesPastTheOrderedGuard_AndIsDeterministic()
+    {
+        // A stream large enough that the ordered committer's O(N*M) matrix trips its cell cap; the
+        // identity-set committer has no matrix, so it matches all of it.
+        var big = Keys([.. Enumerable.Range(0, 9000).Select(i => $"k{i}")]);
+
+        Assert.Throws<ArgumentException>(() => FindingMatcher.Match(big, big));
+
+        var first = FindingMatcher.Match(big, big, IdentitySet);
+        Assert.Equal(9000, Count(first, FindingEdgeKind.Matched));
+        Assert.Equal(0, Count(first, FindingEdgeKind.Added));
+        Assert.Equal(0, Count(first, FindingEdgeKind.Removed));
+
+        // Deterministic: the same inputs yield the same edge sequence.
+        var second = FindingMatcher.Match(big, big, IdentitySet);
+        Assert.Equal(first.Edges, second.Edges);
+    }
+
+    [Fact]
+    public void IdentitySet_NullIdentityKeys_MatchLikeOrdered_NoCrash()
+    {
+        // default(FindingKey) has a null IdentityKey. The ordered committer treats null == null as a
+        // match; the set committer keeps parity (dedicated null bucket) rather than crashing in
+        // Dictionary, so a degenerate stream behaves the same on both rungs.
+        var stream = new FindingKey[] { default, default };
+
+        var set = FindingMatcher.Match(stream, stream, IdentitySet);
+        Assert.Equal(2, Count(set, FindingEdgeKind.Matched));
+        Assert.Equal(0, Count(set, FindingEdgeKind.Added));
+        Assert.Equal(0, Count(set, FindingEdgeKind.Removed));
+
+        Assert.Equal(2, Count(FindingMatcher.Match(stream, stream), FindingEdgeKind.Matched));
+    }
+
+    [Fact]
+    public void IdentitySet_FoldsThroughToSummary_EndToEnd()
+    {
+        // Locks the full set pipeline the Metadata/Analysis producers will build on:
+        // match -> FindingFold.ToPairs -> FindingSummary.
+        var old = Atoms("a", "b", "c", "d");
+        var permuted = Atoms("d", "a", "c", "b");
+        var permutedPairs = FindingFold.ToPairs(FindingMatcher.Match(old.Keys(), permuted.Keys(), IdentitySet), old, permuted);
+        Assert.All(permutedPairs, p => Assert.Equal(PairKind.Present, p.Kind));
+        // A permuted set is a non-event: the summary reads Identical (no moves, no add/remove).
+        Assert.Equal(DiffShape.Identical, FindingSummary.Summarize(permutedPairs).Shape);
+
+        var changedNew = Atoms("a", "c");
+        var oldSmall = Atoms("a", "b");
+        var changedPairs = FindingFold.ToPairs(FindingMatcher.Match(oldSmall.Keys(), changedNew.Keys(), IdentitySet), oldSmall, changedNew);
+        var summary = FindingSummary.Summarize(changedPairs);
+        Assert.Equal(1, summary.Added);
+        Assert.Equal(1, summary.Removed);
+    }
+
     [Fact]
     public void PairFinding_CasesFixTheirKind_AndBothNullIsUnrepresentable()
     {
