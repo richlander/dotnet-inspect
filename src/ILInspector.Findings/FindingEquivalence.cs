@@ -28,13 +28,12 @@ public sealed record FindingEquivalence(
     }
 
     /// <summary>
-    /// Byte/behavior fidelity: only unchanged content counts as equal, and only incidental
-    /// encoding is folded. A move is a real difference (order is semantic for IL), so a
-    /// reordered body is not exact.
+    /// Byte/behavior fidelity: only unchanged content counts as equal. A move is a real
+    /// difference (order is semantic for IL), so a reordered body is not exact.
     /// </summary>
     public static readonly FindingEquivalence Exact = new(
         [PairKind.Present],
-        [FindingDifferenceKind.None, FindingDifferenceKind.EncodingOnly]);
+        [FindingDifferenceKind.None]);
 
     /// <summary>
     /// "Same operations, order aside": moves are forgiven, but additions and removals are not.
@@ -42,5 +41,5 @@ public sealed record FindingEquivalence(
     /// </summary>
     public static readonly FindingEquivalence Multiset = new(
         [PairKind.Present],
-        [FindingDifferenceKind.None, FindingDifferenceKind.EncodingOnly, FindingDifferenceKind.Moved]);
+        [FindingDifferenceKind.None, FindingDifferenceKind.Moved]);
 }

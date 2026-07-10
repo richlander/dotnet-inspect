@@ -106,25 +106,6 @@ public class CSharpFindingsTests
     }
 
     [Fact]
-    public void CSharpFindings_TriviaOnlyMatchedLine_IsEncodingOnly()
-    {
-        var old = Statements("    return value;");
-        var @new = Statements("        return value;   ");
-
-        var result = CSharpFindings.CompareCanonicalized(old, @new, Subject);
-
-        var pair = Assert.Single(result.Pairs);
-        var present = pair switch
-        {
-            PairFinding<CSharpCanonicalStatement>.Present p => p,
-            _ => throw new InvalidOperationException($"Expected a Present pair, got {pair.Kind}."),
-        };
-        Assert.Equal(FindingDifferenceKind.EncodingOnly, present.Difference);
-        Assert.Equal("trivia-only", present.Detail);
-        Assert.True(result.IsExact);
-    }
-
-    [Fact]
     public void CSharpFindings_MismatchResistance_SingletonStaysAddedRemoved()
     {
         var old = Statements(
@@ -144,17 +125,80 @@ public class CSharpFindingsTests
     }
 
     [Fact]
-    public void CSharpFindings_Inspect_IsALazyCensus_QueriedWithLinq()
+    public void CSharpFindings_Inspect_IsACensus_QueriedWithLinq()
     {
         using var source = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
         var method = FindMethod(source, "DiffFixtureSample.DiffSample", "ConstantValue");
 
-        IEnumerable<Finding<CSharpCanonicalStatement>> census = CSharpFindings.Inspect(source, method, Subject);
+        var inspection = CSharpFindings.Inspect(source, method, Subject);
+        var body = Assert.IsType<CSharpFindingsInspection.Body>(inspection);
+        IEnumerable<Finding<CSharpCanonicalLine>> census = body.Findings;
 
-        Assert.Contains(census, finding => finding.Descriptor.Id == "csharp.stmt");
+        Assert.Contains(census, finding => finding.Descriptor.Id == "csharp.line");
         var list = census.ToList();
         Assert.NotEmpty(list);
         Assert.Equal(Enumerable.Range(0, list.Count), list.Select(finding => finding.Position));
+    }
+
+    [Fact]
+    public void CSharpFindings_Inspect_EmptyBodyIsBodyWithEmptyCensus()
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(typeof(CfgSampleClass).Assembly.Location);
+        var method = FindMethod(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Noop));
+
+        var inspection = CSharpFindings.Inspect(source, method, Subject);
+        var body = Assert.IsType<CSharpFindingsInspection.Body>(inspection);
+
+        Assert.Empty(body.Findings);
+    }
+
+    [Fact]
+    public void CSharpFindings_Inspect_AbsentBodyIsDistinctFromEmptyBody()
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var method = FindMethod(source, "DiffFixtureSample.BodyStateSample", "BodyState");
+
+        var inspection = CSharpFindings.Inspect(source, method, Subject);
+
+        Assert.IsType<CSharpFindingsInspection.Absent>(inspection);
+    }
+
+    [Fact]
+    public void CSharpFindings_Compare_AbsentBodyToBodyIsAValidTransition()
+    {
+        using var oldSource = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        using var newSource = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.NewAssemblyPath());
+        var oldMethod = FindMethod(oldSource, "DiffFixtureSample.BodyStateSample", "BodyState");
+        var newMethod = FindMethod(newSource, "DiffFixtureSample.BodyStateSample", "BodyState");
+
+        var result = CSharpFindings.Compare(
+            oldSource, oldMethod, newSource, newMethod, Subject);
+
+        Assert.Null(result.Failure);
+        Assert.IsType<CSharpFindingsInspection.Absent>(result.OldInspection);
+        Assert.IsType<CSharpFindingsInspection.Body>(result.NewInspection);
+        Assert.False(result.IsExact);
+        Assert.All(result.Pairs, pair => Assert.Equal(PairKind.Added, pair.Kind));
+    }
+
+    [Fact]
+    public void CSharpFindings_Compare_EmptyBodyAndAbsentBodyAreNotExact()
+    {
+        using var bodySource = MetadataSource.OpenWithoutSymbols(typeof(CfgSampleClass).Assembly.Location);
+        using var absentSource = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var bodyMethod = FindMethod(
+            bodySource, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.Noop));
+        var absentMethod = FindMethod(
+            absentSource, "DiffFixtureSample.BodyStateSample", "BodyState");
+
+        var result = CSharpFindings.Compare(
+            bodySource, bodyMethod, absentSource, absentMethod, Subject);
+
+        Assert.Null(result.Failure);
+        Assert.IsType<CSharpFindingsInspection.Body>(result.OldInspection);
+        Assert.IsType<CSharpFindingsInspection.Absent>(result.NewInspection);
+        Assert.Empty(result.Pairs);
+        Assert.False(result.IsExact);
     }
 
     [Theory]
@@ -192,7 +236,7 @@ public class CSharpFindingsTests
         Assert.True(declined <= canonicalized / 10, $"too many canonicalization declines: canonicalized={canonicalized} declined={declined}");
     }
 
-    static ImmutableArray<CSharpCanonicalStatement> Statements(params string[] lines)
+    static ImmutableArray<CSharpCanonicalLine> Statements(params string[] lines)
         => CSharpBodyDiff.CanonicalizeRenderedLines(lines);
 
     static MethodDefinitionHandle FindMethod(MetadataSource source, string typeName, string methodName)
@@ -236,13 +280,13 @@ public class CSharpFindingsTests
             .OrderBy(text => text, StringComparer.Ordinal)
             .ToArray();
 
-    static Finding<CSharpCanonicalStatement> AtomForKind(PairFinding<CSharpCanonicalStatement> pair, PairKind kind)
+    static Finding<CSharpCanonicalLine> AtomForKind(PairFinding<CSharpCanonicalLine> pair, PairKind kind)
         => (pair, kind) switch
         {
-            (PairFinding<CSharpCanonicalStatement>.Added added, PairKind.Added) => added.New,
-            (PairFinding<CSharpCanonicalStatement>.Removed removed, PairKind.Removed) => removed.Old,
-            (PairFinding<CSharpCanonicalStatement>.Present present, PairKind.Present) => present.New,
-            (PairFinding<CSharpCanonicalStatement>.Changed changed, PairKind.Changed) => changed.New,
+            (PairFinding<CSharpCanonicalLine>.Added added, PairKind.Added) => added.New,
+            (PairFinding<CSharpCanonicalLine>.Removed removed, PairKind.Removed) => removed.Old,
+            (PairFinding<CSharpCanonicalLine>.Present present, PairKind.Present) => present.New,
+            (PairFinding<CSharpCanonicalLine>.Changed changed, PairKind.Changed) => changed.New,
             _ => throw new ArgumentException("Pair kind does not match the requested atom side.", nameof(pair)),
         };
 }
