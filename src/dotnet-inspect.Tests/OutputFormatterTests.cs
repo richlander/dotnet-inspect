@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Commands;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -835,15 +836,12 @@ public class OutputFormatterTests
             packageResult, packageOptions, PackageSectionDescriptors.CreatePipeline());
 
         var libraryInspection = CreateTestAudit("Test.dll", "net9.0");
-        libraryInspection.Integrations =
-        [
-            new IntegrationSummary("OpenTelemetry", 2)
-        ];
-        libraryInspection.OpenTelemetry =
-        [
-            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
-            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.UpDownCounter<T>")
-        ];
+        libraryInspection.OpenTelemetryInspection = MetadataFindings.InspectOpenTelemetrySignals(
+            [
+                new OpenTelemetrySignalInfo("Tracing", "System.Diagnostics.ActivitySource"),
+                new OpenTelemetrySignalInfo("Metrics", "System.Diagnostics.Metrics.UpDownCounter<T>"),
+            ],
+            FindingTestData.Subject);
         libraryInspection.SourceIntegrityChecked = true;
         libraryInspection.SourceIntegrityMismatched = 1;
         libraryInspection.SourceIntegrityMismatches = ["/_/src/A.cs"];
@@ -1086,15 +1084,50 @@ public class OutputFormatterTests
         inspection.HasDependencyInjectionSupport = true;
         inspection.HasLoggingSupport = true;
         inspection.HasOpenTelemetrySupport = true;
-        inspection.OpenTelemetry =
-        [
-            new IntegrationSignal("Tracing", "System.Diagnostics.ActivitySource"),
-            new IntegrationSignal("Metrics", "System.Diagnostics.Metrics.Meter")
-        ];
+        inspection.EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
+            [
+                new EcosystemIntegrationSignalInfo(
+                    EcosystemIntegrationNames.DependencyInjection,
+                    "Service registration",
+                    "Microsoft.Extensions.DependencyInjection.IServiceCollection"),
+                new EcosystemIntegrationSignalInfo(
+                    EcosystemIntegrationNames.Logging,
+                    "Logging",
+                    "Microsoft.Extensions.Logging.ILogger"),
+            ],
+            FindingTestData.Subject);
+        inspection.OpenTelemetryInspection = MetadataFindings.InspectOpenTelemetrySignals(
+            [
+                new OpenTelemetrySignalInfo("Tracing", "System.Diagnostics.ActivitySource"),
+                new OpenTelemetrySignalInfo("Metrics", "System.Diagnostics.Metrics.Meter"),
+            ],
+            FindingTestData.Subject);
 
         var output = Serialize(inspection);
 
         Assert.Contains("| Integrations | 3 |", output);
+    }
+
+    [Fact]
+    public void SingleAudit_FailedFindingRendersDiagnosticWithoutAbortingOtherSections()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.SwitchInspection = new FindingInspection<SwitchInfo>.Failed(
+            new InspectionError(
+                FindingTestData.Subject,
+                MetadataFindings.SwitchDescriptor,
+                "switch scan failed"));
+        var pipeline = LibrarySections.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(inspection, Verbosity.Normal);
+
+        var output = SerializeWithInclude(inspection, includeSections);
+
+        Assert.Contains("## Library Info", output);
+        Assert.Contains("## Inspection Failures", output);
+        Assert.Contains("Switches", output);
+        Assert.Contains("Switch", output);
+        Assert.Contains("switch scan failed", output);
+        Assert.DoesNotContain("## Switches", output);
     }
 
     [Fact]
@@ -1161,12 +1194,13 @@ public class OutputFormatterTests
     public void SingleAudit_CustomAttributes_AreSortedByName()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
-        inspection.CustomAttributes =
-        [
-            new CustomAttributeSummary { Name = "NeutralResourcesLanguage", Target = "Assembly", Value = "en-US" },
-            new CustomAttributeSummary { Name = "AssemblyMetadata(Serviceable)", Target = "Assembly", Value = "True" },
-            new CustomAttributeSummary { Name = "AssemblyDefaultAlias", Target = "Assembly", Value = "Test" }
-        ];
+        inspection.AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
+            [
+                new AssemblyAttributeInfo("NeutralResourcesLanguage", "Assembly", "en-US"),
+                new AssemblyAttributeInfo("AssemblyMetadata(Serviceable)", "Assembly", "True"),
+                new AssemblyAttributeInfo("AssemblyDefaultAlias", "Assembly", "Test"),
+            ],
+            FindingTestData.Subject);
 
         var output = Serialize(inspection);
 

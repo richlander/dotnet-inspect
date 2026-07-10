@@ -451,6 +451,7 @@ public record PackageSourceFileRow(
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]
+[MarkoutContext(typeof(InspectionFailureRow))]
 [MarkoutContext(typeof(SwitchRow))]
 [MarkoutContext(typeof(IntegrationRow))]
 [MarkoutContext(typeof(IntegrationOpportunityRow))]

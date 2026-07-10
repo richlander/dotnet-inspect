@@ -2052,13 +2052,13 @@ public class PackageCommand
             var integrationRows = inspections
                 .SelectMany(inspection => LibraryIntegrationCatalog.All
                     .Select(descriptor => new { Inspection = inspection, Descriptor = descriptor, Signals = descriptor.GetSignals(inspection) })
-                    .Where(row => row.Signals is { Count: > 0 })
+                    .Where(row => row.Signals.Count > 0)
                     .Select(row => WithProvenance(
                         packageName,
                         version,
                         row.Inspection,
                         row.Descriptor.Name,
-                        row.Descriptor.CountRenderedRows(row.Signals!).ToString())))
+                        row.Descriptor.CountRenderedRows(row.Signals).ToString())))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Integration", "APIs"],
@@ -2088,7 +2088,7 @@ public class PackageCommand
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
         {
             var switchRows = inspections
-                .SelectMany(inspection => (inspection.Switches ?? [])
+                .SelectMany(inspection => inspection.SwitchInspection.PayloadsForRendering()
                     .Select(switchInfo => WithProvenance(
                         packageName,
                         version,
@@ -2109,7 +2109,7 @@ public class PackageCommand
             return null;
 
         var signals = inspections
-            .SelectMany(inspection => (descriptor.GetSignals(inspection) ?? [])
+            .SelectMany(inspection => descriptor.GetSignals(inspection)
                 .Select(signal => new { Inspection = inspection, Signal = signal }))
             .ToList();
         var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
@@ -2236,7 +2236,7 @@ public class PackageCommand
                     var count = inspections.Sum(inspection =>
                     {
                         var signals = descriptor.GetSignals(inspection);
-                        return signals is { Count: > 0 } ? descriptor.CountRenderedRows(signals) : 0;
+                        return signals.Count > 0 ? descriptor.CountRenderedRows(signals) : 0;
                     });
                     return new { descriptor.Name, Count = count };
                 })
@@ -2281,7 +2281,7 @@ public class PackageCommand
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
         {
             var switchRows = inspections
-                .SelectMany(inspection => (inspection.Switches ?? [])
+                .SelectMany(inspection => inspection.SwitchInspection.PayloadsForRendering()
                     .Select(row => new
                     {
                         Library = inspection.FileName,
@@ -2311,7 +2311,7 @@ public class PackageCommand
             return;
 
         var signals = inspections
-            .SelectMany(inspection => (descriptor.GetSignals(inspection) ?? [])
+            .SelectMany(inspection => descriptor.GetSignals(inspection)
                 .Select(signal => new { Library = inspection.FileName, Signal = signal }))
             .ToList();
         if (signals.Count == 0)

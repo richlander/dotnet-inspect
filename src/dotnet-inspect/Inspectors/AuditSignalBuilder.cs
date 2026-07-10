@@ -42,7 +42,7 @@ internal static class AuditSignalBuilder
             pInvokeMethodCount = metadata.PInvokeMethodCount;
 
             // Reuse the same session for the classified-methods scan rather than re-opening the file.
-            if (inspection.UnsafeMethods == null || inspection.PInvokeMethods == null || inspection.AsyncMethods == null)
+            if (inspection.ClassifiedMethodInspection is null)
                 LibraryMetadataService.ScanClassifiedMethods(session, assemblyPath, inspection, logger);
         }
         catch (Exception ex)
@@ -323,10 +323,10 @@ internal static class AuditSignalBuilder
                 : new SignalValue(FormatBool(context.Metadata.HasDisableRuntimeMarshalling), "DisableRuntimeMarshallingAttribute");
 
         private static SignalValue? ResolveMemorySafetyUnsafePublicSignatures(in LibrarySignalContext context) =>
-            new(FormatCount(context.Inspection.UnsafeMethods?.Count ?? 0), "public pointer signatures");
+            new(FormatCount(context.Inspection.UnsafeMethodCount), "public pointer signatures");
 
         private static SignalValue? ResolveInteropPInvokeMethods(in LibrarySignalContext context) =>
-            new(FormatCount(context.PInvokeMethodCount ?? context.Inspection.PInvokeMethods?.Count ?? 0), "all PInvokeImpl metadata");
+            new(FormatCount(context.PInvokeMethodCount ?? context.Inspection.PInvokeMethodCount), "all PInvokeImpl metadata");
     }
 
     private static class PackageSignalRows

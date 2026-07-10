@@ -170,6 +170,15 @@ not direct `Decompiler -> Analysis` calls and not parallel presentation paths.
 
 The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecutable` for low-level assembly inspection without loading assemblies into the runtime.
 
+Metadata-owned library observations flow into the CLI as typed
+`FindingInspection<T>` results. DotnetInspector retains those inspections and
+projects their payloads only at section, package-rollup, and JSON presentation
+boundaries. New single-domain Metadata producers should follow that path
+directly; Research remains the consumer for views that genuinely join multiple
+producers or preserve producer-native structural evidence. Failed censuses stay
+distinct from empty results and render as inspection diagnostics without
+suppressing unaffected sections.
+
 ### Metadata Extraction
 
 ```text

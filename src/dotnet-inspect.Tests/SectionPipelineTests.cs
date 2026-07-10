@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using ILInspector.Findings;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -251,7 +252,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(45, pipeline.AllSectionNames.Length);
+        Assert.Equal(46, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -934,6 +935,37 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void FailedClassifiedMethods_AreContainedAndReportedInsteadOfRendered()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasPInvokeImports = true,
+            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
+                new InspectionError(
+                    FindingTestData.Subject,
+                    MetadataFindings.ClassifiedMethodDescriptor,
+                    "method scan failed")),
+        };
+        HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "P/Invoke Methods",
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var (empty, requested) = pipeline.GetEmptySections(
+            model,
+            Verbosity.Normal,
+            selected);
+
+        Assert.Contains("Inspection Failures", effective);
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+        Assert.Equal(1, requested);
+        Assert.Equal(["P/Invoke Methods"], empty);
+    }
+
+    [Fact]
     public void CanRender_Resources_UsesPresenceFlag()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -1409,7 +1441,9 @@ public class SectionPipelineTests
             MissingSourceFiles = ["missing.cs"],
             SourceIntegrityChecked = true,
             AuditSignals = [new AuditSignal("Provenance", "SourceLink", "Present", "test")],
-            Switches = [new SwitchInfo("Feature Switch", "Switch", "Api")],
+            SwitchInspection = MetadataFindings.InspectSwitches(
+                [new SwitchInfo("Feature Switch", "Switch", "Api")],
+                FindingTestData.Subject),
             ExtensionMethods = [new ExtensionMethodSummary { MethodName = "Ext", ExtendedType = "Target", ExtensionClass = "Extensions" }],
             UnsafeMembers = [new UnsafeMemberSummary { Member = "T.M()", Reason = "Unsafe signature", Detail = "int*", Kind = "signature" }],
             TopLeverage = [new MethodLeverageSummary { Member = "T.M()", Callers = 1 }],
@@ -1426,25 +1460,36 @@ public class SectionPipelineTests
             ],
             PInvokeMethods = [new ClassifiedMethodSummary { MethodName = "P", DeclaringType = "T", Signature = "void P()" }],
             AsyncMethods = [new AsyncMethodSummary { MethodName = "A", DeclaringType = "T", Signature = "void A()" }],
-            Resources = [new ResourceSummary { Name = "res", Size = 1, Visibility = "public" }],
-            CustomAttributes = [new CustomAttributeSummary { Name = "Attr", Target = "Assembly" }],
-            TypeForwarders = [new TypeForwarderSummary { TypeName = "T", TargetAssembly = "Other" }],
+            ResourceInspection = MetadataFindings.InspectResources(
+                [new ManifestResourceInfo("res", IsPublic: true, IsEmbedded: true, Size: 1)],
+                FindingTestData.Subject),
+            AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
+                [new AssemblyAttributeInfo("Attr", "Assembly", null)],
+                FindingTestData.Subject),
+            TypeForwarderInspection = MetadataFindings.InspectTypeForwarders(
+                [new TypeForwarderInfo("T", "Other")],
+                FindingTestData.Subject),
             NonNormalizedPaths = ["C:\\src\\T.cs"],
-            Integrations = [new IntegrationSummary("Integration", 1)],
             IntegrationOpportunities = [new IntegrationOpportunityInfo("Aspire", "T", "Builder", "Add*")],
-            AI = [new IntegrationSignal("T", "M", "Evidence")],
-            AspNetCore = [new IntegrationSignal("T", "M", "Evidence")],
-            Authentication = [new IntegrationSignal("T", "M", "Evidence")],
-            Aspire = [new IntegrationSignal("T", "M", "Evidence")],
-            Configuration = [new IntegrationSignal("T", "M", "Evidence")],
-            DependencyInjection = [new IntegrationSignal("T", "M", "Evidence")],
-            Logging = [new IntegrationSignal("T", "M", "Evidence")],
-            OpenTelemetry = [new IntegrationSignal("T", "M", "Evidence")],
-            OpenApi = [new IntegrationSignal("T", "M", "Evidence")],
-            Options = [new IntegrationSignal("T", "M", "Evidence")],
-            Hosting = [new IntegrationSignal("T", "M", "Evidence")],
-            HealthChecks = [new IntegrationSignal("T", "M", "Evidence")],
-            HttpClient = [new IntegrationSignal("T", "M", "Evidence")]
+            EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
+                [
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.AI, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.AspNetCore, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Authentication, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Aspire, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Configuration, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.DependencyInjection, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Logging, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.OpenAPI, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Options, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.Hosting, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.HealthChecks, "T", "M"),
+                    new EcosystemIntegrationSignalInfo(EcosystemIntegrationNames.HttpClient, "T", "M"),
+                ],
+                FindingTestData.Subject),
+            OpenTelemetryInspection = MetadataFindings.InspectOpenTelemetrySignals(
+                [new OpenTelemetrySignalInfo("T", "M")],
+                FindingTestData.Subject),
         };
         yield return DiscoverableCase("library", libraryPipeline, library);
 

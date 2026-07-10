@@ -10,8 +10,10 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using ILInspector.Findings;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
+using MetadataResource = ILInspector.Metadata.ManifestResourceInfo;
 
 namespace DotnetInspector.Inspectors;
 
@@ -72,6 +74,12 @@ internal static class LibraryMetadataService
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
+            if (inspection.AssemblyInfo?.References is { } references)
+            {
+                inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
+                    references,
+                    FindingSubjectFor(path));
+            }
 
             // Populate cheap presence flags for fast -s discovery
             var presenceFlags = pdbContext.ScanPresenceFlags();
@@ -144,9 +152,9 @@ internal static class LibraryMetadataService
                     using var session = AssemblyInspectionSession.Open(path);
                     inspection.ExtensionMethods = ScanExtensionMethods(session, path, logger);
                     ScanClassifiedMethods(session, path, inspection, logger);
-                    inspection.Resources = ScanResources(session, path, logger);
+                    inspection.ResourceInspection = ScanResources(session, path, logger);
                     ScanCustomAttributes(session, path, inspection, logger);
-                    inspection.UnionTypes = ScanUnionTypes(session, path, logger);
+                    inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
                     ScanTypeForwarders(session, path, inspection, logger);
                 }
                 catch (Exception ex)
@@ -499,7 +507,10 @@ internal static class LibraryMetadataService
     {
         try
         {
-            ApplyClassifiedMethods(session.ClassifiedMethods(), inspection);
+            ApplyClassifiedMethods(
+                session.ClassifiedMethods(),
+                inspection,
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -507,8 +518,14 @@ internal static class LibraryMetadataService
         }
     }
 
-    static void ApplyClassifiedMethods(List<ClassifiedMethodInfo> classified, LibraryInspection inspection)
+    static void ApplyClassifiedMethods(
+        List<ClassifiedMethodInfo> classified,
+        LibraryInspection inspection,
+        FindingSubject subject)
     {
+        inspection.ClassifiedMethodInspection =
+            MetadataFindings.InspectClassifiedMethods(classified, subject);
+
         if (classified.Count == 0) return;
 
         var unsafe_ = classified
@@ -1002,7 +1019,9 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<IntegrationSignal>? ScanOpenTelemetry(string path, VerboseLogger logger)
+    internal static FindingInspection<OpenTelemetrySignalInfo>? ScanOpenTelemetry(
+        string path,
+        VerboseLogger logger)
     {
         try
         {
@@ -1031,11 +1050,10 @@ internal static class LibraryMetadataService
 
     internal static void ScanIntegrations(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
-        LibraryIntegrationCatalog.OpenTelemetry.SetSignals(inspection, ScanOpenTelemetry(session, path, logger));
-        var signals = session.EcosystemIntegrations();
-        foreach (var descriptor in LibraryIntegrationCatalog.EcosystemScanned)
-            descriptor.SetSignals(inspection, SelectIntegrationSignals(signals, descriptor.Name));
-        inspection.Integrations = BuildIntegrations(inspection);
+        inspection.OpenTelemetryInspection = ScanOpenTelemetry(session, path, logger);
+        inspection.EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
+            session.EcosystemIntegrations(),
+            FindingSubjectFor(path));
     }
 
     internal static void ScanIntegrationOpportunities(string path, LibraryInspection inspection, VerboseLogger logger)
@@ -1053,60 +1071,35 @@ internal static class LibraryMetadataService
 
     internal static void ScanIntegrationOpportunities(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
-        if (inspection.Integrations == null)
+        if (inspection.EcosystemIntegrationInspection is null
+            || inspection.OpenTelemetryInspection is null)
             ScanIntegrations(session, path, inspection, logger);
 
         var existing = new HashSet<string>(
-            inspection.Integrations?.Select(integration => integration.Integration) ?? [],
+            LibraryIntegrationCatalog.All
+                .Where(descriptor => descriptor.GetSignals(inspection).Count > 0)
+                .Select(descriptor => descriptor.Name),
             StringComparer.Ordinal);
         var gaps = session.IntegrationOpportunities(existing);
         inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
     }
 
-    internal static List<IntegrationSignal>? ScanOpenTelemetry(AssemblyInspectionSession session, string path, VerboseLogger logger)
+    internal static FindingInspection<OpenTelemetrySignalInfo>? ScanOpenTelemetry(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
     {
         try
         {
-            var signals = session.OpenTelemetrySignals()
-                .Select(s => new IntegrationSignal(s.Kind, s.Name, s.Shape))
-                .ToList();
-
-            return signals.Count > 0 ? signals : null;
+            return MetadataFindings.InspectOpenTelemetrySignals(
+                session.OpenTelemetrySignals(),
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
             return null;
         }
-    }
-
-    private static List<IntegrationSignal>? SelectIntegrationSignals(
-        List<EcosystemIntegrationSignalInfo> signals,
-        string integration)
-    {
-        var selected = signals
-            .Where(s => s.Integration.Equals(integration, StringComparison.Ordinal))
-            .Select(s => new IntegrationSignal(s.Kind, s.Name, s.Shape))
-            .ToList();
-
-        return selected.Count > 0 ? selected : null;
-    }
-
-    private static List<IntegrationSummary>? BuildIntegrations(LibraryInspection inspection)
-    {
-        List<IntegrationSummary> integrations = [];
-        foreach (var descriptor in LibraryIntegrationCatalog.All)
-            AddIntegration(integrations, descriptor, descriptor.GetSignals(inspection));
-        return integrations.Count > 0 ? integrations : null;
-    }
-
-    private static void AddIntegration(
-        List<IntegrationSummary> integrations,
-        LibraryIntegrationDescriptor descriptor,
-        List<IntegrationSignal>? signals)
-    {
-        if (signals is { Count: > 0 })
-            integrations.Add(new IntegrationSummary(descriptor.Name, descriptor.CountRenderedRows(signals)));
     }
 
     internal static void ScanInfoCounts(string path, LibraryInspection inspection, VerboseLogger logger)
@@ -1118,7 +1111,7 @@ internal static class LibraryMetadataService
             using var session = AssemblyInspectionSession.Open(path);
             inspection.ExtensionMethods ??= ScanExtensionMethods(session, path, logger);
             ScanClassifiedMethods(session, path, inspection, logger);
-            inspection.Resources ??= ScanResources(session, path, logger);
+            inspection.ResourceInspection ??= ScanResources(session, path, logger);
             ScanCustomAttributes(session, path, inspection, logger);
             ScanTypeForwarders(session, path, inspection, logger);
         }
@@ -1131,7 +1124,9 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Scans an assembly for manifest resources.
     /// </summary>
-    internal static List<ResourceSummary>? ScanResources(string path, VerboseLogger logger)
+    internal static FindingInspection<MetadataResource>? ScanResources(
+        string path,
+        VerboseLogger logger)
     {
         try
         {
@@ -1145,22 +1140,16 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<ResourceSummary>? ScanResources(AssemblyInspectionSession session, string path, VerboseLogger logger)
+    internal static FindingInspection<MetadataResource>? ScanResources(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
     {
         try
         {
-            var resources = session.Resources();
-            if (resources.Count == 0) return null;
-
-            return resources
-                .Select(r => new ResourceSummary
-                {
-                    Name = r.Name,
-                    Visibility = r.IsPublic ? "public" : "private",
-                    Size = r.Size
-                })
-                .OrderBy(r => r.Name)
-                .ToList();
+            return MetadataFindings.InspectResources(
+                session.Resources(),
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -1169,7 +1158,9 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<SwitchInfo>? ScanSwitches(string path, VerboseLogger logger)
+    internal static FindingInspection<SwitchInfo>? ScanSwitches(
+        string path,
+        VerboseLogger logger)
     {
         try
         {
@@ -1183,12 +1174,16 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<SwitchInfo>? ScanSwitches(AssemblyInspectionSession session, string path, VerboseLogger logger)
+    internal static FindingInspection<SwitchInfo>? ScanSwitches(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
     {
         try
         {
-            var switches = session.Switches();
-            return switches.Count > 0 ? switches : null;
+            return MetadataFindings.InspectSwitches(
+                session.Switches(),
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -1217,18 +1212,9 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var attrs = session.CustomAttributes();
-            if (attrs.Count > 0)
-            {
-                inspection.CustomAttributes = attrs
-                    .Select(a => new CustomAttributeSummary
-                    {
-                        Name = a.Name,
-                        Target = a.Target,
-                        Value = a.Value
-                    })
-                    .ToList();
-            }
+            inspection.AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
+                session.CustomAttributes(),
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -1236,7 +1222,9 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<UnionTypeSummary>? ScanUnionTypes(string path, VerboseLogger logger)
+    internal static FindingInspection<UnionTypeInfo>? ScanUnionTypes(
+        string path,
+        VerboseLogger logger)
     {
         try
         {
@@ -1250,20 +1238,16 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static List<UnionTypeSummary>? ScanUnionTypes(AssemblyInspectionSession session, string path, VerboseLogger logger)
+    internal static FindingInspection<UnionTypeInfo>? ScanUnionTypes(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
     {
         try
         {
-            var results = session.UnionTypes();
-            return results.Count == 0
-                ? null
-                : results.Select(t => new UnionTypeSummary
-                {
-                    TypeName = t.TypeName,
-                    Kind = t.Kind,
-                    ImplementsIUnion = t.ImplementsIUnion,
-                    CaseTypes = t.CaseTypes.ToList()
-                }).ToList();
+            return MetadataFindings.InspectUnionTypes(
+                session.UnionTypes(),
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -1292,22 +1276,16 @@ internal static class LibraryMetadataService
     {
         try
         {
-            var forwarders = session.TypeForwarders();
-            if (forwarders.Count > 0)
-            {
-                inspection.TypeForwarders = forwarders
-                    .Select(f => new TypeForwarderSummary
-                    {
-                        TypeName = f.TypeName,
-                        TargetAssembly = f.TargetAssembly
-                    })
-                    .OrderBy(f => f.TypeName)
-                    .ToList();
-            }
+            inspection.TypeForwarderInspection = MetadataFindings.InspectTypeForwarders(
+                session.TypeForwarders(),
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
         }
     }
+
+    private static FindingSubject FindingSubjectFor(string path)
+        => new(Path.GetFullPath(path), Path.GetFileName(path));
 }
