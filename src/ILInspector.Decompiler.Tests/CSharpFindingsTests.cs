@@ -201,6 +201,36 @@ public class CSharpFindingsTests
         Assert.False(result.IsExact);
     }
 
+    [Fact]
+    public void CSharpFindings_Compare_AbsentBodiesAreExact()
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var method = FindMethod(source, "DiffFixtureSample.BodyStateSample", "BodyState");
+
+        var result = CSharpFindings.Compare(
+            source, method, source, method, Subject);
+
+        Assert.Null(result.Failure);
+        Assert.IsType<CSharpFindingsInspection.Absent>(result.OldInspection);
+        Assert.IsType<CSharpFindingsInspection.Absent>(result.NewInspection);
+        Assert.Empty(result.Pairs);
+        Assert.True(result.IsExact);
+    }
+
+    [Fact]
+    public void CSharpFindingsResult_RejectsInvalidPublicStates()
+    {
+        var body = new CSharpFindingsInspection.Body([]);
+        var match = new FindingMatch([], []);
+
+        Assert.Throws<ArgumentException>(
+            () => new CSharpFindingsResult(default, match, body, body, Failure: null));
+        Assert.Throws<ArgumentNullException>(
+            () => new CSharpFindingsResult([], null!, body, body, Failure: null));
+        Assert.Throws<ArgumentNullException>(
+            () => CSharpFindingsResult.Failed(body, body, null!));
+    }
+
     [Theory]
     [InlineData(typeof(CSharpBodyDiff))]
     [InlineData(typeof(CSharpFindingsTests))]

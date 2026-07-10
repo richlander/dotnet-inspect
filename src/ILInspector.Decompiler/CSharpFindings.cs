@@ -175,6 +175,14 @@ public sealed record CSharpFindingsResult(
     CSharpFindingsInspection NewInspection,
     string? Failure)
 {
+    public ImmutableArray<PairFinding<CSharpCanonicalLine>> Pairs { get; }
+        = Pairs.IsDefault
+            ? throw new ArgumentException("Pairs must be initialized.", nameof(Pairs))
+            : Pairs;
+
+    public FindingMatch Match { get; }
+        = Match ?? throw new ArgumentNullException(nameof(Match));
+
     public CSharpFindingsInspection OldInspection { get; }
         = OldInspection ?? throw new ArgumentNullException(nameof(OldInspection));
 
@@ -200,7 +208,12 @@ public sealed record CSharpFindingsResult(
         CSharpFindingsInspection oldInspection,
         CSharpFindingsInspection newInspection,
         string failure)
-        => new([], new FindingMatch([], []), oldInspection, newInspection, failure);
+        => new(
+            [],
+            new FindingMatch([], []),
+            oldInspection,
+            newInspection,
+            failure ?? throw new ArgumentNullException(nameof(failure)));
 
     static bool SameBodyState(
         CSharpFindingsInspection oldInspection,
