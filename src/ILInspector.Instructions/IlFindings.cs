@@ -23,6 +23,14 @@ public static class IlFindings
     public static readonly FindingDescriptor InspectionDescriptor = new("il.inspect", "IL inspection");
 
     /// <summary>
+    /// The maximum canonical IL operations a single inspection accepts. The ordered matcher matrix
+    /// is <c>(oldCount + 1) * (newCount + 1)</c>, so two inspections at this same limit remain within
+    /// <see cref="FindingMatcher.MaxOrderedMatchCells"/>.
+    /// </summary>
+    public static readonly int MaxCanonicalOperations =
+        (int)Math.Sqrt(FindingMatcher.MaxOrderedMatchCells) - 1;
+
+    /// <summary>
     /// Inspects one method body into a complete census, an absent-body state, or a canonicalization
     /// failure. A null body represents a method with no IL body, such as an abstract or extern method.
     /// </summary>
@@ -35,6 +43,16 @@ public static class IlFindings
 
         if (body is null)
             return new FindingInspection<CanonicalIlOperation>.Absent("Method has no IL body.");
+        if (body.IsComplete && body.Instructions.Length > MaxCanonicalOperations)
+        {
+            return new FindingInspection<CanonicalIlOperation>.Failed(
+                new InspectionError(
+                    subject,
+                    InspectionDescriptor,
+                    $"IL inspection skipped: body has {body.Instructions.Length:N0} canonical operations; " +
+                    $"limit is {MaxCanonicalOperations:N0}."));
+        }
+
         if (!IlBodyDiff.TryCanonicalize(body, reader, out var operations, out var failure))
         {
             return new FindingInspection<CanonicalIlOperation>.Failed(
