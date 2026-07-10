@@ -160,6 +160,16 @@ internal static class LibraryMetadataService
                 catch (Exception ex)
                 {
                     logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+                    inspection.ClassifiedMethodInspection ??= FailedInspection<ClassifiedMethodObservation>(
+                        path, MetadataFindings.ClassifiedMethodDescriptor, ex);
+                    inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
+                        path, MetadataFindings.ResourceDescriptor, ex);
+                    inspection.AssemblyAttributeInspection ??= FailedInspection<AssemblyAttributeInfo>(
+                        path, MetadataFindings.AssemblyAttributeDescriptor, ex);
+                    inspection.UnionTypeInspection ??= FailedInspection<UnionTypeInfo>(
+                        path, MetadataFindings.UnionTypeDescriptor, ex);
+                    inspection.TypeForwarderInspection ??= FailedInspection<TypeForwarderInfo>(
+                        path, MetadataFindings.TypeForwarderDescriptor, ex);
                 }
             }
 
@@ -500,6 +510,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+            inspection.ClassifiedMethodInspection = FailedInspection<ClassifiedMethodObservation>(
+                path, MetadataFindings.ClassifiedMethodDescriptor, ex);
         }
     }
 
@@ -515,6 +527,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+            inspection.ClassifiedMethodInspection = FailedInspection<ClassifiedMethodObservation>(
+                path, MetadataFindings.ClassifiedMethodDescriptor, ex);
         }
     }
 
@@ -1019,7 +1033,7 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<OpenTelemetrySignalInfo>? ScanOpenTelemetry(
+    internal static FindingInspection<OpenTelemetrySignalInfo> ScanOpenTelemetry(
         string path,
         VerboseLogger logger)
     {
@@ -1031,7 +1045,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<OpenTelemetrySignalInfo>(
+                path, MetadataFindings.OpenTelemetrySignalDescriptor, ex);
         }
     }
 
@@ -1045,15 +1060,14 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning ecosystem integrations in {path}: {ex.Message}");
+            MarkIntegrationFailuresIfMissing(path, inspection, ex);
         }
     }
 
     internal static void ScanIntegrations(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
         inspection.OpenTelemetryInspection = ScanOpenTelemetry(session, path, logger);
-        inspection.EcosystemIntegrationInspection = MetadataFindings.InspectEcosystemIntegrations(
-            session.EcosystemIntegrations(),
-            FindingSubjectFor(path));
+        inspection.EcosystemIntegrationInspection = ScanEcosystemIntegrations(session, path, logger);
     }
 
     internal static void ScanIntegrationOpportunities(string path, LibraryInspection inspection, VerboseLogger logger)
@@ -1066,6 +1080,7 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning integration opportunities in {path}: {ex.Message}");
+            MarkIntegrationFailuresIfMissing(path, inspection, ex);
         }
     }
 
@@ -1084,7 +1099,7 @@ internal static class LibraryMetadataService
         inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
     }
 
-    internal static FindingInspection<OpenTelemetrySignalInfo>? ScanOpenTelemetry(
+    internal static FindingInspection<OpenTelemetrySignalInfo> ScanOpenTelemetry(
         AssemblyInspectionSession session,
         string path,
         VerboseLogger logger)
@@ -1098,7 +1113,27 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<OpenTelemetrySignalInfo>(
+                path, MetadataFindings.OpenTelemetrySignalDescriptor, ex);
+        }
+    }
+
+    static FindingInspection<EcosystemIntegrationSignalInfo> ScanEcosystemIntegrations(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
+    {
+        try
+        {
+            return MetadataFindings.InspectEcosystemIntegrations(
+                session.EcosystemIntegrations(),
+                FindingSubjectFor(path));
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning ecosystem integrations in {path}: {ex.Message}");
+            return FailedInspection<EcosystemIntegrationSignalInfo>(
+                path, MetadataFindings.EcosystemIntegrationDescriptor, ex);
         }
     }
 
@@ -1118,13 +1153,21 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+            inspection.ClassifiedMethodInspection ??= FailedInspection<ClassifiedMethodObservation>(
+                path, MetadataFindings.ClassifiedMethodDescriptor, ex);
+            inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
+                path, MetadataFindings.ResourceDescriptor, ex);
+            inspection.AssemblyAttributeInspection ??= FailedInspection<AssemblyAttributeInfo>(
+                path, MetadataFindings.AssemblyAttributeDescriptor, ex);
+            inspection.TypeForwarderInspection ??= FailedInspection<TypeForwarderInfo>(
+                path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
     }
 
     /// <summary>
     /// Scans an assembly for manifest resources.
     /// </summary>
-    internal static FindingInspection<MetadataResource>? ScanResources(
+    internal static FindingInspection<MetadataResource> ScanResources(
         string path,
         VerboseLogger logger)
     {
@@ -1136,11 +1179,12 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<MetadataResource>(
+                path, MetadataFindings.ResourceDescriptor, ex);
         }
     }
 
-    internal static FindingInspection<MetadataResource>? ScanResources(
+    internal static FindingInspection<MetadataResource> ScanResources(
         AssemblyInspectionSession session,
         string path,
         VerboseLogger logger)
@@ -1154,11 +1198,12 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<MetadataResource>(
+                path, MetadataFindings.ResourceDescriptor, ex);
         }
     }
 
-    internal static FindingInspection<SwitchInfo>? ScanSwitches(
+    internal static FindingInspection<SwitchInfo> ScanSwitches(
         string path,
         VerboseLogger logger)
     {
@@ -1170,11 +1215,12 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<SwitchInfo>(
+                path, MetadataFindings.SwitchDescriptor, ex);
         }
     }
 
-    internal static FindingInspection<SwitchInfo>? ScanSwitches(
+    internal static FindingInspection<SwitchInfo> ScanSwitches(
         AssemblyInspectionSession session,
         string path,
         VerboseLogger logger)
@@ -1188,7 +1234,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<SwitchInfo>(
+                path, MetadataFindings.SwitchDescriptor, ex);
         }
     }
 
@@ -1205,6 +1252,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
+            inspection.AssemblyAttributeInspection = FailedInspection<AssemblyAttributeInfo>(
+                path, MetadataFindings.AssemblyAttributeDescriptor, ex);
         }
     }
 
@@ -1212,17 +1261,22 @@ internal static class LibraryMetadataService
     {
         try
         {
-            inspection.AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
-                session.CustomAttributes(),
-                FindingSubjectFor(path));
+            var attributes = session.CustomAttributes();
+            inspection.SetAssemblyAttributeInspection(
+                MetadataFindings.InspectAssemblyAttributes(
+                    attributes,
+                    FindingSubjectFor(path)),
+                attributes);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
+            inspection.AssemblyAttributeInspection = FailedInspection<AssemblyAttributeInfo>(
+                path, MetadataFindings.AssemblyAttributeDescriptor, ex);
         }
     }
 
-    internal static FindingInspection<UnionTypeInfo>? ScanUnionTypes(
+    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
         string path,
         VerboseLogger logger)
     {
@@ -1234,11 +1288,12 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning union types in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<UnionTypeInfo>(
+                path, MetadataFindings.UnionTypeDescriptor, ex);
         }
     }
 
-    internal static FindingInspection<UnionTypeInfo>? ScanUnionTypes(
+    internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
         AssemblyInspectionSession session,
         string path,
         VerboseLogger logger)
@@ -1252,7 +1307,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning union types in {path}: {ex.Message}");
-            return null;
+            return FailedInspection<UnionTypeInfo>(
+                path, MetadataFindings.UnionTypeDescriptor, ex);
         }
     }
 
@@ -1269,6 +1325,8 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
+            inspection.TypeForwarderInspection = FailedInspection<TypeForwarderInfo>(
+                path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
     }
 
@@ -1283,7 +1341,31 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
+            inspection.TypeForwarderInspection = FailedInspection<TypeForwarderInfo>(
+                path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
+    }
+
+    static FindingInspection<T> FailedInspection<T>(
+        string path,
+        FindingDescriptor descriptor,
+        Exception exception)
+        where T : notnull
+        => new FindingInspection<T>.Failed(
+            new InspectionError(
+                FindingSubjectFor(path),
+                descriptor,
+                exception.Message));
+
+    static void MarkIntegrationFailuresIfMissing(
+        string path,
+        LibraryInspection inspection,
+        Exception exception)
+    {
+        inspection.EcosystemIntegrationInspection ??= FailedInspection<EcosystemIntegrationSignalInfo>(
+            path, MetadataFindings.EcosystemIntegrationDescriptor, exception);
+        inspection.OpenTelemetryInspection ??= FailedInspection<OpenTelemetrySignalInfo>(
+            path, MetadataFindings.OpenTelemetrySignalDescriptor, exception);
     }
 
     private static FindingSubject FindingSubjectFor(string path)

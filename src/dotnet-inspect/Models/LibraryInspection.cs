@@ -342,6 +342,7 @@ public class LibraryInspection
     private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;
     private FindingInspection<ManifestResourceInfo>? _resourceInspection;
     private FindingInspection<AssemblyAttributeInfo>? _assemblyAttributeInspection;
+    private IReadOnlyList<AssemblyAttributeInfo>? _assemblyAttributeJsonOrder;
     private FindingInspection<TypeForwarderInfo>? _typeForwarderInspection;
     private FindingInspection<UnionTypeInfo>? _unionTypeInspection;
     private FindingInspection<SwitchInfo>? _switchInspection;
@@ -386,8 +387,21 @@ public class LibraryInspection
         set
         {
             _assemblyAttributeInspection = value;
+            _assemblyAttributeJsonOrder = null;
             ResetFindingProjectionCaches();
         }
+    }
+
+    internal void SetAssemblyAttributeInspection(
+        FindingInspection<AssemblyAttributeInfo> inspection,
+        IReadOnlyList<AssemblyAttributeInfo> jsonOrder)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(jsonOrder);
+
+        _assemblyAttributeInspection = inspection;
+        _assemblyAttributeJsonOrder = jsonOrder.ToArray();
+        ResetFindingProjectionCaches();
     }
 
     [JsonIgnore]
@@ -431,7 +445,7 @@ public class LibraryInspection
     private bool _resourcesInitialized;
     private List<LibraryResourceJson>? _resources;
     private bool _customAttributesInitialized;
-    private List<AssemblyAttributeInfo>? _customAttributes;
+    private List<LibraryCustomAttributeJson>? _customAttributes;
     private bool _typeForwardersInitialized;
     private List<TypeForwarderInfo>? _typeForwarders;
     private bool _unionTypesInitialized;
@@ -528,6 +542,7 @@ public class LibraryInspection
             ref _resources,
             () => NullIfEmpty(
                 ResourceInspection.PayloadsForRendering()
+                    .OrderBy(resource => resource.Name)
                     .Select(resource => new LibraryResourceJson(
                         resource.Name,
                         resource.IsPublic ? "public" : "private",
@@ -541,11 +556,20 @@ public class LibraryInspection
     public long FileSize { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<AssemblyAttributeInfo>? CustomAttributes =>
+    public List<LibraryCustomAttributeJson>? CustomAttributes =>
         GetOrCreate(
             ref _customAttributesInitialized,
             ref _customAttributes,
-            () => NullIfEmpty(AssemblyAttributeInspection.PayloadsForRendering().ToList()));
+            () => NullIfEmpty(
+                (_assemblyAttributeJsonOrder
+                    ?? AssemblyAttributeInspection.PayloadsForRendering())
+                    .Select(attribute => new LibraryCustomAttributeJson
+                    {
+                        Name = attribute.Name,
+                        Target = attribute.Target,
+                        Value = attribute.Value,
+                    })
+                    .ToList()));
 
     /// <summary>
     /// Metadata audit signals. These are observations, not a trust verdict.
@@ -1013,6 +1037,15 @@ public sealed record LibraryResourceJson(
     string Name,
     string Visibility,
     int Size);
+
+public sealed record class LibraryCustomAttributeJson
+{
+    public string Name { get; init; } = "";
+    public string Target { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Value { get; init; }
+}
 
 /// <summary>
 /// Summary of an async method, including whether it is runtime async or classic
