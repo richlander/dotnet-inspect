@@ -31,6 +31,7 @@ jobs:
       ildiff: ${{ steps.filter.outputs.ildiff }}
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
       packaging: ${{ steps.filter.outputs.packaging }}
+      shipped: ${{ steps.filter.outputs.shipped }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -54,6 +55,7 @@ jobs:
           ILDIFF=false
           ILROUNDTRIP=false
           PACKAGING=false
+          SHIPPED=false
           while IFS= read -r file; do
             case "$file" in
               src/*) CODE=true ;;
@@ -127,6 +129,22 @@ jobs:
               global.json|nuget.config|NuGet.config) PACKAGING=true ;;
               .github/workflows/ci.yml|.github/workflows/release.yml) PACKAGING=true ;;
             esac
+            # net10.0 fallback build coverage. The shipped tool graph
+            # (src/dotnet-inspect + its product library references) must compile
+            # against the net10.0 LTS floor of the official "any" package, but
+            # the full test lane builds net11 only. Fire on shipped source (any
+            # non-test, non-fixture src/ project) and shared build infra; test
+            # projects, fixtures, harnesses, and docs can't introduce a
+            # net11-only API into the shipped tool, so they don't trip this.
+            case "$file" in
+              src/*Tests/*) ;;
+              src/*Fixtures*/*|src/DiffFixtures*/*) ;;
+              src/*) SHIPPED=true ;;
+              Directory.Build.props|Directory.Build.targets|Directory.Packages.props) SHIPPED=true ;;
+              src/Directory.Build.props) SHIPPED=true ;;
+              global.json|nuget.config|NuGet.config) SHIPPED=true ;;
+              .github/workflows/ci.yml) SHIPPED=true ;;
+            esac
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "csharpdiff=$CSHARPDIFF" >> "$GITHUB_OUTPUT"
@@ -134,9 +152,10 @@ jobs:
           echo "ildiff=$ILDIFF" >> "$GITHUB_OUTPUT"
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
+          echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
           echo "Changed files:"
           echo "$FILES"
-          echo "code=$CODE csharpdiff=$CSHARPDIFF docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING"
+          echo "code=$CODE csharpdiff=$CSHARPDIFF docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -296,6 +315,39 @@ jobs:
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+
+  # net10.0 fallback build coverage. The official non-AOT "any" package targets
+  # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
+  # net11 only — so net11-only API usage on the fallback path is invisible until
+  # an official package build. This job compiles the shipped tool graph against
+  # net10.0 so that class of regression is caught on PRs that touch shipped code
+  # (#2594). Build-only and fast; the net10.0 targeting pack resolves from the
+  # SDK / nuget.org.
+  build-net10:
+    needs: changes
+    if: needs.changes.outputs.shipped == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    env:
+      DOTNET_INSPECT_TIPS: q
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build tool for net10.0 fallback
+        run: dotnet build src/dotnet-inspect -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL
