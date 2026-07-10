@@ -87,12 +87,21 @@ public static class ExtensionMethodScanner
             string classNs = reader.GetString(typeDef.Namespace);
             string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
-            // Track property accessors seen (for deduplication of get_/set_ pairs)
-            var seenProperties = new HashSet<string>(StringComparer.Ordinal);
-            var declaredPropertyAccessors = GetDeclaredPropertyAccessors(reader, typeDef);
-            var hiddenExtensionProperties = includeAll
-                ? null
-                : GetHiddenExtensionPropertyCanonicals(reader, typeDefHandle);
+            foreach (var property in FindDeclaredExtensionProperties(
+                reader,
+                typeDefHandle,
+                typeDef,
+                fullClassName,
+                classNs,
+                includeAll))
+            {
+                if (TypeMatcher.Matches(
+                    TypeMatcher.Normalize(property.ExtendedType),
+                    normalizedTarget))
+                {
+                    yield return property;
+                }
+            }
 
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -102,59 +111,7 @@ public static class ExtensionMethodScanner
 
                 string methodName = reader.GetString(method.Name);
 
-                // C# 14 extension properties: get_/set_ accessors without [Extension] on the method
                 bool hasExtension = AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
-                if (!hasExtension &&
-                    (methodName.StartsWith("get_", StringComparison.Ordinal) ||
-                     methodName.StartsWith("set_", StringComparison.Ordinal)))
-                {
-                    if (declaredPropertyAccessors.Contains(methodHandle))
-                        continue;
-
-                    // Skip hidden methods unless includeAll
-                    if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
-                        continue;
-
-                    var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
-
-                    // Must have at least one parameter (the receiver); skip static extension properties (no receiver)
-                    if (signature.ParameterTypes.Length == 0
-                        || methodName.StartsWith("set_", StringComparison.Ordinal)
-                        && signature.ParameterTypes.Length < 2)
-                    {
-                        continue;
-                    }
-
-                    var extendedType = signature.ParameterTypes[0];
-                    var normalizedExtended = TypeMatcher.Normalize(extendedType);
-
-                    if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))
-                    {
-                        string propertyName = methodName.Substring(4); // strip get_ or set_
-                        var anchorInfo = ApiMemberIdentity.CreateExtensionPropertyAnchorInfo(
-                            reader, typeDefHandle, method, propertyName);
-                        if (hiddenExtensionProperties?.Contains(anchorInfo.Anchor.CanonicalSignature) == true)
-                            continue;
-                        if (!seenProperties.Add(anchorInfo.Anchor.CanonicalSignature)) continue;
-
-                        var propSignature = FormatPropertySignature(signature, extendedType, propertyName);
-                        yield return new ExtensionMethodInfo(
-                            MethodName: propertyName,
-                            ExtensionClass: fullClassName,
-                            Namespace: classNs,
-                            ExtendedType: extendedType,
-                            Signature: propSignature,
-                            Kind: "property")
-                        {
-                            Anchor = anchorInfo.Anchor,
-                            ReturnType = anchorInfo.ReturnType,
-                            CanonicalExtendedType = anchorInfo.ExtendedType,
-                        };
-                    }
-                    continue;
-                }
-
                 if (!hasExtension) continue;
 
                 // Skip hidden methods unless includeAll
@@ -230,11 +187,16 @@ public static class ExtensionMethodScanner
             string classNs = reader.GetString(typeDef.Namespace);
             string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
-            var seenProperties = new HashSet<string>(StringComparer.Ordinal);
-            var declaredPropertyAccessors = GetDeclaredPropertyAccessors(reader, typeDef);
-            var hiddenExtensionProperties = includeAll
-                ? null
-                : GetHiddenExtensionPropertyCanonicals(reader, typeDefHandle);
+            foreach (var property in FindDeclaredExtensionProperties(
+                reader,
+                typeDefHandle,
+                typeDef,
+                fullClassName,
+                classNs,
+                includeAll))
+            {
+                yield return property;
+            }
 
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -245,49 +207,6 @@ public static class ExtensionMethodScanner
                 string methodName = reader.GetString(method.Name);
 
                 bool hasExtension = AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes());
-                if (!hasExtension &&
-                    (methodName.StartsWith("get_", StringComparison.Ordinal) ||
-                     methodName.StartsWith("set_", StringComparison.Ordinal)))
-                {
-                    if (declaredPropertyAccessors.Contains(methodHandle))
-                        continue;
-
-                    if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
-                        continue;
-
-                    var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
-                    if (signature.ParameterTypes.Length == 0
-                        || methodName.StartsWith("set_", StringComparison.Ordinal)
-                        && signature.ParameterTypes.Length < 2)
-                    {
-                        continue;
-                    }
-
-                    var extendedType = signature.ParameterTypes[0];
-                    string propertyName = methodName.Substring(4);
-                    var anchorInfo = ApiMemberIdentity.CreateExtensionPropertyAnchorInfo(
-                        reader, typeDefHandle, method, propertyName);
-                    if (hiddenExtensionProperties?.Contains(anchorInfo.Anchor.CanonicalSignature) == true)
-                        continue;
-                    if (!seenProperties.Add(anchorInfo.Anchor.CanonicalSignature)) continue;
-
-                    var propSignature = FormatPropertySignature(signature, extendedType, propertyName);
-                    yield return new ExtensionMethodInfo(
-                        MethodName: propertyName,
-                        ExtensionClass: fullClassName,
-                        Namespace: classNs,
-                        ExtendedType: extendedType,
-                        Signature: propSignature,
-                        Kind: "property")
-                    {
-                        Anchor = anchorInfo.Anchor,
-                        ReturnType = anchorInfo.ReturnType,
-                        CanonicalExtendedType = anchorInfo.ExtendedType,
-                    };
-                    continue;
-                }
-
                 if (!hasExtension) continue;
 
                 if (!includeAll && AttributeReader.HasHiddenAttribute(reader, method.GetCustomAttributes()))
@@ -483,56 +402,35 @@ public static class ExtensionMethodScanner
         _ => false
     };
 
-    private static string FormatPropertySignature(
-        MethodSignature<string> signature, string extendedType, string propertyName)
-    {
-        // For a getter: ReturnType PropertyName { get; } — receiver is the first param
-        // For a setter: void PropertyName { set; } — receiver is the first param, value is the second
-        var returnType = signature.ReturnType;
-        if (returnType == "void" && signature.ParameterTypes.Length >= 2)
-        {
-            // This is a setter — the property value is always the final parameter.
-            returnType = signature.ParameterTypes[^1];
-        }
-        return $"{returnType} {propertyName} {{ get; }}";
-    }
-
-    private static HashSet<MethodDefinitionHandle> GetDeclaredPropertyAccessors(
+    private static IEnumerable<ExtensionMethodInfo> FindDeclaredExtensionProperties(
         MetadataReader reader,
-        TypeDefinition type)
+        TypeDefinitionHandle extensionClassHandle,
+        TypeDefinition extensionClass,
+        string extensionClassName,
+        string? extensionClassNamespace,
+        bool includeAll)
     {
-        var accessors = new HashSet<MethodDefinitionHandle>();
-        foreach (var propertyHandle in type.GetProperties())
-        {
-            var propertyAccessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-            if (!propertyAccessors.Getter.IsNil)
-                accessors.Add(propertyAccessors.Getter);
-            if (!propertyAccessors.Setter.IsNil)
-                accessors.Add(propertyAccessors.Setter);
-            foreach (var accessor in propertyAccessors.Others)
-                accessors.Add(accessor);
-        }
-
-        return accessors;
-    }
-
-    private static HashSet<string> GetHiddenExtensionPropertyCanonicals(
-        MetadataReader reader,
-        TypeDefinitionHandle extensionClassHandle)
-    {
-        var extensionClass = reader.GetTypeDefinition(extensionClassHandle);
-        var hiddenProperties = new HashSet<string>(StringComparer.Ordinal);
+        var seenProperties = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var groupingTypeHandle in extensionClass.GetNestedTypes())
         {
             var groupingType = reader.GetTypeDefinition(groupingTypeHandle);
+            if (!AttributeReader.HasExtensionAttribute(reader, groupingType.GetCustomAttributes()))
+                continue;
+
             foreach (var propertyHandle in groupingType.GetProperties())
             {
                 var property = reader.GetPropertyDefinition(propertyHandle);
-                if (!AttributeReader.HasHiddenAttribute(reader, property.GetCustomAttributes())
-                    || !AttributeReader.TryGetExtensionMarkerName(
+                var accessors = property.GetAccessors();
+                bool hasPublicGetter = IsPublicAccessor(reader, accessors.Getter);
+                bool hasPublicSetter = IsPublicAccessor(reader, accessors.Setter);
+                if (!hasPublicGetter && !hasPublicSetter)
+                    continue;
+
+                if (!TryGetExtensionMarkerName(
                         reader,
-                        property.GetCustomAttributes(),
+                        property,
+                        accessors,
                         out var markerName))
                 {
                     continue;
@@ -553,18 +451,89 @@ public static class ExtensionMethodScanner
                 if (markerMethodHandle.IsNil)
                     continue;
 
-                hiddenProperties.Add(
-                    ApiMemberIdentity.CreateExtensionPropertyDeclarationCanonicalSignature(
+                if (!includeAll
+                    && (AttributeReader.HasHiddenAttribute(reader, property.GetCustomAttributes())
+                        || hasPublicGetter && IsHiddenAccessor(reader, accessors.Getter)
+                        || hasPublicSetter && IsHiddenAccessor(reader, accessors.Setter)))
+                {
+                    continue;
+                }
+
+                var markerMethod = reader.GetMethodDefinition(markerMethodHandle);
+                var anchorInfo =
+                    ApiMemberIdentity.CreateExtensionPropertyDeclarationAnchorInfo(
                         reader,
                         extensionClassHandle,
                         markerType,
-                        reader.GetMethodDefinition(markerMethodHandle),
-                        property));
+                        markerMethod,
+                        property);
+                if (!seenProperties.Add(anchorInfo.Anchor.CanonicalSignature))
+                    continue;
+
+                var displayContext = GenericContext.ForType(reader, markerType);
+                var markerSignature = markerMethod.DecodeSignature(
+                    SignatureDecoder.Instance,
+                    displayContext);
+                if (markerSignature.ParameterTypes.Length != 1)
+                    throw new BadImageFormatException(
+                        "An extension marker must have exactly one receiver parameter.");
+
+                var propertySignature = property.DecodeSignature(
+                    SignatureDecoder.Instance,
+                    displayContext);
+                string propertyName = reader.GetString(property.Name);
+                string accessorText = hasPublicGetter && hasPublicSetter
+                    ? "get; set;"
+                    : hasPublicGetter ? "get;" : "set;";
+                yield return new ExtensionMethodInfo(
+                    MethodName: propertyName,
+                    ExtensionClass: extensionClassName,
+                    Namespace: extensionClassNamespace,
+                    ExtendedType: markerSignature.ParameterTypes[0],
+                    Signature: $"{propertySignature.ReturnType} {propertyName} {{ {accessorText} }}",
+                    Kind: "property")
+                {
+                    Anchor = anchorInfo.Anchor,
+                    ReturnType = anchorInfo.ReturnType,
+                    CanonicalExtendedType = anchorInfo.ExtendedType,
+                };
             }
         }
-
-        return hiddenProperties;
     }
+
+    private static bool IsPublicAccessor(
+        MetadataReader reader,
+        MethodDefinitionHandle accessorHandle)
+        => !accessorHandle.IsNil
+        && (reader.GetMethodDefinition(accessorHandle).Attributes
+            & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
+
+    private static bool IsHiddenAccessor(
+        MetadataReader reader,
+        MethodDefinitionHandle accessorHandle)
+        => AttributeReader.HasHiddenAttribute(
+            reader,
+            reader.GetMethodDefinition(accessorHandle).GetCustomAttributes());
+
+    private static bool TryGetExtensionMarkerName(
+        MetadataReader reader,
+        PropertyDefinition property,
+        PropertyAccessors accessors,
+        out string? markerName)
+        => AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                property.GetCustomAttributes(),
+                out markerName)
+            || !accessors.Getter.IsNil
+            && AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                reader.GetMethodDefinition(accessors.Getter).GetCustomAttributes(),
+                out markerName)
+            || !accessors.Setter.IsNil
+            && AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                reader.GetMethodDefinition(accessors.Setter).GetCustomAttributes(),
+                out markerName);
 
     private static string FormatMethodSignature(
         MetadataReader reader,

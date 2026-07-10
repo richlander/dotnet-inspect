@@ -70,6 +70,16 @@ public sealed class MetadataExtensionFindingsTests
                 && member.MethodName == "Capacity");
         Assert.Equal("System.Text.StringBuilder", capacity.CanonicalExtendedType);
         Assert.Equal("System.Int32", capacity.ReturnType);
+        var staticValue = Assert.Single(
+            members,
+            static member =>
+                member.ExtensionClass.EndsWith(
+                    nameof(ExtensionPropertyIdentityFixture),
+                    StringComparison.Ordinal)
+                && member.MethodName == "StaticValue");
+        Assert.Equal("System.String", staticValue.CanonicalExtendedType);
+        Assert.Equal("System.Int32", staticValue.ReturnType);
+        Assert.StartsWith("P:", staticValue.Anchor!.CanonicalSignature, StringComparison.Ordinal);
         Assert.DoesNotContain(
             members,
             static member => member.MethodName == nameof(ExtensionPropertyIdentityFixture.Ordinary));
@@ -84,6 +94,14 @@ public sealed class MetadataExtensionFindingsTests
         Assert.Contains(
             ExtensionMethodScanner.FindAllExtensions(allStream, includeAll: true),
             static member => member.MethodName == "Hidden");
+
+        using var targetedStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
+        var stringExtensions = ExtensionMethodScanner.FindExtensions(
+            targetedStream,
+            "System.String",
+            includeAll: true);
+        Assert.Contains(stringExtensions, static member => member.MethodName == "StaticValue");
+        Assert.DoesNotContain(stringExtensions, static member => member.MethodName == "Standalone");
     }
 
     [Fact]
@@ -234,11 +252,13 @@ public sealed class MetadataExtensionFindingsTests
 public static class ExtensionPropertyIdentityFixture
 {
     public static int Ordinary { get; set; }
+    public static int get_Standalone(string value) => value.Length;
     public static void set_Standalone(int value) { }
 
     extension(string value)
     {
         public bool HasValue => value.Length > 0;
+        public static int StaticValue => 42;
 
         [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public bool Hidden => false;

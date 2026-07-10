@@ -230,45 +230,7 @@ public static class ApiMemberIdentity
             shape.ParameterTypes[0]);
     }
 
-    public static ExtensionMemberAnchorInfo CreateExtensionPropertyAnchorInfo(
-        MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
-        MethodDefinition accessor,
-        string propertyName)
-    {
-        var type = reader.GetTypeDefinition(typeHandle);
-        string accessorName = reader.GetString(accessor.Name);
-        var signature = accessor.DecodeSignature(
-            AnchorSignatureTypeProvider.Instance,
-            GenericContext.ForMethod(reader, type, accessor));
-        if (signature.ParameterTypes.Length == 0)
-            throw new BadImageFormatException("An extension property must have a receiver parameter.");
-
-        string typeFullName = FormatDefinitionName(reader, typeHandle);
-        string extendedType = signature.ParameterTypes[0];
-        bool isSetter = accessorName.StartsWith("set_", StringComparison.Ordinal);
-        if (isSetter && signature.ParameterTypes.Length < 2)
-            throw new BadImageFormatException("An extension property setter must have a value parameter.");
-
-        string returnType = isSetter ? signature.ParameterTypes[^1] : signature.ReturnType;
-        IReadOnlyList<string> identityParameters = isSetter
-            ? signature.ParameterTypes.Take(signature.ParameterTypes.Length - 1).ToArray()
-            : signature.ParameterTypes;
-        string canonicalSignature = MemberCanonicalSignature.BuildExtensionProperty(
-            typeFullName,
-            propertyName,
-            identityParameters);
-        return new ExtensionMemberAnchorInfo(
-            CreateAnchor(
-                typeFullName,
-                $"extension:{propertyName}",
-                propertyName,
-                canonicalSignature),
-            returnType,
-            extendedType);
-    }
-
-    internal static string CreateExtensionPropertyDeclarationCanonicalSignature(
+    internal static ExtensionMemberAnchorInfo CreateExtensionPropertyDeclarationAnchorInfo(
         MetadataReader reader,
         TypeDefinitionHandle extensionClassHandle,
         TypeDefinition markerType,
@@ -283,10 +245,19 @@ public static class ApiMemberIdentity
         var propertySignature = property.DecodeSignature(AnchorSignatureTypeProvider.Instance, context);
         string propertyName = reader.GetString(property.Name);
         string typeFullName = FormatDefinitionName(reader, extensionClassHandle);
-        return MemberCanonicalSignature.BuildExtensionProperty(
+        string extendedType = markerSignature.ParameterTypes[0];
+        string canonicalSignature = MemberCanonicalSignature.BuildExtensionProperty(
             typeFullName,
             propertyName,
             markerSignature.ParameterTypes.AddRange(propertySignature.ParameterTypes));
+        return new ExtensionMemberAnchorInfo(
+            CreateAnchor(
+                typeFullName,
+                $"extension:{propertyName}",
+                propertyName,
+                canonicalSignature),
+            propertySignature.ReturnType,
+            extendedType);
     }
 
     static (MemberAnchor Anchor, string ReturnType, ImmutableArray<string> ParameterTypes) CreateMethodAnchorShape(
