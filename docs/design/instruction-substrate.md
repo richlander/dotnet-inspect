@@ -237,12 +237,52 @@ closed on numbers. Its credible future home is **memory-safety lifetime**
 territory), to be measured the same way. Until then the typed stack stays a
 minimal, opt-in Layer-1 model with its own fidelity gate, not a product dependency.
 
+## The Metadata cutover (done)
+
+`ILInspector.Metadata`'s `ILDisassembler`/`ILInstruction` were a second,
+independent decoded-body model: they called `InstructionDecoder.Decode` directly
+(the raw Layer 0 primitive) and built their own per-instruction display strings,
+duplicating the substrate's decode/format logic rather than projecting from it.
+Every consumer (`MemberCodeProvider`'s CLI IL section, `SwitchScanner`'s
+AppContext-switch heuristics, `PdbContext`'s display-name lookups,
+`DecompilerHarness`'s `FidelityCheck`/`ReturnToSender`, and the disassembler/emit
+test suites, plus `DotnetInspector.ILRoundtrip.Tests`' canonical-ilasm roundtrip
+via the vendored ILAssembler) has been migrated to a new `ILInstructionPrinter`
+(`ILInstructionText` projection) that decodes via `MethodInstructions.Decode` and
+throws `BadImageFormatException` (with the substrate's `IncompleteReason`) when
+the body is not `IsComplete` — the same fail-honest contract `ILDisassembler` had,
+now backed by the shared substrate instead of a second decode path.
+`ILDisassembler`/`ILInstruction` are deleted; `MethodInstructions`/
+`DecodedInstruction` are the sole decoded-body model.
+
+This cutover intentionally does **not** unify the three metadata-token-to-string
+traversals that sit downstream of the shared decode: `ILTokenResolver` (human
+display strings for the CLI/PdbContext), `CanonicalIL` (canonical ilasm-assembler
+syntax, quoting/`class`/`valuetype` prefixes, used by the ILRoundtrip corpus),
+and `IlBodyDiff`'s private `MetadataOperandResolver` (stable cross-version
+identity strings — `` `N `` generic arity, calling-convention prefixes, no
+quoting). These have genuinely different output policies (display vs.
+assembler-grammar vs. stable-identity), each with its own test/fixture coverage,
+and `MetadataOperandResolver` has no external callers to migrate. Consolidating
+them into one flag-heavy renderer would trade a well-understood, low-risk
+duplication for a higher-risk shared implementation whose three policies would
+have to be threaded through every future change. They remain separate,
+intentionally, per issue
+[#2612](https://github.com/richlander/dotnet-inspect/issues/2612)'s own
+"explicitly documented" escape hatch; unifying them is tracked as follow-up work,
+not attempted in that PR.
+
 ## Status
 
 - Layer 0 substrate: decoder on the ported `ILReader`; tiling, round-trip, and
   MaxStack fidelity gates over CoreLib; Layer 0/1 split with offset→block lookup.
-- De-dup: `ReachingDefinitions` cut over (done, validated). Remaining:
-  `LibraryBodyIndex` (the allocation/triage producer — convert its decode loop with
-  the full corpus baseline as guard) and the decompiler importer (with the
-  minimal-CFG refactor).
+- De-dup: `ReachingDefinitions` cut over (done, validated).
+  `ILInspector.Metadata`'s `ILDisassembler`/`ILInstruction` cut over to
+  `ILInstructionPrinter`/`ILInstructionText` over `MethodInstructions` (done,
+  validated; see "The Metadata cutover" above). Remaining: `LibraryBodyIndex`
+  (the allocation/triage producer — convert its decode loop with the full corpus
+  baseline as guard), the decompiler importer (with the minimal-CFG refactor),
+  and consolidating the three metadata-token-to-string traversals
+  (`ILTokenResolver`/`CanonicalIL`/`IlBodyDiff.MetadataOperandResolver`) if their
+  output policies are ever found to overlap enough to share code safely.
 - Typed stack: gated; no measured trigger; re-probe under memory-safety lifetime.

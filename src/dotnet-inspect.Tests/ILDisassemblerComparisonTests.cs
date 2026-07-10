@@ -174,11 +174,11 @@ public class ILDisassemblerComparisonTests
         _ => throw new ArgumentException($"Unknown assembly key: {key}")
     };
 
-    static List<ILInstruction>? DisassembleFrom(string assemblyPath, string typeName, string methodName)
+    static List<ILInstructionText>? DisassembleFrom(string assemblyPath, string typeName, string methodName)
     {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
-        return ILDisassembler.DisassembleMethod(peReader, typeName, methodName);
+        return ILInstructionPrinter.DisassembleMethod(peReader, typeName, methodName);
     }
 
     static int CountMethods(string assemblyPath)

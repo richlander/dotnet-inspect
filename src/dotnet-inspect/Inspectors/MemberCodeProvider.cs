@@ -175,7 +175,7 @@ internal static class MemberCodeProvider
             {
                 try
                 {
-                    var instructions = ILDisassembler.DisassembleMethod(
+                    var instructions = ILInstructionPrinter.DisassembleMethod(
                         peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
                     if (instructions is { Count: > 0 })
                         ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));

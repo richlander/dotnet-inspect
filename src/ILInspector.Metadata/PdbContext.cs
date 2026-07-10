@@ -372,7 +372,7 @@ public class PdbContext : IDisposable
             return new ILOffsetInstructionContextInfo(
                 ILOffset: ilOffset,
                 Boundary: "Exact",
-                Opcode: ILDisassembler.GetDisplayName(instruction.OpCode),
+                Opcode: ILInstructionPrinter.GetDisplayName(instruction.OpCode),
                 OperandKind: operand.Kind,
                 Operand: operand.Value,
                 OperandToken: operand.Token,
@@ -524,7 +524,7 @@ public class PdbContext : IDisposable
         var operand = ResolveInstructionOperand(reader!, instruction);
         return new ILOffsetCallsiteContextInfo(
             CallOffset: instruction.Offset,
-            Opcode: ILDisassembler.GetDisplayName(instruction.OpCode),
+            Opcode: ILInstructionPrinter.GetDisplayName(instruction.OpCode),
             CallKind: GetCallKind(instruction.OpCode),
             Callee: operand.Value ?? operand.Token ?? "",
             OperandToken: operand.Token,
@@ -552,7 +552,7 @@ public class PdbContext : IDisposable
         return new ILOffsetReturnAddressContextInfo(
             ILOffset: ilOffset,
             CallOffset: previous.Offset,
-            Opcode: ILDisassembler.GetDisplayName(previous.OpCode),
+            Opcode: ILInstructionPrinter.GetDisplayName(previous.OpCode),
             CallKind: GetCallKind(previous.OpCode),
             Callee: operand.Value ?? operand.Token ?? "",
             OperandToken: operand.Token);

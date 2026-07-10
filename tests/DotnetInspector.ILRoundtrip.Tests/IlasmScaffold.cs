@@ -192,7 +192,7 @@ public static class IlasmScaffold
 
         if (isTarget)
         {
-            var instructions = ILDisassembler.Disassemble(peReader, reader, method, ILSyntax.Canonical)
+            var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method, ILSyntax.Canonical)
                 ?? throw new InvalidOperationException($"No IL body for {name}");
             var body = peReader.GetMethodBody(method.RelativeVirtualAddress);
 
@@ -311,7 +311,7 @@ public static class IlasmScaffold
     /// (see <see cref="ParamTypes"/>) disambiguate within the full module
     /// skeleton (stubs share names with their originals elsewhere).
     /// </summary>
-    public static List<ILInstruction>? DisassembleByName(PEReader peReader, string methodName, string? typePath = null, string? paramTypes = null)
+    public static List<ILInstructionText>? DisassembleByName(PEReader peReader, string methodName, string? typePath = null, string? paramTypes = null)
     {
         var reader = peReader.GetMetadataReader();
         foreach (var tdh in reader.TypeDefinitions)
@@ -326,7 +326,7 @@ public static class IlasmScaffold
                     continue;
                 if (paramTypes is not null && ParamTypes(method) != paramTypes)
                     continue;
-                return ILDisassembler.Disassemble(peReader, reader, method);
+                return ILInstructionPrinter.Disassemble(peReader, reader, method);
             }
         }
         return null;
