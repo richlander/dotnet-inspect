@@ -113,11 +113,19 @@ This is a migration boundary, not authorization for a second universal spine:
 - Research must not wrap those values in a parallel generic `EvidenceRow`
   hierarchy solely to make them look uniform.
 
+## Coordinates
+
+Subject identity, cross-version correspondence, producer order, and typed
+provenance are independent axes. `Finding<T>.Ordinal` is optional retained
+observation metadata; collection order controls matching. Identity-set
+observations do not fabricate ordinals, and producer-specific structural
+coordinates remain typed in their payloads. See
+[Finding Coordinates](finding-coordinates.md).
+
 ## Open evolution points
 
 These require explicit design before dependent producers rely on them:
 
-- separate ordered-stream position from a stable structural anchor;
 - define structured soft-match projections, typed deltas, and match-tier
   provenance;
 - define value equality for envelopes containing `ImmutableArray` or

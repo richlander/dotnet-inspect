@@ -128,7 +128,9 @@ The shared Finding model names one-version occurrences as observations
 (`PairFinding<T>`). Evidence is the role those and other producer-owned values
 play in supporting a conclusion, not a parallel row hierarchy. See
 [Finding Nomenclature](design/finding-nomenclature.md) and
-[Finding Producer Design](design/finding-producers.md).
+[Finding Producer Design](design/finding-producers.md). Finding subject identity,
+cross-version correspondence, optional producer order, and typed provenance are
+separate axes; see [Finding Coordinates](design/finding-coordinates.md).
 
 - **R1** is the lower, metadata/IL representation. `ILInspector.Analysis` reads
   assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,

@@ -49,7 +49,11 @@ internal static class SourceTextDiffRenderer
                 {
                     Difference: FindingDifferenceKind.None
                 } present)
-                anchors.Add((present.Old.Position, present.New.Position));
+            {
+                anchors.Add((
+                    RequiredOrdinal(present.Old),
+                    RequiredOrdinal(present.New)));
+            }
         }
 
         anchors.Sort(static (left, right) => left.OldPosition.CompareTo(right.OldPosition));
@@ -77,4 +81,8 @@ internal static class SourceTextDiffRenderer
 
         return lines;
     }
+
+    static int RequiredOrdinal(Finding<string> finding)
+        => finding.Ordinal
+            ?? throw new InvalidOperationException("A text-line finding must retain its stream ordinal.");
 }

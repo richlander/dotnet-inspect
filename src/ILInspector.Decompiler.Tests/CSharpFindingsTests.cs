@@ -138,7 +138,9 @@ public class CSharpFindingsTests
         Assert.Contains(census, finding => finding.Descriptor.Id == "csharp.line");
         var list = census.ToList();
         Assert.NotEmpty(list);
-        Assert.Equal(Enumerable.Range(0, list.Count), list.Select(finding => finding.Position));
+        Assert.Equal<int?>(
+            Enumerable.Range(0, list.Count).Select(static ordinal => (int?)ordinal),
+            list.Select(finding => finding.Ordinal));
     }
 
     [Fact]

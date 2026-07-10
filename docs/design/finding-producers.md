@@ -47,8 +47,8 @@ as a namespace.
 - subject;
 - descriptor;
 - identity and scope keys;
-- position;
 - typed payload;
+- optional ordered-stream ordinal;
 - optional detail.
 
 Add a domain payload only for typed properties not already represented by the
@@ -96,16 +96,19 @@ The producer owns stable observation identity:
 - `FindingDescriptor` identifies the observation vocabulary entry.
 - `FindingKey.IdentityKey` identifies correspondence candidates.
 - `FindingKey.ScopeKey` constrains correspondence when the domain requires it.
-- `Position` records the producer ordinal. It is correspondence-significant only
-  for an ordered stream; identity-set producers may assign a deterministic
-  ordinal without making it part of identity.
+- `Ordinal` optionally retains the producer's source-stream index. Ordered
+  producers populate it when consumers need the source location after matching;
+  identity-set producers leave it null.
 
-Use `FindingMatchMode.Ordered` when position is semantic, such as IL, C#, or
-text. Use `FindingMatchMode.IdentitySet` when order is not semantic, such as API
-members.
+Use `FindingMatchMode.Ordered` when enumeration order is semantic, such as IL,
+C#, or text. Use `FindingMatchMode.IdentitySet` when order is not semantic, such
+as API members. The matcher uses collection order, not `Ordinal`, as its
+alignment authority.
 
-Do not overload ordinal position as a future Research join anchor. Stable
-structural anchors are a separate design axis.
+Do not overload an ordinal as a Research join anchor. Keep domain coordinates
+and provenance typed in producer payloads until multiple producers demonstrate
+one shared semantic contract. See
+[Finding Coordinates](finding-coordinates.md).
 
 ## 6. Keep generic comparison generic
 
@@ -151,7 +154,7 @@ Before approving a producer, answer:
 - Which product layer is its sole authority?
 - Which existing payload type represents it?
 - What stable descriptor and identity does it use?
-- Is position semantic?
+- Is enumeration order semantic, and must the observation retain its ordinal?
 - Is empty a complete result, or must absence and failure remain distinct?
 - Which two or more consumers need the same census?
 - Is any proposed field actually a downstream fact, verdict, or presentation?

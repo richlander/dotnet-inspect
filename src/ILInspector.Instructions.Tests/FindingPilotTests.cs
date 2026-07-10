@@ -21,12 +21,12 @@ public class FindingPilotTests
     // Matcher-only tests need just the alignment keys.
     static FindingKey[] Keys(params string[] keys) => [.. keys.Select(k => new FindingKey(k))];
 
-    // Fold tests need atoms: payload is the key string, position is the stream index.
+    // Fold tests need atoms: payload is the key string, ordinal is retained observation metadata.
     static ImmutableArray<Finding<string>> Atoms(params string[] keys)
     {
         var builder = ImmutableArray.CreateBuilder<Finding<string>>(keys.Length);
         for (int i = 0; i < keys.Length; i++)
-            builder.Add(new Finding<string>(Subject, Descriptor, new FindingKey(keys[i]), i, keys[i]));
+            builder.Add(new Finding<string>(Subject, Descriptor, new FindingKey(keys[i]), keys[i], Ordinal: i));
         return builder.MoveToImmutable();
     }
 
@@ -54,8 +54,8 @@ public class FindingPilotTests
             Subject,
             Descriptor,
             new FindingKey("1"),
-            0,
-            1);
+            1,
+            Ordinal: 0);
         IFinding[] observations = [stringFinding, intFinding];
         IPairFinding[] transitions =
         [
@@ -98,18 +98,32 @@ public class FindingPilotTests
         Assert.Throws<ArgumentNullException>(() => new FindingDescriptor("test.item", null!));
         Assert.Throws<ArgumentNullException>(() => new FindingKey(null!));
         Assert.Throws<ArgumentNullException>(
-            () => new Finding<string>(null!, Descriptor, new FindingKey("k"), 0, "k"));
+            () => new Finding<string>(null!, Descriptor, new FindingKey("k"), "k"));
         Assert.Throws<ArgumentNullException>(
-            () => new Finding<string>(Subject, null!, new FindingKey("k"), 0, "k"));
+            () => new Finding<string>(Subject, null!, new FindingKey("k"), "k"));
         Assert.Throws<ArgumentException>(
-            () => new Finding<string>(Subject, Descriptor, default, 0, "k"));
+            () => new Finding<string>(Subject, Descriptor, default, "k"));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new Finding<string>(Subject, Descriptor, new FindingKey("k"), -1, "k"));
+            () => new Finding<string>(Subject, Descriptor, new FindingKey("k"), "k", Ordinal: -1));
         Assert.Throws<ArgumentNullException>(
-            () => new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, null!));
+            () => new Finding<string>(Subject, Descriptor, new FindingKey("k"), null!));
+        Assert.Throws<ArgumentNullException>(
+            () => new Finding<string>(
+                Subject,
+                Descriptor,
+                new FindingKey("k"),
+                null!,
+                Ordinal: -1));
 
         // Empty content is a valid identity for an empty logical text line.
         Assert.Equal("", new FindingKey("").IdentityKey);
+
+        var identitySetFinding = new Finding<string>(
+            Subject,
+            Descriptor,
+            new FindingKey("k"),
+            "k");
+        Assert.Null(identitySetFinding.Ordinal);
     }
 
     [Fact]
@@ -286,6 +300,23 @@ public class FindingPilotTests
 
         Assert.False(FindingEquivalence.Exact.IsEquivalent(pairs));
         Assert.True(FindingEquivalence.Multiset.IsEquivalent(pairs));
+    }
+
+    [Fact]
+    public void OrderedMatching_UsesCollectionOrderNotRetainedOrdinal()
+    {
+        var old = ImmutableArray.Create(
+            new Finding<string>(Subject, Descriptor, new FindingKey("same"), "old", Ordinal: 40));
+        var @new = ImmutableArray.Create(
+            new Finding<string>(Subject, Descriptor, new FindingKey("same"), "new", Ordinal: 7));
+
+        var match = FindingMatcher.Match(old.Keys(), @new.Keys());
+        var present = Assert.IsType<PairFinding<string>.Present>(
+            Assert.Single(FindingFold.ToPairs(match, old, @new)).Value);
+
+        Assert.Equal(FindingDifferenceKind.None, present.Difference);
+        Assert.Equal(40, present.Old.Ordinal);
+        Assert.Equal(7, present.New.Ordinal);
     }
 
     [Fact]
@@ -474,8 +505,8 @@ public class FindingPilotTests
     [Fact]
     public void PairFinding_CasesFixTheirKind_AndBothNullIsUnrepresentable()
     {
-        var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
-        var b = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 1, "k");
+        var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), "k", Ordinal: 0);
+        var b = new Finding<string>(Subject, Descriptor, new FindingKey("k"), "k", Ordinal: 1);
 
         // Each union case fixes its own polarity; there is no Kind field to set out of step with the
         // sides. The cases convert implicitly to the union.
@@ -496,7 +527,7 @@ public class FindingPilotTests
     [Fact]
     public void PairFinding_Cases_RejectNullAtoms_FailClosed()
     {
-        var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), 0, "k");
+        var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), "k", Ordinal: 0);
 
         // A plain null literal is already a compile error under the non-null annotations; a
         // null-forgiving caller is caught at construction so a case can never hold a missing side.
@@ -540,7 +571,8 @@ public class FindingPilotTests
         // Pairs fabricated as if from an arbitrary (non-IL) stream: the consumer does not care.
         var subject = new FindingSubject("s", "s");
         var descriptor = new FindingDescriptor("any.kind", "any");
-        Finding<string> Atom(string key, int position) => new(subject, descriptor, new FindingKey(key), position, key);
+        Finding<string> Atom(string key, int ordinal) =>
+            new(subject, descriptor, new FindingKey(key), key, Ordinal: ordinal);
 
         IPairFinding[] pairs =
         [
@@ -584,9 +616,9 @@ public class FindingPilotTests
         var failed = IlFindings.Inspect(malformed, null, IlSubject);
 
         Assert.Contains(complete.Findings, f => f.Descriptor.Id == "il.op");
-        Assert.Equal(
-            Enumerable.Range(0, complete.Findings.Length),
-            complete.Findings.Select(f => f.Position));
+        Assert.Equal<int?>(
+            Enumerable.Range(0, complete.Findings.Length).Select(static ordinal => (int?)ordinal),
+            complete.Findings.Select(f => f.Ordinal));
         Assert.True(absent is FindingInspection<CanonicalIlOperation>.Absent);
         Assert.True(failed is FindingInspection<CanonicalIlOperation>.Failed);
     }
