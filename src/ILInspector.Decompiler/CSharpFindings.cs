@@ -79,36 +79,10 @@ public static class CSharpFindings
         FindingInspection<CSharpCanonicalLine> oldInspection,
         FindingInspection<CSharpCanonicalLine> newInspection,
         int acceptanceThreshold)
-    {
-        if (oldInspection is FindingInspection<CSharpCanonicalLine>.Failed
-            || newInspection is FindingInspection<CSharpCanonicalLine>.Failed)
-        {
-            return new FindingComparison<CSharpCanonicalLine>.Failed(
-                oldInspection,
-                newInspection);
-        }
-
-        var oldAtoms = InspectionAtoms(oldInspection);
-        var newAtoms = InspectionAtoms(newInspection);
-
-        var match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
-        var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
-        return new FindingComparison<CSharpCanonicalLine>.Complete(
-            pairs,
-            match,
+        => FindingComparison.Compare(
             oldInspection,
-            newInspection);
-    }
-
-    internal static ImmutableArray<Finding<CSharpCanonicalLine>> InspectionAtoms(
-        FindingInspection<CSharpCanonicalLine> inspection)
-        => inspection switch
-        {
-            FindingInspection<CSharpCanonicalLine>.Complete complete => complete.Findings,
-            FindingInspection<CSharpCanonicalLine>.Absent => [],
-            FindingInspection<CSharpCanonicalLine>.Failed => throw new InvalidOperationException(
-                "A failed inspection cannot be matched."),
-        };
+            newInspection,
+            acceptanceThreshold: acceptanceThreshold);
 
     static InspectionError CreateInspectionError(FindingSubject subject, string reason)
         => new(subject, InspectionDescriptor, reason);

@@ -7,7 +7,22 @@ namespace ILInspector.Findings;
 /// Domain-free: <see cref="Key"/> is an opaque stable string the producing layer chooses;
 /// <see cref="Display"/> is a human label.
 /// </summary>
-public sealed record FindingSubject(string Key, string Display);
+public sealed record FindingSubject
+{
+    public FindingSubject(string Key, string Display)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(Key);
+        ArgumentException.ThrowIfNullOrWhiteSpace(Display);
+        this.Key = Key;
+        this.Display = Display;
+    }
+
+    public string Key { get; }
+    public string Display { get; }
+
+    public void Deconstruct(out string key, out string display)
+        => (key, display) = (Key, Display);
+}
 
 /// <summary>
 /// A typed, reorder-stable vocabulary entry for a finding, following the Roslyn
@@ -15,7 +30,22 @@ public sealed record FindingSubject(string Key, string Display);
 /// (e.g. <c>il.op</c>, <c>alloc.box</c>); the absence of a numeric code is deliberate so
 /// descriptors can be added and reordered without renumbering.
 /// </summary>
-public sealed record FindingDescriptor(string Id, string Title);
+public sealed record FindingDescriptor
+{
+    public FindingDescriptor(string Id, string Title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(Id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(Title);
+        this.Id = Id;
+        this.Title = Title;
+    }
+
+    public string Id { get; }
+    public string Title { get; }
+
+    public void Deconstruct(out string id, out string title)
+        => (id, title) = (Id, Title);
+}
 
 /// <summary>
 /// How an old/new pair of findings relates across two versions. This is a <em>transition</em>
@@ -83,14 +113,49 @@ public interface IFinding<T> : IFinding
 /// than <c>object?</c>, so a value-typed payload is not boxed and consumers read it without a
 /// cast; absence is expressed by choosing <see cref="IFinding"/>, not by a null payload.
 /// </summary>
-public sealed record Finding<T>(
-    FindingSubject Subject,
-    FindingDescriptor Descriptor,
-    FindingKey Key,
-    int Position,
-    T Payload,
-    string? Detail = null) : IFinding<T>
-    where T : notnull;
+public sealed record Finding<T> : IFinding<T>
+    where T : notnull
+{
+    public Finding(
+        FindingSubject Subject,
+        FindingDescriptor Descriptor,
+        FindingKey Key,
+        int Position,
+        T Payload,
+        string? Detail = null)
+    {
+        this.Subject = Subject ?? throw new ArgumentNullException(nameof(Subject));
+        this.Descriptor = Descriptor ?? throw new ArgumentNullException(nameof(Descriptor));
+        if (Key.IdentityKey is null)
+            throw new ArgumentException("Finding key must be initialized.", nameof(Key));
+        if (Position < 0)
+            throw new ArgumentOutOfRangeException(nameof(Position), Position, "Position must be non-negative.");
+        if (Payload is null)
+            throw new ArgumentNullException(nameof(Payload));
+
+        this.Key = Key;
+        this.Position = Position;
+        this.Payload = Payload;
+        this.Detail = Detail;
+    }
+
+    public FindingSubject Subject { get; }
+    public FindingDescriptor Descriptor { get; }
+    public FindingKey Key { get; }
+    public int Position { get; }
+    public T Payload { get; }
+    public string? Detail { get; }
+
+    public void Deconstruct(
+        out FindingSubject subject,
+        out FindingDescriptor descriptor,
+        out FindingKey key,
+        out int position,
+        out T payload,
+        out string? detail)
+        => (subject, descriptor, key, position, payload, detail)
+            = (Subject, Descriptor, Key, Position, Payload, Detail);
+}
 
 /// <summary>
 /// The domain-free skeleton of a transition: an old/new pair classified by <see cref="Kind"/> and

@@ -42,14 +42,10 @@ public static class TextFindings
             new FindingInspection<string>.Complete(oldAtoms);
         FindingInspection<string> newInspection =
             new FindingInspection<string>.Complete(newAtoms);
-        var match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
-        var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
-
-        return new FindingComparison<string>.Complete(
-            pairs,
-            match,
+        return FindingComparison.Compare(
             oldInspection,
-            newInspection);
+            newInspection,
+            acceptanceThreshold: acceptanceThreshold);
     }
 
     static IEnumerable<string> SplitLines(string text)

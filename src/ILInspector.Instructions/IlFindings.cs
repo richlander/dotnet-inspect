@@ -78,33 +78,26 @@ public static class IlFindings
 
         var oldInspection = Inspect(oldBody, oldReader, subject);
         var newInspection = Inspect(newBody, newReader, subject);
-        if (oldInspection is FindingInspection<CanonicalIlOperation>.Failed
-            || newInspection is FindingInspection<CanonicalIlOperation>.Failed)
-        {
-            return new FindingComparison<CanonicalIlOperation>.Failed(
-                oldInspection,
-                newInspection);
-        }
-
-        var oldAtoms = InspectionAtoms(oldInspection);
-        var newAtoms = InspectionAtoms(newInspection);
-        var match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
-        var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
-        if (oldBody is not null && newBody is not null)
-        {
-            pairs = ApplyBranchTargetValidation(
-                pairs,
-                oldBody.Instructions,
-                [.. oldAtoms.Select(static atom => atom.Payload)],
-                newBody.Instructions,
-                [.. newAtoms.Select(static atom => atom.Payload)]);
-        }
-
-        return new FindingComparison<CanonicalIlOperation>.Complete(
-            pairs,
-            match,
+        var comparison = FindingComparison.Compare(
             oldInspection,
-            newInspection);
+            newInspection,
+            acceptanceThreshold: acceptanceThreshold);
+        var complete = comparison switch
+        {
+            FindingComparison<CanonicalIlOperation>.Complete value => value,
+            FindingComparison<CanonicalIlOperation>.Failed => null,
+        };
+        if (oldBody is null || newBody is null || complete is null)
+        {
+            return comparison;
+        }
+
+        return comparison.TransformPairs(pairs => ApplyBranchTargetValidation(
+            pairs,
+            oldBody.Instructions,
+            [.. complete.OldAtoms.Select(static atom => atom.Payload)],
+            newBody.Instructions,
+            [.. complete.NewAtoms.Select(static atom => atom.Payload)]));
     }
 
     // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
@@ -169,16 +162,6 @@ public static class IlFindings
                 operations[i]);
         }
     }
-
-    static ImmutableArray<Finding<CanonicalIlOperation>> InspectionAtoms(
-        FindingInspection<CanonicalIlOperation> inspection)
-        => inspection switch
-        {
-            FindingInspection<CanonicalIlOperation>.Complete complete => complete.Findings,
-            FindingInspection<CanonicalIlOperation>.Absent => [],
-            FindingInspection<CanonicalIlOperation>.Failed => throw new InvalidOperationException(
-                "A failed inspection cannot be matched."),
-        };
 
     /// <summary>
     /// The canonical content key for an operation, defined so that key equality is exactly the
