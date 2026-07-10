@@ -7,16 +7,41 @@ namespace ILInspector.Instructions;
 
 /// <summary>
 /// Adapts IL method bodies onto the domain-free finding substrate: it canonicalizes each body
-/// (reusing <see cref="IlBodyDiff"/> exactly), projects operations into
-/// <see cref="FindingOccurrence"/>s, runs the shared <see cref="FindingMatcher"/>, and
-/// folds the alignment into <see cref="Finding"/>s. This is the "IL as finding" pilot:
-/// the committed LCS core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move
-/// pass recovers relocations that the order-preserving diff cannot.
+/// (reusing <see cref="IlBodyDiff"/> exactly), projects operations into <see cref="Finding{T}"/>
+/// atoms, runs the shared <see cref="FindingMatcher"/>, and folds the alignment into
+/// <see cref="PairFinding{T}"/> transitions. This is the "IL as finding" pilot: the committed LCS
+/// core reproduces <see cref="IlBodyDiff"/> on move-free bodies, and the move pass recovers
+/// relocations that the order-preserving diff cannot. A single-version body is just its
+/// <see cref="Inspect"/> census — no matcher, no pairs.
 /// </summary>
 public static class IlFindings
 {
     /// <summary>The finding descriptor for a single IL operation occurrence.</summary>
     public static readonly FindingDescriptor OperationDescriptor = new("il.op", "IL operation");
+
+    /// <summary>
+    /// The census (one feed): inspects a single method body and lazily yields one
+    /// <see cref="Finding{T}"/> per operation — the complete, unjudged raw view, in the spirit of
+    /// <c>docker inspect</c>. Paired with <see cref="Compare"/> (two feeds). Like
+    /// <see cref="Compare"/> it canonicalizes the body internally (reusing <see cref="IlBodyDiff"/>)
+    /// and fails closed — an uninspectable body yields an empty census — so a caller never touches
+    /// <see cref="IlBodyDiff"/>. Existence/filter/count are LINQ over the returned stream
+    /// (<c>Any</c>/<c>Where</c>/<c>Count</c>), short-circuiting without allocating a list.
+    /// </summary>
+    public static IEnumerable<Finding<CanonicalIlOperation>> Inspect(
+        MethodInstructions body,
+        MetadataReader? reader,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        // Fail closed: an uninspectable body is an empty census, not an exception through a query.
+        if (!IlBodyDiff.TryCanonicalize(body, reader, out var operations, out _))
+            return [];
+
+        return ProjectAtoms(operations, subject);
+    }
 
     public static IlFindingsResult Compare(
         MethodInstructions oldBody,
@@ -35,13 +60,17 @@ public static class IlFindings
         if (!IlBodyDiff.TryCanonicalize(newBody, newReader, out var newOps, out var newFailure))
             return IlFindingsResult.Failed(newFailure ?? "new body canonicalization failed");
 
-        var oldStream = BuildOccurrences(oldOps);
-        var newStream = BuildOccurrences(newOps);
+        // The projection is lazy; the diff enumerates each side more than once (keys for Match,
+        // atoms for ToPairs, and again on the result), so materialize both once here. That is the
+        // "materialize iff you enumerate more than once" rule: a single-version census consumer
+        // (see Inspect) stays lazy, the diff pays one array per side at this boundary.
+        var oldAtoms = ProjectAtoms(oldOps, subject).ToImmutableArray();
+        var newAtoms = ProjectAtoms(newOps, subject).ToImmutableArray();
 
         FindingMatch match;
         try
         {
-            match = FindingMatcher.Match(oldStream, newStream);
+            match = FindingMatcher.Match(oldAtoms.Keys(), newAtoms.Keys());
         }
         catch (ArgumentException ex)
         {
@@ -50,9 +79,9 @@ public static class IlFindings
             return IlFindingsResult.Failed(ex.Message);
         }
 
-        var rows = FindingFold.ToRows(match, oldStream, newStream, subject, OperationDescriptor, acceptanceThreshold);
-        rows = ApplyBranchTargetValidation(rows, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
-        return new IlFindingsResult(rows, match, oldStream, newStream, Failure: null);
+        var pairs = FindingFold.ToPairs(match, oldAtoms, newAtoms, acceptanceThreshold);
+        pairs = ApplyBranchTargetValidation(pairs, oldBody.Instructions, oldOps, newBody.Instructions, newOps);
+        return new IlFindingsResult(pairs, match, oldAtoms, newAtoms, Failure: null);
     }
 
     // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
@@ -60,55 +89,66 @@ public static class IlFindings
     // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
     // then overlay the finding Moved mappings so a branch that targets a relocated instruction is
     // judged in the finding frame (its target moved with it) rather than being falsely retargeted.
-    // On move-free inputs there are no Moved rows, so the map is exactly IlBodyDiff's.
-    static ImmutableArray<Finding> ApplyBranchTargetValidation(
-        ImmutableArray<Finding> rows,
+    // On move-free inputs there are no Moved pairs, so the map is exactly IlBodyDiff's.
+    static ImmutableArray<PairFinding<CanonicalIlOperation>> ApplyBranchTargetValidation(
+        ImmutableArray<PairFinding<CanonicalIlOperation>> pairs,
         ImmutableArray<DecodedInstruction> oldInstructions,
         ImmutableArray<CanonicalIlOperation> oldOps,
         ImmutableArray<DecodedInstruction> newInstructions,
         ImmutableArray<CanonicalIlOperation> newOps)
     {
         var alignment = new Dictionary<int, int>(IlBodyDiff.BuildAlignmentMap(oldOps, newOps));
-        foreach (var row in rows)
+        foreach (var pair in pairs)
         {
-            if (row.DifferenceKind == FindingDifferenceKind.Moved
-                && row.Anchor.OldIndex >= 0
-                && row.Anchor.NewIndex >= 0)
-            {
-                alignment[row.Anchor.OldIndex] = row.Anchor.NewIndex;
-            }
+            if (pair.Difference == FindingDifferenceKind.Moved && pair.Old is not null && pair.New is not null)
+                alignment[pair.Old.Position] = pair.New.Position;
         }
 
-        var builder = ImmutableArray.CreateBuilder<Finding>(rows.Length);
-        foreach (var row in rows)
+        var builder = ImmutableArray.CreateBuilder<PairFinding<CanonicalIlOperation>>(pairs.Length);
+        foreach (var pair in pairs)
         {
-            if (row.Kind == FindingKind.Present
-                && row.Anchor.OldIndex >= 0
-                && row.Anchor.NewIndex >= 0
-                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, row.Anchor.OldIndex, newInstructions, row.Anchor.NewIndex, alignment))
+            if (pair.Kind == PairKind.Present
+                && pair.Old is not null
+                && pair.New is not null
+                && !IlBodyDiff.BranchTargetsMatch(oldInstructions, pair.Old.Position, newInstructions, pair.New.Position, alignment))
             {
-                builder.Add(row with { Kind = FindingKind.Changed, Detail = "branch retargeted" });
+                // A moved-and-retargeted operation keeps its move Detail; append the retarget so
+                // neither the distance nor the retarget note is lost. ContentChanged flips the
+                // derived Kind from Present to Changed while keeping both sides.
+                builder.Add(pair with
+                {
+                    ContentChanged = true,
+                    Detail = pair.Detail is null ? "branch retargeted" : $"{pair.Detail}; branch retargeted",
+                });
             }
             else
             {
-                builder.Add(row);
+                builder.Add(pair);
             }
         }
 
         return builder.ToImmutable();
     }
 
-    static ImmutableArray<FindingOccurrence> BuildOccurrences(ImmutableArray<CanonicalIlOperation> operations)
+    // The shared ops->findings projection used by Inspect (lazy) and Compare (materialized). One
+    // Finding per operation, carrying its content key and stream position. Private: canonicalized
+    // ops are an internal shape; callers reach findings through Inspect or Compare, which own
+    // canonicalization. Both callers guard their arguments before reaching here.
+    static IEnumerable<Finding<CanonicalIlOperation>> ProjectAtoms(
+        ImmutableArray<CanonicalIlOperation> operations,
+        FindingSubject subject)
     {
-        var builder = ImmutableArray.CreateBuilder<FindingOccurrence>(operations.Length);
-        foreach (var operation in operations)
+        for (int i = 0; i < operations.Length; i++)
         {
             // ScopeKey is left null in the pilot: move detection is corroborated by run
             // contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
-            builder.Add(new FindingOccurrence(GetIdentityKey(operation), ScopeKey: null, Payload: operation));
+            yield return new Finding<CanonicalIlOperation>(
+                subject,
+                OperationDescriptor,
+                new FindingKey(GetIdentityKey(operations[i])),
+                i,
+                operations[i]);
         }
-
-        return builder.MoveToImmutable();
     }
 
     /// <summary>
@@ -133,14 +173,14 @@ public static class IlFindings
 
 /// <summary>The outcome of an <see cref="IlFindings.Compare"/> call.</summary>
 public sealed record IlFindingsResult(
-    ImmutableArray<Finding> Rows,
+    ImmutableArray<PairFinding<CanonicalIlOperation>> Pairs,
     FindingMatch Match,
-    ImmutableArray<FindingOccurrence> OldOccurrences,
-    ImmutableArray<FindingOccurrence> NewOccurrences,
+    ImmutableArray<Finding<CanonicalIlOperation>> OldAtoms,
+    ImmutableArray<Finding<CanonicalIlOperation>> NewAtoms,
     string? Failure)
 {
     /// <summary>True when the bodies are exact under the fidelity fold (no adds/removes/moves).</summary>
-    public bool IsExact => Failure is null && FindingEquivalence.Exact.IsEquivalent(Rows);
+    public bool IsExact => Failure is null && FindingEquivalence.Exact.IsEquivalent(Pairs);
 
     public static IlFindingsResult Failed(string failure)
         => new([], new FindingMatch([], []), [], [], failure);

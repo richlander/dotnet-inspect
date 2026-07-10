@@ -14,11 +14,11 @@ public enum DiffShape
 }
 
 /// <summary>
-/// A minimal, stream-agnostic consumer of finding rows. It reads only the skeleton
-/// (<see cref="FindingKind"/> and <see cref="FindingDifferenceKind"/>) — never the opaque
-/// payload — so the same code summarizes an IL diff, a C# diff, or a semantic-fact stream. This
-/// is the shape a cross-stream consumer (e.g. Performance Triage) is built from: uniform queries
-/// over one row envelope, regardless of which producer emitted the rows.
+/// A minimal, stream-agnostic consumer of transition rows. It reads only the pair skeleton
+/// (<see cref="IPairFinding.Kind"/> and <see cref="IPairFinding.Difference"/>) — never the opaque
+/// payload — so the same code summarizes an IL diff, a C# diff, or an API diff. This is the shape
+/// a cross-stream consumer (e.g. Performance Triage) is built from: uniform queries over one
+/// transition envelope, regardless of which producer emitted the pairs.
 /// </summary>
 public sealed record FindingSummary(
     int Total,
@@ -29,9 +29,9 @@ public sealed record FindingSummary(
     int Moved,
     DiffShape Shape)
 {
-    public static FindingSummary Summarize(IReadOnlyList<Finding> rows)
+    public static FindingSummary Summarize(IReadOnlyList<IPairFinding> pairs)
     {
-        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(pairs);
 
         int present = 0;
         int added = 0;
@@ -39,25 +39,25 @@ public sealed record FindingSummary(
         int changed = 0;
         int moved = 0;
 
-        foreach (var row in rows)
+        foreach (var pair in pairs)
         {
-            switch (row.Kind)
+            switch (pair.Kind)
             {
-                case FindingKind.Present:
+                case PairKind.Present:
                     present++;
                     break;
-                case FindingKind.Added:
+                case PairKind.Added:
                     added++;
                     break;
-                case FindingKind.Removed:
+                case PairKind.Removed:
                     removed++;
                     break;
-                case FindingKind.Changed:
+                case PairKind.Changed:
                     changed++;
                     break;
             }
 
-            if (row.DifferenceKind == FindingDifferenceKind.Moved)
+            if (pair.Difference == FindingDifferenceKind.Moved)
                 moved++;
         }
 
@@ -66,6 +66,6 @@ public sealed record FindingSummary(
             ? DiffShape.Structural
             : moved > 0 ? DiffShape.ReorderOnly : DiffShape.Identical;
 
-        return new FindingSummary(rows.Count, present, added, removed, changed, moved, verdict);
+        return new FindingSummary(pairs.Count, present, added, removed, changed, moved, verdict);
     }
 }
