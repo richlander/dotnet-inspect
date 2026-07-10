@@ -104,16 +104,16 @@ public class SourceTextDiffTests
     }
 
     [Fact]
-    public void WhitespaceDifference_IsStructuralText_NotEncodingOnly()
+    public void WhitespaceDifference_IsStructuralText()
     {
         var result = SourceTextDiff.Compare("value ", "value", Subject);
 
         Assert.False(result.IsExact);
         Assert.Equal(1, result.Pairs.Count(pair => pair.Kind == PairKind.Added));
         Assert.Equal(1, result.Pairs.Count(pair => pair.Kind == PairKind.Removed));
-        Assert.DoesNotContain(
+        Assert.All(
             result.Pairs,
-            pair => pair.Difference == FindingDifferenceKind.EncodingOnly);
+            pair => Assert.Equal(FindingDifferenceKind.None, pair.Difference));
     }
 
     [Fact]
@@ -163,5 +163,32 @@ public class SourceTextDiffTests
         Assert.Throws<ArgumentNullException>(() => SourceTextDiff.Compare(null!, "", Subject));
         Assert.Throws<ArgumentNullException>(() => SourceTextDiff.Compare("", null!, Subject));
         Assert.Throws<ArgumentNullException>(() => SourceTextDiff.Compare("", "", null!));
+    }
+
+    [Fact]
+    public void Result_RejectsInvalidPublicStates()
+    {
+        var valid = SourceTextDiff.Compare("", "", Subject);
+
+        Assert.Throws<ArgumentException>(() =>
+            new SourceTextDiffResult(default, valid.Match, valid.OldAtoms, valid.NewAtoms));
+        Assert.Throws<ArgumentNullException>(() =>
+            new SourceTextDiffResult(valid.Pairs, null!, valid.OldAtoms, valid.NewAtoms));
+        Assert.Throws<ArgumentException>(() =>
+            new SourceTextDiffResult(
+                valid.Pairs,
+                new FindingMatch(default, []),
+                valid.OldAtoms,
+                valid.NewAtoms));
+        Assert.Throws<ArgumentException>(() =>
+            new SourceTextDiffResult(
+                valid.Pairs,
+                new FindingMatch([], default),
+                valid.OldAtoms,
+                valid.NewAtoms));
+        Assert.Throws<ArgumentException>(() =>
+            new SourceTextDiffResult(valid.Pairs, valid.Match, default, valid.NewAtoms));
+        Assert.Throws<ArgumentException>(() =>
+            new SourceTextDiffResult(valid.Pairs, valid.Match, valid.OldAtoms, default));
     }
 }

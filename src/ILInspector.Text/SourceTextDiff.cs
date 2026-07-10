@@ -91,6 +91,33 @@ public sealed record SourceTextDiffResult(
     ImmutableArray<Finding<string>> OldAtoms,
     ImmutableArray<Finding<string>> NewAtoms)
 {
+    public ImmutableArray<PairFinding<string>> Pairs { get; }
+        = Pairs.IsDefault
+            ? throw new ArgumentException("Pairs must be initialized.", nameof(Pairs))
+            : Pairs;
+
+    public FindingMatch Match { get; }
+        = ValidateMatch(Match);
+
+    public ImmutableArray<Finding<string>> OldAtoms { get; }
+        = OldAtoms.IsDefault
+            ? throw new ArgumentException("Old atoms must be initialized.", nameof(OldAtoms))
+            : OldAtoms;
+
+    public ImmutableArray<Finding<string>> NewAtoms { get; }
+        = NewAtoms.IsDefault
+            ? throw new ArgumentException("New atoms must be initialized.", nameof(NewAtoms))
+            : NewAtoms;
+
     /// <summary>True when the documents have the same logical lines in the same order.</summary>
     public bool IsExact => FindingEquivalence.Exact.IsEquivalent(Pairs);
+
+    static FindingMatch ValidateMatch(FindingMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        if (match.Edges.IsDefault || match.MoveCandidates.IsDefault)
+            throw new ArgumentException("Match arrays must be initialized.", nameof(match));
+
+        return match;
+    }
 }

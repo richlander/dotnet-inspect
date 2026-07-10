@@ -9,6 +9,8 @@ internal static class SourceTextDiffRenderer
 
     public static string CreateUnifiedDiff(string? before, string? after, string beforeLabel, string afterLabel)
     {
+        // Null is the caller-level unavailable state. Non-null empty and whitespace-only
+        // documents remain valid exact text inputs.
         if (before is null)
             return $"# {beforeLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
         if (after is null)

@@ -64,7 +64,7 @@ public class SourceTextDiffRendererTests
     }
 
     [Fact]
-    public void EmptyAndWhitespaceOnlyText_AreValidInputs()
+    public void NonNullEmptyAndWhitespaceOnlyText_AreValidInputs()
     {
         Assert.Equal(
             "# Before and After are identical.",
