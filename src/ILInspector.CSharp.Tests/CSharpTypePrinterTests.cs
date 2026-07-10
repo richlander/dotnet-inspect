@@ -430,6 +430,114 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RenderingSnapshotDoesNotRetainMutableMetadataAliases()
+    {
+        var typeParameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints = ["System.IDisposable"]
+        };
+        var parameter = new ApiParameter
+        {
+            Attributes = ["ParamMarker"],
+            Name = "value",
+            Type = "T"
+        };
+        var accessor = new ApiAccessor
+        {
+            Kind = "get",
+            ReturnAttributes = ["AccessorMarker"]
+        };
+        var method = new ApiMember
+        {
+            Name = "Transform",
+            Kind = "method",
+            Attributes = ["MemberMarker"],
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "T",
+                ReturnAttributes = ["ReturnMarker"],
+                MemberName = "Transform",
+                Parameters = [parameter]
+            }
+        };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "Value",
+                IsRequired = true,
+                Accessors = [accessor]
+            }
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Container`1",
+            MetadataName = "Container`1",
+            Kind = "class",
+            Attributes = ["TypeMarker"],
+            BaseType = "Samples.BaseType",
+            Interfaces = ["Samples.IContract"],
+            TypeParameters = [typeParameter],
+            Members = [method, property]
+        };
+
+        var snapshot = CSharpTypePrinter.SnapshotTypeForRendering(type, type.Members);
+
+        type.Namespace = "Mutated";
+        type.Name = "Mutated";
+        type.MetadataName = "Mutated";
+        type.Kind = "enum";
+        type.Attributes[0] = "Mutated";
+        type.BaseType = "Mutated";
+        type.Interfaces[0] = "Mutated";
+        typeParameter.Name = "Mutated";
+        typeParameter.Constraints[0] = "Mutated";
+        method.Name = "Mutated";
+        method.Kind = "field";
+        method.Attributes[0] = "Mutated";
+        method.SignatureModel!.ReturnType = "Mutated";
+        method.SignatureModel.ReturnAttributes[0] = "Mutated";
+        method.SignatureModel.MemberName = "Mutated";
+        parameter.Attributes[0] = "Mutated";
+        parameter.Name = "Mutated";
+        parameter.Type = "Mutated";
+        property.SignatureModel!.ReturnType = "Mutated";
+        property.SignatureModel.MemberName = "Mutated";
+        property.SignatureModel.IsRequired = false;
+        accessor.Kind = "set";
+        accessor.ReturnAttributes[0] = "Mutated";
+
+        var rendered = CSharpDeclarationWriter.RenderTypeUnit(
+            snapshot,
+            snapshot.Members,
+            new CSharpDeclarationOptions
+            {
+                TypeNameMode = CSharpTypeNameMode.ContextualShort,
+                NamespaceMode = CSharpNamespaceMode.Omit,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains(
+            "[TypeMarker] public class Container<T> : Samples.BaseType, Samples.IContract where T : System.IDisposable",
+            rendered.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[MemberMarker] [return: ReturnMarker] public T Transform([ParamMarker] T value);",
+            rendered.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public required string Value { [return: AccessorMarker] get; }",
+            rendered.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Mutated", rendered.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NullCallsResolveToExplicitArgumentFailures()
     {
         Assert.Throws<ArgumentNullException>(() => _printer.Print(null!));

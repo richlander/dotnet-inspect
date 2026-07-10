@@ -30,23 +30,37 @@ public sealed class CSharpTypePrinter
         var diagnostics = ImmutableArray.CreateBuilder<CSharpTypePrintDiagnostic>();
         foreach (var request in requestList)
         {
-            ValidateRequiredShape(request.Type);
-            ValidateTopLevelSkeletonType(request.Type);
+            var memberArray = (request.Members ?? request.Type.Members
+                ?? throw new ArgumentException(
+                    $"Type '{request.Type.FullName}' has a null member collection.",
+                    nameof(requests)))
+                .ToArray();
+            if (memberArray.Any(member => member is null))
+            {
+                throw new ArgumentException(
+                    $"Type '{request.Type.FullName}' has a null member entry.",
+                    nameof(requests));
+            }
 
-            var containingNamespace = NormalizeNamespace(request.Type.Namespace);
+            var type = SnapshotTypeForRendering(request.Type, memberArray);
+            ValidateRequiredShape(type);
+            ValidateTopLevelSkeletonType(type);
+            ValidateResolvedBodyPolicies(request, memberArray, nameof(requests));
+
+            var containingNamespace = NormalizeNamespace(type.Namespace);
             var canonicalIdentity = new TypeOutputIdentity(
                 containingNamespace,
-                string.IsNullOrWhiteSpace(request.Type.MetadataName)
-                    ? request.Type.Name
-                    : request.Type.MetadataName);
+                string.IsNullOrWhiteSpace(type.MetadataName)
+                    ? type.Name
+                    : type.MetadataName);
             var outputIdentity = new TypeOutputIdentity(
                 containingNamespace,
-                request.Type.Name);
+                type.Name);
             if (!canonicalIdentities.Add(canonicalIdentity)
                 || !outputIdentities.Add(outputIdentity))
             {
                 throw new ArgumentException(
-                    $"Type print requests contain duplicate C# type '{request.Type.FullName}'.",
+                    $"Type print requests contain duplicate C# type '{type.FullName}'.",
                     nameof(requests));
             }
 
@@ -59,22 +73,9 @@ public sealed class CSharpTypePrinter
                 IncludeCustomAttributes = options.IncludeCustomAttributes
             };
 
-            var memberArray = (request.Members ?? request.Type.Members
-                ?? throw new ArgumentException(
-                    $"Type '{request.Type.FullName}' has a null member collection.",
-                    nameof(requests)))
-                .ToArray();
-            if (memberArray.Any(member => member is null))
-            {
-                throw new ArgumentException(
-                    $"Type '{request.Type.FullName}' has a null member entry.",
-                    nameof(requests));
-            }
-            ValidateResolvedBodyPolicies(request, memberArray, nameof(requests));
-
             var rendered = CSharpDeclarationWriter.RenderTypeUnit(
-                request.Type,
-                memberArray,
+                type,
+                type.Members,
                 declarationOptions);
 
             if (rendered.Usings.Count > 0)
@@ -83,7 +84,7 @@ public sealed class CSharpTypePrinter
                     "Namespace-batched type source cannot contain declaration-local using directives.");
             }
 
-            var typeName = request.Type.FullName;
+            var typeName = type.FullName;
             preparedTypes.Add(new PreparedTypeSource(containingNamespace, rendered.Source));
             diagnostics.AddRange(rendered.Diagnostics.Select(
                 diagnostic => new CSharpTypePrintDiagnostic(typeName, diagnostic)));
@@ -105,6 +106,114 @@ public sealed class CSharpTypePrinter
 
     static string NormalizeNamespace(string? value)
         => string.IsNullOrWhiteSpace(value) ? "" : value;
+
+    internal static ApiType SnapshotTypeForRendering(
+        ApiType type,
+        IReadOnlyList<ApiMember> members)
+    {
+        var attributes = type.Attributes;
+        var interfaces = type.Interfaces;
+        var typeParameters = type.TypeParameters;
+        return new ApiType
+        {
+            Namespace = type.Namespace,
+            Name = type.Name,
+            MetadataName = type.MetadataName,
+            Kind = type.Kind,
+            Attributes = attributes?.ToList()!,
+            EnumUnderlyingType = type.EnumUnderlyingType,
+            IsSealed = type.IsSealed,
+            IsAbstract = type.IsAbstract,
+            IsStatic = type.IsStatic,
+            IsByRefLike = type.IsByRefLike,
+            IsReadOnly = type.IsReadOnly,
+            BaseType = type.BaseType,
+            Interfaces = interfaces?.ToList()!,
+            TypeParameters = typeParameters?.Select(SnapshotTypeParameter).ToList()!,
+            Members = members.Select(SnapshotMember).ToList()
+        };
+    }
+
+    static ApiMember SnapshotMember(ApiMember member)
+    {
+        var attributes = member.Attributes;
+        var signatureModel = member.SignatureModel;
+        return new ApiMember
+        {
+            Name = member.Name,
+            Kind = member.Kind,
+            Attributes = attributes?.ToList()!,
+            ReturnType = member.ReturnType,
+            Signature = member.Signature,
+            SignatureModel = signatureModel is null ? null : SnapshotSignature(signatureModel),
+            IsStatic = member.IsStatic,
+            IsVirtual = member.IsVirtual,
+            IsAbstract = member.IsAbstract,
+            IsOverride = member.IsOverride,
+            IsSealed = member.IsSealed,
+            IsReadOnly = member.IsReadOnly,
+            IsConst = member.IsConst,
+            IsUnsafe = member.IsUnsafe,
+            Accessibility = member.Accessibility,
+            IsExtension = member.IsExtension,
+            IsObsolete = member.IsObsolete,
+            ObsoleteMessage = member.ObsoleteMessage
+        };
+    }
+
+    static ApiSignature SnapshotSignature(ApiSignature signature)
+    {
+        var returnAttributes = signature.ReturnAttributes;
+        var typeParameters = signature.TypeParameters;
+        var parameters = signature.Parameters;
+        var accessors = signature.Accessors;
+        return new ApiSignature
+        {
+            ReturnType = signature.ReturnType,
+            ReturnAttributes = returnAttributes?.ToList()!,
+            MemberName = signature.MemberName,
+            IsRequired = signature.IsRequired,
+            TypeParameters = typeParameters?.Select(SnapshotTypeParameter).ToList()!,
+            Parameters = parameters?.Select(SnapshotParameter).ToList()!,
+            Accessors = accessors?.Select(SnapshotAccessor).ToList()!
+        };
+    }
+
+    static TypeParameter SnapshotTypeParameter(TypeParameter parameter)
+    {
+        var constraints = parameter.Constraints;
+        return new TypeParameter
+        {
+            Name = parameter.Name,
+            Variance = parameter.Variance,
+            Constraints = constraints?.ToList()!
+        };
+    }
+
+    static ApiParameter SnapshotParameter(ApiParameter parameter)
+    {
+        var attributes = parameter.Attributes;
+        return new ApiParameter
+        {
+            Attributes = attributes?.ToList()!,
+            Name = parameter.Name,
+            Type = parameter.Type,
+            Modifier = parameter.Modifier,
+            HasDefault = parameter.HasDefault,
+            DefaultValueText = parameter.DefaultValueText
+        };
+    }
+
+    static ApiAccessor SnapshotAccessor(ApiAccessor accessor)
+    {
+        var returnAttributes = accessor.ReturnAttributes;
+        return new ApiAccessor
+        {
+            Kind = accessor.Kind,
+            Accessibility = accessor.Accessibility,
+            ReturnAttributes = returnAttributes?.ToList()!
+        };
+    }
 
     static void ValidateRequiredShape(ApiType type)
     {

@@ -14,4 +14,8 @@
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ILInspector.CSharp.Tests" />
+  </ItemGroup>
+
 </Project>
