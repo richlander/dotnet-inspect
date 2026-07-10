@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler;
@@ -17,6 +18,12 @@ namespace ILInspector.Decompiler;
 /// </summary>
 public static class TypeSourceComposer
 {
+    static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
+    static readonly CSharpFormatter UnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true);
+    static readonly CSharpFormatter AsyncDeclarationFormatter = CreateDeclarationFormatter(forceAsync: true);
+    static readonly CSharpFormatter AsyncUnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true, forceAsync: true);
+    static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
+
     /// <summary>
     /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
     /// overload for new product and harness code.
@@ -174,17 +181,31 @@ public static class TypeSourceComposer
             return sb.ToString();
         }
 
-        return CSharpDeclarationWriter.RenderTypeDeclaration(type, DeclarationOptions());
+        return DefaultDeclarationFormatter.FormatTypeDeclaration(type);
     }
 
-    static CSharpDeclarationOptions DeclarationOptions(bool forceUnsafe = false, bool forceAsync = false) => new()
-    {
-        ForceAsync = forceAsync,
-        ForceUnsafe = forceUnsafe,
-        IncludeCustomAttributes = false,
-        IncludeObsoleteAttribute = false,
-        OmitInterfaceMemberModifiers = true
-    };
+    static CSharpFormatter CreateDeclarationFormatter(
+        bool forceUnsafe = false,
+        bool forceAsync = false,
+        bool terminateMemberDeclaration = false)
+        => new(new CSharpFormatOptions
+        {
+            ForceAsync = forceAsync,
+            ForceUnsafe = forceUnsafe,
+            IncludeCustomAttributes = false,
+            IncludeObsoleteAttribute = false,
+            OmitInterfaceMemberModifiers = true,
+            TerminateMemberDeclaration = terminateMemberDeclaration
+        });
+
+    static CSharpFormatter DeclarationFormatter(bool forceUnsafe, bool forceAsync)
+        => (forceUnsafe, forceAsync) switch
+        {
+            (false, false) => DefaultDeclarationFormatter,
+            (true, false) => UnsafeDeclarationFormatter,
+            (false, true) => AsyncDeclarationFormatter,
+            (true, true) => AsyncUnsafeDeclarationFormatter
+        };
 
     static string DisplayName(ApiType type)
     {
@@ -437,10 +458,8 @@ public static class TypeSourceComposer
                         break;
                     }
 
-                    var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-                        type,
-                        member,
-                        DeclarationOptions(requiresUnsafeContext, requiresAsync));
+                    var declaration = DeclarationFormatter(requiresUnsafeContext, requiresAsync)
+                        .FormatMember(type, member);
                     AppendMember(sb, declaration, body, constructorChain);
                     break;
                 }
@@ -465,10 +484,7 @@ public static class TypeSourceComposer
                     foreach (var attribute in AttributeReader.RenderEventAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
                         sb.AppendLine($"    [{attribute}]");
-                    string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-                        type,
-                        member,
-                        DeclarationOptions() with { TerminateMemberDeclaration = true });
+                    string declaration = TerminatedDeclarationFormatter.FormatMember(type, member);
                     sb.AppendLine($"    {declaration}");
                     break;
                 }
@@ -742,7 +758,7 @@ public static class TypeSourceComposer
         SortedSet<string> bodyNamespaces)
     {
         string typeFullName = type.FullName;
-        string signature = CSharpDeclarationWriter.RenderMemberDeclaration(type, member, DeclarationOptions());
+        string signature = DefaultDeclarationFormatter.FormatMember(type, member);
         int accessorList = signature.IndexOf('{');
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
@@ -761,7 +777,7 @@ public static class TypeSourceComposer
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
-            signature = CSharpDeclarationWriter.RenderMemberDeclaration(type, member, DeclarationOptions(forceUnsafe: true));
+            signature = UnsafeDeclarationFormatter.FormatMember(type, member);
             accessorList = signature.IndexOf('{');
             head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         }

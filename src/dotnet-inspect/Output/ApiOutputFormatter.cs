@@ -1,6 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Text;
@@ -20,6 +21,12 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class ApiOutputFormatter
 {
+    static readonly CSharpFormatter DefaultCSharpFormatter = new();
+    static readonly CSharpFormatter AbbreviatedCSharpFormatter = new(
+        new CSharpFormatOptions { AbbreviateSignature = true });
+    static readonly CSharpFormatter CSharpFormatterWithoutObsolete = new(
+        new CSharpFormatOptions { IncludeObsoleteAttribute = false });
+
     static IAssemblyReferenceResolver AnalysisReferenceResolver(string dllPath, ApiOptions? options = null)
         => ApiCommand.PlatformAssemblyResolver(dllPath, options?.ProjectAssetsPath, options?.Tfm);
 
@@ -1095,10 +1102,9 @@ public static class ApiOutputFormatter
         {
             if (HasKeywordGenericIdentifier(type, signature))
             {
-                var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+                var declaration = CSharpFormatterWithoutObsolete.FormatMember(
                     type,
-                    constructor,
-                    new CSharpDeclarationOptions { IncludeObsoleteAttribute = false });
+                    constructor);
                 if (!string.IsNullOrWhiteSpace(declaration))
                     return ConstructorCallFromDeclaration(declaration);
             }
@@ -2170,16 +2176,17 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? methodParameters = null,
         bool forceAsync = false,
         bool forceUnsafe = false)
-        => CSharpDeclarationWriter.RenderMemberDeclaration(
-            type,
-            member,
-            new CSharpDeclarationOptions
+    {
+        var formatter = !forceAsync && !forceUnsafe
+            ? abbreviate ? AbbreviatedCSharpFormatter : DefaultCSharpFormatter
+            : new CSharpFormatter(new CSharpFormatOptions
             {
                 AbbreviateSignature = abbreviate,
                 ForceAsync = forceAsync,
                 ForceUnsafe = forceUnsafe
-            },
-            methodParameters);
+            });
+        return formatter.FormatMember(type, member, methodParameters);
+    }
 
     // ===== Helper Methods =====
 

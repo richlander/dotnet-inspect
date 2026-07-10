@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -360,6 +361,10 @@ public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, 
 
 public static class CompileBackSourceComposer
 {
+    static readonly CSharpFormatter DefaultDeclarationFormatter = new();
+    static readonly CSharpFormatter AsyncDeclarationFormatter = new(
+        new CSharpFormatOptions { ForceAsync = true });
+
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -894,7 +899,7 @@ public static class CompileBackSourceComposer
             return;
         }
 
-        var declaration = CSharpDeclarationWriter.RenderTypeDeclaration(ToApiType(type));
+        var declaration = DefaultDeclarationFormatter.FormatTypeDeclaration(ToApiType(type));
         if (type.PrimaryConstructorParameters is { Length: > 0 } parameters)
             declaration = AddPrimaryConstructorParameters(declaration, parameters);
         sb.AppendLine($"{pad}{declaration}");
@@ -941,10 +946,9 @@ public static class CompileBackSourceComposer
 
         var apiType = ToApiType(type);
         var apiMember = ToApiMember(type, member);
-        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-            apiType,
-            apiMember,
-            new CSharpDeclarationOptions { ForceAsync = member.IsAsync });
+        string declaration = (member.IsAsync
+            ? AsyncDeclarationFormatter
+            : DefaultDeclarationFormatter).FormatMember(apiType, apiMember);
         switch (member.Kind)
         {
             case CompileBackMemberKind.PropertyGet:
