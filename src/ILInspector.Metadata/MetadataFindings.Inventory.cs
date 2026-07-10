@@ -221,25 +221,30 @@ public static partial class MetadataFindings
 
     static FindingComparison<T> CompareInventory<T>(
         FindingInspection<T> oldInspection,
-        FindingInspection<T> newInspection)
+        FindingInspection<T> newInspection,
+        Func<T, T, bool>? payloadsEqual = null)
         where T : notnull
         => FindingComparison.Compare(
             oldInspection,
             newInspection,
             IdentitySetOptions)
-            .TransformPairs(PromoteChangedPayloads);
+            .TransformPairs(pairs => PromoteChangedPayloads(pairs, payloadsEqual));
 
     static ImmutableArray<PairFinding<T>> PromoteChangedPayloads<T>(
-        ImmutableArray<PairFinding<T>> pairs)
+        ImmutableArray<PairFinding<T>> pairs,
+        Func<T, T, bool>? payloadsEqual)
         where T : notnull
     {
         var builder = ImmutableArray.CreateBuilder<PairFinding<T>>(pairs.Length);
         foreach (var pair in pairs)
         {
             if (pair is PairFinding<T>.Present present
-                && !EqualityComparer<T>.Default.Equals(
-                    present.Old.Payload,
-                    present.New.Payload))
+                && !(payloadsEqual?.Invoke(
+                        present.Old.Payload,
+                        present.New.Payload)
+                    ?? EqualityComparer<T>.Default.Equals(
+                        present.Old.Payload,
+                        present.New.Payload)))
             {
                 builder.Add(new PairFinding<T>.Changed(
                     present.Old,
@@ -260,6 +265,16 @@ public static partial class MetadataFindings
         var builder = new StringBuilder();
         AppendSortKeyPart(builder, first);
         AppendSortKeyPart(builder, second);
+        return builder.ToString();
+    }
+
+    static string JoinSortKey(IEnumerable<string?> parts)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+
+        var builder = new StringBuilder();
+        foreach (var part in parts)
+            AppendSortKeyPart(builder, part);
         return builder.ToString();
     }
 
