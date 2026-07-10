@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
@@ -12,6 +13,52 @@ namespace ILInspector.Research.Tests;
 
 public class ResearchDiffTests
 {
+    [Fact]
+    public void ResearchComparison_StoresChangesOnceAndComputesSubjectGroups()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var first = new ResearchChange(
+            subject,
+            ResearchChangeMechanism.CSharp,
+            new FindingDescriptor("csharp.line.added", "C# line"),
+            ResearchChangeKind.Added);
+        var second = new ResearchChange(
+            subject,
+            ResearchChangeMechanism.IlBody,
+            new FindingDescriptor("il.operation.added", "IL operation"),
+            ResearchChangeKind.Added);
+        var comparison = new ResearchComparison([first, second]);
+
+        var group = Assert.Single(comparison.BySubject());
+
+        Assert.Equal(subject, group.Subject);
+        Assert.Equal(2, comparison.Changes.Length);
+        Assert.Contains(first, group.Changes);
+        Assert.Contains(second, group.Changes);
+    }
+
+    [Fact]
+    public void ResearchComparison_RejectsDefaultChanges()
+        => Assert.Throws<ArgumentException>(() => new ResearchComparison(default));
+
+    [Fact]
+    public void ResearchChange_RejectsCompositeMechanism()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ResearchChange(
+            subject,
+            ResearchChangeMechanism.CSharp | ResearchChangeMechanism.IlBody,
+            new FindingDescriptor("implementation.changed", "Implementation"),
+            ResearchChangeKind.Changed));
+    }
+
     [Fact]
     public void ResearchMemberIdentity_SubjectFromAnchor_PreservesAnchorIdentityAndDisplay()
     {
@@ -24,7 +71,7 @@ public class ResearchDiffTests
 
         var subject = ResearchMemberIdentity.SubjectFromAnchor(anchor, "Sample.Widget.M(System.Int32)");
 
-        Assert.Equal(ResearchDiffSubjectKind.Member, subject.Kind);
+        Assert.Equal(ResearchSubjectKind.Member, subject.Kind);
         Assert.Equal(anchor.StableSelector, subject.Id);
         Assert.Equal("Sample.Widget.M(System.Int32)", subject.Display);
         Assert.Equal(anchor.TypeFullName, subject.TypeName);
@@ -133,6 +180,15 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
 
+        var apiComparison = Assert.IsType<ApiFindingComparison>(diff.ApiComparison);
+        var memberComparison = apiComparison.Members switch
+        {
+            FindingComparison<ApiMemberHandle>.Complete complete => complete,
+            _ => throw new Xunit.Sdk.XunitException("Expected a complete API member comparison."),
+        };
+        Assert.Contains(memberComparison.Pairs, pair =>
+            pair is PairFinding<ApiMemberHandle>.Added added
+            && added.New.Payload.MemberName == "Added");
         var changed = Assert.Single(diff.MembersWhere(member => member.ApiChanged));
         Assert.Equal("Added", changed.Subject.MemberName);
         Assert.True(changed.HasChange("api.member-added"));
@@ -182,10 +238,10 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.FromApiDiff(api);
 
-        var row = Assert.Single(diff.Rows);
-        Assert.Equal("api.member-added", row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.MetadataApi, row.EvidenceKind);
-        Assert.Equal("Member 'Added' was added", row.Message);
+        var row = Assert.Single(diff.Changes);
+        Assert.Equal("api.member-added", row.Descriptor.Id);
+        Assert.Equal(ResearchChangeMechanism.Api, row.Mechanism);
+        Assert.Equal("Member 'Added' was added", row.Detail);
         Assert.Same(Assert.Single(Assert.Single(api.TypeDiffs).Changes), row.ApiChange);
     }
 
@@ -201,18 +257,18 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.FromIlBodyDiff(il);
 
-        var row = Assert.Single(diff.Rows);
-        Assert.Equal("il.operation.added", row.ChangeId);
-        Assert.Equal(ilRow.Message, row.Message);
+        var row = Assert.Single(diff.Changes);
+        Assert.Equal("il.operation.added", row.Descriptor.Id);
+        Assert.Equal(ilRow.Message, row.Detail);
         Assert.Same(ilRow, row.IlRow);
-        Assert.NotNull(row.IlDisplayRow);
-        Assert.Equal(3, row.IlDisplayRow.HunkId);
-        Assert.Equal("+", row.IlDisplayRow.Marker);
-        Assert.Equal("IL_0000", row.IlDisplayRow.Offset);
-        Assert.Equal("ldc.i4", row.IlDisplayRow.OpcodeFamily);
-        Assert.Equal(IlOperandIdentityKind.Immediate, row.IlDisplayRow.OperandKind);
-        Assert.Equal("2", row.IlDisplayRow.OperandValue);
-        Assert.Equal("h3 + IL_0000 ldc.i4 2", row.IlDisplayRow.UnifiedLine);
+        var displayRow = Assert.Single(row.IlDisplayRows);
+        Assert.Equal(3, displayRow.HunkId);
+        Assert.Equal("+", displayRow.Marker);
+        Assert.Equal("IL_0000", displayRow.Offset);
+        Assert.Equal("ldc.i4", displayRow.OpcodeFamily);
+        Assert.Equal(IlOperandIdentityKind.Immediate, displayRow.OperandKind);
+        Assert.Equal("2", displayRow.OperandValue);
+        Assert.Equal("h3 + IL_0000 ldc.i4 2", displayRow.UnifiedLine);
     }
 
     [Fact]
@@ -222,10 +278,10 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.FromIlBodyDiff(il);
 
-        var row = Assert.Single(diff.Rows);
-        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.IlBody, row.EvidenceKind);
-        Assert.Equal("new body missing", row.Message);
+        var row = Assert.Single(diff.Changes);
+        Assert.Equal("il.diff.new-body-missing", row.Descriptor.Id);
+        Assert.Equal(ResearchChangeMechanism.IlBody, row.Mechanism);
+        Assert.Equal("new body missing", row.Detail);
         var failure = Assert.IsType<IlDiffFailureRow>(row.IlFailureRow);
         Assert.Equal(IlDiffFailureKind.NewBodyMissing, failure.Kind);
         Assert.Equal("new", failure.Side);
@@ -254,19 +310,18 @@ public class ResearchDiffTests
         var diff = ResearchDiff.FromIlBodyDiff(il);
 
         Assert.Collection(
-            diff.Rows,
+            diff.Changes,
             failure =>
             {
-                Assert.Equal("il.diff.unsupported-boundary", failure.ChangeId);
+                Assert.Equal("il.diff.unsupported-boundary", failure.Descriptor.Id);
                 Assert.NotNull(failure.IlFailureRow);
                 Assert.Null(failure.IlRow);
             },
             operationRow =>
             {
-                Assert.Equal("il.operation.removed", operationRow.ChangeId);
+                Assert.Equal("il.operation.removed", operationRow.Descriptor.Id);
                 Assert.Same(ilRow, operationRow.IlRow);
-                Assert.NotNull(operationRow.IlDisplayRow);
-                Assert.Equal("h0 - IL_0000 nop", operationRow.IlDisplayRow.UnifiedLine);
+                Assert.Equal("h0 - IL_0000 nop", Assert.Single(operationRow.IlDisplayRows).UnifiedLine);
                 Assert.Null(operationRow.IlFailureRow);
             });
     }
@@ -282,17 +337,17 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.FromCSharpBodyDiff(new CSharpBodyDiffResult([csharpRow]));
 
-        var row = Assert.Single(diff.Rows);
-        Assert.Equal(csharpRow.ChangeId, row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.CSharp, row.EvidenceKind);
-        Assert.Equal(csharpRow.Message, row.Message);
+        var row = Assert.Single(diff.Changes);
+        Assert.Equal(csharpRow.ChangeId, row.Descriptor.Id);
+        Assert.Equal(ResearchChangeMechanism.CSharp, row.Mechanism);
+        Assert.Equal(csharpRow.Message, row.Detail);
         Assert.Same(csharpRow, row.CSharpRow);
-        Assert.NotNull(row.CSharpDisplayRow);
-        Assert.Equal(csharpRow.HunkId, row.CSharpDisplayRow.HunkId);
-        Assert.Equal("-", row.CSharpDisplayRow.Marker);
-        Assert.Equal(CSharpDiffOperationKind.Line, row.CSharpDisplayRow.OperationKind);
-        Assert.Equal(csharpRow.Text, row.CSharpDisplayRow.Operation);
-        Assert.Contains(csharpRow.Text, row.CSharpDisplayRow.UnifiedLine, StringComparison.Ordinal);
+        var displayRow = Assert.Single(row.CSharpDisplayRows);
+        Assert.Equal(csharpRow.HunkId, displayRow.HunkId);
+        Assert.Equal("-", displayRow.Marker);
+        Assert.Equal(CSharpDiffOperationKind.Line, displayRow.OperationKind);
+        Assert.Equal(csharpRow.Text, displayRow.Operation);
+        Assert.Contains(csharpRow.Text, displayRow.UnifiedLine, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -306,16 +361,18 @@ public class ResearchDiffTests
 
         var diff = ResearchDiff.FromCSharpBodyDiff(csharp);
 
-        var row = Assert.Single(diff.Rows, row => row.CSharpFailureRow is not null);
-        Assert.Equal("csharp.diff.old-body-missing", row.ChangeId);
-        Assert.Equal(ResearchDiffEvidenceKind.CSharp, row.EvidenceKind);
-        Assert.Equal(failureRow.Message, row.Message);
+        var row = Assert.Single(diff.Changes, row => row.CSharpFailureRow is not null);
+        Assert.Equal("csharp.diff.old-body-missing", row.Descriptor.Id);
+        Assert.Equal(ResearchChangeMechanism.CSharp, row.Mechanism);
+        Assert.Equal(failureRow.Message, row.Detail);
         Assert.Same(failureRow, row.CSharpFailureRow);
         Assert.NotNull(row.CSharpDisplayFailureRow);
         Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, row.CSharpDisplayFailureRow.Kind);
         Assert.Equal("old", row.CSharpDisplayFailureRow.Side);
         Assert.Equal("C# diff failed: Old method has no C# body.", row.CSharpDisplayFailureRow.UnifiedLine);
-        Assert.Contains(diff.Rows, row => row.CSharpRow is not null && row.ChangeId == "csharp.method.body-added");
+        Assert.Contains(diff.Changes, row =>
+            row.CSharpRow is not null
+            && row.Descriptor.Id == "csharp.method.body-added");
     }
 
     [Fact]
@@ -330,7 +387,38 @@ public class ResearchDiffTests
         var combined = ResearchDiff.Combine(apiResult, ilResult);
 
         Assert.Same(api, combined.ApiDiff);
-        Assert.Single(combined.Rows);
+        Assert.Null(combined.ApiComparison);
+        Assert.Single(combined.Changes);
+    }
+
+    [Fact]
+    public void Combine_PreservesStructuredApiComparison()
+    {
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var apiResult = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
+
+        var combined = ResearchDiff.Combine(apiResult, ilResult);
+
+        Assert.Same(apiResult.ApiComparison, combined.ApiComparison);
+        Assert.Same(apiResult.ApiDiff, combined.ApiDiff);
+    }
+
+    [Fact]
+    public void Combine_PrefersStructuredApiComparisonOverEarlierLegacyApiDiff()
+    {
+        var legacySurface = Surface("Legacy", Member("Existing"));
+        var legacyResult = ResearchDiff.FromApiDiff(
+            ApiDiffAnalyzer.Compare(legacySurface, Surface("Legacy", Member("Added"))));
+        var oldSurface = Surface("Widget", Member("Existing"));
+        var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
+        var structuredResult = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
+
+        var combined = ResearchDiff.Combine(legacyResult, structuredResult);
+
+        Assert.Same(structuredResult.ApiComparison, combined.ApiComparison);
+        Assert.Same(structuredResult.ApiDiff, combined.ApiDiff);
     }
 
     [Fact]
@@ -342,7 +430,7 @@ public class ResearchDiffTests
         var diff = ResearchDiff.Compare(
             ResearchDiffInput.FromApiSurface(oldSurface),
             ResearchDiffInput.FromApiSurface(newSurface),
-            new ResearchDiffOptions(ResearchDiffMechanism.Api, ApiScope: ApiDiffScope.Attributes));
+            new ResearchDiffOptions(ResearchChangeMechanism.Api, ApiScope: ApiDiffScope.Attributes));
 
         var changed = Assert.Single(diff.MembersWhere(member => member.ApiAttributeChanged));
         Assert.Equal("Existing", changed.Subject.MemberName);
@@ -361,7 +449,7 @@ public class ResearchDiffTests
         var diff = ResearchDiff.Compare(
             ResearchDiffInput.FromApiSurface(oldSurface),
             ResearchDiffInput.FromApiSurface(newSurface),
-            new ResearchDiffOptions(ResearchDiffMechanism.Api, ApiScope: ApiDiffScope.All));
+            new ResearchDiffOptions(ResearchChangeMechanism.Api, ApiScope: ApiDiffScope.All));
 
         Assert.Single(diff.MembersWhere(member => member.ApiSignatureChanged && member.Subject.MemberName == "Added"));
         Assert.Single(diff.MembersWhere(member => member.ApiAttributeChanged && member.Subject.MemberName == "Existing"));
@@ -373,7 +461,7 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
 
         var unsafeMembers = diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added"));
 
@@ -389,7 +477,7 @@ public class ResearchDiffTests
         var unfiltered = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
         var targetId = Assert.Single(unfiltered.MembersWhere(member =>
             member.Subject.Display.Contains("AddsUnsafe", StringComparison.Ordinal)
             && member.HasChange("unsafe.stackalloc.added"))).Subject.Id;
@@ -398,7 +486,7 @@ public class ResearchDiffTests
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(
-                ResearchDiffMechanism.BodySignals,
+                ResearchChangeMechanism.BodySignals,
                 MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
 
         var changed = Assert.Single(filtered.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
@@ -413,7 +501,7 @@ public class ResearchDiffTests
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
             new ResearchDiffOptions(
-                ResearchDiffMechanism.BodySignals,
+                ResearchChangeMechanism.BodySignals,
                 TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "NoSuchType" }));
 
         Assert.Empty(diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
@@ -439,7 +527,7 @@ public class ResearchDiffTests
         var diff = ResearchDiff.Compare(
             ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
             ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
-            new ResearchDiffOptions(ResearchDiffMechanism.BodySignals));
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
 
         Assert.Empty(diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
     }
@@ -450,7 +538,7 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.IlBody));
+            new ResearchDiffOptions(ResearchChangeMechanism.IlBody));
 
         var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
 
@@ -462,9 +550,11 @@ public class ResearchDiffTests
 
         var constantValue = Assert.Single(changedMembers, member =>
             member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal));
-        var ilEvidence = Assert.Single(constantValue.Evidence, evidence => evidence.ChangeId == "il.hunk.changed");
-        Assert.NotEmpty(ilEvidence.IlDisplayRows);
-        Assert.Contains(ilEvidence.IlDisplayRows, row =>
+        var ilChange = Assert.Single(
+            constantValue.Changes,
+            change => change.Descriptor.Id == "il.hunk.changed");
+        Assert.NotEmpty(ilChange.IlDisplayRows);
+        Assert.Contains(ilChange.IlDisplayRows, row =>
             row.Kind == IlDiffKind.Remove
             && row.Marker == "-"
             && row.OpcodeFamily == "ldc.i4"
@@ -479,7 +569,7 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
 
         var changedMembers = diff.MembersWhere(member => member.ImplementationChanged);
 
@@ -499,16 +589,18 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.Display.Contains("SemanticReturnExpression", StringComparison.Ordinal)
             && member.HasChange("csharp.return-expression.changed")));
         Assert.Contains("SemanticReturnExpression(System.Int32)", changed.Subject.Display, StringComparison.Ordinal);
-        var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.return-expression.changed");
-        Assert.Equal("value + 1", evidence.OldValue);
-        Assert.Equal("value + 2", evidence.NewValue);
-        var displayRow = Assert.Single(evidence.CSharpDisplayRows);
+        var change = Assert.Single(
+            changed.Changes,
+            change => change.Descriptor.Id == "csharp.return-expression.changed");
+        Assert.Equal("value + 1", change.OldValue);
+        Assert.Equal("value + 2", change.NewValue);
+        var displayRow = Assert.Single(change.CSharpDisplayRows);
         Assert.Equal("~", displayRow.Marker);
         Assert.Equal(CSharpDiffOperationKind.ReturnExpression, displayRow.OperationKind);
         Assert.Equal("return value + 1 => return value + 2", displayRow.Operation);
@@ -521,19 +613,21 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BodyStateSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.Display.Contains("BodyStateSample", StringComparison.Ordinal)
             && member.HasChange("csharp.diff.old-body-missing")));
         Assert.Contains("BodyStateSample.BodyState()", changed.Subject.Display, StringComparison.Ordinal);
-        var evidence = Assert.Single(changed.Evidence, evidence => evidence.ChangeId == "csharp.diff.old-body-missing");
-        Assert.Equal(ResearchDiffDirection.Added, evidence.Direction);
-        Assert.NotNull(evidence.CSharpDisplayFailureRow);
-        Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, evidence.CSharpDisplayFailureRow.Kind);
-        Assert.Equal("old", evidence.CSharpDisplayFailureRow.Side);
-        Assert.Equal("C# diff failed: Old method has no C# body.", evidence.CSharpDisplayFailureRow.UnifiedLine);
-        Assert.Contains(changed.Evidence, evidence => evidence.ChangeId == "csharp.method.body-added");
+        var change = Assert.Single(
+            changed.Changes,
+            change => change.Descriptor.Id == "csharp.diff.old-body-missing");
+        Assert.Equal(ResearchChangeKind.Added, change.Kind);
+        Assert.NotNull(change.CSharpDisplayFailureRow);
+        Assert.Equal(CSharpDiffFailureKind.OldBodyMissing, change.CSharpDisplayFailureRow.Kind);
+        Assert.Equal("old", change.CSharpDisplayFailureRow.Side);
+        Assert.Equal("C# diff failed: Old method has no C# body.", change.CSharpDisplayFailureRow.UnifiedLine);
+        Assert.Contains(changed.Changes, change => change.Descriptor.Id == "csharp.method.body-added");
     }
 
     [Fact]
@@ -542,12 +636,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.Api | ResearchChangeMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "Removed"
-            && member.HasMechanism(ResearchDiffMechanism.Api)
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)));
+            && member.HasMechanism(ResearchChangeMechanism.Api)
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)));
 
         Assert.StartsWith("Removed~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -558,14 +652,16 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.Api | ResearchChangeMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MethodRemovalSample" }));
 
         Assert.Contains(diff.MembersWhere(member =>
             member.Subject.MemberName == "Removed"
-            && member.HasMechanism(ResearchDiffMechanism.Api)
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)), member =>
+            && member.HasMechanism(ResearchChangeMechanism.Api)
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)), member =>
             member.Subject.Id.StartsWith("Removed~", StringComparison.Ordinal)
-            && member.Evidence.Any(evidence => evidence.Mechanism == ResearchDiffMechanism.CSharp && evidence.OldValue?.Contains("method removed", StringComparison.Ordinal) == true));
+            && member.Changes.Any(change =>
+                change.Mechanism == ResearchChangeMechanism.CSharp
+                && change.OldValue?.Contains("method removed", StringComparison.Ordinal) == true));
     }
 
     [Fact]
@@ -574,12 +670,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.Api | ResearchDiffMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorRemovalSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.Api | ResearchChangeMechanism.CSharp, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorRemovalSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == ".ctor"
-            && member.HasMechanism(ResearchDiffMechanism.Api)
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)));
+            && member.HasMechanism(ResearchChangeMechanism.Api)
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)));
 
         Assert.StartsWith(".ctor~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -590,12 +686,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OperatorSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp | ResearchChangeMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OperatorSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "op_Addition"
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)
-            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)
+            && member.HasMechanism(ResearchChangeMechanism.IlBody)));
 
         Assert.StartsWith("operator:op_Addition~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -606,12 +702,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConversionSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp | ResearchChangeMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConversionSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "op_Implicit"
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)
-            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)
+            && member.HasMechanism(ResearchChangeMechanism.IlBody)));
 
         Assert.StartsWith("operator:op_Implicit~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -622,12 +718,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp | ResearchChangeMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "GenericParamBody"
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)
-            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)
+            && member.HasMechanism(ResearchChangeMechanism.IlBody)));
 
         Assert.StartsWith("GenericParamBody~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -638,12 +734,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExtensionSample" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp | ResearchChangeMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExtensionSample" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "Twice"
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)
-            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)
+            && member.HasMechanism(ResearchChangeMechanism.IlBody)));
 
         Assert.StartsWith("extension:Twice~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -654,12 +750,12 @@ public class ResearchDiffTests
         var diff = ResearchDiff.CompareAssemblies(
             FixtureCatalog.DiffPair.OldAssemblyPath(),
             FixtureCatalog.DiffPair.NewAssemblyPath(),
-            new ResearchDiffOptions(ResearchDiffMechanism.CSharp | ResearchDiffMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExplicitSurface" }));
+            new ResearchDiffOptions(ResearchChangeMechanism.CSharp | ResearchChangeMechanism.IlBody, TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ExplicitSurface" }));
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "DiffFixtureSample.IExplicitSurface.Get"
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)
-            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)
+            && member.HasMechanism(ResearchChangeMechanism.IlBody)));
 
         Assert.StartsWith("explicit:DiffFixtureSample.IExplicitSurface.Get~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -673,7 +769,7 @@ public class ResearchDiffTests
 
         Assert.Contains(diff.MembersWhere(member => member.ImplementationChanged), member =>
             member.Subject.Display.Contains("ConstantValue", StringComparison.Ordinal)
-            && member.HasMechanism(ResearchDiffMechanism.CSharp));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp));
     }
 
     [Fact]
@@ -685,8 +781,8 @@ public class ResearchDiffTests
 
         var changed = Assert.Single(diff.MembersWhere(member =>
             member.Subject.MemberName == "ConstantValue"
-            && member.HasMechanism(ResearchDiffMechanism.CSharp)
-            && member.HasMechanism(ResearchDiffMechanism.IlBody)));
+            && member.HasMechanism(ResearchChangeMechanism.CSharp)
+            && member.HasMechanism(ResearchChangeMechanism.IlBody)));
 
         Assert.StartsWith("ConstantValue~", changed.Subject.Id, StringComparison.Ordinal);
     }
@@ -701,14 +797,14 @@ public class ResearchDiffTests
 
         var changed = Assert.Single(diff.Members, member => member.Subject.MemberName == "ConstantValue");
 
-        Assert.True(changed.HasCSharpEvidence);
-        Assert.True(changed.HasIlEvidence);
-        Assert.Contains(changed.Evidence, evidence =>
-            evidence.Kind == ImplementationDiffEvidenceKind.CSharp
-            && evidence.UnifiedLines.Any(line => line.Contains("return 1", StringComparison.Ordinal)));
-        Assert.Contains(changed.Evidence, evidence =>
-            evidence.Kind == ImplementationDiffEvidenceKind.IlBody
-            && evidence.UnifiedLines.Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
+        Assert.True(changed.HasCSharpChanges);
+        Assert.True(changed.HasIlChanges);
+        Assert.Contains(changed.Changes, change =>
+            change.Mechanism == ResearchChangeMechanism.CSharp
+            && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("return 1", StringComparison.Ordinal)));
+        Assert.Contains(changed.Changes, change =>
+            change.Mechanism == ResearchChangeMechanism.IlBody
+            && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -723,8 +819,8 @@ public class ResearchDiffTests
             string.Equals(member.Subject.MemberName, "ConstantValue", StringComparison.Ordinal));
         Assert.Contains(diff.Members, member =>
             string.Equals(member.Subject.MemberName, "op_Addition", StringComparison.Ordinal)
-            && member.HasCSharpEvidence
-            && member.HasIlEvidence);
+            && member.HasCSharpChanges
+            && member.HasIlChanges);
     }
 
     [Fact]
@@ -743,12 +839,12 @@ public class ResearchDiffTests
                 TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" },
                 MemberTargetIdentities: new HashSet<string>(StringComparer.Ordinal) { targetId }));
 
-        var researchMembers = scoped.ResearchDiff.MembersWhere(member => member.ImplementationChanged);
+        var researchMembers = scoped.Research.MembersWhere(member => member.ImplementationChanged);
         Assert.All(researchMembers, member => Assert.Equal(targetId, member.Subject.Id));
         var member = Assert.Single(scoped.Members);
         Assert.Equal(targetId, member.Subject.Id);
-        Assert.True(member.HasCSharpEvidence);
-        Assert.True(member.HasIlEvidence);
+        Assert.True(member.HasCSharpChanges);
+        Assert.True(member.HasIlChanges);
     }
 
     [Fact]
@@ -765,7 +861,7 @@ public class ResearchDiffTests
         Assert.True(diff.CSharpDiff.IsExact);
         Assert.NotNull(diff.IlDiff);
         Assert.True(diff.IlDiff.Diff.IsExact);
-        Assert.Empty(diff.Evidence);
+        Assert.Empty(diff.Changes);
     }
 
     [Fact]
@@ -780,18 +876,18 @@ public class ResearchDiffTests
 
         Assert.False(diff.IsExact);
         Assert.Equal("ConstantValue", diff.Subject.MemberName);
-        Assert.True(diff.HasCSharpEvidence);
-        Assert.True(diff.HasIlEvidence);
-        Assert.Contains(diff.Evidence, evidence =>
-            evidence.Kind == ImplementationDiffEvidenceKind.CSharp
-            && evidence.UnifiedLines.Any(line => line.Contains("return 1", StringComparison.Ordinal)));
-        Assert.Contains(diff.Evidence, evidence =>
-            evidence.Kind == ImplementationDiffEvidenceKind.IlBody
-            && evidence.UnifiedLines.Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
+        Assert.True(diff.HasCSharpChanges);
+        Assert.True(diff.HasIlChanges);
+        Assert.Contains(diff.Changes, change =>
+            change.Mechanism == ResearchChangeMechanism.CSharp
+            && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("return 1", StringComparison.Ordinal)));
+        Assert.Contains(diff.Changes, change =>
+            change.Mechanism == ResearchChangeMechanism.IlBody
+            && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
     }
 
     [Fact]
-    public void ImplementationDiff_ToIlEvidence_ProjectsTypedMemberDiffRows()
+    public void ImplementationDiff_ToIlChanges_ProjectsTypedMemberDiffRows()
     {
         var typedDiff = new IlMemberDiffResult(
             new IlMemberDiffSubject("old-id", "old-label"),
@@ -818,17 +914,17 @@ public class ResearchDiffTests
                         "Added IL operation 'ldc.i4 2'"),
                 ]));
 
-        var evidence = ImplementationDiff.ToIlEvidence(typedDiff);
+        var changes = ImplementationDiff.ToIlChanges(typedDiff);
 
-        Assert.DoesNotContain(evidence, item => item.ChangeId == "il.operation.context");
-        Assert.Contains(evidence, item =>
-            item.ChangeId == "il.operation.removed"
+        Assert.DoesNotContain(changes, item => item.Descriptor.Id == "il.operation.context");
+        Assert.Contains(changes, item =>
+            item.Descriptor.Id == "il.operation.removed"
             && item.OldValue == "ldc.i4 1"
             && item.OldIlOffset == 1
             && item.IlMemberDiff == typedDiff
             && item.IlDisplayRows.Single().UnifiedLine == "h1 - IL_0001 ldc.i4 1");
-        Assert.Contains(evidence, item =>
-            item.ChangeId == "il.operation.added"
+        Assert.Contains(changes, item =>
+            item.Descriptor.Id == "il.operation.added"
             && item.NewValue == "ldc.i4 2"
             && item.NewIlOffset == 1
             && item.IlMemberDiff == typedDiff
@@ -836,7 +932,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ImplementationDiff_ToIlEvidence_FallsBackWhenTypedDiffHasNoRows()
+    public void ImplementationDiff_ToIlChanges_FallsBackWhenTypedDiffHasNoRows()
     {
         var typedDiff = new IlMemberDiffResult(
             new IlMemberDiffSubject("old-id", "old-label"),
@@ -855,10 +951,12 @@ public class ResearchDiffTests
             Rows: [],
             FailureRows: [failure]);
 
-        var evidence = ImplementationDiff.ToIlEvidence(typedDiff, fallback);
+        var changes = ImplementationDiff.ToIlChanges(
+            typedDiff,
+            fallbackDisplay: fallback);
 
-        var row = Assert.Single(evidence);
-        Assert.Equal("il.diff.new-body-missing", row.ChangeId);
+        var row = Assert.Single(changes);
+        Assert.Equal("il.diff.new-body-missing", row.Descriptor.Id);
         Assert.Equal("method has no body", row.Detail);
         Assert.Same(failure, row.IlDisplayFailureRow);
         Assert.Null(row.IlMemberDiff);

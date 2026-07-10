@@ -1100,9 +1100,8 @@ public class GeneratedFixtureCatalogTests
             result => result.GetProperty("Method").GetString() == "get_Method1"
                 && result.GetProperty("MemberAnchor").GetProperty("StableSelector").GetString()!.StartsWith("Method1~", StringComparison.Ordinal));
         var researchDiff = document.RootElement.GetProperty("ResearchDiff");
-        Assert.Contains(researchDiff.GetProperty("Subjects").EnumerateArray(),
-            subject => subject.GetProperty("Evidence").EnumerateArray()
-                .Any(evidence => evidence.GetProperty("ChangeId").GetString() == "rts.status.pass"));
+        Assert.Contains(researchDiff.GetProperty("Changes").EnumerateArray(),
+            change => change.GetProperty("DescriptorId").GetString() == "rts.status.pass");
         Assert.DoesNotContain(document.RootElement.GetProperty("Results").EnumerateArray(),
             result => result.GetProperty("Reason").GetString() == "constructor-target");
     }

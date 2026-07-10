@@ -16,7 +16,7 @@ internal sealed record ReturnToSenderCatalogFixtureGroup(
     IReadOnlyList<GeneratedFixtureReturnToSenderResult> Rows);
 
 internal sealed record ReturnToSenderCatalogResearchSection(
-    ResearchDiffResult Diff,
+    ResearchComparison Comparison,
     ReturnToSenderResearchSummary Summary,
     IReadOnlyList<ReturnToSenderCatalogReportBucket> ChangeBuckets);
 
@@ -54,15 +54,15 @@ internal static class ReturnToSenderCatalogReport
             .OrderBy(row => row.FixtureId, StringComparer.Ordinal)
             .ToArray();
 
-        var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
-        var researchEvidence = research.Subjects.SelectMany(subject => subject.Evidence).ToArray();
-        var researchSection = researchEvidence.Length == 0
+        var research = ReturnToSenderEvidence.ToResearchComparison(ReturnToSenderEvidence.FromCatalog(run));
+        var researchChanges = research.Changes;
+        var researchSection = researchChanges.Length == 0
             ? null
             : new ReturnToSenderCatalogResearchSection(
                 research,
                 ReturnToSenderEvidence.Summarize(research, maxExamples),
-                [.. researchEvidence
-                    .GroupBy(row => row.ChangeId, StringComparer.Ordinal)
+                [.. researchChanges
+                    .GroupBy(change => change.Descriptor.Id, StringComparer.Ordinal)
                     .OrderByDescending(group => group.Count())
                     .ThenBy(group => group.Key, StringComparer.Ordinal)
                     .Select(group => new ReturnToSenderCatalogReportBucket(group.Key, group.Count()))]);
@@ -139,9 +139,9 @@ internal static class ReturnToSenderCatalogReport
             ResearchEvidence = view.Research is null
                 ? null
                 : [
-                    new("Subjects", view.Research.Diff.Subjects.Count),
-                    new("RTS rows", view.Research.Diff.Subjects.SelectMany(subject => subject.Evidence).Count(row => row.Mechanism == ResearchDiffMechanism.ReturnToSender)),
-                    new("IL rows", view.Research.Diff.Subjects.SelectMany(subject => subject.Evidence).Count(row => row.Mechanism == ResearchDiffMechanism.IlBody)),
+                    new("Subjects", view.Research.Comparison.BySubject().Count),
+                    new("RTS rows", view.Research.Comparison.Changes.Count(change => change.Mechanism == ResearchChangeMechanism.ReturnToSender)),
+                    new("IL rows", view.Research.Comparison.Changes.Count(change => change.Mechanism == ResearchChangeMechanism.IlBody)),
                     .. view.Research.ChangeBuckets.Select(bucket => new ReturnToSenderResearchEvidenceRow(bucket.Key, bucket.Count)),
                 ],
             ActionableSubjects = view.Research?.Summary.ActionableSubjects.Count > 0
@@ -229,12 +229,12 @@ internal static class ReturnToSenderCatalogReport
         if (research is null)
             return;
 
-        var evidence = research.Diff.Subjects.SelectMany(subject => subject.Evidence).ToArray();
+        var changes = research.Comparison.Changes;
         sb.AppendLine();
         sb.AppendLine("Research evidence:");
-        sb.AppendLine($"  Subjects : {research.Diff.Subjects.Count}");
-        sb.AppendLine($"  RTS rows : {evidence.Count(row => row.Mechanism == ResearchDiffMechanism.ReturnToSender)}");
-        sb.AppendLine($"  IL rows  : {evidence.Count(row => row.Mechanism == ResearchDiffMechanism.IlBody)}");
+        sb.AppendLine($"  Subjects : {research.Comparison.BySubject().Count}");
+        sb.AppendLine($"  RTS rows : {changes.Count(change => change.Mechanism == ResearchChangeMechanism.ReturnToSender)}");
+        sb.AppendLine($"  IL rows  : {changes.Count(change => change.Mechanism == ResearchChangeMechanism.IlBody)}");
         foreach (var bucket in research.ChangeBuckets)
             sb.AppendLine($"  {bucket.Key}: {bucket.Count}");
     }

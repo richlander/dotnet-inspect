@@ -7,7 +7,7 @@ It is built for both humans and agents. Markdown is the default output because h
 ## Core architecture
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
-- `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details.
+- `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details. `MetadataFindings` projects API type/member observations and comparisons onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation occurrences, method signals, and whole-assembly leverage without decompiling to C#.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.

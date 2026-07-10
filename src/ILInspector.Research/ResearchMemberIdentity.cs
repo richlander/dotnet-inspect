@@ -21,7 +21,7 @@ public static class ResearchMemberIdentity
 
     public static ResearchSubjectKey SubjectFromAnchor(MemberAnchor anchor, string display)
         => new(
-            ResearchDiffSubjectKind.Member,
+            ResearchSubjectKind.Member,
             anchor.StableSelector,
             display,
             anchor.TypeFullName,
@@ -32,7 +32,7 @@ public static class ResearchMemberIdentity
         var identity = BodyIdentityFromMethod(method);
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         return new ResearchSubjectKey(
-            ResearchDiffSubjectKind.Member,
+            ResearchSubjectKind.Member,
             identity.StableSelector,
             $"{identity.TypeName}.{identity.MemberName}({displayParameters})",
             identity.TypeName,

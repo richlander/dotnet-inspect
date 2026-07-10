@@ -2341,13 +2341,13 @@ internal static class GeneratedFixtureRunner
 
     public static string FormatReturnToSenderCatalogJson(GeneratedFixtureReturnToSenderRunResult run)
     {
-        var research = ReturnToSenderEvidence.ToResearchDiff(ReturnToSenderEvidence.FromCatalog(run));
+        var research = ReturnToSenderEvidence.ToResearchComparison(ReturnToSenderEvidence.FromCatalog(run));
         var payload = new
         {
             ProjectDirectory = Directory.Exists(run.ProjectDirectory) ? run.ProjectDirectory : null,
             AssemblyPath = File.Exists(run.AssemblyPath) ? run.AssemblyPath : null,
             Results = run.Results.Select(SerializableReturnToSenderResult).ToArray(),
-            ResearchDiff = SerializableResearchDiff(research),
+            ResearchDiff = SerializableResearchComparison(research),
             ResearchSummary = ReturnToSenderEvidence.Summarize(research, int.MaxValue),
             RoslynFallbacks = ReturnToSenderCatalogReport.RoslynFallbackBuckets(run.Results),
             run.Passed,
@@ -2398,54 +2398,36 @@ internal static class GeneratedFixtureRunner
                 FailureRows = result.Diff.FailureRows.IsDefault ? Array.Empty<IlDiffFailureRow>() : result.Diff.FailureRows.ToArray(),
             };
 
-    static object SerializableResearchDiff(ResearchDiffResult research)
+    static object SerializableResearchComparison(ResearchComparison research)
         => new
         {
             research.ApiDiff,
-            Subjects = research.Subjects.Select(subject => new
-            {
-                subject.Subject,
-                Evidence = subject.Evidence.Select(SerializableEvidence).ToArray(),
-            }).ToArray(),
-            Rows = research.Rows.IsDefault
-                ? Array.Empty<object>()
-                : research.Rows.Select(row => (object)new
-                {
-                    row.ChangeId,
-                    row.EvidenceKind,
-                    row.Message,
-                    row.ApiChange,
-                    row.IlRow,
-                    row.IlFailureRow,
-                    row.IlDisplayRow,
-                    row.IlDisplayFailureRow,
-                    row.BodySignalRow,
-                    row.CSharpRow,
-                }).ToArray(),
+            Changes = research.Changes.Select(SerializableChange).ToArray(),
         };
 
-    static object SerializableEvidence(ResearchDiffEvidence evidence)
+    static object SerializableChange(ResearchChange change)
         => new
         {
-            evidence.Mechanism,
-            evidence.ChangeId,
-            evidence.Direction,
-            evidence.OldValue,
-            evidence.NewValue,
-            evidence.Delta,
-            evidence.OldIlOffset,
-            evidence.NewIlOffset,
-            evidence.Detail,
-            evidence.Category,
-            evidence.Signal,
-            evidence.Shape,
-            evidence.Magnitude,
-            evidence.DirectionScore,
-            evidence.SubjectInBoth,
-            evidence.InLoop,
-            IlDisplayRows = evidence.IlDisplayRows.IsDefault ? Array.Empty<IlDiffDisplayRow>() : evidence.IlDisplayRows.ToArray(),
-            evidence.IlDisplayFailureRow,
-            IlMemberDiff = SerializableIlMemberDiff(evidence.IlMemberDiff),
+            change.Subject,
+            change.Mechanism,
+            DescriptorId = change.Descriptor.Id,
+            change.Kind,
+            change.OldValue,
+            change.NewValue,
+            change.Delta,
+            change.OldIlOffset,
+            change.NewIlOffset,
+            change.Detail,
+            change.Category,
+            change.Signal,
+            change.Shape,
+            change.Magnitude,
+            change.DirectionScore,
+            change.SubjectInBoth,
+            change.InLoop,
+            IlDisplayRows = change.IlDisplayRows.IsDefault ? Array.Empty<IlDiffDisplayRow>() : change.IlDisplayRows.ToArray(),
+            change.IlDisplayFailureRow,
+            IlMemberDiff = SerializableIlMemberDiff(change.IlMemberDiff),
         };
 
     public static string FormatList(IReadOnlyList<GeneratedFixtureDefinition> fixtures)
