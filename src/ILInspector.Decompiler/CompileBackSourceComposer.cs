@@ -742,16 +742,21 @@ public static class CompileBackSourceComposer
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
         if (includeRecordSurface)
         {
-            // AddRequiredMembers above preserves every IR-gathered dependency (including a
-            // user generic `PrintMembers<T>` overload the surface enumeration would skip).
-            // Drop only the *synthesized* record-helper stubs — the exact-shape
-            // `bool PrintMembers(StringBuilder)` (no type parameters) and the EqualityContract
-            // property — so AddClosureMemberSurface re-emits them with faithful
-            // `protected virtual` accessibility. The target body (StubBody == TargetBody) and
-            // any differently-shaped same-name member are never removed.
+            // AddRequiredMembers above preserves every IR-gathered dependency (including a user
+            // generic `PrintMembers<T>` overload the surface enumeration would skip). Drop the
+            // synthesized record-helper stubs so AddClosureMemberSurface re-emits them with
+            // faithful `protected virtual` accessibility — but only when no differently-shaped
+            // same-name member remains: the surface dedups methods by name, so removing a stub
+            // shadowed by a same-name overload would leave the synthesized shape unre-emitted.
+            // In that (pathological) case the public stub is kept, still yielding an Exact build.
+            var shadowedHelpers = targetMembers
+                .Where(member => !IsSynthesizedRecordHelperStub(member))
+                .Select(member => (member.Kind, member.Identity.Method))
+                .ToHashSet();
             targetMembers.RemoveAll(member =>
                 member.StubBody != CompileBackStubBodyKind.TargetBody
-                && IsSynthesizedRecordHelperStub(member));
+                && IsSynthesizedRecordHelperStub(member)
+                && !shadowedHelpers.Contains((member.Kind, member.Identity.Method)));
         }
 
         var requirements = new List<CompileBackTypeRequirement>

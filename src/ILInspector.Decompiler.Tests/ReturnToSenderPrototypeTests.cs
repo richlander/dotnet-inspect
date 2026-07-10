@@ -2865,13 +2865,20 @@ public class ReturnToSenderPrototypeTests
     public void CompileBackTargets_RecordSurfaceHelperKeepsGenericSameNameOverload()
     {
         // A user generic `PrintMembers<T>` overload called by a custom ToString must survive
-        // the record-surface stub removal: the removal must match only the exact synthesized
-        // `bool PrintMembers(StringBuilder)` shape, not every member named PrintMembers (the
-        // surface enumeration cannot re-emit the generic overload).
+        // the record-surface stub removal, and the synthesized `PrintMembers(StringBuilder)`
+        // it also calls must still be present: the removal must not leave the synthesized shape
+        // unre-emitted when a same-name overload shadows it in the name-based surface dedup.
         var assemblyPath = CompileFixture("""
+            using System.Text;
             public record Row(string Name)
             {
-                public override string ToString() => PrintMembers<int>(7).ToString();
+                public override string ToString()
+                {
+                    var b = new StringBuilder();
+                    PrintMembers<int>(7);
+                    PrintMembers(b);
+                    return b.ToString();
+                }
 
                 public bool PrintMembers<T>(int x) => x == 7;
             }
@@ -2886,6 +2893,7 @@ public class ReturnToSenderPrototypeTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("PrintMembers<T>", result.Source);
+            Assert.Contains("PrintMembers(System.Text.StringBuilder", result.Source);
         }
         finally
         {
