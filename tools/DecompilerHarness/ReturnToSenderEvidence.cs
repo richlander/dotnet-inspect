@@ -1,4 +1,5 @@
 using ILInspector.Instructions;
+using ILInspector.Findings;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
@@ -27,7 +28,7 @@ internal sealed record ReturnToSenderResearchSummary(
     int OpcodeDiffMembers,
     int RecompileFailMembers,
     int ContextFailMembers,
-    int MembersWithIlEvidence,
+    int MembersWithIlChanges,
     IReadOnlyList<ReturnToSenderActionableSubject> ActionableSubjects);
 
 internal sealed record ReturnToSenderActionableSubject(
@@ -64,23 +65,21 @@ internal static class ReturnToSenderEvidence
             result.IlDiff))];
     }
 
-    public static ResearchDiffResult ToResearchDiff(IEnumerable<ReturnToSenderEvidenceRow> rows)
+    public static ResearchComparison ToResearchComparison(IEnumerable<ReturnToSenderEvidenceRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
-        var subjects = rows
-            .GroupBy(SubjectKey)
-            .Select(group => new ResearchSubjectDiff(group.Key, [.. group.SelectMany(Evidence)]))
-            .Where(subject => subject.Evidence.Count > 0)
-            .ToArray();
-        return new ResearchDiffResult(subjects, Rows: []);
+        return new ResearchComparison(
+        [
+            .. rows.SelectMany(row => Changes(row, SubjectKey(row)))
+        ]);
     }
 
-    public static ReturnToSenderResearchSummary Summarize(ResearchDiffResult research, int maxSubjects)
+    public static ReturnToSenderResearchSummary Summarize(ResearchComparison research, int maxSubjects)
     {
         ArgumentNullException.ThrowIfNull(research);
-        var subjects = research.Subjects;
-        var evidence = subjects.SelectMany(subject => subject.Evidence).ToArray();
+        var subjects = research.BySubject();
+        var changes = research.Changes;
         var actionable = subjects
             .Select(ActionableSubject)
             .Where(subject => subject is not null)
@@ -92,53 +91,55 @@ internal static class ReturnToSenderEvidence
 
         return new ReturnToSenderResearchSummary(
             subjects.Count,
-            evidence.Count(item => item.Mechanism == ResearchDiffMechanism.ReturnToSender),
-            evidence.Count(item => item.Mechanism == ResearchDiffMechanism.IlBody),
+            changes.Count(item => item.Mechanism == ResearchChangeMechanism.ReturnToSender),
+            changes.Count(item => item.Mechanism == ResearchChangeMechanism.IlBody),
             subjects.Count(subject => HasRtsStatus(subject, "rts.status.fail")),
             subjects.Count(subject => HasCompileBackStatus(subject, "OpcodeDiff")),
             subjects.Count(subject => HasCompileBackStatus(subject, "RecompileFail")),
             subjects.Count(subject => HasCompileBackStatus(subject, "ContextFail")),
-            subjects.Count(subject => subject.Evidence.Any(item => item.Mechanism == ResearchDiffMechanism.IlBody)),
+            subjects.Count(subject => subject.Changes.Any(item => item.Mechanism == ResearchChangeMechanism.IlBody)),
             actionable);
     }
 
-    static ReturnToSenderActionableSubject? ActionableSubject(ResearchSubjectDiff subject)
+    static ReturnToSenderActionableSubject? ActionableSubject(ResearchSubjectChanges subject)
     {
-        var rts = subject.Evidence.FirstOrDefault(item => item.Mechanism == ResearchDiffMechanism.ReturnToSender);
-        if (rts is null || rts.ChangeId == "rts.status.pass")
+        var rts = subject.Changes.FirstOrDefault(item => item.Mechanism == ResearchChangeMechanism.ReturnToSender);
+        if (rts is null || rts.Descriptor.Id == "rts.status.pass")
             return null;
 
-        var changeCounts = subject.Evidence
-            .Where(item => item.Mechanism != ResearchDiffMechanism.ReturnToSender)
-            .GroupBy(item => item.ChangeId, StringComparer.Ordinal)
+        var changeCounts = subject.Changes
+            .Where(item => item.Mechanism != ResearchChangeMechanism.ReturnToSender)
+            .GroupBy(item => item.Descriptor.Id, StringComparer.Ordinal)
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new ReturnToSenderChangeCount(group.Key, group.Count()))
             .ToArray();
-        var ilEvidence = subject.Evidence
-            .Where(item => item.Mechanism == ResearchDiffMechanism.IlBody
+        var ilEvidence = subject.Changes
+            .Where(item => item.Mechanism == ResearchChangeMechanism.IlBody
                 && (item.IlDisplayFailureRow is not null || !item.IlDisplayRows.IsDefaultOrEmpty))
             .Select(item => new ReturnToSenderIlEvidence(
-                item.ChangeId,
+                item.Descriptor.Id,
                 item.IlDisplayFailureRow,
                 item.IlDisplayRows.IsDefault ? [] : item.IlDisplayRows.ToArray()))
             .ToArray();
         return new ReturnToSenderActionableSubject(
             subject.Subject.Id,
             subject.Subject.Display,
-            rts.ChangeId,
+            rts.Descriptor.Id,
             rts.NewValue,
             rts.Detail,
             changeCounts,
             ilEvidence);
     }
 
-    static bool HasRtsStatus(ResearchSubjectDiff subject, string changeId)
-        => subject.Evidence.Any(item => item.Mechanism == ResearchDiffMechanism.ReturnToSender && item.ChangeId == changeId);
+    static bool HasRtsStatus(ResearchSubjectChanges subject, string descriptorId)
+        => subject.Changes.Any(item =>
+            item.Mechanism == ResearchChangeMechanism.ReturnToSender
+            && item.Descriptor.Id == descriptorId);
 
-    static bool HasCompileBackStatus(ResearchSubjectDiff subject, string status)
-        => subject.Evidence.Any(item =>
-            item.Mechanism == ResearchDiffMechanism.ReturnToSender
+    static bool HasCompileBackStatus(ResearchSubjectChanges subject, string status)
+        => subject.Changes.Any(item =>
+            item.Mechanism == ResearchChangeMechanism.ReturnToSender
             && string.Equals(item.NewValue, status, StringComparison.Ordinal));
 
     static int Rank(ReturnToSenderActionableSubject subject)
@@ -156,26 +157,29 @@ internal static class ReturnToSenderEvidence
             return ResearchMemberIdentity.SubjectFromAnchor(anchor, $"{anchor.TypeFullName}.{anchor.MemberName}");
 
         return new ResearchSubjectKey(
-            ResearchDiffSubjectKind.Member,
+            ResearchSubjectKind.Member,
             $"rts:{row.DisplayMember}",
             $"{row.Type}.{row.Method}",
             row.Type,
             row.Method);
     }
 
-    static IEnumerable<ResearchDiffEvidence> Evidence(ReturnToSenderEvidenceRow row)
+    static IEnumerable<ResearchChange> Changes(
+        ReturnToSenderEvidenceRow row,
+        ResearchSubjectKey subject)
     {
-        yield return new ResearchDiffEvidence(
-            ResearchDiffMechanism.ReturnToSender,
-            $"rts.status.{StatusId(row.Status)}",
-            ResearchDiffDirection.Changed,
-            OldValue: null,
-            NewValue: row.CompileBackStatus?.ToString(),
-            Detail: row.Detail ?? row.Reason,
-            Category: ResearchDiffChangeCategory.RoundTrip);
+        string descriptorId = $"rts.status.{StatusId(row.Status)}";
+        yield return new ResearchChange(
+            subject,
+            ResearchChangeMechanism.ReturnToSender,
+            new FindingDescriptor(descriptorId, "Return to sender status"),
+            ResearchChangeKind.Changed,
+            newValue: row.CompileBackStatus?.ToString(),
+            detail: row.Detail ?? row.Reason,
+            category: ResearchChangeCategory.RoundTrip);
 
-        foreach (var ilEvidence in ImplementationDiff.ToIlEvidence(row.IlDiff, row.IlDiffDiagnostic))
-            yield return ilEvidence;
+        foreach (var change in ImplementationDiff.ToIlChanges(row.IlDiff, subject, row.IlDiffDiagnostic))
+            yield return change;
     }
 
     static string StatusId(GeneratedFixtureReturnToSenderStatus status)

@@ -11,7 +11,7 @@ public class ReturnToSenderEvidenceTests
     [Fact]
     public void FromCatalog_PreservesExactRtsStatusAndMemberAnchor()
     {
-        Assert.True(ResearchDiffMechanism.AllAvailable.HasFlag(ResearchDiffMechanism.ReturnToSender));
+        Assert.True(ResearchChangeMechanism.AllAvailable.HasFlag(ResearchChangeMechanism.ReturnToSender));
 
         var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
             [GeneratedFixtureCatalog.MinimalPropertyLiteral]);
@@ -28,17 +28,17 @@ public class ReturnToSenderEvidenceTests
         Assert.True(row.IlDiff.Diff.IsExact);
         Assert.Equal(row.IlDiff.Old.Identity, row.IlDiff.New.Identity);
 
-        var research = ReturnToSenderEvidence.ToResearchDiff(evidence);
+        var research = ReturnToSenderEvidence.ToResearchComparison(evidence);
         var subject = Assert.Single(research.MembersWhere(member => member.Subject.Id == row.Anchor.StableSelector));
-        Assert.Contains(subject.Evidence, item =>
-            item.Mechanism == ResearchDiffMechanism.ReturnToSender
-            && item.ChangeId == "rts.status.pass"
-            && item.Category == ResearchDiffChangeCategory.RoundTrip);
-        Assert.DoesNotContain(subject.Evidence, item => item.Mechanism == ResearchDiffMechanism.IlBody);
+        Assert.Contains(subject.Changes, item =>
+            item.Mechanism == ResearchChangeMechanism.ReturnToSender
+            && item.Descriptor.Id == "rts.status.pass"
+            && item.Category == ResearchChangeCategory.RoundTrip);
+        Assert.DoesNotContain(subject.Changes, item => item.Mechanism == ResearchChangeMechanism.IlBody);
     }
 
     [Fact]
-    public void ToResearchDiff_ProjectsStructuredIlDiffRowsWithoutReportTextParsing()
+    public void ToResearchComparison_ProjectsStructuredIlDiffRowsWithoutReportTextParsing()
     {
         var anchor = new MemberAnchor(
             "Method1~abcdef1234",
@@ -82,37 +82,37 @@ public class ReturnToSenderEvidenceTests
             IlDiffDiagnostic: null,
             IlDiff: typedDiff);
 
-        var research = ReturnToSenderEvidence.ToResearchDiff([evidence]);
+        var research = ReturnToSenderEvidence.ToResearchComparison([evidence]);
 
-        var subject = Assert.Single(research.Subjects);
+        var subject = Assert.Single(research.BySubject());
         Assert.Equal(anchor.StableSelector, subject.Subject.Id);
         Assert.Equal("TestType.Method1", subject.Subject.Display);
         Assert.Equal("TestType", subject.Subject.TypeName);
         Assert.Equal("Method1", subject.Subject.MemberName);
-        Assert.Contains(subject.Evidence, item =>
-            item.Mechanism == ResearchDiffMechanism.ReturnToSender
-            && item.ChangeId == "rts.status.fail");
-        Assert.Contains(subject.Evidence, item =>
-            item.Mechanism == ResearchDiffMechanism.IlBody
-            && item.ChangeId == "il.operation.removed"
+        Assert.Contains(subject.Changes, item =>
+            item.Mechanism == ResearchChangeMechanism.ReturnToSender
+            && item.Descriptor.Id == "rts.status.fail");
+        Assert.Contains(subject.Changes, item =>
+            item.Mechanism == ResearchChangeMechanism.IlBody
+            && item.Descriptor.Id == "il.operation.removed"
             && item.OldValue == "ldc.i4 1"
             && item.OldIlOffset == 1
             && item.IlMemberDiff == typedDiff
             && item.IlDisplayRows.Length == 1
             && item.IlDisplayRows[0].UnifiedLine == "h1 - IL_0001 ldc.i4 1");
-        Assert.Contains(subject.Evidence, item =>
-            item.Mechanism == ResearchDiffMechanism.IlBody
-            && item.ChangeId == "il.operation.added"
+        Assert.Contains(subject.Changes, item =>
+            item.Mechanism == ResearchChangeMechanism.IlBody
+            && item.Descriptor.Id == "il.operation.added"
             && item.NewValue == "ldc.i4 2"
             && item.NewIlOffset == 1
             && item.IlMemberDiff == typedDiff
             && item.IlDisplayRows.Length == 1
             && item.IlDisplayRows[0].UnifiedLine == "h1 + IL_0001 ldc.i4 2");
-        Assert.DoesNotContain(subject.Evidence, item => item.ChangeId == "il.operation.context");
+        Assert.DoesNotContain(subject.Changes, item => item.Descriptor.Id == "il.operation.context");
     }
 
     [Fact]
-    public void ToResearchDiff_ProjectsStructuredIlDiffFailureRows()
+    public void ToResearchComparison_ProjectsStructuredIlDiffFailureRows()
     {
         var anchor = new MemberAnchor(
             "Method1~abcdef1234",
@@ -140,11 +140,13 @@ public class ReturnToSenderEvidenceTests
                 FailureRows: [failure]),
             IlDiff: null);
 
-        var research = ReturnToSenderEvidence.ToResearchDiff([evidence]);
+        var research = ReturnToSenderEvidence.ToResearchComparison([evidence]);
 
-        var subject = Assert.Single(research.Subjects);
-        var ilFailure = Assert.Single(subject.Evidence, item => item.ChangeId == "il.diff.new-body-missing");
-        Assert.Equal(ResearchDiffMechanism.IlBody, ilFailure.Mechanism);
+        var subject = Assert.Single(research.BySubject());
+        var ilFailure = Assert.Single(
+            subject.Changes,
+            item => item.Descriptor.Id == "il.diff.new-body-missing");
+        Assert.Equal(ResearchChangeMechanism.IlBody, ilFailure.Mechanism);
         Assert.Equal("method has no body", ilFailure.Detail);
         Assert.Same(failure, ilFailure.IlDisplayFailureRow);
     }

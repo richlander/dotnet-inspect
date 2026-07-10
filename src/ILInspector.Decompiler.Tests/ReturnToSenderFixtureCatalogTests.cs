@@ -324,8 +324,8 @@ public class ReturnToSenderFixtureCatalogTests
             ImplementationDiffMechanism.All);
 
         Assert.NotNull(diff);
-        Assert.True(diff!.HasCSharpEvidence);
-        Assert.True(diff.HasIlEvidence);
+        Assert.True(diff!.HasCSharpChanges);
+        Assert.True(diff.HasIlChanges);
         Assert.NotNull(diff.IlDiff);
         Assert.False(diff.IlDiff.Diff.IsExact);
     }

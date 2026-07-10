@@ -380,27 +380,26 @@ public class DiffCommand
             ResearchDiffInput.FromAssemblies(fromPaths),
             ResearchDiffInput.FromAssemblies(toPaths),
             new ResearchDiffOptions(
-                ResearchDiffMechanism.BodySignals,
+                ResearchChangeMechanism.BodySignals,
                 TypeFilters: options.TypeFilter,
                 MemberTargetIdentities: memberTargetIdentities));
-        var ranked = research.Subjects
-            .SelectMany(subject => subject.Evidence.Select(evidence => (subject, evidence)))
-            .Where(entry => entry.evidence.Category == ResearchDiffChangeCategory.BodySignal
-                && entry.evidence.ChangeId.StartsWith("analysis.", StringComparison.Ordinal)
-                && entry.evidence.Signal is { Length: > 0 })
-            .Select(entry => new RankedAnalysisRow(
+        var ranked = research.Changes
+            .Where(change => change.Category == ResearchChangeCategory.BodySignal
+                && change.Descriptor.Id.StartsWith("analysis.", StringComparison.Ordinal)
+                && change.Signal is { Length: > 0 })
+            .Select(change => new RankedAnalysisRow(
                 new AnalysisDiffRow(
-                    MarkoutInline.Code(entry.subject.Subject.Display),
-                    entry.evidence.Signal!,
-                    entry.evidence.OldValue ?? "",
-                    entry.evidence.NewValue ?? "",
-                    entry.evidence.Delta ?? "changed",
-                    entry.evidence.Shape,
-                    entry.evidence.Detail),
-                entry.evidence.Magnitude ?? 1,
-                entry.evidence.DirectionScore,
-                entry.evidence.SubjectInBoth,
-                entry.evidence.InLoop))
+                    MarkoutInline.Code(change.Subject.Display),
+                    change.Signal!,
+                    change.OldValue ?? "",
+                    change.NewValue ?? "",
+                    change.Delta ?? "changed",
+                    change.Shape,
+                    change.Detail),
+                change.Magnitude ?? 1,
+                change.DirectionScore,
+                change.SubjectInBoth,
+                change.InLoop))
             .ToList();
 
         return RankAnalysisRows(ranked, options.ChangedOnly, options.AllocRegressionsOnly);
@@ -580,7 +579,7 @@ public class DiffCommand
                 ResearchDiffInput.FromApiSurface(fromSurface),
                 ResearchDiffInput.FromApiSurface(toSurface),
                 new ResearchDiffOptions(
-                    ResearchDiffMechanism.Api,
+                    ResearchChangeMechanism.Api,
                     IncludeAllApi: options.IncludeAll,
                     ApiScope: ApiDiffScope.Signature)).ApiDiff
             ?? new ApiDiff();
