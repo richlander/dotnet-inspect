@@ -70,6 +70,27 @@ public sealed class MetadataExtensionFindingsTests
                 && member.MethodName == "Capacity");
         Assert.Equal("System.Text.StringBuilder", capacity.CanonicalExtendedType);
         Assert.Equal("System.Int32", capacity.ReturnType);
+        var indexer = Assert.Single(
+            members,
+            static member =>
+                member.ExtensionClass.EndsWith(
+                    nameof(ExtensionPropertyIdentityFixture),
+                    StringComparison.Ordinal)
+                && member.MethodName == "Item");
+        Assert.StartsWith("int Item", indexer.Signature, StringComparison.Ordinal);
+        Assert.Equal("System.Int32", indexer.ReturnType);
+        Assert.Contains("System.String", indexer.Anchor!.CanonicalSignature, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            members,
+            static member => member.MethodName == nameof(ExtensionPropertyIdentityFixture.Ordinary));
+        Assert.DoesNotContain(
+            members,
+            static member => member.MethodName == "Hidden");
+
+        using var allStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
+        Assert.Contains(
+            ExtensionMethodScanner.FindAllExtensions(allStream, includeAll: true),
+            static member => member.MethodName == "Hidden");
     }
 
     [Fact]
@@ -219,9 +240,14 @@ public sealed class MetadataExtensionFindingsTests
 
 public static class ExtensionPropertyIdentityFixture
 {
+    public static int Ordinary { get; set; }
+
     extension(string value)
     {
         public bool HasValue => value.Length > 0;
+
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        public bool Hidden => false;
     }
 
     extension(int value)
@@ -235,6 +261,11 @@ public static class ExtensionPropertyIdentityFixture
         {
             get => builder.Capacity;
             set => builder.Capacity = value;
+        }
+
+        public int this[string key]
+        {
+            set { }
         }
     }
 }

@@ -268,6 +268,27 @@ public static class ApiMemberIdentity
             extendedType);
     }
 
+    internal static string CreateExtensionPropertyDeclarationCanonicalSignature(
+        MetadataReader reader,
+        TypeDefinitionHandle extensionClassHandle,
+        TypeDefinition markerType,
+        MethodDefinition markerMethod,
+        PropertyDefinition property)
+    {
+        var context = GenericContext.ForType(reader, markerType);
+        var markerSignature = markerMethod.DecodeSignature(AnchorSignatureTypeProvider.Instance, context);
+        if (markerSignature.ParameterTypes.Length != 1)
+            throw new BadImageFormatException("An extension marker must have exactly one receiver parameter.");
+
+        var propertySignature = property.DecodeSignature(AnchorSignatureTypeProvider.Instance, context);
+        string propertyName = reader.GetString(property.Name);
+        string typeFullName = FormatDefinitionName(reader, extensionClassHandle);
+        return MemberCanonicalSignature.BuildExtensionProperty(
+            typeFullName,
+            propertyName,
+            markerSignature.ParameterTypes.AddRange(propertySignature.ParameterTypes));
+    }
+
     static (MemberAnchor Anchor, string ReturnType, ImmutableArray<string> ParameterTypes) CreateMethodAnchorShape(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,

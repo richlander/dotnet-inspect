@@ -11,6 +11,8 @@ namespace ILInspector.Metadata;
 public static class AttributeReader
 {
     private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
+    private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
+    private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
@@ -31,6 +33,37 @@ public static class AttributeReader
             if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
                 return true;
         }
+        return false;
+    }
+
+    public static bool TryGetExtensionMarkerName(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? markerName)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
+            if (attrTypeName is not (ExtensionMarkerAttributeName or ExtensionMarkerNameAttributeName))
+                continue;
+
+            try
+            {
+                var blob = reader.GetBlobReader(attr.Value);
+                if (blob.ReadUInt16() != 1)
+                    break;
+
+                markerName = blob.ReadSerializedString();
+                return !string.IsNullOrEmpty(markerName);
+            }
+            catch (BadImageFormatException)
+            {
+                break;
+            }
+        }
+
+        markerName = null;
         return false;
     }
 
