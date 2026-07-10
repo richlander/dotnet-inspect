@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Commands;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
@@ -1105,6 +1106,28 @@ public class OutputFormatterTests
         var output = Serialize(inspection);
 
         Assert.Contains("| Integrations | 3 |", output);
+    }
+
+    [Fact]
+    public void SingleAudit_FailedFindingRendersDiagnosticWithoutAbortingOtherSections()
+    {
+        var inspection = CreateTestAudit("Test.dll", "net9.0");
+        inspection.SwitchInspection = new FindingInspection<SwitchInfo>.Failed(
+            new InspectionError(
+                FindingTestData.Subject,
+                MetadataFindings.SwitchDescriptor,
+                "switch scan failed"));
+        var pipeline = LibrarySections.CreatePipeline();
+        var includeSections = pipeline.ComputeIncludeSections(inspection, Verbosity.Normal);
+
+        var output = SerializeWithInclude(inspection, includeSections);
+
+        Assert.Contains("## Library Info", output);
+        Assert.Contains("## Inspection Failures", output);
+        Assert.Contains("Switches", output);
+        Assert.Contains("Switch", output);
+        Assert.Contains("switch scan failed", output);
+        Assert.DoesNotContain("## Switches", output);
     }
 
     [Fact]

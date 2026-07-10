@@ -240,11 +240,7 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ClassifiedMethodSummary>? UnsafeMethods
     {
-        get
-        {
-            EnsureClassifiedMethodInspectionSucceeded();
-            return _unsafeMethods;
-        }
+        get => ClassifiedMethodInspection.Failure() is null ? _unsafeMethods : null;
         set => _unsafeMethods = value;
     }
 
@@ -280,11 +276,7 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ClassifiedMethodSummary>? PInvokeMethods
     {
-        get
-        {
-            EnsureClassifiedMethodInspectionSucceeded();
-            return _pInvokeMethods;
-        }
+        get => ClassifiedMethodInspection.Failure() is null ? _pInvokeMethods : null;
         set => _pInvokeMethods = value;
     }
 
@@ -297,11 +289,7 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AsyncMethodSummary>? AsyncMethods
     {
-        get
-        {
-            EnsureClassifiedMethodInspectionSucceeded();
-            return _asyncMethods;
-        }
+        get => ClassifiedMethodInspection.Failure() is null ? _asyncMethods : null;
         set => _asyncMethods = value;
     }
 
@@ -324,7 +312,7 @@ public class LibraryInspection
             if (ClassifiedMethodInspection is null)
                 return _asyncMethods?.Count ?? 0;
 
-            return ClassifiedMethodInspection.Payloads().Count(
+            return ClassifiedMethodInspection.PayloadsForRendering().Count(
                 static method => method.Classification is MethodClassification.RuntimeAsync
                     or MethodClassification.StateMachineAsync);
         }
@@ -336,29 +324,11 @@ public class LibraryInspection
     [JsonIgnore]
     public FindingInspection<OpenTelemetrySignalInfo>? OpenTelemetryInspection { get; set; }
 
-    /// <summary>
-    /// Potential integration categories suggested by package-owned API shapes.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<IntegrationOpportunityInfo>? IntegrationOpportunities { get; set; }
-
     [JsonIgnore]
     public FindingInspection<ManifestResourceInfo>? ResourceInspection { get; set; }
 
-    /// <summary>
-    /// File size of the assembly in bytes.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public long FileSize { get; set; }
-
     [JsonIgnore]
     public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection { get; set; }
-
-    /// <summary>
-    /// Metadata audit signals. These are observations, not a trust verdict.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<AuditSignal>? AuditSignals { get; set; }
 
     [JsonIgnore]
     public FindingInspection<TypeForwarderInfo>? TypeForwarderInspection { get; set; }
@@ -368,6 +338,25 @@ public class LibraryInspection
 
     [JsonIgnore]
     public FindingInspection<SwitchInfo>? SwitchInspection { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryInspectionFailureJson>? InspectionFailures
+    {
+        get
+        {
+            List<LibraryInspectionFailureJson> failures = [];
+            AddFailure(failures, "References", AssemblyReferenceInspection);
+            AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
+            AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
+            AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);
+            AddFailure(failures, "Resources", ResourceInspection);
+            AddFailure(failures, "Custom Attributes", AssemblyAttributeInspection);
+            AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
+            AddFailure(failures, "Union Types", UnionTypeInspection);
+            AddFailure(failures, "Switches", SwitchInspection);
+            return NullIfEmpty(failures);
+        }
+    }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryIntegrationSummaryJson>? Integrations =>
@@ -383,17 +372,23 @@ public class LibraryInspection
                 .Where(summary => summary.Count > 0)
                 .ToList());
 
+    /// <summary>
+    /// Potential integration categories suggested by package-owned API shapes.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<LibraryIntegrationSignalJson>? AI => IntegrationSignals(LibraryIntegrationCatalog.AI);
+    public List<IntegrationOpportunityInfo>? IntegrationOpportunities { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryIntegrationSignalJson>? AspNetCore => IntegrationSignals(LibraryIntegrationCatalog.AspNetCore);
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<LibraryIntegrationSignalJson>? Authentication => IntegrationSignals(LibraryIntegrationCatalog.Authentication);
+    public List<LibraryIntegrationSignalJson>? Aspire => IntegrationSignals(LibraryIntegrationCatalog.Aspire);
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<LibraryIntegrationSignalJson>? Aspire => IntegrationSignals(LibraryIntegrationCatalog.Aspire);
+    public List<LibraryIntegrationSignalJson>? AI => IntegrationSignals(LibraryIntegrationCatalog.AI);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? Authentication => IntegrationSignals(LibraryIntegrationCatalog.Authentication);
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryIntegrationSignalJson>? Configuration => IntegrationSignals(LibraryIntegrationCatalog.Configuration);
@@ -408,9 +403,6 @@ public class LibraryInspection
     public List<LibraryIntegrationSignalJson>? OpenTelemetry => IntegrationSignals(LibraryIntegrationCatalog.OpenTelemetry);
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<LibraryIntegrationSignalJson>? OpenApi => IntegrationSignals(LibraryIntegrationCatalog.OpenAPI);
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryIntegrationSignalJson>? Options => IntegrationSignals(LibraryIntegrationCatalog.Options);
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -423,30 +415,45 @@ public class LibraryInspection
     public List<LibraryIntegrationSignalJson>? HttpClient => IntegrationSignals(LibraryIntegrationCatalog.HttpClient);
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<LibraryIntegrationSignalJson>? OpenApi => IntegrationSignals(LibraryIntegrationCatalog.OpenAPI);
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<LibraryResourceJson>? Resources =>
         NullIfEmpty(
-            ResourceInspection.Payloads()
+            ResourceInspection.PayloadsForRendering()
                 .Select(resource => new LibraryResourceJson(
                     resource.Name,
                     resource.IsPublic ? "public" : "private",
                     resource.Size))
                 .ToList());
 
+    /// <summary>
+    /// File size of the assembly in bytes.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long FileSize { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AssemblyAttributeInfo>? CustomAttributes =>
-        NullIfEmpty(AssemblyAttributeInspection.Payloads().ToList());
+        NullIfEmpty(AssemblyAttributeInspection.PayloadsForRendering().ToList());
+
+    /// <summary>
+    /// Metadata audit signals. These are observations, not a trust verdict.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AuditSignal>? AuditSignals { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<TypeForwarderInfo>? TypeForwarders =>
-        NullIfEmpty(TypeForwarderInspection.Payloads().ToList());
+        NullIfEmpty(TypeForwarderInspection.PayloadsForRendering().ToList());
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<UnionTypeInfo>? UnionTypes =>
-        NullIfEmpty(UnionTypeInspection.Payloads().ToList());
+        NullIfEmpty(UnionTypeInspection.PayloadsForRendering().ToList());
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<SwitchInfo>? Switches =>
-        NullIfEmpty(SwitchInspection.Payloads().ToList());
+        NullIfEmpty(SwitchInspection.PayloadsForRendering().ToList());
 
     /// <summary>
     /// SourceLink URL rows for public types in this assembly. Populated only
@@ -561,13 +568,22 @@ public class LibraryInspection
     private int CountClassifiedMethods(MethodClassification classification, int fallback)
         => ClassifiedMethodInspection is null
             ? fallback
-            : ClassifiedMethodInspection.Payloads().Count(
+            : ClassifiedMethodInspection.PayloadsForRendering().Count(
                 method => method.Classification == classification);
 
-    private void EnsureClassifiedMethodInspectionSucceeded()
+    private static void AddFailure<T>(
+        List<LibraryInspectionFailureJson> failures,
+        string section,
+        FindingInspection<T>? inspection)
+        where T : notnull
     {
-        if (ClassifiedMethodInspection is not null)
-            _ = ClassifiedMethodInspection.Findings();
+        if (inspection.Failure() is { } failure)
+        {
+            failures.Add(new LibraryInspectionFailureJson(
+                section,
+                failure.Descriptor.Title,
+                failure.Reason));
+        }
     }
 
     /// <summary>Number of integration categories discovered by the presence scan.</summary>
@@ -827,6 +843,11 @@ public sealed record LibraryIntegrationSignalJson(
     string Kind,
     string Name,
     string Shape = IntegrationSignalShape.Type);
+
+public sealed record LibraryInspectionFailureJson(
+    string Section,
+    string Finding,
+    string Reason);
 
 public sealed record LibraryResourceJson(
     string Name,

@@ -99,8 +99,18 @@ public class LibraryFindingConsumerTests
                     "scan failed")),
         };
 
-        var exception = Assert.Throws<InvalidOperationException>(() => _ = inspection.Switches);
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => inspection.SwitchInspection.Findings());
         Assert.Contains("scan failed", exception.Message);
+        Assert.Null(inspection.Switches);
+
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal("Switches", failure.Section);
+        Assert.Equal("scan failed", failure.Reason);
+
+        var json = JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection);
+        Assert.Contains("\"inspection_failures\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"switches\"", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -124,8 +134,14 @@ public class LibraryFindingConsumerTests
             ],
         };
 
-        var exception = Assert.Throws<InvalidOperationException>(() => _ = inspection.UnsafeMethods);
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => inspection.ClassifiedMethodInspection.Findings());
         Assert.Contains("method scan failed", exception.Message);
-        Assert.Throws<InvalidOperationException>(() => _ = inspection.UnsafeMethodCount);
+        Assert.Null(inspection.UnsafeMethods);
+        Assert.Equal(0, inspection.UnsafeMethodCount);
+
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal("Classified Methods", failure.Section);
+        Assert.Equal("method scan failed", failure.Reason);
     }
 }

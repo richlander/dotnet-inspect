@@ -74,6 +74,18 @@ public class LibraryInspectionView
     // ===== Field Collection Sections =====
 
     [MarkoutIgnore]
+    public bool HasInspectionFailures => _data.InspectionFailures is { Count: > 0 };
+
+    [MarkoutSection(Name = "Inspection Failures", ShowWhenProperty = nameof(HasInspectionFailures))]
+    public List<InspectionFailureRow>? InspectionFailuresSection =>
+        _data.InspectionFailures?
+            .Select(failure => new InspectionFailureRow(
+                failure.Section,
+                failure.Finding,
+                failure.Reason))
+            .ToList();
+
+    [MarkoutIgnore]
     public bool HasAsyncMethods => _data.AsyncMethodCount > 0;
 
     [MarkoutSection(Name = "Async Methods", ShowWhenProperty = nameof(HasAsyncMethods))]
@@ -86,11 +98,11 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
-    public bool HasCustomAttributes => _data.AssemblyAttributeInspection.Findings().Length > 0;
+    public bool HasCustomAttributes => _data.AssemblyAttributeInspection.HasFindings();
 
     [MarkoutSection(Name = "Custom Attributes", ShowWhenProperty = nameof(HasCustomAttributes))]
     public List<CustomAttributeRow>? CustomAttributesSection =>
-        _data.AssemblyAttributeInspection.Payloads()
+        _data.AssemblyAttributeInspection.PayloadsForRendering()
             .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(a => a.Target, StringComparer.OrdinalIgnoreCase)
             .ThenBy(a => a.Value, StringComparer.OrdinalIgnoreCase)
@@ -98,11 +110,11 @@ public class LibraryInspectionView
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
-    public bool HasUnionTypes => _data.UnionTypeInspection.Findings().Length > 0;
+    public bool HasUnionTypes => _data.UnionTypeInspection.HasFindings();
 
     [MarkoutSection(Name = "Union Types", ShowWhenProperty = nameof(HasUnionTypes))]
     public List<UnionTypeRow>? UnionTypesSection =>
-        _data.UnionTypeInspection.Payloads()
+        _data.UnionTypeInspection.PayloadsForRendering()
             .OrderBy(t => t.TypeName, StringComparer.OrdinalIgnoreCase)
             .Select(t => new UnionTypeRow(t.TypeName, t.Kind, t.ImplementsIUnion ? "Yes" : "No", string.Join(", ", t.CaseTypes)))
             .ToList() is { Count: > 0 } rows ? rows : null;
@@ -140,7 +152,7 @@ public class LibraryInspectionView
         Company = info.Company,
         Compilation = info.CompilationType,
         Copyright = info.Copyright,
-        CustomAttributes = _data.AssemblyAttributeInspection.Findings().Length,
+        CustomAttributes = _data.AssemblyAttributeInspection.FindingCount(),
         Deterministic = _data.IsDeterministic,
         ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
         Facade = _data.IsFacadeAssembly,
@@ -153,21 +165,21 @@ public class LibraryInspectionView
         Product = info.Product,
         PublicKeyToken = info.PublicKeyToken,
         Reproducible = _data.HasReproducibleFlag,
-        Resources = _data.ResourceInspection.Findings().Length,
+        Resources = _data.ResourceInspection.FindingCount(),
         Signed = info.IsSigned ? "Yes" : null,
         Source = _data.Source,
         Switches = CountSwitches(_data),
         TargetFramework = info.TargetFramework,
-        TypeForwarders = _data.TypeForwarderInspection.Findings().Length,
+        TypeForwarders = _data.TypeForwarderInspection.FindingCount(),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
-        UnionTypes = _data.UnionTypeInspection.Findings().Length,
+        UnionTypes = _data.UnionTypeInspection.FindingCount(),
         Version = LibraryInspectionDisplay.ResolveVersion(_data),
     };
 
     [MarkoutSection(Name = "References")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         _data.AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
-        _data.AssemblyReferenceInspection.Payloads().OrderBy(r => r.Name)
+        _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
             .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
             .ToList() is { Count: > 0 } list ? list : null;
 
@@ -192,11 +204,11 @@ public class LibraryInspectionView
             .ToList();
 
     [MarkoutIgnore]
-    public bool HasResources => _data.ResourceInspection.Findings().Length > 0;
+    public bool HasResources => _data.ResourceInspection.HasFindings();
 
     [MarkoutSection(Name = "Resources", ShowWhenProperty = nameof(HasResources))]
     public List<ResourceRow>? ResourcesSection =>
-        _data.ResourceInspection.Payloads()
+        _data.ResourceInspection.PayloadsForRendering()
             .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .Select(r => new ResourceRow(
                 r.Name,
@@ -212,12 +224,12 @@ public class LibraryInspectionView
         _data.AuditSignals?.Select(s => new AuditSignalRow(s.Area, s.Signal, s.Value, s.Evidence)).ToList();
 
     [MarkoutIgnore]
-    public bool HasSwitches => _data.SwitchInspection.Findings().Length > 0;
+    public bool HasSwitches => _data.SwitchInspection.HasFindings();
 
     [MarkoutSection(Name = "Switches", ShowWhenProperty = nameof(HasSwitches))]
     [MarkoutIgnoreColumnWhen(nameof(SwitchKindIsUniform), "Kind")]
     public List<SwitchRow>? SwitchesSection =>
-        _data.SwitchInspection.Payloads()
+        _data.SwitchInspection.PayloadsForRendering()
             .OrderBy(s => s.Kind, StringComparer.Ordinal)
             .ThenBy(s => s.Switch, StringComparer.Ordinal)
             .ThenBy(s => s.Api, StringComparer.Ordinal)
@@ -705,11 +717,11 @@ public class LibraryInspectionView
     };
 
     [MarkoutIgnore]
-    public bool HasTypeForwarders => _data.TypeForwarderInspection.Findings().Length > 0;
+    public bool HasTypeForwarders => _data.TypeForwarderInspection.HasFindings();
 
     [MarkoutSection(Name = "Type Forwarders", ShowWhenProperty = nameof(HasTypeForwarders))]
     public List<TypeForwarderRow>? TypeForwardersSection =>
-        _data.TypeForwarderInspection.Payloads()
+        _data.TypeForwarderInspection.PayloadsForRendering()
             .OrderBy(f => f.TypeName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(f => f.TargetAssembly, StringComparer.OrdinalIgnoreCase)
             .Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly))
@@ -801,7 +813,7 @@ public class LibraryInspectionView
 
     private static int CountSwitches(LibraryInspection inspection)
     {
-        var count = inspection.SwitchInspection.Findings().Length;
+        var count = inspection.SwitchInspection.FindingCount();
         return count > 0 ? count : inspection.SwitchCount;
     }
 
@@ -1094,6 +1106,12 @@ public record AuditSignalRow(
     string Signal,
     string Value,
     string Evidence);
+
+[MarkoutSerializable]
+public record InspectionFailureRow(
+    string Section,
+    string Finding,
+    string Reason);
 
 [MarkoutSerializable]
 public record SwitchRow(

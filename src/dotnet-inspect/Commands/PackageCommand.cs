@@ -2088,7 +2088,7 @@ public class PackageCommand
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
         {
             var switchRows = inspections
-                .SelectMany(inspection => inspection.SwitchInspection.Payloads()
+                .SelectMany(inspection => inspection.SwitchInspection.PayloadsForRendering()
                     .Select(switchInfo => WithProvenance(
                         packageName,
                         version,
@@ -2281,7 +2281,7 @@ public class PackageCommand
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
         {
             var switchRows = inspections
-                .SelectMany(inspection => inspection.SwitchInspection.Payloads()
+                .SelectMany(inspection => inspection.SwitchInspection.PayloadsForRendering()
                     .Select(row => new
                     {
                         Library = inspection.FileName,

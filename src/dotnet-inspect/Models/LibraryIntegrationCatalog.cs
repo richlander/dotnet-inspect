@@ -15,17 +15,28 @@ internal sealed record LibraryIntegrationDescriptor(
     bool IncludeTypesWhenApisPresent)
 {
     public bool CanRender(LibraryInspection inspection)
-        => HasSignals(inspection) || HasPresence(inspection);
+    {
+        var failed = Source switch
+        {
+            LibraryIntegrationSource.Ecosystem =>
+                inspection.EcosystemIntegrationInspection.Failure() is not null,
+            LibraryIntegrationSource.OpenTelemetry =>
+                inspection.OpenTelemetryInspection.Failure() is not null,
+            _ => throw new InvalidOperationException($"Unknown integration source: {Source}."),
+        };
+
+        return !failed && (HasSignals(inspection) || HasPresence(inspection));
+    }
 
     public bool HasSignals(LibraryInspection inspection)
         => Source switch
         {
             LibraryIntegrationSource.Ecosystem =>
                 inspection.EcosystemIntegrationInspection
-                    .Payloads()
+                    .PayloadsForRendering()
                     .Any(signal => signal.Integration.Equals(Name, StringComparison.Ordinal)),
             LibraryIntegrationSource.OpenTelemetry =>
-                inspection.OpenTelemetryInspection.Payloads().Any(),
+                inspection.OpenTelemetryInspection.PayloadsForRendering().Any(),
             _ => throw new InvalidOperationException($"Unknown integration source: {Source}."),
         };
 
@@ -36,14 +47,14 @@ internal sealed record LibraryIntegrationDescriptor(
             LibraryIntegrationSource.Ecosystem =>
             [
                 .. inspection.EcosystemIntegrationInspection
-                    .Payloads()
+                    .PayloadsForRendering()
                     .Where(signal => signal.Integration.Equals(Name, StringComparison.Ordinal))
                     .Select(static signal => (signal.Kind, signal.Name, signal.Shape)),
             ],
             LibraryIntegrationSource.OpenTelemetry =>
             [
                 .. inspection.OpenTelemetryInspection
-                    .Payloads()
+                    .PayloadsForRendering()
                     .Select(static signal => (signal.Kind, signal.Name, signal.Shape)),
             ],
             _ => throw new InvalidOperationException($"Unknown integration source: {Source}."),

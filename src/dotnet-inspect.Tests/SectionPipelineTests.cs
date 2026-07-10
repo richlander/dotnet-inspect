@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using ILInspector.Findings;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -251,7 +252,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(45, pipeline.AllSectionNames.Length);
+        Assert.Equal(46, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -931,6 +932,37 @@ public class SectionPipelineTests
 
         Assert.DoesNotContain("Async Methods", effective);
         Assert.Contains("Async Methods", selected);
+    }
+
+    [Fact]
+    public void FailedClassifiedMethods_AreContainedAndReportedInsteadOfRendered()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasPInvokeImports = true,
+            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
+                new InspectionError(
+                    FindingTestData.Subject,
+                    MetadataFindings.ClassifiedMethodDescriptor,
+                    "method scan failed")),
+        };
+        HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "P/Invoke Methods",
+        };
+
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var (empty, requested) = pipeline.GetEmptySections(
+            model,
+            Verbosity.Normal,
+            selected);
+
+        Assert.Contains("Inspection Failures", effective);
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+        Assert.Equal(1, requested);
+        Assert.Equal(["P/Invoke Methods"], empty);
     }
 
     [Fact]

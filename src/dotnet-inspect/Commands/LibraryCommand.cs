@@ -1459,6 +1459,18 @@ public class LibraryCommand
         SectionPipeline<LibraryInspection> pipeline)
     {
         var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
+        var failures = inspection.InspectionFailures;
+        if (empty.Count > 0 && failures is { Count: > 0 })
+        {
+            foreach (var failure in failures)
+            {
+                Console.Error.WriteLine(
+                    $"Warning: {failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
+            }
+
+            return;
+        }
+
         if (empty.Count > 0 && empty.Count == requested)
         {
             var label = empty.Count == 1 ? "section has" : "sections have";
