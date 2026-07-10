@@ -5,22 +5,6 @@ using System.Reflection.Metadata.Ecma335;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Selects how IL operands are rendered by <see cref="ILDisassembler"/>.
-/// </summary>
-public enum ILSyntax
-{
-    /// <summary>Human-readable C#-style names (the IL section's historical format).</summary>
-    Display,
-
-    /// <summary>
-    /// Canonical ilasm syntax — assembly-qualified type names, IL primitive names,
-    /// return types and calling conventions on member refs — suitable for feeding
-    /// back through an IL assembler.
-    /// </summary>
-    Canonical,
-}
-
-/// <summary>
 /// Renders signature types in IL assembler syntax: <c>int32</c>, <c>float64</c>,
 /// <c>class [asm]Ns.Type</c>, <c>valuetype [asm]Ns.E</c>, <c>!0</c>/<c>!!0</c>.
 /// Generic parameters are never substituted — canonical IL refers to them by index.

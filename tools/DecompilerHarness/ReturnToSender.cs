@@ -780,7 +780,7 @@ static class ReturnToSender
         if (printed.Output is null)
             throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
 
-        var original = ILDisassembler.Disassemble(pe, reader, getter)
+        var original = ILInstructionPrinter.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
@@ -957,7 +957,7 @@ static class ReturnToSender
         if (printed.Output is null)
             throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
 
-        var original = ILDisassembler.Disassemble(pe, reader, method)
+        var original = ILInstructionPrinter.Disassemble(pe, reader, method)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
@@ -1131,7 +1131,7 @@ static class ReturnToSender
         if (printed.Output is null)
             throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
 
-        var original = ILDisassembler.Disassemble(pe, reader, setter)
+        var original = ILInstructionPrinter.Disassemble(pe, reader, setter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
@@ -1449,13 +1449,13 @@ static class ReturnToSender
         return ns.Length == 0 ? name : $"{ns}.{name}";
     }
 
-    static IReadOnlyList<ILInstruction>? FindAndDisassemble(
+    static List<ILInstructionText>? FindAndDisassemble(
         PEReader pe,
         string fullType,
         string methodName,
         int overload)
         => FindMethodDefinition(pe, fullType, methodName, overload) is { } found
-            ? ILDisassembler.Disassemble(pe, found.Reader, found.Method)
+            ? ILInstructionPrinter.Disassemble(pe, found.Reader, found.Method)
             : null;
 
     static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(

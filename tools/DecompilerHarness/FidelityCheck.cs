@@ -926,7 +926,7 @@ static class FidelityCheck
                 continue;
             var requiredNamespaces = RequiredNamespaces(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(reader, method, function, body);
-            var original = ILDisassembler.Disassemble(pe, reader, method);
+            var original = ILInstructionPrinter.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
@@ -3349,7 +3349,7 @@ static class FidelityCheck
 
     static string Invariant(double d) => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
 
-    static List<ILInstruction>? FindAndDisassemble(PEReader pe, string fullType, string name, int overload)
+    static List<ILInstructionText>? FindAndDisassemble(PEReader pe, string fullType, string name, int overload)
     {
         var reader = pe.GetMetadataReader();
         int seen = 0;
@@ -3371,7 +3371,7 @@ static class FidelityCheck
                 if (mn != match)
                     continue;
                 if (seen++ == overload)
-                    return ILDisassembler.Disassemble(pe, reader, m);
+                    return ILInstructionPrinter.Disassemble(pe, reader, m);
             }
         }
         return null;

@@ -16,7 +16,7 @@ public class ILSweepTests
 {
     public static TheoryData<string> SweptAssemblies => new(
         typeof(ILSweepTests).Assembly.Location,        // this test assembly
-        typeof(ILDisassembler).Assembly.Location);     // ILInspector.Metadata
+        typeof(ILInstructionPrinter).Assembly.Location);     // ILInspector.Metadata
 
     [Theory]
     [MemberData(nameof(SweptAssemblies))]
@@ -51,7 +51,7 @@ public class ILSweepTests
                         continue;
                     }
 
-                    var original = ILDisassembler.Disassemble(peReader, reader, method)!;
+                    var original = ILInstructionPrinter.Disassemble(peReader, reader, method)!;
                     var roundtripped = IlasmScaffold.DisassembleByName(
                         result.Image!, reader.GetString(method.Name), typePath, IlasmScaffold.ParamTypes(method));
                     if (roundtripped is null)

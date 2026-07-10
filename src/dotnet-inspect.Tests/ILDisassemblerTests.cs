@@ -122,7 +122,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var instructions = ILDisassembler.DisassembleMethod(
+        var instructions = ILInstructionPrinter.DisassembleMethod(
             peReader,
             "DotnetInspector.Tests.ILSampleClass",
             nameof(ILSampleClass.Add));
@@ -138,7 +138,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var instructions = ILDisassembler.DisassembleMethod(peReader, "NoSuch.Type", "Method");
+        var instructions = ILInstructionPrinter.DisassembleMethod(peReader, "NoSuch.Type", "Method");
 
         Assert.Null(instructions);
     }
@@ -150,7 +150,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var instructions = ILDisassembler.DisassembleMethod(
+        var instructions = ILInstructionPrinter.DisassembleMethod(
             peReader,
             "DotnetInspector.Tests.ILSampleClass",
             "NonexistentMethod");
@@ -159,28 +159,28 @@ public class ILDisassemblerTests
     }
 
     [Fact]
-    public void ILInstruction_ToString_FormatsCorrectly()
+    public void ILInstructionText_ToString_FormatsCorrectly()
     {
-        var instruction = new ILInstruction(0x0A, "call", "System.String::Concat");
+        var instruction = new ILInstructionText(0x0A, "call", "System.String::Concat");
         Assert.Equal("IL_000A: call         System.String::Concat", instruction.ToString());
     }
 
     [Fact]
-    public void ILInstruction_ToString_NoOperand_OmitsTrailingSpace()
+    public void ILInstructionText_ToString_NoOperand_OmitsTrailingSpace()
     {
-        var instruction = new ILInstruction(0x00, "nop");
+        var instruction = new ILInstructionText(0x00, "nop");
         Assert.Equal("IL_0000: nop", instruction.ToString());
     }
 
     // Helper to disassemble a method from the test assembly's ILSampleClass
-    static List<ILInstruction>? DisassembleTestMethod(string methodName, Type? declaringType = null)
+    static List<ILInstructionText>? DisassembleTestMethod(string methodName, Type? declaringType = null)
     {
         declaringType ??= typeof(ILSampleClass);
         var assemblyPath = declaringType.Assembly.Location;
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        return ILDisassembler.DisassembleMethod(
+        return ILInstructionPrinter.DisassembleMethod(
             peReader,
             declaringType.FullName!,
             methodName);
@@ -506,7 +506,7 @@ public class ILDisassemblerTests
 
                     try
                     {
-                        var instructions = ILDisassembler.Disassemble(peReader, reader, method);
+                        var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method);
                         if (instructions is not null)
                             totalInstructions += instructions.Count;
                     }
@@ -568,7 +568,7 @@ public class ILDisassemblerTests
 
                 try
                 {
-                    var instructions = ILDisassembler.Disassemble(peReader, reader, method);
+                    var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method);
                     if (instructions is not null)
                         totalInstructions += instructions.Count;
                 }

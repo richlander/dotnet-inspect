@@ -297,7 +297,7 @@ public class ILDisassemblerEmitTests : IDisposable
 
     // --- Helper: emit a method, save to disk, disassemble ---
 
-    List<ILInstruction> EmitAndDisassemble(
+    List<ILInstructionText> EmitAndDisassemble(
         string typeName,
         string methodName,
         Action<ILGenerator> emitBody,
@@ -331,7 +331,7 @@ public class ILDisassemblerEmitTests : IDisposable
 
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
-        var result = ILDisassembler.DisassembleMethod(
+        var result = ILInstructionPrinter.DisassembleMethod(
             peReader, $"EmitTest.{typeName}", methodName);
 
         Assert.NotNull(result);
