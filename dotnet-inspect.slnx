@@ -45,6 +45,8 @@
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
+    <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
+    <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
   </Folder>
