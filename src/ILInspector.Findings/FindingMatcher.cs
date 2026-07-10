@@ -58,7 +58,8 @@ public enum FindingStreamKind
     /// <summary>
     /// Order is not semantic (an unordered set such as a type's members or an API surface); commit an
     /// identity-key bijection by multiset (hash buckets, O(N), no matrix). A set has no position, so
-    /// there are no moves and no scored fringe.
+    /// there are no moves and no scored fringe. Matching considers <see cref="FindingKey.IdentityKey"/>
+    /// only; <see cref="FindingKey.ScopeKey"/> is not consulted at this rung.
     /// </summary>
     IdentitySet,
 }
@@ -70,11 +71,15 @@ public enum FindingStreamKind
 /// mismatch resistance (a lone content-equal occurrence is not silently treated as a move).
 /// Applies only to <see cref="FindingStreamKind.Ordered"/> matching.
 /// </param>
-/// <param name="StreamKind">Whether the streams are ordered or an unordered identity set.</param>
-public sealed record FindingMatchOptions(
-    int MinMoveRunLength = 2,
-    FindingStreamKind StreamKind = FindingStreamKind.Ordered)
+public sealed record FindingMatchOptions(int MinMoveRunLength = 2)
 {
+    /// <summary>
+    /// Whether the streams are ordered or an unordered identity set. An <c>init</c> property (not a
+    /// second positional parameter) so adding it keeps the record's <c>(int)</c> constructor and
+    /// <c>Deconstruct</c> — no source or binary break for existing callers.
+    /// </summary>
+    public FindingStreamKind StreamKind { get; init; } = FindingStreamKind.Ordered;
+
     public static readonly FindingMatchOptions Default = new();
 }
 
@@ -123,20 +128,23 @@ public static class FindingMatcher
     // at this rung once a soft tier drops a facet (e.g. declaring type) from the identity key (#2585).
     static FindingMatch MatchIdentitySet(FindingKey[] oldKeys, FindingKey[] newKeys)
     {
+        // Bucket new occurrences by identity key. IdentityKey is non-null by contract, but the ordered
+        // committer tolerates a null key (null == null matches), so keep parity via a dedicated null
+        // bucket instead of crashing in Dictionary (which rejects a null key) on a degenerate
+        // default(FindingKey).
         var newByKey = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+        var newNull = new Queue<int>();
         for (int j = 0; j < newKeys.Length; j++)
-        {
-            if (!newByKey.TryGetValue(newKeys[j].IdentityKey, out var queue))
-                newByKey[newKeys[j].IdentityKey] = queue = new Queue<int>();
-            queue.Enqueue(j);
-        }
+            Bucket(newByKey, newNull, newKeys[j].IdentityKey).Enqueue(j);
 
         var matchedNew = new bool[newKeys.Length];
         var edges = ImmutableArray.CreateBuilder<FindingEdge>();
 
         for (int i = 0; i < oldKeys.Length; i++)
         {
-            if (newByKey.TryGetValue(oldKeys[i].IdentityKey, out var queue) && queue.Count > 0)
+            string? key = oldKeys[i].IdentityKey;
+            var queue = key is null ? newNull : (newByKey.TryGetValue(key, out var q) ? q : null);
+            if (queue is { Count: > 0 })
             {
                 int j = queue.Dequeue();
                 matchedNew[j] = true;
@@ -155,6 +163,17 @@ public static class FindingMatcher
         }
 
         return new FindingMatch(edges.ToImmutable(), ImmutableArray<FindingMoveCandidate>.Empty);
+
+        // Route a null identity key to a dedicated bucket (Dictionary rejects null keys); real keys
+        // bucket by ordinal equality.
+        static Queue<int> Bucket(Dictionary<string, Queue<int>> byKey, Queue<int> nullBucket, string? key)
+        {
+            if (key is null)
+                return nullBucket;
+            if (!byKey.TryGetValue(key, out var queue))
+                byKey[key] = queue = new Queue<int>();
+            return queue;
+        }
     }
 
     static FindingMatch MatchOrdered(FindingKey[] oldKeys, FindingKey[] newKeys, FindingMatchOptions options)
