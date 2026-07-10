@@ -704,11 +704,21 @@ public static class CompileBackSourceComposer
                 IsSealed: false,
                 IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
         ];
+        bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
         {
             if (TypeProducer.TryCreateRecordEqualityContractRequirement(reader, targetType) is { } equalityContract)
                 targetMembers.Add(equalityContract);
             targetMembers.AddRange(TargetBackingFieldReadMembers(reader, targetTypeDef, targetIdentity, function));
+        }
+        else if (!isConstructor && IsRecordGeneratedSurfaceHelper(reader, targetTypeDef, targetIdentity, methodName, signature))
+        {
+            // ToString / PrintMembers delegate to the record's other synthesized members
+            // rather than reading backing fields directly, so reconstruct the full record
+            // member surface (faithful `protected virtual` helpers, EqualityContract, and the
+            // record properties) via the closure-member surface path instead of field shells.
+            targetFacts.Add(new CompileBackFact("metadata", "closure-member", "record-generated-helper"));
+            includeRecordSurface = true;
         }
         if (isConstructor && primaryConstructor is null)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: false));
@@ -730,6 +740,24 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        if (includeRecordSurface)
+        {
+            // AddRequiredMembers above preserves every IR-gathered dependency (including a user
+            // generic `PrintMembers<T>` overload the surface enumeration would skip). Drop the
+            // synthesized record-helper stubs so AddClosureMemberSurface re-emits them with
+            // faithful `protected virtual` accessibility — but only when no differently-shaped
+            // same-name member remains: the surface dedups methods by name, so removing a stub
+            // shadowed by a same-name overload would leave the synthesized shape unre-emitted.
+            // In that (pathological) case the public stub is kept, still yielding an Exact build.
+            var shadowedHelpers = targetMembers
+                .Where(member => !IsSynthesizedRecordHelperStub(member))
+                .Select(member => (member.Kind, member.Identity.Method))
+                .ToHashSet();
+            targetMembers.RemoveAll(member =>
+                member.StubBody != CompileBackStubBodyKind.TargetBody
+                && IsSynthesizedRecordHelperStub(member)
+                && !shadowedHelpers.Contains((member.Kind, member.Identity.Method)));
+        }
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -1406,6 +1434,38 @@ public static class CompileBackSourceComposer
             && function.Signature.Parameters is [{ Type: var parameterType }]
             && IsSelfType(parameterType, typeIdentity);
     }
+
+    // ToString / PrintMembers are record-generated helpers that delegate to the record's
+    // other synthesized members rather than reading backing fields directly, so they need
+    // the full record surface (see IsRecordGeneratedFieldReadHelper for the field-read helpers).
+    static bool IsRecordGeneratedSurfaceHelper(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity typeIdentity,
+        string methodName,
+        MethodSignature<string> signature)
+    {
+        if (!HasRecordHelperShell(reader, typeDef, typeIdentity))
+            return false;
+
+        return (methodName == "ToString"
+                && signature.ReturnType == "string"
+                && signature.ParameterTypes.Length == 0)
+            || (methodName == "PrintMembers"
+                && signature.ReturnType == "bool"
+                && signature.ParameterTypes is ["System.Text.StringBuilder"]);
+    }
+
+    // Matches only the exact compiler-synthesized record-helper stubs so the record surface
+    // path can replace them with faithful `protected virtual` declarations without deleting a
+    // differently-shaped same-name member (e.g. a user generic `PrintMembers<T>` overload).
+    static bool IsSynthesizedRecordHelperStub(CompileBackMemberRequirement member)
+        => (member.Kind == CompileBackMemberKind.PropertyGet
+                && member.Identity.Method == "EqualityContract")
+            || (member.Kind == CompileBackMemberKind.Method
+                && member.Identity.Method == "PrintMembers"
+                && member.TypeParameters.Count == 0
+                && member.Parameters is [{ Type.DisplayName: "System.Text.StringBuilder" }]);
 
     static bool HasRecordHelperShell(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeIdentity typeIdentity)
     {
