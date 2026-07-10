@@ -119,7 +119,12 @@ public static class ExtensionMethodScanner
                     var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
 
                     // Must have at least one parameter (the receiver); skip static extension properties (no receiver)
-                    if (signature.ParameterTypes.Length == 0) continue;
+                    if (signature.ParameterTypes.Length == 0
+                        || methodName.StartsWith("set_", StringComparison.Ordinal)
+                        && signature.ParameterTypes.Length < 2)
+                    {
+                        continue;
+                    }
 
                     var extendedType = signature.ParameterTypes[0];
                     var normalizedExtended = TypeMatcher.Normalize(extendedType);
@@ -252,7 +257,12 @@ public static class ExtensionMethodScanner
 
                     var context = GenericContext.ForMethod(reader, typeDef, method);
                     var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
-                    if (signature.ParameterTypes.Length == 0) continue;
+                    if (signature.ParameterTypes.Length == 0
+                        || methodName.StartsWith("set_", StringComparison.Ordinal)
+                        && signature.ParameterTypes.Length < 2)
+                    {
+                        continue;
+                    }
 
                     var extendedType = signature.ParameterTypes[0];
                     string propertyName = methodName.Substring(4);
@@ -510,12 +520,10 @@ public static class ExtensionMethodScanner
         MetadataReader reader,
         TypeDefinitionHandle extensionClassHandle)
     {
-        var nestedTypes = reader.TypeDefinitions
-            .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType() == extensionClassHandle)
-            .ToArray();
+        var extensionClass = reader.GetTypeDefinition(extensionClassHandle);
         var hiddenProperties = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var groupingTypeHandle in nestedTypes)
+        foreach (var groupingTypeHandle in extensionClass.GetNestedTypes())
         {
             var groupingType = reader.GetTypeDefinition(groupingTypeHandle);
             foreach (var propertyHandle in groupingType.GetProperties())
@@ -530,12 +538,10 @@ public static class ExtensionMethodScanner
                     continue;
                 }
 
-                var markerTypeHandle = reader.TypeDefinitions.FirstOrDefault(handle =>
-                {
-                    var candidate = reader.GetTypeDefinition(handle);
-                    return candidate.GetDeclaringType() == groupingTypeHandle
-                        && reader.StringComparer.Equals(candidate.Name, markerName!);
-                });
+                var markerTypeHandle = groupingType.GetNestedTypes().FirstOrDefault(handle =>
+                    reader.StringComparer.Equals(
+                        reader.GetTypeDefinition(handle).Name,
+                        markerName!));
                 if (markerTypeHandle.IsNil)
                     continue;
 

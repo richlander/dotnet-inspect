@@ -85,6 +85,9 @@ public sealed class MetadataExtensionFindingsTests
             static member => member.MethodName == nameof(ExtensionPropertyIdentityFixture.Ordinary));
         Assert.DoesNotContain(
             members,
+            static member => member.MethodName == "Standalone");
+        Assert.DoesNotContain(
+            members,
             static member => member.MethodName == "Hidden");
 
         using var allStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
@@ -241,6 +244,7 @@ public sealed class MetadataExtensionFindingsTests
 public static class ExtensionPropertyIdentityFixture
 {
     public static int Ordinary { get; set; }
+    public static void set_Standalone(int value) { }
 
     extension(string value)
     {
