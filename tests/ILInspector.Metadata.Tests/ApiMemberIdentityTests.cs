@@ -39,6 +39,22 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void CreateMethodAnchorInfo_IncludesCanonicalReturnType()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (typeHandle, method) = FindFixtureMethod(reader);
+
+        var identity = ApiMemberIdentity.CreateMethodAnchorInfo(reader, typeHandle, method);
+
+        Assert.Equal("System.Void", identity.ReturnType);
+        Assert.Equal(
+            ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method),
+            identity.Anchor);
+    }
+
+    [Fact]
     public void GetMemberAnchor_DisambiguatesConversionOperatorsByReturnType()
     {
         using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);

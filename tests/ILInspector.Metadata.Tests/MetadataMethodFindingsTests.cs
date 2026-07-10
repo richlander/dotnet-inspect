@@ -25,7 +25,7 @@ public sealed class MetadataMethodFindingsTests
             method.Anchor.CanonicalSignature,
             StringComparison.Ordinal);
         Assert.Contains("System.Int32*", method.Anchor.CanonicalSignature, StringComparison.Ordinal);
-        Assert.Equal("int*", method.ReturnType);
+        Assert.Equal("System.Int32*", method.ReturnType);
     }
 
     [Fact]
@@ -58,6 +58,60 @@ public sealed class MetadataMethodFindingsTests
             "int M",
             present.New.Payload.Anchor.CanonicalSignature,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LegacyRecordEqualityAndDeconstructionIgnoreAdditiveShape()
+    {
+        var anchor = CreateAnchor("M:Sample.Native.M()");
+        ClassifiedMethodInfo enriched = new(
+            "M",
+            "Sample.Native",
+            "Sample",
+            "void M()",
+            MethodClassification.PInvoke,
+            "native")
+        {
+            Anchor = anchor,
+            ReturnType = "System.Void",
+        };
+        ClassifiedMethodInfo legacy = new(
+            "M",
+            "Sample.Native",
+            "Sample",
+            "void M()",
+            MethodClassification.PInvoke,
+            "native");
+
+        var (methodName, declaringType, @namespace, signature, classification, moduleName) = enriched;
+
+        Assert.Equal(legacy, enriched);
+        Assert.Equal(legacy.GetHashCode(), enriched.GetHashCode());
+        Assert.Equal("M", methodName);
+        Assert.Equal("Sample.Native", declaringType);
+        Assert.Equal("Sample", @namespace);
+        Assert.Equal("void M()", signature);
+        Assert.Equal(MethodClassification.PInvoke, classification);
+        Assert.Equal("native", moduleName);
+    }
+
+    [Fact]
+    public void ObservationWithExpressionPreservesRecordSemantics()
+    {
+        var observation = new ClassifiedMethodObservation(
+            CreateAnchor("M:Sample.Native.M()"),
+            MethodClassification.PInvoke,
+            "System.Void",
+            "old");
+
+        var changed = observation with
+        {
+            ReturnType = "System.Int32",
+            ModuleName = "new",
+        };
+
+        Assert.Equal("System.Int32", changed.ReturnType);
+        Assert.Equal("new", changed.ModuleName);
     }
 
     [Fact]

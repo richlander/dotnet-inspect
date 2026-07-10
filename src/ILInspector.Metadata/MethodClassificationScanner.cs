@@ -18,6 +18,30 @@ public record ClassifiedMethodInfo(
 {
     public MemberAnchor? Anchor { get; init; }
     public string? ReturnType { get; init; }
+
+    public virtual bool Equals(ClassifiedMethodInfo? other)
+        => ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && string.Equals(MethodName, other.MethodName, StringComparison.Ordinal)
+        && string.Equals(DeclaringType, other.DeclaringType, StringComparison.Ordinal)
+        && string.Equals(Namespace, other.Namespace, StringComparison.Ordinal)
+        && string.Equals(Signature, other.Signature, StringComparison.Ordinal)
+        && Classification == other.Classification
+        && string.Equals(ModuleName, other.ModuleName, StringComparison.Ordinal);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(EqualityContract);
+        hash.Add(MethodName, StringComparer.Ordinal);
+        hash.Add(DeclaringType, StringComparer.Ordinal);
+        hash.Add(Namespace, StringComparer.Ordinal);
+        hash.Add(Signature, StringComparer.Ordinal);
+        hash.Add(Classification);
+        hash.Add(ModuleName, StringComparer.Ordinal);
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>
@@ -86,18 +110,18 @@ public static class MethodClassificationScanner
                     continue;
 
                 string methodName = reader.GetString(method.Name);
-                MemberAnchor? anchor = null;
-                bool anchorAttempted = false;
+                MethodAnchorInfo? methodIdentity = null;
+                bool identityAttempted = false;
 
-                MemberAnchor? GetAnchor()
+                MethodAnchorInfo? GetMethodIdentity()
                 {
-                    if (!anchorAttempted)
+                    if (!identityAttempted)
                     {
-                        anchor = TryCreateAnchor(reader, typeDefHandle, method);
-                        anchorAttempted = true;
+                        methodIdentity = TryCreateMethodIdentity(reader, typeDefHandle, method);
+                        identityAttempted = true;
                     }
 
-                    return anchor;
+                    return methodIdentity;
                 }
 
                 // Skip accessors and constructors
@@ -111,13 +135,13 @@ public static class MethodClassificationScanner
                 if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
                 {
                     string? moduleName = GetPInvokeModuleName(reader, methodHandle);
-                    var (signature, returnType) = FormatSignature(reader, typeDef, method);
+                    var signature = FormatSignature(reader, typeDef, method);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature,
                         MethodClassification.PInvoke, moduleName)
                     {
-                        Anchor = GetAnchor(),
-                        ReturnType = returnType,
+                        Anchor = GetMethodIdentity()?.Anchor,
+                        ReturnType = GetMethodIdentity()?.ReturnType,
                     });
                     continue; // P/Invoke methods are also "unsafe" but classify as P/Invoke
                 }
@@ -126,12 +150,12 @@ public static class MethodClassificationScanner
                 var asyncClassification = ClassifyAsyncMethod(reader, method);
                 if (asyncClassification is { } asyncKind)
                 {
-                    var (signature, returnType) = FormatSignature(reader, typeDef, method);
+                    var signature = FormatSignature(reader, typeDef, method);
                     results.Add(new ClassifiedMethodInfo(
                         methodName, fullTypeName, ns, signature, asyncKind)
                     {
-                        Anchor = GetAnchor(),
-                        ReturnType = returnType,
+                        Anchor = GetMethodIdentity()?.Anchor,
+                        ReturnType = GetMethodIdentity()?.ReturnType,
                     });
                 }
 
@@ -147,8 +171,8 @@ public static class MethodClassificationScanner
                             methodName, fullTypeName, ns, signature,
                             MethodClassification.Unsafe)
                         {
-                            Anchor = GetAnchor(),
-                            ReturnType = sig.ReturnType,
+                            Anchor = GetMethodIdentity()?.Anchor,
+                            ReturnType = GetMethodIdentity()?.ReturnType,
                         });
                     }
                 }
@@ -206,14 +230,14 @@ public static class MethodClassificationScanner
         return reader.GetString(moduleRef.Name);
     }
 
-    private static MemberAnchor? TryCreateAnchor(
+    private static MethodAnchorInfo? TryCreateMethodIdentity(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinition method)
     {
         try
         {
-            return ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method);
+            return ApiMemberIdentity.CreateMethodAnchorInfo(reader, typeHandle, method);
         }
         catch (BadImageFormatException)
         {
@@ -221,7 +245,7 @@ public static class MethodClassificationScanner
         }
     }
 
-    private static (string Signature, string? ReturnType) FormatSignature(
+    private static string FormatSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method)
@@ -231,13 +255,11 @@ public static class MethodClassificationScanner
             var context = GenericContext.ForMethod(reader, typeDef, method);
             var sig = method.DecodeSignature(SignatureDecoder.Instance, context);
             string methodName = reader.GetString(method.Name);
-            return (
-                SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig),
-                sig.ReturnType);
+            return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
         }
         catch
         {
-            return (reader.GetString(method.Name) + "(...)", null);
+            return reader.GetString(method.Name) + "(...)";
         }
     }
 }

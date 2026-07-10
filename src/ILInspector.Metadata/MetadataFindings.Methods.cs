@@ -13,11 +13,20 @@ public sealed record ClassifiedMethodObservation(
     string ReturnType,
     string? ModuleName = null)
 {
-    public MemberAnchor Anchor { get; }
-        = Anchor ?? throw new ArgumentNullException(nameof(Anchor));
+    MemberAnchor _anchor = Anchor ?? throw new ArgumentNullException(nameof(Anchor));
+    string _returnType = ReturnType ?? throw new ArgumentNullException(nameof(ReturnType));
 
-    public string ReturnType { get; }
-        = ReturnType ?? throw new ArgumentNullException(nameof(ReturnType));
+    public MemberAnchor Anchor
+    {
+        get => _anchor;
+        init => _anchor = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    public string ReturnType
+    {
+        get => _returnType;
+        init => _returnType = value ?? throw new ArgumentNullException(nameof(value));
+    }
 }
 
 public static partial class MetadataFindings
