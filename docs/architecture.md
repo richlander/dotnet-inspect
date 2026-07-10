@@ -123,6 +123,13 @@ Run `dotnet-inspect skill` to print the embedded SKILL.md.
 Method-body evidence is split by representation altitude, then joined by a
 single overlay layer:
 
+The shared Finding model names one-version occurrences as observations
+(`Finding<T>`) and classified old/new relationships as transitions
+(`PairFinding<T>`). Evidence is the role those and other producer-owned values
+play in supporting a conclusion, not a parallel row hierarchy. See
+[Finding Nomenclature](design/finding-nomenclature.md) and
+[Finding Producer Design](design/finding-producers.md).
+
 - **R1** is the lower, metadata/IL representation. `ILInspector.Analysis` reads
   assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,
   and produces method signals, direct-call evidence, allocation occurrences, and
@@ -588,3 +595,5 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence is load-bearing — it ships and evolves as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
 
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
+
+11. **Finding arity is semantic** — `Finding<T>` is a one-version observation and `PairFinding<T>` is a two-version transition. `IFinding` and `IPairFinding` provide separate heterogeneous collection contracts; repeated subject/descriptor/detail projections do not justify a misleading shared hierarchy. Research composes producer-owned observations, transitions, native structural diffs, failures, and provenance as evidence without wrapping them in a second universal row model. See [Finding Nomenclature](design/finding-nomenclature.md).

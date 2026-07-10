@@ -5,6 +5,11 @@
 future CLI sections, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
 
+Terminology follows [Finding Nomenclature](finding-nomenclature.md):
+`Finding<T>` is a one-version observation, `PairFinding<T>` is a two-version
+transition, and evidence is the role either may play rather than a competing row
+family.
+
 ## Ownership
 
 - `ILInspector.Decompiler` owns C# body diff production and display rows through
@@ -30,7 +35,11 @@ payload needed for typed presentation. It is deliberately not a
 `ResearchComparison.ApiComparison` retains that producer-owned envelope. C#,
 IL/body, body-signal, and ReturnToSender mechanisms do not all expose equivalent
 old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
-must not manufacture Finding atoms or misuse `PairKind`.
+must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a
+Research-owned migration projection, not the seed of a parallel generic
+`EvidenceRow` spine. As each mechanism gains honest observations and
+transitions, Research should retain those producer-owned values and retire the
+corresponding projection fields.
 
 ## Consumer contract
 

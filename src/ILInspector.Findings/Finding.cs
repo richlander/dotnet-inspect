@@ -83,9 +83,9 @@ public enum FindingDifferenceKind
 }
 
 /// <summary>
-/// The domain-free skeleton shared by an atom (<see cref="Finding{T}"/>) and a transition
-/// (<see cref="PairFinding{T}"/>): what a cross-stream consumer needs without knowing the payload
-/// type or which producer emitted it. <see cref="IFinding{T}"/> adds the typed payload.
+/// The non-generic observation contract. A heterogeneous census can carry
+/// <c>Finding&lt;T&gt;</c> values with different payload types while preserving the common
+/// subject, descriptor, and detail projection.
 /// </summary>
 public interface IFinding
 {
@@ -95,25 +95,16 @@ public interface IFinding
 }
 
 /// <summary>
-/// A finding with its typed payload. Non-variant on <typeparamref name="T"/>: a payload may be a
-/// value type, and CLR variance is reference-only.
-/// </summary>
-public interface IFinding<T> : IFinding
-    where T : notnull
-{
-    T Payload { get; }
-}
-
-/// <summary>
 /// The atom: a single observation projected from a domain node (an IL op, an allocation, an API
 /// member). A single-version query is just a <c>Finding&lt;T&gt;[]</c> census — no matcher, no
 /// diff. It carries its content <see cref="Key"/> and a single <see cref="Position"/> in its own
 /// stream; the transition concepts (add/remove/change, an old-vs-new delta) belong to
 /// <see cref="PairFinding{T}"/>, never here. The payload is non-null and a type parameter rather
 /// than <c>object?</c>, so a value-typed payload is not boxed and consumers read it without a
-/// cast; absence is expressed by choosing <see cref="IFinding"/>, not by a null payload.
+/// cast; heterogeneous consumers use <see cref="IFinding"/> and pattern-match the concrete
+/// <c>Finding&lt;T&gt;</c> when they need its payload.
 /// </summary>
-public sealed record Finding<T> : IFinding<T>
+public sealed record Finding<T> : IFinding
     where T : notnull
 {
     public Finding(
@@ -158,15 +149,18 @@ public sealed record Finding<T> : IFinding<T>
 }
 
 /// <summary>
-/// The domain-free skeleton of a transition: an old/new pair classified by <see cref="Kind"/> and
-/// <see cref="Difference"/>. Extends <see cref="IFinding"/> so a cross-stream fold
-/// (<see cref="FindingSummary"/>, <see cref="FindingEquivalence"/>) reads it without knowing the
-/// payload type. Each concrete case (<see cref="Added{T}"/>, <see cref="Removed{T}"/>,
+/// The non-generic transition contract: an old/new pair classified by <see cref="Kind"/> and
+/// <see cref="Difference"/>. A heterogeneous change stream can carry pair values with different
+/// payload types without treating a two-version transition as a one-version <see cref="IFinding"/>.
+/// Each concrete case (<see cref="Added{T}"/>, <see cref="Removed{T}"/>,
 /// <see cref="Present{T}"/>, <see cref="Changed{T}"/>) fixes its own <see cref="Kind"/> and exposes
-/// exactly the sides it has via <see cref="Old"/>/<see cref="New"/>.
+/// exactly the observation sides it has via <see cref="Old"/>/<see cref="New"/>.
 /// </summary>
-public interface IPairFinding : IFinding
+public interface IPairFinding
 {
+    FindingSubject Subject { get; }
+    FindingDescriptor Descriptor { get; }
+    string? Detail { get; }
     PairKind Kind { get; }
     FindingDifferenceKind Difference { get; }
     IFinding? Old { get; }
