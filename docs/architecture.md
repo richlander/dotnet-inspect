@@ -550,7 +550,7 @@ Research overlay bridge, and the application layer:
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns C# spelling and body-independent type views over Metadata models. Consumers retain API selection, grouping, and output rendering, then use `CSharpFormatter` for declaration text. `CSharpTypePrinter` composes those declarations into namespace/type units. CSharp does not depend on Decompiler or Research. The formatter temporarily delegates to Metadata's compatibility declaration writer while structured spelling primitives move to their owning layer.
 - **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading.
-- **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
+- **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes. It consumes CSharp for body-independent declaration spelling and combines those declarations with reconstructed bodies.
 - **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
 - **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.
 - **Views** wrap models and own all Markout attributes, sections, field builders, and computed display properties. They are the only types registered in `MarkoutContext`.
