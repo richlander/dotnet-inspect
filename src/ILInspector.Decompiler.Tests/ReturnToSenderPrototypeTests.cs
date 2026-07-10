@@ -2830,6 +2830,78 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RecordSurfaceHelperKeepsGenericDependency()
+    {
+        // A record with a custom ToString that calls a generic same-type helper: the record
+        // surface path reconstructs the faithful member surface, but the metadata surface
+        // enumeration skips generic methods — so the IR-gathered generic dependency must still
+        // be carried (via AddRequiredMembers) or compile-back regresses to a non-Exact floor.
+        var assemblyPath = CompileFixture("""
+            public record Row(string Name, string Value)
+            {
+                public override string ToString() => Render<int>();
+
+                private string Render<T>() => Name + Value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("Render", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RecordSurfaceHelperKeepsGenericSameNameOverload()
+    {
+        // A user generic `PrintMembers<T>` overload called by a custom ToString must survive
+        // the record-surface stub removal, and the synthesized `PrintMembers(StringBuilder)`
+        // it also calls must still be present: the removal must not leave the synthesized shape
+        // unre-emitted when a same-name overload shadows it in the name-based surface dedup.
+        var assemblyPath = CompileFixture("""
+            using System.Text;
+            public record Row(string Name)
+            {
+                public override string ToString()
+                {
+                    var b = new StringBuilder();
+                    PrintMembers<int>(7);
+                    PrintMembers(b);
+                    return b.ToString();
+                }
+
+                public bool PrintMembers<T>(int x) => x == 7;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("PrintMembers<T>", result.Source);
+            Assert.Contains("PrintMembers(System.Text.StringBuilder", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesFieldShellForRecordGeneratedFieldReadHelpers()
     {
         var assemblyPath = CompileFixture("""
