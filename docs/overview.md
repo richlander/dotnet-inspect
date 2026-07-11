@@ -46,7 +46,7 @@ Agents working in this repo should preserve these principles:
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
-- [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by future CLI surfaces, RTS, and harnesses.
+- [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.

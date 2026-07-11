@@ -88,6 +88,27 @@ public record AnalysisDiffRow(
     string? Shape,
     string? Evidence);
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class ImplementationDiffView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Implementation Diff")]
+    public List<ImplementationDiffRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record ImplementationDiffRow(
+    string Member,
+    string Mechanism,
+    string Change,
+    string Evidence);
+
 [MarkoutSerializable]
 public record DiffChangeRow(
     [property: MarkoutIgnore] string TypeName,
@@ -102,6 +123,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffChangeRow))]
 [MarkoutContext(typeof(AnalysisDiffView))]
 [MarkoutContext(typeof(AnalysisDiffRow))]
+[MarkoutContext(typeof(ImplementationDiffView))]
+[MarkoutContext(typeof(ImplementationDiffRow))]
 public partial class DiffViewContext : MarkoutSerializerContext
 {
 }

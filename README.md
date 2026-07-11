@@ -127,7 +127,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. |
-| `diff X` | Compare API surfaces between versions. |
+| `diff X` | Compare API surfaces by default; opt into analysis or C# + IL implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
@@ -301,6 +301,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect member MyType MyMethod:1 --library MyLib.dll -S "Unsafe*"
 dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -m MyType.HotPath
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect implements IEquatable --project ./src/App -v:q
 dotnet-inspect extensions string --project ./src/App -v:n

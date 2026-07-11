@@ -36,7 +36,7 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 │  Search for types across packages, platform, and assets      │
 ├─────────────────────────────────────────────────────────────┤
 │                         diff                                 │
-│  Compare API surfaces between package/platform versions      │
+│  Compare API, analysis, or implementation evidence           │
 ├─────────────────────────────────────────────────────────────┤
 │            depends / extensions / implements                 │
 │  Relationship discovery for APIs, packages, and libraries    │
@@ -85,11 +85,14 @@ Extract public API surface using metadata:
 
 ### diff
 
-Compares API surfaces between two package versions:
+Compares two package, platform, or local-library versions:
 
-- Added, removed, and modified types
-- Member-level changes within types
-- Version range syntax: `Package@v1..v2`
+- API compatibility is the default lens: added, removed, and modified types and
+  members.
+- `-S "Analysis Diff"` selects body-signal changes.
+- `-S "Implementation Diff"` selects Research-composed C# + IL evidence grouped
+  by member.
+- Version range syntax is `Package@v1..v2` or `old/Foo.dll..new/Foo.dll`.
 
 ### find
 

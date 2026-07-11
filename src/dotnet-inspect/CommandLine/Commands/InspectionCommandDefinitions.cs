@@ -14,7 +14,9 @@ public static class InspectionCommandDefinitions
 {
     public static Command CreateDiffCommand(SharedOptions opts)
     {
-        var diffCommand = new Command(DiffCommand.Name, "Compare API surfaces between package, platform, or local library versions");
+        var diffCommand = new Command(
+            DiffCommand.Name,
+            "Compare API surfaces, analysis signals, or implementation evidence between versions");
 
         var argsArg = new Argument<string[]>("args")
         {
