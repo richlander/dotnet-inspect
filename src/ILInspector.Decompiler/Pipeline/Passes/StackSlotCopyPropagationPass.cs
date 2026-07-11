@@ -115,7 +115,7 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
             return null;
 
         var blocks = container.Blocks;
-        if (HasUnmodeledTerminator(blocks))
+        if (HasUnmodeledControlFlow(blocks))
             return null;
 
         int copyBlockIndex = copyBlock.ChildIndex;
@@ -255,8 +255,29 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
         }
     }
 
-    static bool HasUnmodeledTerminator(IReadOnlyList<Block> blocks)
-        => blocks.Any(block => block.Children is [.., Break or Continue]);
+    static bool HasUnmodeledControlFlow(IReadOnlyList<Block> blocks)
+    {
+        foreach (var block in blocks)
+            foreach (var statement in block.Children)
+                if (ContainsUnmodeledControlFlow(statement))
+                    return true;
+        return false;
+    }
+
+    static bool ContainsUnmodeledControlFlow(IrNode node)
+    {
+        if (node is Lambda or LocalFunctionStatement)
+            return false;
+        if (node is Break or Continue)
+            return true;
+        if (node is Block or BlockContainer)
+            return true;
+
+        foreach (var child in node.Children)
+            if (ContainsUnmodeledControlFlow(child))
+                return true;
+        return false;
+    }
 
     static int IndexOfOffset(IReadOnlyList<Block> blocks, int offset)
     {

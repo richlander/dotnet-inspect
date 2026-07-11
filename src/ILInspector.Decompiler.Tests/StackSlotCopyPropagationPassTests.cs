@@ -252,6 +252,67 @@ public class StackSlotCopyPropagationPassTests
     }
 
     [Fact]
+    public void DoesNotPropagateWhenNestedBranchCanEnterUseRegion()
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0);
+        entry.Add(new ConditionalBranch(new LoadArgument(1, "flag", Bool), 8));
+        body.Add(entry);
+        var firstSourceStore = new Block(4);
+        firstSourceStore.Add(new StoreStackSlot(0, new LoadArgument(0, "x", Int32)));
+        firstSourceStore.Add(new Branch(12));
+        body.Add(firstSourceStore);
+        var secondSourceStore = new Block(8);
+        secondSourceStore.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
+        secondSourceStore.Add(new ConditionalBranch(new LoadArgument(1, "flag", Bool), 16));
+        body.Add(secondSourceStore);
+        var copyJoin = new Block(12);
+        copyJoin.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        copyJoin.Add(new Branch(24));
+        body.Add(copyJoin);
+        var nestedBranch = new Block(16);
+        var thenArm = new Block(17);
+        thenArm.Add(new Branch(24));
+        nestedBranch.Add(new IfStatement(new LoadArgument(1, "flag", Bool), thenArm, null));
+        nestedBranch.Add(new Return(null));
+        body.Add(nestedBranch);
+        var use = new Block(24);
+        use.Add(UseSlot(1));
+        use.Add(new Return(null));
+        body.Add(use);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenNestedLoopTerminatorIsPresent()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        body.Add(copy);
+        var use = new Block(16);
+        use.Add(UseSlot(1));
+        var thenArm = new Block(17);
+        thenArm.Add(new Continue());
+        use.Add(new IfStatement(new LoadArgument(1, "flag", Bool), thenArm, null));
+        use.Add(new Return(null));
+        body.Add(use);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
     public void DoesNotCrossNestedBodyScope()
     {
         var lambdaBody = new BlockContainer();
