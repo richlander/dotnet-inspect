@@ -279,6 +279,9 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,Sour
 dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
+dotnet-inspect type JsonSerializer --package System.Text.Json@8.0.0..8.0.5 --at '#4'
+dotnet-inspect member JsonSerializer Serialize --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
 dotnet-inspect type Command --project ./src/App
 dotnet-inspect member Command --project ./src/App --show-index
 dotnet-inspect project ./src/App -S Grounding

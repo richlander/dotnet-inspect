@@ -15,6 +15,7 @@ public class TypeOptionsParserTests
 
         var argsArg = new Argument<string[]>("args") { Arity = ArgumentArity.ZeroOrMore };
         var packageOption = new Option<string?>("--package");
+        var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
         var platformOption = new Option<string?>("--platform");
         var projectOption = new Option<string?>("--project");
@@ -30,6 +31,7 @@ public class TypeOptionsParserTests
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
+        typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
@@ -56,7 +58,7 @@ public class TypeOptionsParserTests
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders,
-            shapeOption, unsafeOption, memberOption, kindOption);
+            shapeOption, unsafeOption, memberOption, kindOption, atOption);
 
         return (root, opts, args);
     }
@@ -83,6 +85,18 @@ public class TypeOptionsParserTests
         Assert.Null(options.PackagePath);
         Assert.Null(options.AssemblyPath);
         Assert.Null(options.PlatformAssembly);
+    }
+
+    [Fact]
+    public async Task PackageRangeAddress_IsPreservedForLazyResolution()
+    {
+        var options = await ParseSuccessAsync(
+            "type", "JsonSerializer",
+            "--package", "System.Text.Json@8.0.0..9.0.0",
+            "--at", "#2");
+
+        Assert.Equal("System.Text.Json@8.0.0..9.0.0", options.PackagePath);
+        Assert.Equal("#2", options.PackageRangeAddress);
     }
 
     [Fact]

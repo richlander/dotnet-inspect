@@ -16,6 +16,8 @@ public partial record ApiOptions
 
     // Source resolution
     public string? PackagePath { get; init; }
+    /// <summary>Explicit address within a package version range: version, #N, first, or last.</summary>
+    public string? PackageRangeAddress { get; init; }
     public string? AssemblyPath { get; init; }
     public string? PlatformAssembly { get; init; }
     public string? ProjectPath { get; init; }

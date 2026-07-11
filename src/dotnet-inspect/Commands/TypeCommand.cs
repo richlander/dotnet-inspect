@@ -67,7 +67,12 @@ public static class TypeCommand
         var context = source.Context;
         var logger = context.Logger;
 
-        options = options with { ProjectAssetsPath = projectAssetsPath };
+        options = options with
+        {
+            PackagePath = source.ResolvedPackagePath,
+            PackageRangeAddress = null,
+            ProjectAssetsPath = projectAssetsPath,
+        };
 
         try
         {

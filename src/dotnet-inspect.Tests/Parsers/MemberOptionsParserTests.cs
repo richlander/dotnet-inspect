@@ -24,6 +24,7 @@ public class MemberOptionsParserTests
 
         var argsArg = new Argument<string[]>("args") { Arity = ArgumentArity.ZeroOrMore };
         var packageOption = new Option<string?>("--package");
+        var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
         var platformOption = new Option<string?>("--platform");
         var frameworkOption = new Option<string?>("--framework");
@@ -45,6 +46,7 @@ public class MemberOptionsParserTests
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
+        memberCommand.Options.Add(atOption);
         memberCommand.Options.Add(assemblyOption);
         memberCommand.Options.Add(platformOption);
         memberCommand.Options.Add(frameworkOption);
@@ -76,7 +78,7 @@ public class MemberOptionsParserTests
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption);
+            binOption, callerProjectOption, callerPackageOption, atOption);
 
         return (root, opts, args);
     }
@@ -104,6 +106,18 @@ public class MemberOptionsParserTests
         Assert.Equal("System.Text.Json", options.PackagePath);
         Assert.Null(options.PlatformAssembly);
         Assert.Null(options.AssemblyPath);
+    }
+
+    [Fact]
+    public async Task PackageRangeAddress_IsPreservedForLazyResolution()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer",
+            "--package", "System.Text.Json@8.0.0..9.0.0",
+            "--at", "8.0.5");
+
+        Assert.Equal("System.Text.Json@8.0.0..9.0.0", options.PackagePath);
+        Assert.Equal("8.0.5", options.PackageRangeAddress);
     }
 
     [Fact]

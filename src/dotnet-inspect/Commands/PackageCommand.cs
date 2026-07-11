@@ -147,6 +147,42 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            PackageVersionRange? range = null;
+            string? rangeError = null;
+            bool isRange = !File.Exists(packageArgs[0])
+                && PackageVersionRange.TryParse(packageArgs[0], out range, out rangeError);
+            if (rangeError is not null)
+            {
+                Console.Error.WriteLine(rangeError);
+                return 1;
+            }
+
+            if (isRange)
+            {
+                try
+                {
+                    var vector = await PackageVersionVector.ResolveAsync(
+                        context.HttpClient,
+                        range!,
+                        options.SourceOptions,
+                        logger.Log,
+                        options.IncludePrerelease);
+                    var rangeVersions = vector.Addresses
+                        .Take(options.Limit ?? int.MaxValue)
+                        .Select(address => address.Version.ToNormalizedString());
+                    OutputFormatter.WriteStringList(rangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+                    return 0;
+                }
+                catch (Exception ex) when (ex is HttpRequestException
+                    or IOException
+                    or InvalidOperationException
+                    or ArgumentException)
+                {
+                    Console.Error.WriteLine($"Error: {ex.Message}");
+                    return 1;
+                }
+            }
+
             var (versionQueryName, versionQueryPinned) = PackageExtractor.ParsePackageReference(packageArgs[0]);
             string normalizedName = versionQueryName.ToLowerInvariant();
             if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
@@ -230,6 +266,20 @@ public class PackageCommand
             OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
 
             return 0;
+        }
+
+        string? packageRangeError = null;
+        if (!File.Exists(packageArgs[0])
+            && PackageVersionRange.TryParse(packageArgs[0], out _, out packageRangeError))
+        {
+            Console.Error.WriteLine(
+                $"Error: Package range '{packageArgs[0]}' requires --versions for package inspection.");
+            return 1;
+        }
+        if (packageRangeError is not null)
+        {
+            Console.Error.WriteLine(packageRangeError);
+            return 1;
         }
 
         var client = context.HttpClient;

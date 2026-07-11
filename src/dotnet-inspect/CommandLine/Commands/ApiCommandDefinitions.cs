@@ -50,7 +50,8 @@ public static class ApiCommandDefinitions
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
+        var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
+        var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
@@ -77,6 +78,7 @@ public static class ApiCommandDefinitions
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
+        typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
@@ -107,7 +109,7 @@ public static class ApiCommandDefinitions
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.OneLine,
-            opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption);
+            opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption, atOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -164,7 +166,8 @@ public static class ApiCommandDefinitions
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, or name@version)" };
+        var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
+        var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
@@ -206,6 +209,7 @@ public static class ApiCommandDefinitions
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
+        memberCommand.Options.Add(atOption);
         memberCommand.Options.Add(assemblyOption);
         memberCommand.Options.Add(platformOption);
         memberCommand.Options.Add(frameworkOption);
@@ -242,7 +246,7 @@ public static class ApiCommandDefinitions
             allOption, memberOption, ctorOption,
             compactOption, opts.OneLine, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption);
+            binOption, callerProjectOption, callerPackageOption, atOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

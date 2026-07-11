@@ -32,7 +32,8 @@ public static class TypeOptionsParser
         Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
         Option<string[]> MemberOption,
-        Option<string[]> KindOption);
+        Option<string[]> KindOption,
+        Option<string?> AtOption);
 
     /// <summary>
     /// Result of parsing type command options.
@@ -150,6 +151,7 @@ public static class TypeOptionsParser
         {
             TypeName = source.TypeName,
             PackagePath = source.PackagePath,
+            PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,
             PlatformAssembly = source.PlatformAssembly,
             ProjectPath = projectPath,

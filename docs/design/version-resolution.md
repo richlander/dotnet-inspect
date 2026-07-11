@@ -4,7 +4,7 @@ dotnet-inspect uses Docker-style version tags to balance freshness against
 latency. Version discovery is cached briefly; package contents are cached
 permanently by exact version.
 
-## Three modes
+## Four modes
 
 | Syntax | Behavior | Network I/O |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ permanently by exact version.
 | `Name` | **Latest stable** — resolve the latest stable version, then use/download that exact package | Only on version-cache miss |
 | `Name --preview` | **Latest prerelease** — resolve the latest version including prerelease/preview versions | Only on version-cache miss |
 | `Name@latest` | **Always check** — query NuGet for the latest version every time | Always |
+| `Name@A..B` | **Addressable vector** — resolve the inclusive published-version range without downloading package payloads | Only on version-list cache miss |
 
 ### Pinned (`Name@version`)
 
@@ -46,6 +47,31 @@ Forces a full network refresh. Bypasses the disk scan, version cache, and
 metadata cache. Useful when you want to verify you have the absolute latest
 version or check for newly published security advisories.
 
+### Addressable vector (`Name@A..B`)
+
+A package range names an immutable, inclusive vector of published versions. The
+vector follows the caller's direction: `1.0.0..2.0.0` is oldest-to-newest and
+`2.0.0..1.0.0` is newest-to-oldest. Both endpoints must exist.
+
+```bash
+dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
+dotnet-inspect type JsonSerializer \
+  --package System.Text.Json@8.0.0..8.0.5 --at '#4'
+dotnet-inspect member JsonSerializer Serialize \
+  --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
+```
+
+`package --versions` enumerates the vector. Range-capable API commands require
+`--at` with an exact version, a one-based `#N` address, `first`, or `last`.
+Resolving the vector reads version metadata only. The command downloads or
+opens a package only after the caller selects an address, so an agent can probe
+previous, midpoint, or adjacent versions without triggering an unbounded scan.
+
+Stable endpoints exclude prereleases by default. A prerelease endpoint or
+`--preview` on `package --versions` includes prereleases within the range.
+Existing `diff --package Name@A..B` remains the two-endpoint projection of the
+same familiar range syntax.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |
@@ -70,6 +96,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet; package caches are used only after the version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
+| Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
 | Package index scan | Cached permanently for extracted package contents. |
 | Package metadata | Cached for 1 hour in the metadata cache. |
