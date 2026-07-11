@@ -96,7 +96,8 @@ public class LoweredFidelityGateTests
         // the sugared view. The lowered body keeps the original pointer address
         // in the store target, but compile-back introduces locals around the
         // conditional value before stind.i4, so the canonical opcode stream
-        // differs without changing the represented address semantics.
+        // differs without changing the represented address semantics. Checkability
+        // is pinned below.
         "PointerStoreUsesOriginalAddress",
         // Unmasked by the in/out skeleton-parameter fix (#1931): RecompileFail before
         // (the reconstructed CfgSampleClass failed to compile on InOperatorVec's
@@ -208,5 +209,21 @@ public class LoweredFidelityGateTests
                     $"{method} regressed to {result.Status} in the lowered view: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
         }
+    }
+
+    [Fact]
+    public void PointerStoreUsesOriginalAddress_StaysCompileBackCheckable()
+    {
+        var matches = EvaluateFixtures().Where(r => r.Method == "PointerStoreUsesOriginalAddress").ToList();
+
+        Assert.True(matches.Count > 0,
+            "Expected the lowered fidelity check to render PointerStoreUsesOriginalAddress, but it was not evaluated.");
+        foreach (var result in matches)
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                $"PointerStoreUsesOriginalAddress regressed to {result.Status} in the lowered view: the pointer-store "
+                    + "residual (#2644) no longer recompiles. Its lowered C# must stay recompilable so the known-diff "
+                    + "docket continues to check the address-preservation shape.\n"
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
     }
 }
