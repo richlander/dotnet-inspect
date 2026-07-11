@@ -1055,5 +1055,5 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => OneLine || Jsonl || NoHeader || NameOnly;
+    public bool IsRawOutput => OneLine || Jsonl || JsonOutput || NoHeader || NameOnly;
 }

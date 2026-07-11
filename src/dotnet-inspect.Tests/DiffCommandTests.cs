@@ -1,3 +1,5 @@
+using System.CommandLine;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -870,6 +872,28 @@ public class DiffCommandTests
         Assert.True(document.RootElement.TryGetProperty("implementation_diff", out var implementation));
         Assert.True(analysis.GetArrayLength() > 0);
         Assert.True(implementation.GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task CommandLine_MultipleSelectedSections_ComposesJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var args = CommandLineBuilder.PreprocessArgs(
+        [
+            "diff", "--library", $"{v1}..{v2}",
+            "-S", "Analysis Diff,Implementation Diff",
+            "--json", "--type", "DiffSample"
+        ]);
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+            await CommandLineBuilder.CreateRootCommand().Parse(args).InvokeAsync());
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("analysis_diff", out _));
+        Assert.True(document.RootElement.TryGetProperty("implementation_diff", out _));
     }
 
     [Fact]
