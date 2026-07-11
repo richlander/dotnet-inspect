@@ -239,6 +239,23 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void StubFieldFailsClosed()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            ReturnType = "int"
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub)));
+
+        Assert.Contains("does not support body policy 'Stub'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StubConstructorOnPrimaryConstructorTypeCallsThis()
     {
         var constructor = new ApiMember
@@ -775,7 +792,15 @@ public sealed class CSharpTypePrinterTests
             Name = "Converter`1",
             MetadataName = "Converter`1",
             Kind = "delegate",
-            TypeParameters = [new TypeParameter { Name = "T", Variance = "in" }],
+            TypeParameters =
+            [
+                new TypeParameter
+                {
+                    Name = "event",
+                    Variance = "in",
+                    Constraints = ["System.IEquatable<event>"]
+                }
+            ],
             Members = [invoke]
         };
 
@@ -795,7 +820,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("public enum Choice\n{\n    One = 1\n}", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains(
-            "public delegate int Converter<in T>(string value);",
+            "public delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }

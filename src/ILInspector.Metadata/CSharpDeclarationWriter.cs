@@ -867,7 +867,7 @@ public static class CSharpDeclarationWriter
         return prefix[..start] + escaped + prefix[(end + 1)..] + suffix;
     }
 
-    static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
+    public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
     {
         var names = rawNames.Where(name => EscapeIdentifier(name) != name).ToHashSet(StringComparer.Ordinal);
         if (names.Count == 0)

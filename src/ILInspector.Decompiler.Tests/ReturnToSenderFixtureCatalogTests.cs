@@ -535,6 +535,11 @@ public class ReturnToSenderFixtureCatalogTests
             Assert.Contains("public delegate", result.Source);
             Assert.Contains("___A_00000200_", result.Source);
             Assert.Contains("___A_00000040_", result.Source);
+            Assert.DoesNotContain(
+                result.Plan.Types.SelectMany(type => type.SourceFacts),
+                fact => fact.Producer == "metadata"
+                    && fact.Id == "closure-member"
+                    && fact.Detail == "nested surface");
         });
     }
 

@@ -130,7 +130,13 @@ public sealed class CSharpFormatter
         foreach (var typeParameter in type.TypeParameters)
         {
             if (typeParameter.ConstraintsSummary is { } constraints)
-                declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {constraints}";
+            {
+                declaration +=
+                    $" where {EscapeIdentifier(typeParameter.Name)} : "
+                    + EscapeKnownIdentifiers(
+                        constraints,
+                        type.TypeParameters.Select(parameter => parameter.Name));
+            }
         }
 
         return declaration + ";";
@@ -152,6 +158,9 @@ public sealed class CSharpFormatter
 
     public static string EscapeNamespace(string @namespace)
         => CSharpDeclarationWriter.EscapeNamespace(@namespace);
+
+    public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
+        => CSharpDeclarationWriter.EscapeKnownIdentifiers(text, rawNames);
 
     public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {

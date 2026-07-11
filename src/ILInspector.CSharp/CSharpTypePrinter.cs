@@ -604,6 +604,11 @@ public sealed class CSharpTypePrinter
             throw new NotSupportedException(
                 $"Event '{member.Name}' does not support body policy '{policy.BodyPolicy}'.");
         }
+        if (member.Kind == "field" && policy.BodyPolicy == CSharpBodyPolicy.Stub)
+        {
+            throw new NotSupportedException(
+                $"Field '{member.Name}' does not support body policy '{policy.BodyPolicy}'.");
+        }
         if (member.Kind == "property"
             && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
             && policy.Body is null)

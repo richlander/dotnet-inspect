@@ -3456,7 +3456,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackSourceComposer_NestedGenericTypeParametersSkipDeclaringTypeParameters()
+    public void ReturnToSenderTypePlanner_NestedGenericTypeParametersSkipDeclaringTypeParameters()
     {
         var assemblyPath = CompileFixture("""
             public class Outer<T>
@@ -3482,6 +3482,36 @@ public class ReturnToSenderPrototypeTests
                 method?.Invoke(null, [reader, nested]));
             var typeParameter = Assert.Single(typeParameters);
             Assert.Equal("U", typeParameter.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderTypePlanner_TypeParametersPreserveDelegateVariance()
+    {
+        var assemblyPath = CompileFixture("""
+            public delegate void Handler<in T>(T value);
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Single(type => reader.GetString(type.Name).StartsWith("Handler", StringComparison.Ordinal));
+            var method = typeof(CompileBackSourceComposer).GetMethod(
+                "TypeParameters",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                [typeof(MetadataReader), typeof(TypeDefinition)]);
+
+            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
+                method?.Invoke(null, [reader, type]));
+            var typeParameter = Assert.Single(typeParameters);
+            Assert.Equal("T", typeParameter.Name);
+            Assert.Equal("in", typeParameter.Variance);
         }
         finally
         {

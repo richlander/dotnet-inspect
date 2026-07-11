@@ -268,7 +268,10 @@ public sealed record CompileBackParameter(
     bool HasDefault = false,
     string? DefaultValueText = null);
 
-public sealed record CompileBackTypeParameter(string Name, IReadOnlyList<string> Constraints);
+public sealed record CompileBackTypeParameter(
+    string Name,
+    IReadOnlyList<string> Constraints,
+    string? Variance = null);
 
 public enum CompileBackStubBodyKind
 {
@@ -301,6 +304,7 @@ public sealed record CompileBackTypeRequirement(
     public string Name => Type.DisplayName;
     public CompileBackTypeKind Kind => RequiredKind;
     public IReadOnlyList<CompileBackMemberRequirement> Members => RequiredMembers;
+    public bool IncludeMemberSurface { get; init; }
 }
 
 public sealed record CompileBackMemberRequirement(
@@ -415,6 +419,9 @@ public static class CompileBackSourceComposer
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
+            {
+                IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member")
+            }
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
@@ -506,7 +513,7 @@ public static class CompileBackSourceComposer
                 return;
             var facts = closureFacts.TryGetValue(handle, out var foundFacts) ? foundFacts : [];
 
-            requirements.Add(new CompileBackTypeRequirement(
+            var requirement = new CompileBackTypeRequirement(
                 identity,
                 ShellKind(reader, typeDef, facts),
                 RequiredMembers: closureMemberRequirements.TryGetValue(handle, out var requiredMembers)
@@ -517,7 +524,11 @@ public static class CompileBackSourceComposer
                     ? facts.ToArray()
                     : handle == root
                         ? [new CompileBackFact("closure", "closure-root", identity.FullName)]
-                        : [new CompileBackFact("metadata", "nested-closure-member-owner", identity.FullName)]));
+                        : [new CompileBackFact("metadata", "nested-closure-member-owner", identity.FullName)])
+            {
+                IncludeMemberSurface = facts.Any(fact => fact.Id == "closure-member")
+            };
+            requirements.Add(requirement);
         }
     }
 
@@ -589,6 +600,9 @@ public static class CompileBackSourceComposer
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
+            {
+                IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member")
+            }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
@@ -691,7 +705,7 @@ public static class CompileBackSourceComposer
             // rather than reading backing fields directly, so reconstruct the full record
             // member surface (faithful `protected virtual` helpers, EqualityContract, and the
             // record properties) via the closure-member surface path instead of field shells.
-            targetFacts.Add(new CompileBackFact("metadata", "closure-member", "record-generated-helper"));
+            targetFacts.Add(new CompileBackFact("metadata", "record-generated-helper", "full record surface required"));
             includeRecordSurface = true;
         }
         if (isConstructor && primaryConstructor is null)
@@ -741,6 +755,10 @@ public static class CompileBackSourceComposer
                 targetMembers,
                 primaryConstructor,
                 targetFacts)
+            {
+                IncludeMemberSurface = includeRecordSurface
+                    || targetFacts.Any(fact => fact.Id == "closure-member")
+            }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
@@ -1063,7 +1081,10 @@ public static class CompileBackSourceComposer
 
     static IReadOnlyList<CompileBackTypeParameter> ToCompileBackTypeParameters(IEnumerable<TypeParameter> parameters)
         => parameters
-            .Select(parameter => new CompileBackTypeParameter(parameter.Name, parameter.Constraints))
+            .Select(parameter => new CompileBackTypeParameter(
+                parameter.Name,
+                parameter.Constraints,
+                parameter.Variance))
             .ToArray();
 
     static string AccessibilityText(CompileBackAccessibility accessibility)
@@ -1512,7 +1533,15 @@ public static class CompileBackSourceComposer
             if (!isStruct && (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
                 constraints.Add("new()");
 
-            parameters.Add(new CompileBackTypeParameter(reader.GetString(parameter.Name), constraints));
+            string? variance = (attributes & GenericParameterAttributes.Covariant) != 0
+                ? "out"
+                : (attributes & GenericParameterAttributes.Contravariant) != 0
+                    ? "in"
+                    : null;
+            parameters.Add(new CompileBackTypeParameter(
+                reader.GetString(parameter.Name),
+                constraints,
+                variance));
         }
 
         return parameters;
@@ -2483,7 +2512,7 @@ public static class CompileBackSourceComposer
             var members = kind == CompileBackTypeKind.Delegate
                 ? [DelegateInvokeRequirement(reader, typeDef, requirement.Type)]
                 : RequiredMemberRequirements(requirement);
-            bool includeMemberSurface = requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
+            bool includeMemberSurface = requirement.IncludeMemberSurface;
             if (includeMemberSurface && kind != CompileBackTypeKind.Delegate)
                 AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
             var producedRequirement = requirement with { RequiredMembers = members };
@@ -2546,6 +2575,7 @@ public static class CompileBackSourceComposer
             {
                 Name = parameter.Name,
                 Constraints = parameter.Constraints.ToList(),
+                Variance = parameter.Variance,
             };
 
         static CompileBackMemberRequirement DelegateInvokeRequirement(
@@ -2608,15 +2638,10 @@ public static class CompileBackSourceComposer
                     PrimaryConstructor: null,
                     SourceFacts: [new CompileBackFact("metadata", "nested-closure-type", identity.FullName)]);
                 bool includeNestedMemberSurface = includeMemberSurface
-                    || requirement.SourceFacts.Any(fact => fact.Id == "closure-member")
+                    || requirement.IncludeMemberSurface
                     || IsGeneratedMetadataName(name);
                 var nestedRequirement = includeNestedMemberSurface
-                    ? requirement with
-                    {
-                        SourceFacts = requirement.SourceFacts
-                            .Append(new CompileBackFact("metadata", "closure-member", "nested surface"))
-                            .ToArray()
-                    }
+                    ? requirement with { IncludeMemberSurface = true }
                     : requirement;
                 nestedTypes.Add(TypeRequest(
                     reader,
@@ -2731,7 +2756,7 @@ public static class CompileBackSourceComposer
 
             allowUnsafeSurface = allowUnsafeSurface
                 || requirement.RequiredMembers.Count != 0
-                || requirement.SourceFacts.Any(fact => fact.Id == "closure-member");
+                || requirement.IncludeMemberSurface;
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             var typeContext = GenericContext.ForType(reader, typeDef);
             foreach (var fieldHandle in typeDef.GetFields())
