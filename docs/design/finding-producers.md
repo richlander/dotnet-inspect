@@ -161,6 +161,7 @@ Before approving a producer, answer:
 - Does comparison reuse the shared matcher and fold?
 - Which bespoke producer, adapter, or comparison path will this replace?
 
-The first end-to-end Analysis proof should use one allocation census for both
-single-version audit and old/new comparison, replacing the count-only Research
-allocation path rather than adding another adapter.
+The first end-to-end Analysis proof uses one allocation census for both
+single-version audit and old/new comparison. Research retains the typed
+allocation comparison and derives its compatibility count/hotness projection
+from it; there is no separate count-only allocation diff path.

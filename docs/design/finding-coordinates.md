@@ -17,13 +17,16 @@ different questions and do not share one generic string slot.
 `Ordinal` does not control alignment or move classification. It lets an ordered
 producer retain the source-stream location after observations have been paired,
 materialized, or projected. Ordered IL, C#, and text observations populate it;
-Metadata identity sets leave it null.
+allocation observations also populate it after ordering by IL offset. Metadata
+identity sets leave it null.
 
 This distinction is intentional:
 
 - an API member does not gain semantic position because its inventory was
   sorted for deterministic output;
 - an IL operation's ordinal is an operation-array index, not its IL offset;
+- an allocation's ordinal is its position in the allocation census, while its
+  IL offset remains typed payload provenance;
 - a text line's ordinal is a logical line index, not a cross-document identity;
 - changing retained ordinals does not turn an order-preserving match into a
   move.

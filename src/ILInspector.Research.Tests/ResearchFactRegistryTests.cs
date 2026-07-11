@@ -63,6 +63,21 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void DefaultAllocationProducer_ProjectsAnalysisFindingCensus()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var facts = ResearchViews.CollectFacts(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt));
+
+        var allocation = Assert.Single(facts, fact => fact.Descriptor.Id == "alloc.box");
+        Assert.True(allocation.SourceOffset >= 0);
+        Assert.Contains("System.Int32", allocation.Detail);
+    }
+
+    [Fact]
     public void CostOverlay_AnnotatesHighValueCalleeAtCallSite()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);

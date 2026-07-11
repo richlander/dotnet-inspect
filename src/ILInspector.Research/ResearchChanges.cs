@@ -108,7 +108,8 @@ public sealed record ResearchChange
         IlDiffDisplayFailureRow? ilDisplayFailureRow = null,
         IlMemberDiffResult? ilMemberDiff = null,
         ImmutableArray<CSharpDiffDisplayRow> cSharpDisplayRows = default,
-        CSharpDiffDisplayFailureRow? cSharpDisplayFailureRow = null)
+        CSharpDiffDisplayFailureRow? cSharpDisplayFailureRow = null,
+        FindingComparison<AllocationOccurrence>? allocationComparison = null)
     {
         Subject = subject ?? throw new ArgumentNullException(nameof(subject));
         int mechanismValue = (int)mechanism;
@@ -181,6 +182,11 @@ public sealed record ResearchChange
             mechanism,
             ResearchChangeMechanism.CSharp,
             nameof(cSharpDisplayFailureRow));
+        ValidatePayloadMechanism(
+            allocationComparison is not null,
+            mechanism,
+            ResearchChangeMechanism.BodySignals,
+            nameof(allocationComparison));
 
         Mechanism = mechanism;
         Descriptor = descriptor;
@@ -209,6 +215,7 @@ public sealed record ResearchChange
         IlMemberDiff = ilMemberDiff;
         CSharpDisplayRows = cSharpDisplayRows.IsDefault ? [] : cSharpDisplayRows;
         CSharpDisplayFailureRow = cSharpDisplayFailureRow;
+        AllocationComparison = allocationComparison;
     }
 
     static void ValidatePayloadMechanism(
@@ -253,6 +260,7 @@ public sealed record ResearchChange
     public IlMemberDiffResult? IlMemberDiff { get; }
     public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; }
     public CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow { get; }
+    public FindingComparison<AllocationOccurrence>? AllocationComparison { get; }
 }
 
 public sealed record ResearchSubjectChanges
