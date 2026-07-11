@@ -89,11 +89,31 @@ public sealed class MetadataExtensionFindingsTests
         Assert.DoesNotContain(
             members,
             static member => member.MethodName == "Hidden");
+        Assert.DoesNotContain(
+            members,
+            static member => member.MethodName == "InternalValue");
+        Assert.DoesNotContain(
+            members,
+            static member => member.MethodName == "InternalClassic");
+        var defaultMixed = Assert.Single(
+            members,
+            static member => member.MethodName == "MixedVisibility");
+        Assert.Contains("get;", defaultMixed.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("set;", defaultMixed.Signature, StringComparison.Ordinal);
 
         using var allStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
+        var allMembers = ExtensionMethodScanner.FindAllExtensions(
+            allStream,
+            includeAll: true).ToList();
         Assert.Contains(
-            ExtensionMethodScanner.FindAllExtensions(allStream, includeAll: true),
+            allMembers,
             static member => member.MethodName == "Hidden");
+        Assert.Contains(allMembers, static member => member.MethodName == "InternalValue");
+        Assert.Contains(allMembers, static member => member.MethodName == "InternalClassic");
+        var allMixed = Assert.Single(
+            allMembers,
+            static member => member.MethodName == "MixedVisibility");
+        Assert.Contains("get; set;", allMixed.Signature, StringComparison.Ordinal);
 
         using var targetedStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
         var stringExtensions = ExtensionMethodScanner.FindExtensions(
@@ -254,6 +274,7 @@ public static class ExtensionPropertyIdentityFixture
     public static int Ordinary { get; set; }
     public static int get_Standalone(string value) => value.Length;
     public static void set_Standalone(int value) { }
+    internal static int InternalClassic(this string value) => value.Length;
 
     extension(string value)
     {
@@ -264,9 +285,15 @@ public static class ExtensionPropertyIdentityFixture
         public bool Hidden => false;
     }
 
-    extension(int value)
+    extension(int number)
     {
-        public bool HasValue => value != 0;
+        public bool HasValue => number != 0;
+        internal bool InternalValue => false;
+        public int MixedVisibility
+        {
+            get => number;
+            internal set { }
+        }
     }
 
     extension(System.Text.StringBuilder builder)

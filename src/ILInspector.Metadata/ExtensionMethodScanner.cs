@@ -106,7 +106,11 @@ public static class ExtensionMethodScanner
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public) continue;
+                if (!includeAll
+                    && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                {
+                    continue;
+                }
                 if ((method.Attributes & MethodAttributes.Static) == 0) continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -201,7 +205,11 @@ public static class ExtensionMethodScanner
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public) continue;
+                if (!includeAll
+                    && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                {
+                    continue;
+                }
                 if ((method.Attributes & MethodAttributes.Static) == 0) continue;
 
                 string methodName = reader.GetString(method.Name);
@@ -422,9 +430,9 @@ public static class ExtensionMethodScanner
             {
                 var property = reader.GetPropertyDefinition(propertyHandle);
                 var accessors = property.GetAccessors();
-                bool hasPublicGetter = IsPublicAccessor(reader, accessors.Getter);
-                bool hasPublicSetter = IsPublicAccessor(reader, accessors.Setter);
-                if (!hasPublicGetter && !hasPublicSetter)
+                bool includeGetter = IsIncludedAccessor(reader, accessors.Getter, includeAll);
+                bool includeSetter = IsIncludedAccessor(reader, accessors.Setter, includeAll);
+                if (!includeGetter && !includeSetter)
                     continue;
 
                 if (!TryGetExtensionMarkerName(
@@ -453,8 +461,8 @@ public static class ExtensionMethodScanner
 
                 if (!includeAll
                     && (AttributeReader.HasHiddenAttribute(reader, property.GetCustomAttributes())
-                        || hasPublicGetter && IsHiddenAccessor(reader, accessors.Getter)
-                        || hasPublicSetter && IsHiddenAccessor(reader, accessors.Setter)))
+                        || includeGetter && IsHiddenAccessor(reader, accessors.Getter)
+                        || includeSetter && IsHiddenAccessor(reader, accessors.Setter)))
                 {
                     continue;
                 }
@@ -482,15 +490,18 @@ public static class ExtensionMethodScanner
                     SignatureDecoder.Instance,
                     displayContext);
                 string propertyName = reader.GetString(property.Name);
-                string accessorText = hasPublicGetter && hasPublicSetter
+                string parameterText = propertySignature.ParameterTypes.Length == 0
+                    ? ""
+                    : $"[{string.Join(", ", propertySignature.ParameterTypes)}]";
+                string accessorText = includeGetter && includeSetter
                     ? "get; set;"
-                    : hasPublicGetter ? "get;" : "set;";
+                    : includeGetter ? "get;" : "set;";
                 yield return new ExtensionMethodInfo(
                     MethodName: propertyName,
                     ExtensionClass: extensionClassName,
                     Namespace: extensionClassNamespace,
                     ExtendedType: markerSignature.ParameterTypes[0],
-                    Signature: $"{propertySignature.ReturnType} {propertyName} {{ {accessorText} }}",
+                    Signature: $"{propertySignature.ReturnType} {propertyName}{parameterText} {{ {accessorText} }}",
                     Kind: "property")
                 {
                     Anchor = anchorInfo.Anchor,
@@ -501,12 +512,14 @@ public static class ExtensionMethodScanner
         }
     }
 
-    private static bool IsPublicAccessor(
+    private static bool IsIncludedAccessor(
         MetadataReader reader,
-        MethodDefinitionHandle accessorHandle)
+        MethodDefinitionHandle accessorHandle,
+        bool includeAll)
         => !accessorHandle.IsNil
-        && (reader.GetMethodDefinition(accessorHandle).Attributes
-            & MethodAttributes.MemberAccessMask) == MethodAttributes.Public;
+        && (includeAll
+            || (reader.GetMethodDefinition(accessorHandle).Attributes
+                & MethodAttributes.MemberAccessMask) == MethodAttributes.Public);
 
     private static bool IsHiddenAccessor(
         MetadataReader reader,
