@@ -381,26 +381,17 @@ public class LibraryInspection
     }
 
     [JsonIgnore]
-    public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection
-    {
-        get => _assemblyAttributeInspection;
-        set
-        {
-            _assemblyAttributeInspection = value;
-            _assemblyAttributeJsonOrder = null;
-            ResetFindingProjectionCaches();
-        }
-    }
+    public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection =>
+        _assemblyAttributeInspection;
 
     internal void SetAssemblyAttributeInspection(
         FindingInspection<AssemblyAttributeInfo> inspection,
-        IReadOnlyList<AssemblyAttributeInfo> jsonOrder)
+        IReadOnlyList<AssemblyAttributeInfo>? jsonOrder)
     {
         ArgumentNullException.ThrowIfNull(inspection);
-        ArgumentNullException.ThrowIfNull(jsonOrder);
 
         _assemblyAttributeInspection = inspection;
-        _assemblyAttributeJsonOrder = jsonOrder.ToArray();
+        _assemblyAttributeJsonOrder = jsonOrder?.ToArray();
         ResetFindingProjectionCaches();
     }
 

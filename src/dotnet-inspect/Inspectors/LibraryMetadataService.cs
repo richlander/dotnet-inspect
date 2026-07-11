@@ -164,8 +164,13 @@ internal static class LibraryMetadataService
                         path, MetadataFindings.ClassifiedMethodDescriptor, ex);
                     inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
                         path, MetadataFindings.ResourceDescriptor, ex);
-                    inspection.AssemblyAttributeInspection ??= FailedInspection<AssemblyAttributeInfo>(
-                        path, MetadataFindings.AssemblyAttributeDescriptor, ex);
+                    if (inspection.AssemblyAttributeInspection is null)
+                    {
+                        inspection.SetAssemblyAttributeInspection(
+                            FailedInspection<AssemblyAttributeInfo>(
+                                path, MetadataFindings.AssemblyAttributeDescriptor, ex),
+                            jsonOrder: null);
+                    }
                     inspection.UnionTypeInspection ??= FailedInspection<UnionTypeInfo>(
                         path, MetadataFindings.UnionTypeDescriptor, ex);
                     inspection.TypeForwarderInspection ??= FailedInspection<TypeForwarderInfo>(
@@ -1157,8 +1162,13 @@ internal static class LibraryMetadataService
                 path, MetadataFindings.ClassifiedMethodDescriptor, ex);
             inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
                 path, MetadataFindings.ResourceDescriptor, ex);
-            inspection.AssemblyAttributeInspection ??= FailedInspection<AssemblyAttributeInfo>(
-                path, MetadataFindings.AssemblyAttributeDescriptor, ex);
+            if (inspection.AssemblyAttributeInspection is null)
+            {
+                inspection.SetAssemblyAttributeInspection(
+                    FailedInspection<AssemblyAttributeInfo>(
+                        path, MetadataFindings.AssemblyAttributeDescriptor, ex),
+                    jsonOrder: null);
+            }
             inspection.TypeForwarderInspection ??= FailedInspection<TypeForwarderInfo>(
                 path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
@@ -1252,8 +1262,10 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
-            inspection.AssemblyAttributeInspection = FailedInspection<AssemblyAttributeInfo>(
-                path, MetadataFindings.AssemblyAttributeDescriptor, ex);
+            inspection.SetAssemblyAttributeInspection(
+                FailedInspection<AssemblyAttributeInfo>(
+                    path, MetadataFindings.AssemblyAttributeDescriptor, ex),
+                jsonOrder: null);
         }
     }
 
@@ -1271,8 +1283,10 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
-            inspection.AssemblyAttributeInspection = FailedInspection<AssemblyAttributeInfo>(
-                path, MetadataFindings.AssemblyAttributeDescriptor, ex);
+            inspection.SetAssemblyAttributeInspection(
+                FailedInspection<AssemblyAttributeInfo>(
+                    path, MetadataFindings.AssemblyAttributeDescriptor, ex),
+                jsonOrder: null);
         }
     }
 

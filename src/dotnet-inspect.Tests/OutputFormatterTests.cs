@@ -1194,13 +1194,15 @@ public class OutputFormatterTests
     public void SingleAudit_CustomAttributes_AreSortedByName()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
-        inspection.AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
-            [
-                new AssemblyAttributeInfo("NeutralResourcesLanguage", "Assembly", "en-US"),
-                new AssemblyAttributeInfo("AssemblyMetadata(Serviceable)", "Assembly", "True"),
-                new AssemblyAttributeInfo("AssemblyDefaultAlias", "Assembly", "Test"),
-            ],
-            FindingTestData.Subject);
+        inspection.SetAssemblyAttributeInspection(
+            MetadataFindings.InspectAssemblyAttributes(
+                [
+                    new AssemblyAttributeInfo("NeutralResourcesLanguage", "Assembly", "en-US"),
+                    new AssemblyAttributeInfo("AssemblyMetadata(Serviceable)", "Assembly", "True"),
+                    new AssemblyAttributeInfo("AssemblyDefaultAlias", "Assembly", "Test"),
+                ],
+                FindingTestData.Subject),
+            jsonOrder: null);
 
         var output = Serialize(inspection);
 
