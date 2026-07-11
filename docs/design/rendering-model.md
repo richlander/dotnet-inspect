@@ -125,4 +125,4 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `--table`, `--tsv`, `--name-only` |
+| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `-S "Finding Transitions"`, `--table`, `--tsv`, `--name-only` |

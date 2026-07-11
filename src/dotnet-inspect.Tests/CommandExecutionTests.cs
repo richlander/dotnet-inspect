@@ -1284,6 +1284,91 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_FindingTransitions_ConfirmsPackageTypeIntroduction()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--package", "System.Text.Json@8.0.6..9.0.0",
+            "-t", "System.Text.Json.Schema.JsonSchemaExporter",
+            "-S", "Finding Transitions", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("PairFinding.Added", output);
+        Assert.Contains("api.type", output);
+        Assert.Contains("System.Text.Json.Schema.JsonSchemaExporter", output);
+        Assert.Contains("8.0.6", output);
+        Assert.Contains("9.0.0", output);
+        Assert.Contains("absent", output);
+        Assert.Contains("present", output);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_RequiresFocusedTargetBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-S", "Finding Transitions", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Finding Transitions requires --type", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_RejectsCompatibilityFiltersBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget", "-S", "Finding Transitions",
+            "--additive", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_RejectsImplementationDiffBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "-S", "Finding Transitions",
+            "-S", "Implementation Diff",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Finding Transitions must be selected by itself", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_IsDiscoverableAndSelectableForLocalPair()
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var range = $"{oldPath}..{newPath}";
+
+        var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
+            "diff", "--library", range, "-D", "--tips", "q");
+        var (selectExit, selectOutput, selectError) = await RunAppAsync(
+            "diff", "--library", range,
+            "-t", "DiffFixtureSample.DiffSample",
+            "-S", "Finding Transitions", "--table", "--tips", "q");
+
+        Assert.Equal(0, discoverExit);
+        Assert.Empty(discoverError);
+        Assert.Contains("Finding Transitions", discoverOutput);
+        Assert.Equal(0, selectExit);
+        Assert.Empty(selectError);
+        Assert.Contains("PairFinding.Present", selectOutput);
+        Assert.Contains("DiffFixtureSample.DiffSample", selectOutput);
+    }
+
+    [Fact]
     public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -4671,7 +4756,7 @@ public class CommandExecutionTests
                 ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.CallsInterfaceItem), "--library", TestAssemblyPath],
                 ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.Overloaded), "--library", TestAssemblyPath],
                 ["package", packagePath],
-                ["diff", "--library", $"{diffV1}..{diffV2}"]
+                ["diff", "--library", $"{diffV1}..{diffV2}", "-t", "DiffFixtureSample.DiffSample"]
             ];
 
             foreach (var command in commands)
@@ -4691,7 +4776,9 @@ public class CommandExecutionTests
                 {
                     var selectArgs = BuildDiscoverySelectionArgs(command, section);
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
-                    Assert.True(selectExit == 0,
+                    var selectionSucceeded = selectExit == 0
+                        || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
+                    Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
                     if (RequiresRealDataDiscoveryGuard(command))
                     {
@@ -4708,6 +4795,16 @@ public class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    private static bool IsSourceIntegrityStatusResult(
+        string[] command,
+        string section,
+        int exitCode,
+        string output)
+        => command is ["library", ..]
+           && section == "SourceLink Integrity"
+           && exitCode == 1
+           && output.Contains("Status", StringComparison.Ordinal);
 
     private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
     {

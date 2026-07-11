@@ -96,7 +96,8 @@ public static class DiffOutputFormatter
         string toVersion,
         DiffDetailedChangesView? changes,
         AnalysisDiffView? analysisDiff,
-        ImplementationDiffView? implementationDiff)
+        ImplementationDiffView? implementationDiff,
+        FindingTransitionsView? findingTransitions)
         => new()
         {
             Title = $"Diff: {name}",
@@ -106,9 +107,11 @@ public static class DiffOutputFormatter
             AnalysisDiffNote = DistinctStatusMessage(analysisDiff),
             ImplementationDiffSummary = implementationDiff?.Summary,
             ImplementationDiffNote = DistinctStatusMessage(implementationDiff),
+            FindingTransitionsSummary = findingTransitions?.Status.Message,
             Changes = changes?.Rows,
             AnalysisDiff = analysisDiff?.Rows,
-            ImplementationDiff = implementationDiff?.Rows
+            ImplementationDiff = implementationDiff?.Rows,
+            FindingTransitions = findingTransitions?.Rows
         };
 
     public static string RenderDocumentView(DiffDocumentView view)
@@ -164,6 +167,22 @@ public static class DiffOutputFormatter
                 }));
         }
 
+        if (view.FindingTransitionsSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Finding Transitions",
+                view.FindingTransitionsSummary,
+                null,
+                ["Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail"],
+                ["transition", "finding", "target", "from", "to", "old", "new", "detail"],
+                view.FindingTransitions?.Select(row => new[]
+                {
+                    row.Transition, row.Finding, row.Target, row.From,
+                    row.To, row.Old, row.New, row.Detail ?? ""
+                }));
+        }
+
         return writer.ToString().TrimEnd();
     }
 
@@ -193,6 +212,28 @@ public static class DiffOutputFormatter
         => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
             ? view.Status.Message
             : null;
+
+    public static FindingTransitionsView BuildFindingTransitionsView(
+        string name,
+        IReadOnlyList<FindingTransitionRow> rows,
+        string fromVersion,
+        string toVersion)
+        => new()
+        {
+            Title = $"Finding Transitions: {name}",
+            Versions = $"{fromVersion} -> {toVersion}",
+            Status = rows.Count == 0
+                ? new Callout(CalloutSeverity.Note, "No selected Finding exists at either endpoint.")
+                : new Callout(CalloutSeverity.Note, $"{rows.Count} selected Finding transition{(rows.Count == 1 ? "" : "s")}."),
+            Rows = rows.Count > 0 ? rows.ToList() : null
+        };
+
+    public static string RenderFindingTransitionsView(FindingTransitionsView view)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.ToString().TrimEnd();
+    }
 
     public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {

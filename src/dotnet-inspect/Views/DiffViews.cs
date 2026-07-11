@@ -54,6 +54,7 @@ public class DiffDocumentView
     public string? AnalysisDiffNote { get; set; }
     public string? ImplementationDiffSummary { get; set; }
     public string? ImplementationDiffNote { get; set; }
+    public string? FindingTransitionsSummary { get; set; }
 
     [MarkoutSection(Name = "Changes")]
     public List<DiffDetailedChangeRow>? Changes { get; set; }
@@ -63,7 +64,34 @@ public class DiffDocumentView
 
     [MarkoutSection(Name = "Implementation Diff")]
     public List<ImplementationDiffRow>? ImplementationDiff { get; set; }
+
+    [MarkoutSection(Name = "Finding Transitions")]
+    public List<FindingTransitionRow>? FindingTransitions { get; set; }
 }
+
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class FindingTransitionsView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Finding Transitions")]
+    public List<FindingTransitionRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record FindingTransitionRow(
+    string Transition,
+    string Finding,
+    string Target,
+    string From,
+    string To,
+    string Old,
+    string New,
+    string? Detail);
 
 /// <summary>
 /// View model for full diff rendering. Uses GroupBy to partition changes
@@ -143,6 +171,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffDetailedChangesView))]
 [MarkoutContext(typeof(DiffDetailedChangeRow))]
 [MarkoutContext(typeof(DiffDocumentView))]
+[MarkoutContext(typeof(FindingTransitionsView))]
+[MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]
 [MarkoutContext(typeof(AnalysisDiffView))]

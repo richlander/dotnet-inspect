@@ -809,21 +809,22 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
-                assemblyPath,
-                reader,
-                function,
-                typeHandle,
-                propertyHandle,
-                getterHandle,
-                printed.Output,
-                fullType,
-                methodName,
-                overload,
-                CorpusMethodIdentity.SignatureText(function.Signature),
-                closureRoots,
-                closureFacts,
-                closureMemberRequirements);
+            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
+                Kind: ArtifactKind.PropertyGetter,
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: getterHandle,
+                TargetBody: printed.Output,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts,
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: propertyHandle));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -908,21 +909,22 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
-                assemblyPath,
-                reader,
-                function,
-                typeHandle,
-                propertyHandle,
-                getterHandle,
-                printed.Output,
-                fullType,
-                methodName,
-                overload,
-                CorpusMethodIdentity.SignatureText(function.Signature),
-                closureRoots,
-                closureFacts,
-                closureMemberRequirements);
+            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
+                Kind: ArtifactKind.PropertyGetter,
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: getterHandle,
+                TargetBody: printed.Output,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts,
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: propertyHandle));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -984,20 +986,22 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposeMethod(
-                assemblyPath,
-                reader,
-                function,
-                typeHandle,
-                methodHandle,
-                printed.Output,
-                fullType,
-                methodName,
-                overload,
-                CorpusMethodIdentity.SignatureText(function.Signature),
-                closureRoots,
-                closureFacts,
-                closureMemberRequirements);
+            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
+                Kind: ArtifactKind.Method,
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: methodHandle,
+                TargetBody: printed.Output,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts,
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: null));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1082,20 +1086,22 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposeMethod(
-                assemblyPath,
-                reader,
-                function,
-                typeHandle,
-                methodHandle,
-                printed.Output,
-                fullType,
-                methodName,
-                overload,
-                CorpusMethodIdentity.SignatureText(function.Signature),
-                closureRoots,
-                closureFacts,
-                closureMemberRequirements);
+            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
+                Kind: ArtifactKind.Method,
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: methodHandle,
+                TargetBody: printed.Output,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts,
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: null));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -1158,21 +1164,22 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
-                assemblyPath,
-                reader,
-                function,
-                typeHandle,
-                propertyHandle,
-                setterHandle,
-                printed.Output,
-                fullType,
-                methodName,
-                overload,
-                CorpusMethodIdentity.SignatureText(function.Signature),
-                closureRoots,
-                closureFacts,
-                closureMemberRequirements);
+            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
+                Kind: ArtifactKind.PropertySetter,
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: setterHandle,
+                TargetBody: printed.Output,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts,
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: propertyHandle));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1257,21 +1264,22 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
-                assemblyPath,
-                reader,
-                function,
-                typeHandle,
-                propertyHandle,
-                setterHandle,
-                printed.Output,
-                fullType,
-                methodName,
-                overload,
-                CorpusMethodIdentity.SignatureText(function.Signature),
-                closureRoots,
-                closureFacts,
-                closureMemberRequirements);
+            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
+                Kind: ArtifactKind.PropertySetter,
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: setterHandle,
+                TargetBody: printed.Output,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts,
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: propertyHandle));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
