@@ -4184,11 +4184,18 @@ public sealed class CtorChainSamples : CtorChainBase
     public CtorChainSamples(long value) : this(value.ToString()) { }
 }
 
-/// <summary>Lock shapes the lock-sugar pass must raise: a void lock, a lock with a value body, and a lock on a parameter.</summary>
+/// <summary>Lock shapes the lock-sugar pass must raise, including static-field, instance-field, and parameter receivers.</summary>
 public sealed class LockFixtureSamples
 {
+    static readonly object s_staticRoot = new();
+    static int s_staticValue;
     readonly object _root = new();
     int _value;
+
+    public static void IncrementStaticUnderLock()
+    {
+        lock (s_staticRoot) { s_staticValue++; }
+    }
 
     public void IncrementUnderLock()
     {

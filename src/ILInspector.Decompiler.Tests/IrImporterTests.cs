@@ -5124,18 +5124,18 @@ public class LockSugarTests
     }
 
     [Fact]
-    public void CoreLibStaticFieldLock_PreservesCopiedReceiverLocal()
+    public void StaticFieldLock_PreservesCopiedReceiverLocal()
     {
-        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-        var function = IrImporter.Import(source, "System.AppContext", "GetData");
-        Assert.NotNull(function);
-        IrPasses.Run(function!);
+        var function = IrImportFor(nameof(LockFixtureSamples.IncrementStaticUnderLock));
 
-        var output = CSharpPrinter.Print(function!).Output;
+        var lockNode = Assert.Single(function.Descendants.OfType<Pipeline.Lock>());
+        var lockObject = Assert.IsType<LoadLocal>(lockNode.LockObject);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == lockObject.Index);
 
+        var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
-        Assert.Contains("lock (V_1)", output);
-        Assert.DoesNotContain("lock (AppContext.s_dataStore)", output);
+        Assert.Matches(@"lock \(V_\d+\)", output);
+        Assert.DoesNotContain("lock (LockFixtureSamples.s_staticRoot)", output);
     }
 
     static IrFunction IrImportFor(string methodName)
