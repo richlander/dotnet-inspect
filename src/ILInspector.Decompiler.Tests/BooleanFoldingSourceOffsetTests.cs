@@ -14,6 +14,31 @@ public class BooleanFoldingSourceOffsetTests
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
 
     [Fact]
+    public void NestedGuardFold_PreservesSourceOffset()
+    {
+        var innerThen = new Block(0);
+        innerThen.Add(new Return(null));
+        var inner = new IfStatement(new LoadArgument(1, "b", Boolean), innerThen, null);
+        var outerThen = new Block(0);
+        outerThen.Add(inner);
+        var outer = new IfStatement(new LoadArgument(0, "a", Boolean), outerThen, null);
+        outer.SetSourceOffset(0x08);
+
+        var block = new Block(0);
+        block.Add(outer);
+        var function = Function(
+            block,
+            Void,
+            [new Parameter("a", Boolean), new Parameter("b", Boolean)]);
+
+        new BooleanFoldingPass().Run(function, PassContext.None);
+
+        var folded = Assert.IsType<IfStatement>(Assert.Single(block.Children));
+        Assert.IsType<LogicalBinary>(folded.Condition);
+        Assert.Equal(0x08, folded.SourceOffset);
+    }
+
+    [Fact]
     public void GuardReturnFold_PreservesSourceOffset()
     {
         var then = new Block(0);
