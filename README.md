@@ -89,7 +89,7 @@ the .NET 11 daily feed and nuget.org: most projects target the nightly
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Grounding --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and package grounding; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
+| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
@@ -107,7 +107,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Project grounding | `project` | Direct dependency `Grounding` rows and printable best package docs from restored projects. |
+| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters. |
@@ -122,7 +122,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
-| `project [path]` | Inspect restored direct package references for grounding indexes and package docs. |
+| `project [path]` | Inspect restored direct package references for skill files and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
@@ -259,9 +259,9 @@ dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect type Command --project ./src/App
 dotnet-inspect member Command --project ./src/App --show-index
-dotnet-inspect project ./src/App -S Grounding --jsonl
-dotnet-inspect project ./src/App -S Grounding --paths
-dotnet-inspect project ./src/App -S Grounding --print --row 1
+dotnet-inspect project ./src/App -S Skills --jsonl
+dotnet-inspect project ./src/App -S Skills --paths
+dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
@@ -284,8 +284,8 @@ dotnet-inspect type JsonSerializer --package System.Text.Json@8.0.0..8.0.5 --at 
 dotnet-inspect member JsonSerializer Serialize --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
 dotnet-inspect type Command --project ./src/App
 dotnet-inspect member Command --project ./src/App --show-index
-dotnet-inspect project ./src/App -S Grounding
-dotnet-inspect project ./src/App -S Grounding --print --row 1
+dotnet-inspect project ./src/App -S Skills
+dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all
 dotnet-inspect type string --shape
 dotnet-inspect type --package System.Text.Json --table

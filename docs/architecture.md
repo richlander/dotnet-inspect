@@ -63,8 +63,8 @@ Inspects NuGet package metadata without extracting libraries:
 Inspects a restored project through `project.assets.json`:
 
 - Direct package references with resolved versions per selected TFM
-- Compact `AGENTS.md` frontmatter index for package grounding
-- Version-resolved best package docs for one direct dependency
+- Package `skills/**/SKILL.md` files from direct dependencies
+- Version-resolved README/PROJECT docs for one direct dependency
 
 ### library
 
