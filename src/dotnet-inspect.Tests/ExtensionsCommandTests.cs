@@ -161,6 +161,51 @@ public class ExtensionsCommandTests
     }
 
     [Fact]
+    public void CommandProjection_MatchesGenericReceiverDisplayType()
+    {
+        var assembly = new AssemblyCollector.AssemblyInfo(
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "tests",
+            "1.0.0");
+
+        var census = ExtensionsCommand.InspectExtensionAssembly(assembly, includeAll: true);
+        var result = Assert.Single(
+            ExtensionsCommand.ProjectExtensions(census, "IEnumerable"),
+            result => result.MethodName == "FirstOrNull");
+
+        Assert.Contains("IEnumerable<T>", result.ExtendedType, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CommandProjection_AllowsDuplicateFindingAnchors()
+    {
+        var first = FindingTestData.ExtensionMember(
+            "Duplicate",
+            "string",
+            signature: "void Duplicate(this string value)");
+        var second = first with
+        {
+            Signature = "int Duplicate(this string value)",
+            ReturnType = "System.Int32",
+        };
+        var members = new[] { first, second };
+        var assembly = new AssemblyCollector.AssemblyInfo(
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "tests",
+            "1.0.0");
+        var census = new ExtensionsCommand.ExtensionAssemblyCensus(
+            assembly,
+            members,
+            MetadataFindings.InspectExtensionMembers(members, FindingTestData.Subject));
+
+        var results = ExtensionsCommand.ProjectExtensions(census, "System.String");
+
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, result => result.Signature == first.Signature);
+        Assert.Contains(results, result => result.Signature == second.Signature);
+    }
+
+    [Fact]
     public void CommandProjection_SurfacesFindingInspectionFailure()
     {
         var missingPath = Path.Combine(

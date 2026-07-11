@@ -170,7 +170,7 @@ public class ExtensionsCommand
         string? reachableFromType = null)
     {
         var observationsByAnchor = census.Inspection.Findings()
-            .ToDictionary(
+            .ToLookup(
                 static finding => finding.Payload.Anchor,
                 static finding => finding.Payload);
         var normalizedTarget = TypeMatcher.Normalize(targetType);
@@ -178,15 +178,33 @@ public class ExtensionsCommand
 
         foreach (var member in census.Members)
         {
-            if (member.Anchor is not { } anchor
-                || !observationsByAnchor.TryGetValue(anchor, out var observation))
+            var expectedKind = member.Kind == "method"
+                ? ExtensionMemberKind.Method
+                : ExtensionMemberKind.Property;
+            var observation = member.Anchor is { } anchor
+                ? observationsByAnchor[anchor].FirstOrDefault(candidate =>
+                    candidate.Kind == expectedKind
+                    && string.Equals(
+                        candidate.ExtendedType,
+                        member.CanonicalExtendedType,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.ReturnType,
+                        member.ReturnType,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.Assembly,
+                        member.Assembly,
+                        StringComparison.Ordinal))
+                : null;
+            if (observation is null)
             {
                 throw new InvalidOperationException(
                     $"Extension member census for {census.Assembly.Path} does not correspond to its scanner inventory.");
             }
 
             if (!TypeMatcher.Matches(
-                    TypeMatcher.Normalize(observation.ExtendedType),
+                    TypeMatcher.Normalize(member.ExtendedType),
                     normalizedTarget))
             {
                 continue;
