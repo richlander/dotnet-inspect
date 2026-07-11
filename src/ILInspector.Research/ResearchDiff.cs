@@ -332,6 +332,13 @@ public static class ResearchDiff
                 newSnapshot.TryGetValue(key, out var newMethod);
                 var subject = newMethod?.Subject ?? oldMethod?.Subject ?? UnknownMemberSubject(key);
                 var inBoth = oldMethod is not null && newMethod is not null;
+                AddAllocationRow(
+                    builder,
+                    subject,
+                    inBoth,
+                    oldMethod?.Allocations ?? [],
+                    newMethod?.Allocations ?? [],
+                    Evidence(oldMethod?.Signals, newMethod?.Signals));
                 AddCountRows(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
                 AddExceptionRow(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
                 AddOptimizationRows(builder, subject, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
@@ -346,6 +353,7 @@ public static class ResearchDiff
             var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var signalsByToken = index.GetMethodSignals();
+            var allocationsByToken = index.GetAllocationOccurrences();
             foreach (var method in index.Methods)
             {
                 if (IsGeneratedMethod(method, generatedFrameworkTypes))
@@ -356,15 +364,24 @@ public static class ResearchDiff
                 if (!MatchesMemberTargets(subject, memberTargetIdentities))
                     continue;
                 signalsByToken.TryGetValue(method.MetadataToken, out var signals);
+                allocationsByToken.TryGetValue(method.MetadataToken, out var allocations);
                 var key = BodySignalMethodKey(method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(subject, signals ?? MethodSignals.None, []);
+                    entry = new ResearchAnalysisMethod(
+                        subject,
+                        signals ?? MethodSignals.None,
+                        allocations.IsDefault ? [] : allocations,
+                        []);
                     methods[key] = entry;
                 }
                 else
                 {
-                    methods[key] = entry with { Signals = signals ?? MethodSignals.None };
+                    methods[key] = entry with
+                    {
+                        Signals = signals ?? MethodSignals.None,
+                        Allocations = allocations.IsDefault ? [] : allocations,
+                    };
                 }
             }
 
@@ -380,7 +397,7 @@ public static class ResearchDiff
                 var key = BodySignalMethodKey(opportunity.Method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(subject, MethodSignals.None, []);
+                    entry = new ResearchAnalysisMethod(subject, MethodSignals.None, [], []);
                     methods[key] = entry;
                 }
                 entry.Opportunities.Add(opportunity);
@@ -391,7 +408,6 @@ public static class ResearchDiff
 
         static void AddCountRows(ResultBuilder builder, ResearchSubjectKey subject, bool inBoth, MethodSignals? oldSignals, MethodSignals? newSignals)
         {
-            AddCountRow(builder, subject, inBoth, "allocations", oldSignals?.Allocations ?? 0, newSignals?.Allocations ?? 0, Evidence(oldSignals, newSignals), oldSignals?.AllocInLoop ?? false, newSignals?.AllocInLoop ?? false);
             AddCountRow(builder, subject, inBoth, "copies", oldSignals?.Copies ?? 0, newSignals?.Copies ?? 0, Evidence(oldSignals, newSignals));
             AddCountRow(builder, subject, inBoth, "reflection", oldSignals?.Reflection ?? 0, newSignals?.Reflection ?? 0, Evidence(oldSignals, newSignals));
             AddCountRow(builder, subject, inBoth, "throws", oldSignals?.Throws ?? 0, newSignals?.Throws ?? 0, Evidence(oldSignals, newSignals));
@@ -399,6 +415,91 @@ public static class ResearchDiff
             AddCountRow(builder, subject, inBoth, "finallys", oldSignals?.Finallys ?? 0, newSignals?.Finallys ?? 0, Evidence(oldSignals, newSignals));
             AddCountRow(builder, subject, inBoth, "unsafe", oldSignals?.Unsafe == true ? 1 : 0, newSignals?.Unsafe == true ? 1 : 0, Evidence(oldSignals, newSignals));
         }
+
+        static void AddAllocationRow(
+            ResultBuilder builder,
+            ResearchSubjectKey subject,
+            bool inBoth,
+            ImmutableArray<AllocationOccurrence> oldOccurrences,
+            ImmutableArray<AllocationOccurrence> newOccurrences,
+            string? evidence)
+        {
+            var comparison = AnalysisFindings.CompareAllocations(
+                oldOccurrences,
+                newOccurrences,
+                new FindingSubject(subject.Id, subject.Display));
+            var complete = comparison switch
+            {
+                FindingComparison<AllocationOccurrence>.Complete value => value,
+                FindingComparison<AllocationOccurrence>.Failed failed =>
+                    throw new InvalidOperationException(
+                        $"A comparison of total allocation censuses cannot fail: {failed.Failure}"),
+            };
+            if (complete.IsExact)
+                return;
+
+            int oldValue = oldOccurrences.Count(static occurrence => occurrence.CountsAsHeapAllocation);
+            int newValue = newOccurrences.Count(static occurrence => occurrence.CountsAsHeapAllocation);
+            bool oldInLoop = oldOccurrences.Any(IsHotAllocation);
+            bool newInLoop = newOccurrences.Any(IsHotAllocation);
+            int delta = newValue - oldValue;
+            string deltaText;
+            string? shape = null;
+            int magnitude;
+            int directionScore;
+            bool inLoop;
+
+            if (delta != 0)
+            {
+                deltaText = FormatDelta(delta);
+                magnitude = Math.Abs(delta);
+                directionScore = Math.Sign(delta);
+                inLoop = delta > 0 ? newInLoop : oldInLoop;
+                shape = inLoop ? "in-loop" : null;
+            }
+            else if (newValue > 0 && oldInLoop != newInLoop)
+            {
+                bool becameHot = newInLoop;
+                deltaText = becameHot ? "hot" : "cold";
+                shape = "in-loop";
+                magnitude = 1;
+                directionScore = becameHot ? 1 : -1;
+                inLoop = true;
+            }
+            else
+            {
+                deltaText = "changed";
+                magnitude = complete.Pairs.Count(static pair =>
+                    pair.Kind != PairKind.Present
+                    || pair.Difference != FindingDifferenceKind.None);
+                directionScore = 0;
+                inLoop = oldOccurrences.Any(static occurrence => occurrence.InLoop)
+                    || newOccurrences.Any(static occurrence => occurrence.InLoop);
+            }
+
+            builder.Add(new ResearchChange(
+                subject,
+                ResearchChangeMechanism.BodySignals,
+                AnalysisFindings.AllocationDescriptor,
+                ResearchChangeKind.Changed,
+                oldValue.ToString(),
+                newValue.ToString(),
+                delta: deltaText,
+                detail: evidence,
+                category: ResearchChangeCategory.BodySignal,
+                signal: "allocations",
+                shape: shape,
+                magnitude: magnitude,
+                directionScore: directionScore,
+                subjectInBoth: inBoth,
+                inLoop: inLoop,
+                allocationComparison: comparison));
+        }
+
+        static bool IsHotAllocation(AllocationOccurrence occurrence)
+            => occurrence.CountsAsHeapAllocation
+                && occurrence.InLoop
+                && occurrence.Escape != AllocationEscape.ThrowPath;
 
         static void AddCountRow(ResultBuilder builder, ResearchSubjectKey subject, bool inBoth, string signal, int oldValue, int newValue, string? evidence, bool oldAllocInLoop = false, bool newAllocInLoop = false)
         {
@@ -1002,7 +1103,11 @@ public static class ResearchDiff
 
     sealed record BodyIndexEntry(string Key, string Path, LibraryBodyIndex Index);
 
-    sealed record ResearchAnalysisMethod(ResearchSubjectKey Subject, MethodSignals Signals, List<OptimizationOpportunity> Opportunities);
+    sealed record ResearchAnalysisMethod(
+        ResearchSubjectKey Subject,
+        MethodSignals Signals,
+        ImmutableArray<AllocationOccurrence> Allocations,
+        List<OptimizationOpportunity> Opportunities);
 
     sealed class ResultBuilder
     {

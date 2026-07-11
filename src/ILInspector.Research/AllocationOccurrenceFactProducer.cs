@@ -1,5 +1,6 @@
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -22,10 +23,24 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         var function = context.Imported;
         if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
             return [];
-        var index = AnalysisIndexCache.ForPath(path);
+        var index = context.Assembly?.Index ?? AnalysisIndexCache.ForPath(path);
         if (!index.GetAllocationOccurrences().TryGetValue(function.MetadataToken, out var occurrences))
             return [];
-        return [.. occurrences.Select(ToAnnotation)];
+
+        FindingSubject subject = occurrences.IsEmpty
+            ? new($"{path}|{function.MetadataToken:X8}", function.Name)
+            : ToFindingSubject(occurrences[0].Method);
+        return
+        [
+            .. AnalysisFindings.InspectAllocations(occurrences, subject)
+                .Select(finding => ToAnnotation(finding.Payload)),
+        ];
+    }
+
+    static FindingSubject ToFindingSubject(MethodIdentity method)
+    {
+        var subject = ResearchMemberIdentity.SubjectFromMethod(method);
+        return new FindingSubject(subject.Id, subject.Display);
     }
 
     static Annotation ToAnnotation(AllocationOccurrence occurrence)

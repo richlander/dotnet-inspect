@@ -96,8 +96,9 @@ public enum AllocationMultiplicity
 }
 
 /// <summary>
-/// One static heap-allocation occurrence, keyed by IL offset. Presentation layers
-/// project this into hidden-fact annotations, method signals, and triage rows.
+/// One static heap-allocation occurrence, located by IL offset within its method. The offset is
+/// version-local provenance, not cross-version correspondence identity. Presentation layers project
+/// this into Findings, hidden-fact annotations, method signals, and triage rows.
 /// </summary>
 public sealed record AllocationOccurrence(
     MethodIdentity Method,

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
@@ -164,6 +165,33 @@ public class ResearchDiffTests
 
         Assert.Same(row, bodySignal.BodySignalRow);
         Assert.Equal(ResearchChangeMechanism.ReturnToSender, statusOnly.Mechanism);
+    }
+
+    [Fact]
+    public void ResearchChange_RejectsAllocationComparisonFromAnotherMechanism()
+    {
+        var occurrence = AllocationOccurrence(
+            Method("Asm", Guid.Empty, 0x06000001),
+            0,
+            AllocationKind.Object,
+            TypeRef.CoreLib("System", "Object"));
+        var comparison = AnalysisFindings.CompareAllocations(
+            [occurrence],
+            [occurrence],
+            new FindingSubject("method:test", "Test.Method()"));
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+
+        var error = Assert.Throws<ArgumentException>(() => new ResearchChange(
+            subject,
+            ResearchChangeMechanism.Api,
+            AnalysisFindings.AllocationDescriptor,
+            ResearchChangeKind.Changed,
+            allocationComparison: comparison));
+
+        Assert.Equal("allocationComparison", error.ParamName);
     }
 
     [Fact]
@@ -640,6 +668,65 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_BodySignals_EqualAllocationCountsRetainOccurrenceChanges()
+    {
+        var oldMethod = Method(
+            "Asm",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            0x06000001);
+        var newMethod = Method(
+            "Asm",
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            0x06000002);
+        var oldOccurrence = AllocationOccurrence(
+            oldMethod,
+            4,
+            AllocationKind.Object,
+            TypeRef.CoreLib("System", "Object"));
+        var newOccurrence = AllocationOccurrence(
+            newMethod,
+            4,
+            AllocationKind.Array,
+            TypeRef.SzArray(TypeRef.CoreLib("System", "Byte")));
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [oldMethod],
+            [],
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [oldMethod.MetadataToken] = [oldOccurrence],
+            });
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [newMethod],
+            [],
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [newMethod.MetadataToken] = [newOccurrence],
+            });
+
+        var diff = ResearchDiff.Compare(
+            ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
+            ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
+
+        var change = Assert.Single(diff.Changes, change =>
+            change.Descriptor == AnalysisFindings.AllocationDescriptor);
+        Assert.Equal("1", change.OldValue);
+        Assert.Equal("1", change.NewValue);
+        Assert.Equal("changed", change.Delta);
+        Assert.Equal(0, change.DirectionScore);
+        Assert.NotNull(change.AllocationComparison);
+        var comparison = change.AllocationComparison switch
+        {
+            FindingComparison<AllocationOccurrence>.Complete complete => complete,
+            _ => throw new InvalidOperationException("Expected a complete allocation comparison."),
+        };
+        Assert.Contains(comparison.Pairs, pair => pair is PairFinding<AllocationOccurrence>.Removed);
+        Assert.Contains(comparison.Pairs, pair => pair is PairFinding<AllocationOccurrence>.Added);
+        Assert.DoesNotContain(diff.Changes, change =>
+            change.Descriptor.Id == "analysis.signal.allocations");
+    }
+
+    [Fact]
     public void CompareAssemblies_IlBody_QueryImplementationChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(
@@ -1068,6 +1155,37 @@ public class ResearchDiffTests
         Assert.Same(failure, row.IlDisplayFailureRow);
         Assert.Null(row.IlMemberDiff);
     }
+
+    static MethodIdentity Method(string assemblyName, Guid moduleVersionId, int metadataToken)
+        => new(
+            assemblyName,
+            moduleVersionId,
+            TypeRef.Definition(assemblyName, "Sample", "Widget"),
+            "Allocate",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            metadataToken,
+            IsStatic: true);
+
+    static AllocationOccurrence AllocationOccurrence(
+        MethodIdentity method,
+        int ilOffset,
+        AllocationKind kind,
+        TypeRef allocatedType)
+        => new(
+            method,
+            ilOffset,
+            OperandToken: 0x0A000001,
+            kind,
+            allocatedType,
+            allocatedType.ToDisplayString(),
+            CountsAsHeapAllocation: true,
+            AllocationFrequency.Always,
+            InLoop: false,
+            AllocationEscape.Unknown,
+            kind == AllocationKind.Array
+                ? AllocationFactSource.Newarr
+                : AllocationFactSource.Newobj);
 
     static ApiSurface Surface(string typeName, params ApiMember[] members)
         => new()

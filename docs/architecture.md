@@ -135,7 +135,9 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
 - **R1** is the lower, metadata/IL representation. `ILInspector.Analysis` reads
   assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,
   and produces method signals, direct-call evidence, allocation occurrences, and
-  leverage data without depending on the decompiler IR.
+  leverage data without depending on the decompiler IR. `AnalysisFindings`
+  projects allocation occurrences into one typed, IL-ordered census used by
+  both single-version and two-version consumers.
 - **R2** is the higher decompiler representation. `ILInspector.Decompiler`
   imports one method into IR, raises/lowers it for C# printing, projects raw or
   annotated IL, and supplies IR anchors for source-line placement.
@@ -148,6 +150,10 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
   computed as a view rather than stored as duplicate state. API comparisons
   retain Metadata's `ApiFindingComparison` (type/member `FindingComparison<T>`
   envelopes plus the classified `ApiDiff`) alongside the Research projection.
+  Allocation changes retain Analysis's
+  `FindingComparison<AllocationOccurrence>` on their Research projection;
+  count, hot/cold, and ranking fields are derived from that comparison rather
+  than from a separate count-only diff.
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact
@@ -158,7 +164,7 @@ includes:
 
 | Producer | Source | Facts |
 | -------- | ------ | ----- |
-| `AllocationOccurrenceFactProducer` | `ILInspector.Analysis` `LibraryBodyIndex` allocation occurrences | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
+| `AllocationOccurrenceFactProducer` | `ILInspector.Analysis` allocation Finding census | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
 | `DecompilerHiddenFactProducer` | existing decompiler annotation classifier | `unsafe.*`, `lifetime.*` |
 
 The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,

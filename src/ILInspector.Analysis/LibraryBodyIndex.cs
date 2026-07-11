@@ -739,7 +739,8 @@ public sealed class LibraryBodyIndex
 
     internal static LibraryBodyIndex FromEvidence(
         ImmutableArray<MethodIdentity> methods,
-        ImmutableArray<UnsafeEvidence> unsafeEvidence)
+        ImmutableArray<UnsafeEvidence> unsafeEvidence,
+        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null)
         => new(
             path: "",
             methods,
@@ -754,7 +755,8 @@ public sealed class LibraryBodyIndex
                 methods.Count(method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit),
                 methods.Count(method => method.CallerUnsafeMode == CallerUnsafeMode.Explicit)),
             bodySignals: new Dictionary<int, BodySignals>(),
-            allocationOccurrences: new Dictionary<int, ImmutableArray<AllocationOccurrence>>(),
+            allocationOccurrences: allocationOccurrences
+                ?? new Dictionary<int, ImmutableArray<AllocationOccurrence>>(),
             unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>(),
             inAssemblyTypeIsException: new Dictionary<(string Namespace, string Name), bool>(),
             suppressedOpportunityTokens: new HashSet<int>(),
