@@ -896,6 +896,12 @@ public class DiffCommandTests
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Mechanism == "IL"
             && row.Evidence.Contains("ldc.i4 1", StringComparison.Ordinal));
+        Assert.Contains(view.Rows!, row =>
+            row.Member.Contains("CallToken", StringComparison.Ordinal)
+            && row.Mechanism == "IL"
+            && row.Evidence.Contains("System.Math::Abs", StringComparison.Ordinal));
+        Assert.DoesNotContain(view.Rows!, row =>
+            row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -941,6 +947,19 @@ public class DiffCommandTests
         {
             TypeFilter = ["DiffSample"],
             MemberFilter = ["ConstantValue"]
+        });
+
+        Assert.True(result.IsEmpty);
+    }
+
+    [Fact]
+    public void BuildImplementationDiff_SameTokenBearingAssembly_IsEmpty()
+    {
+        var assembly = FixtureCatalog.DiffPair.OldAssemblyPath();
+
+        var result = DiffCommand.BuildImplementationDiff([assembly], [assembly], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"]
         });
 
         Assert.True(result.IsEmpty);
