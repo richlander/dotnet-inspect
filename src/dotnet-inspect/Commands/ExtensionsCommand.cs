@@ -92,9 +92,18 @@ public class ExtensionsCommand
                 var censuses = assemblyInfos
                     .Select(assembly => InspectExtensionAssembly(assembly, options.IncludeAll))
                     .ToList();
+                var availableCensuses = new List<ExtensionAssemblyCensus>(censuses.Count);
 
                 foreach (var census in censuses)
                 {
+                    if (census.Inspection.Failure() is { } failure)
+                    {
+                        Console.Error.WriteLine(
+                            $"Warning: Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
+                        continue;
+                    }
+
+                    availableCensuses.Add(census);
                     results.AddRange(ProjectExtensions(census, targetType));
                 }
 
@@ -107,7 +116,7 @@ public class ExtensionsCommand
                 {
                     if (reachableType == targetType) continue;
 
-                    foreach (var census in censuses)
+                    foreach (var census in availableCensuses)
                     {
                         results.AddRange(ProjectExtensions(
                             census,

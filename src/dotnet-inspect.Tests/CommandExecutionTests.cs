@@ -3972,6 +3972,40 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Extensions_FailedAssemblyWarnsAndPreservesSuccessfulResults()
+    {
+        var corruptPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-corrupt-{Guid.NewGuid():N}.dll");
+        try
+        {
+            await File.WriteAllTextAsync(
+                corruptPath,
+                "not a PE image",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "extensions",
+                "MetadataReader",
+                "--library", typeof(MetadataFindings).Assembly.Location,
+                "--library", corruptPath,
+                "--count",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.True(int.Parse(output.Trim()) > 0);
+            Assert.Contains(
+                "Warning: Extension member inspection failed",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(corruptPath);
+        }
+    }
+
+    [Fact]
     public async Task Extensions_JsonlAfterPackage_RendersJsonlAndDoesNotWarnAboutPackageFlag()
     {
         var (exit, output, error) = await RunAppAsync(
