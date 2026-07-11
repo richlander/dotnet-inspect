@@ -145,12 +145,16 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private sealed record ProjectSkillDoc(string Path, string Text);
+
     private sealed record ProjectDocPackage(
         string Id,
         string Version,
         string ReadmeFile,
         string ReadmeText,
         string? AgentsText = null,
+        ProjectSkillDoc[]? Skills = null,
+        string? ProjectText = null,
         bool OmitReadme = false);
 
     private static (string ProjectPath, string TempDir) CreateProjectWithPackageDocs(params ProjectDocPackage[] packages)
@@ -182,6 +186,14 @@ public class CommandExecutionTests
             }
             if (package.AgentsText != null)
                 File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), package.AgentsText);
+            if (package.ProjectText != null)
+                File.WriteAllText(Path.Combine(packageRoot, "PROJECT.md"), package.ProjectText);
+            foreach (var skill in package.Skills ?? [])
+            {
+                var skillPath = Path.Combine(packageRoot, skill.Path.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
+                File.WriteAllText(skillPath, skill.Text);
+            }
 
             File.WriteAllText(Path.Combine(packageRoot, $"{package.Id.ToLowerInvariant()}.nuspec"), $$"""
                 <?xml version="1.0" encoding="utf-8"?>
@@ -8254,39 +8266,46 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingSection_EmitsBestGroundingRows()
+    public async Task Project_SkillsSection_EmitsSkillRows()
     {
-        var agents = """
+        var querySkill = """
             ---
-            name: Markout guidance
-            description: Prefer Markout tables for structured markdown.
+            name: Query guidance
+            description: Find APIs from restored dependencies.
             ---
-            # Body
+            # Query skill
+            """;
+        var sourceSkill = """
+            ---
+            name: Source guidance
+            description: Inspect SourceLink-backed files.
+            ---
+            # Source skill
             """;
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Grounding.Agents", "1.2.3", "README.md", "readme", agents),
-            new ProjectDocPackage("Test.Project.Grounding.Readme", "4.5.6", "README.md", "readme"));
+            new ProjectDocPackage("Test.Project.Skills.Query", "1.2.3", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/query/SKILL.md", querySkill)]),
+            new ProjectDocPackage("Test.Project.Skills.Source", "4.5.6", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/source/SKILL.md", sourceSkill)]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--jsonl");
+                "project", projectPath, "-S", "Skills", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
             var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(2, lines.Length);
 
-            using var agentsDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Grounding.Agents")));
-            Assert.Equal("Test.Project.Grounding.Agents", agentsDocument.RootElement.GetProperty("package").GetString());
-            Assert.Equal("agents", agentsDocument.RootElement.GetProperty("kind").GetString());
-            Assert.Equal("AGENTS.md", agentsDocument.RootElement.GetProperty("path").GetString());
-            Assert.Equal("Markout guidance", agentsDocument.RootElement.GetProperty("name").GetString());
-            Assert.Equal("Prefer Markout tables for structured markdown.", agentsDocument.RootElement.GetProperty("description").GetString());
+            using var queryDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Query")));
+            Assert.Equal("Test.Project.Skills.Query", queryDocument.RootElement.GetProperty("package").GetString());
+            Assert.Equal("skills/query/SKILL.md", queryDocument.RootElement.GetProperty("path").GetString());
+            Assert.Equal("Query guidance", queryDocument.RootElement.GetProperty("name").GetString());
+            Assert.Equal("Find APIs from restored dependencies.", queryDocument.RootElement.GetProperty("description").GetString());
 
-            using var readmeDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Grounding.Readme")));
-            Assert.Equal("readme", readmeDocument.RootElement.GetProperty("kind").GetString());
-            Assert.Equal("README.md", readmeDocument.RootElement.GetProperty("path").GetString());
+            using var sourceDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Source")));
+            Assert.Equal("skills/source/SKILL.md", sourceDocument.RootElement.GetProperty("path").GetString());
         }
         finally
         {
@@ -8295,20 +8314,22 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPaths_EmitsPrintablePaths()
+    public async Task Project_SkillsPaths_EmitsSkillPaths()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Paths.One", "1.0.0", "README.md", "one"),
-            new ProjectDocPackage("Test.Project.Paths.Two", "1.0.0", "PACKAGE.md", "two"));
+            new ProjectDocPackage("Test.Project.Paths.One", "1.0.0", "README.md", "one", Skills:
+                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+            new ProjectDocPackage("Test.Project.Paths.Two", "1.0.0", "README.md", "two", Skills:
+                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--paths");
+                "project", projectPath, "-S", "Skills", "--paths");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal(["README.md", "PACKAGE.md"], output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Equal(["skills/one/SKILL.md", "skills/two/SKILL.md"], output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {
@@ -8317,15 +8338,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingValue_UsesSelectedField()
+    public async Task Project_SkillsValue_UsesSelectedField()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Value.One", "1.2.3", "README.md", "one"));
+            new ProjectDocPackage("Test.Project.Value.One", "1.2.3", "README.md", "one", Skills:
+                [new ProjectSkillDoc("skills/value/SKILL.md", "one")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--fields", "Version", "--value");
+                "project", projectPath, "-S", "Skills", "--fields", "Version", "--value");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -8338,25 +8360,26 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrint_PrintsFirstGroundingDocument()
+    public async Task Project_SkillsPrint_PrintsFirstSkillDocument()
     {
-        var agents = """
+        var skill = """
             ---
             name: selected
             ---
-            # Agent guidance
+            # Skill guidance
             """;
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Print", "2.0.0", "README.md", "# README body", agents));
+            new ProjectDocPackage("Test.Project.Print", "2.0.0", "README.md", "# README body", Skills:
+                [new ProjectSkillDoc("skills/selected/SKILL.md", skill)]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print", "--body");
+                "project", projectPath, "-S", "Skills", "--print", "--body");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Contains("# Agent guidance", output);
+            Assert.Contains("# Skill guidance", output);
             Assert.DoesNotContain("name: selected", output);
             Assert.DoesNotContain("# README body", output);
         }
@@ -8367,16 +8390,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrint_SkipsDependenciesWithoutPrintableGrounding()
+    public async Task Project_SkillsPrint_SkipsDependenciesWithoutSkills()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("A.Project.NoGrounding", "1.0.0", "README.md", "", OmitReadme: true),
-            new ProjectDocPackage("B.Project.HasGrounding", "1.0.0", "README.md", "selected"));
+            new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
+            new ProjectDocPackage("B.Project.HasSkills", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/selected/SKILL.md", "selected")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print");
+                "project", projectPath, "-S", "Skills", "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -8389,15 +8413,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrint_JsonlIsSingleCompactRecord()
+    public async Task Project_SkillsPrint_JsonlIsSingleCompactRecord()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Print.Jsonl", "1.0.0", "README.md", "selected"));
+            new ProjectDocPackage("Test.Project.Print.Jsonl", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/jsonl/SKILL.md", "selected")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print", "--jsonl");
+                "project", projectPath, "-S", "Skills", "--print", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -8413,16 +8438,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrint_RequiresRowWhenMultipleGroundingDocuments()
+    public async Task Project_SkillsPrint_RequiresRowWhenMultipleSkillDocuments()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "one"),
-            new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "two"));
+            new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+            new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print");
+                "project", projectPath, "-S", "Skills", "--print");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -8435,16 +8462,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrint_RowSelectionPrintsSelectedDocument()
+    public async Task Project_SkillsPrint_RowSelectionPrintsSelectedDocument()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "one"),
-            new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "two"));
+            new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+            new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print", "--row", "2");
+                "project", projectPath, "-S", "Skills", "--print", "--row", "2");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -8457,17 +8486,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrint_RowSelectionCountsPrintableRowsOnly()
+    public async Task Project_SkillsPrint_RowSelectionCountsPrintableRowsOnly()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("A.Project.NoGrounding", "1.0.0", "README.md", "", OmitReadme: true),
-            new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "first"),
-            new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "second"));
+            new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
+            new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/first/SKILL.md", "first")]),
+            new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/second/SKILL.md", "second")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print", "--row", "1");
+                "project", projectPath, "-S", "Skills", "--print", "--row", "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -8480,21 +8511,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingPrintAll_UsesSeparators()
+    public async Task Project_SkillsPrintAll_UsesSeparators()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "one"),
-            new ProjectDocPackage("Test.Project.PrintAll.Two", "1.0.0", "README.md", "two"));
+            new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+            new ProjectDocPackage("Test.Project.PrintAll.Two", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--print-all");
+                "project", projectPath, "-S", "Skills", "--print-all");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("--- Test.Project.PrintAll.One README.md ---", output);
-            Assert.Contains("--- Test.Project.PrintAll.Two README.md ---", output);
+            Assert.Contains("--- Test.Project.PrintAll.One skills/one/SKILL.md ---", output);
+            Assert.Contains("--- Test.Project.PrintAll.Two skills/two/SKILL.md ---", output);
             Assert.Contains("one", output);
             Assert.Contains("two", output);
         }
@@ -8505,15 +8538,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingBare_PrintsFirstGroundingDocument()
+    public async Task Project_SkillsBare_PrintsFirstSkillDocument()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Bare", "1.0.0", "README.md", "selected"));
+            new ProjectDocPackage("Test.Project.Bare", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/bare/SKILL.md", "selected")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--bare");
+                "project", projectPath, "-S", "Skills", "--bare");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -8526,17 +8560,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingBare_MultipleDocuments_PrintsFirstPrintableDocument()
+    public async Task Project_SkillsBare_MultipleDocuments_PrintsFirstPrintableDocument()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("A.Project.NoGrounding", "1.0.0", "README.md", "", OmitReadme: true),
-            new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "first"),
-            new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "second"));
+            new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
+            new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/first/SKILL.md", "first")]),
+            new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/second/SKILL.md", "second")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--bare");
+                "project", projectPath, "-S", "Skills", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -8552,12 +8588,13 @@ public class CommandExecutionTests
     public async Task Project_Columns_ReturnsClearUnsupportedError()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "selected"));
+            new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/selected/SKILL.md", "selected")]));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--columns", "Package");
+                "project", projectPath, "-S", "Skills", "--columns", "Package");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -8591,16 +8628,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_GroundingCount_CountsDirectDependencies()
+    public async Task Project_SkillsCount_CountsSkillFiles()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Count.One", "1.0.0", "README.md", "one"),
-            new ProjectDocPackage("Test.Project.Count.Two", "1.0.0", "README.md", "two"));
+            new ProjectDocPackage("Test.Project.Count.One", "1.0.0", "README.md", "readme", Skills:
+                [
+                    new ProjectSkillDoc("skills/one/SKILL.md", "one"),
+                    new ProjectSkillDoc("skills/two/SKILL.md", "two")
+                ]),
+            new ProjectDocPackage("Test.Project.Count.None", "1.0.0", "README.md", "readme"));
 
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "-S", "Grounding", "--count");
+                "project", projectPath, "-S", "Skills", "--count");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -8613,9 +8654,9 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Discover_ListsGroundingSection()
+    public async Task Project_Discover_ListsSkillsSection()
     {
-        var (exit, output, error) = await RunAppAsync("project", "-D", "Grounding");
+        var (exit, output, error) = await RunAppAsync("project", "-D", "Skills");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -8624,7 +8665,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Readme_UsesProjectResolvedDependencyVersion()
+    public async Task Project_Readme_PrefersReadmeOverAgentsAndProjectMd()
     {
         var agents = """
             ---
@@ -8633,7 +8674,7 @@ public class CommandExecutionTests
             # Agent guidance
             """;
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Readme", "2.0.0", "README.md", "# README body", agents));
+            new ProjectDocPackage("Test.Project.Readme", "2.0.0", "README.md", "# README body", agents, ProjectText: "# PROJECT body"));
 
         try
         {
@@ -8642,8 +8683,30 @@ public class CommandExecutionTests
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Contains("# Agent guidance", output);
-            Assert.DoesNotContain("# README body", output);
+            Assert.Contains("# README body", output);
+            Assert.DoesNotContain("# Agent guidance", output);
+            Assert.DoesNotContain("# PROJECT body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_FallsBackToProjectMd()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.ProjectMd", "2.0.0", "README.md", "", ProjectText: "# PROJECT body", OmitReadme: true));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.ProjectMd");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("# PROJECT body", output);
         }
         finally
         {
@@ -8654,9 +8717,9 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_Readme_NormalizesGithubBlobLinksToRaw()
     {
-        const string agents = "See https://github.com/owner/repo/blob/main/docs/guide.md";
+        const string readme = "See https://github.com/owner/repo/blob/main/docs/guide.md";
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.RawLinks", "1.0.0", "README.md", "readme", agents));
+            new ProjectDocPackage("Test.Project.RawLinks", "1.0.0", "README.md", readme));
 
         try
         {

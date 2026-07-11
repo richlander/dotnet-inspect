@@ -8,7 +8,6 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
-using DotnetInspector.Views;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -16,17 +15,18 @@ namespace DotnetInspector.Commands;
 public class ProjectCommand
 {
     public const string Name = "project";
-    private static readonly string[] ProjectSectionNames = [PackageSections.PackageReadme];
-    private static readonly string[] ProjectGroundingColumnNames =
+    private const string ProjectSkillsSection = "Skills";
+    private static readonly string[] ProjectSectionNames = [ProjectSkillsSection];
+    private static readonly string[] ProjectSkillColumnNames =
     [
         "Package",
         "Version",
-        "Kind",
         "Path",
         "Size",
         "Name",
         "Description"
     ];
+    private static readonly string[] ProjectReadmeCandidates = ["README.md", "PROJECT.md"];
 
     public static async Task<int> ExecuteAsync(ProjectOptions options)
     {
@@ -119,7 +119,7 @@ public class ProjectCommand
 
         if (!sectionMode && !legacyMode)
         {
-            Console.Error.WriteLine("Error: Specify exactly one project mode: -S Grounding, --agents-index, or --readme <package-id>.");
+            Console.Error.WriteLine("Error: Specify exactly one project mode: -S Skills, --agents-index, or --readme <package-id>.");
             return 1;
         }
 
@@ -143,7 +143,7 @@ public class ProjectCommand
             return WriteAgentsIndex(dependencies, options);
 
         if (sectionMode)
-            return WriteGrounding(dependencies, options);
+            return WriteSkills(dependencies, options);
 
         return await WriteReadmeAsync(dependencies, options, context);
     }
@@ -217,7 +217,7 @@ public class ProjectCommand
 
     private static bool ValidateProjectPrintSelection(HashSet<string>? sections)
     {
-        if (sections is { Count: 1 } && sections.Contains(PackageSections.PackageReadme))
+        if (sections is { Count: 1 } && sections.Contains(ProjectSkillsSection))
             return true;
 
         Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
@@ -227,7 +227,7 @@ public class ProjectCommand
     private static DocumentSchema ProjectDiscoverySchema()
     {
         var schema = new DocumentSchema();
-        schema.Add(PackageSections.PackageReadme, "column", ProjectGroundingColumnNames);
+        schema.Add(ProjectSkillsSection, "column", ProjectSkillColumnNames);
         return schema;
     }
 
@@ -328,111 +328,80 @@ public class ProjectCommand
         return builder.ToString();
     }
 
-    private static int WriteGrounding(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
+    private static int WriteSkills(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
     {
         var rows = dependencies
-            .Select(CreateGroundingRow)
+            .SelectMany(CreateSkillRows)
             .ToList();
 
         if (options.Value || options.Urls || options.Paths)
-            return WriteGroundingShapeProjection(rows, options);
+            return WriteSkillShapeProjection(rows, options);
 
         if (options.Print || options.PrintAll || options.Bare)
-            return PrintFirstGroundingDocument(rows, options);
+            return PrintSkillDocument(rows, options);
 
         var output = options.Count
             ? rows.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine
             : options.JsonOutput
-                ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectGroundingRowArray)
+                ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectSkillRowArray)
                 : options.Jsonl
-                    ? RenderGroundingJsonl(rows)
+                    ? RenderSkillJsonl(rows)
                     : options.OneLine
-                        ? RenderGroundingTable(rows, options)
-                        : RenderGroundingMarkdown(rows);
+                        ? RenderSkillTable(rows, options)
+                        : RenderSkillMarkdown(rows);
 
         WriteOutput(output, options.OutputPath);
         return 0;
     }
 
-    private static ProjectGroundingRow CreateGroundingRow(ProjectPackageReference dependency)
+    private static IEnumerable<ProjectSkillRow> CreateSkillRows(ProjectPackageReference dependency)
     {
         if (string.IsNullOrWhiteSpace(dependency.PackagePath) || !Directory.Exists(dependency.PackagePath))
-            return EmptyGroundingRow(dependency);
+            yield break;
 
-        var declaredReadme = ReadDeclaredReadme(dependency.PackagePath);
-        var readme = PackageFileLister.ResolvePackageReadme(dependency.PackagePath, declaredReadme);
-        if (readme == null)
-            return EmptyGroundingRow(dependency);
+        var skillsRoot = Path.Combine(dependency.PackagePath, "skills");
+        if (!Directory.Exists(skillsRoot))
+            yield break;
 
-        var fullPath = Path.Combine(dependency.PackagePath, readme.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(fullPath))
-            return EmptyGroundingRow(dependency);
-
-        var content = File.ReadAllText(fullPath);
-        var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
-        frontmatter.TryGetValue("name", out var name);
-        frontmatter.TryGetValue("description", out var description);
-
-        return new ProjectGroundingRow(
-            dependency.PackageName,
-            dependency.Version,
-            ClassifyGroundingKind(readme, declaredReadme),
-            readme,
-            new FileInfo(fullPath).Length,
-            name ?? "",
-            description ?? "",
-            fullPath);
-    }
-
-    private static ProjectGroundingRow EmptyGroundingRow(ProjectPackageReference dependency)
-        => new(
-            dependency.PackageName,
-            dependency.Version,
-            Kind: "",
-            Path: "",
-            Size: 0,
-            Name: "",
-            Description: "",
-            FullPath: null);
-
-    private static string ClassifyGroundingKind(string path, string? declaredReadme)
-    {
-        var fileName = Path.GetFileName(path);
-        if (fileName.Equals("AGENTS.md", StringComparison.OrdinalIgnoreCase))
-            return "agents";
-        if (fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase))
-            return "readme";
-        if (fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase))
-            return "package";
-        if (!string.IsNullOrWhiteSpace(declaredReadme)
-            && path.Equals(declaredReadme, StringComparison.OrdinalIgnoreCase))
+        foreach (var fullPath in Directory.EnumerateFiles(skillsRoot, "SKILL.md", SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal))
         {
-            return "declared";
-        }
+            var path = Path.GetRelativePath(dependency.PackagePath, fullPath).Replace('\\', '/');
+            var content = File.ReadAllText(fullPath);
+            var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
+            frontmatter.TryGetValue("name", out var name);
+            frontmatter.TryGetValue("description", out var description);
 
-        return "markdown";
+            yield return new ProjectSkillRow(
+                dependency.PackageName,
+                dependency.Version,
+                path,
+                new FileInfo(fullPath).Length,
+                name ?? "",
+                description ?? "",
+                fullPath);
+        }
     }
 
-    private static string RenderGroundingJsonl(IEnumerable<ProjectGroundingRow> rows)
+    private static string RenderSkillJsonl(IEnumerable<ProjectSkillRow> rows)
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
-            builder.AppendLine(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectGroundingRow));
+            builder.AppendLine(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectSkillRow));
         return builder.ToString();
     }
 
-    private static string RenderGroundingTable(IReadOnlyList<ProjectGroundingRow> rows, ProjectOptions options)
+    private static string RenderSkillTable(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
         => OutputFormatter.RenderTable(!options.NoHeader, (writer, formatter) =>
         {
             var markoutWriter = new MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl));
             markoutWriter.WriteTable(
-                ["Package", "Version", "Kind", "Path", "Size", "Name", "Description"],
-                ["package", "version", "kind", "path", "size", "name", "description"],
+                ["Package", "Version", "Path", "Size", "Name", "Description"],
+                ["package", "version", "path", "size", "name", "description"],
                 rows.Select(row => new[]
                 {
                     row.Package,
                     row.Version,
-                    row.Kind,
                     row.Path,
                     row.Size.ToString(CultureInfo.InvariantCulture),
                     row.Name,
@@ -441,21 +410,19 @@ public class ProjectCommand
             markoutWriter.Flush();
         });
 
-    private static string RenderGroundingMarkdown(IReadOnlyList<ProjectGroundingRow> rows)
+    private static string RenderSkillMarkdown(IReadOnlyList<ProjectSkillRow> rows)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("## Grounding");
+        builder.AppendLine("## Skills");
         builder.AppendLine();
-        builder.AppendLine("| Package | Version | Kind | Path | Size | Name | Description |");
-        builder.AppendLine("| ------- | ------- | ---- | ---- | ---: | ---- | ----------- |");
+        builder.AppendLine("| Package | Version | Path | Size | Name | Description |");
+        builder.AppendLine("| ------- | ------- | ---- | ---: | ---- | ----------- |");
         foreach (var row in rows)
         {
             builder.Append("| ");
             builder.Append(EscapeMarkdownTableCell(row.Package));
             builder.Append(" | ");
             builder.Append(EscapeMarkdownTableCell(row.Version));
-            builder.Append(" | ");
-            builder.Append(EscapeMarkdownTableCell(row.Kind));
             builder.Append(" | ");
             builder.Append(EscapeMarkdownTableCell(row.Path));
             builder.Append(" | ");
@@ -470,10 +437,10 @@ public class ProjectCommand
         return builder.ToString();
     }
 
-    private static int PrintFirstGroundingDocument(IReadOnlyList<ProjectGroundingRow> rows, ProjectOptions options)
+    private static int PrintSkillDocument(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
     {
         var documents = rows
-            .Select((row, index) => CreatePrintableGroundingDocument(row, index + 1, options))
+            .Select((row, index) => CreatePrintableSkillDocument(row, index + 1, options))
             .Where(document => document is not null)
             .Cast<PrintableDocument>()
             .ToList();
@@ -490,7 +457,7 @@ public class ProjectCommand
                 options.OutputPath));
     }
 
-    private static int WriteGroundingShapeProjection(IReadOnlyList<ProjectGroundingRow> rows, ProjectOptions options)
+    private static int WriteSkillShapeProjection(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
     {
         var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
         List<ShapeProjectionRow> projected = [];
@@ -500,12 +467,12 @@ public class ProjectCommand
             string? value = kind switch
             {
                 ShapeProjectionKind.Paths => row.Path,
-                ShapeProjectionKind.Value => SelectGroundingValue(row, options),
+                ShapeProjectionKind.Value => SelectSkillValue(row, options),
                 _ => null
             };
             if (string.IsNullOrWhiteSpace(value))
                 continue;
-            projected.Add(new ShapeProjectionRow(i + 1, PackageSections.PackageReadme, value, Label: row.Package, Path: row.Path));
+            projected.Add(new ShapeProjectionRow(i + 1, ProjectSkillsSection, value, Label: row.Package, Path: row.Path));
         }
 
         return ShapeProjectionOutput.Write(
@@ -513,14 +480,13 @@ public class ProjectCommand
             new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 
-    private static string? SelectGroundingValue(ProjectGroundingRow row, ProjectOptions options)
+    private static string? SelectSkillValue(ProjectSkillRow row, ProjectOptions options)
     {
         var column = options.Columns?.SingleOrDefault() ?? options.Fields?.SingleOrDefault();
         return column?.ToLowerInvariant() switch
         {
             "package" => row.Package,
             "version" => row.Version,
-            "kind" => row.Kind,
             "path" => row.Path,
             "size" => row.Size.ToString(CultureInfo.InvariantCulture),
             "name" => row.Name,
@@ -529,7 +495,7 @@ public class ProjectCommand
         };
     }
 
-    private static PrintableDocument? CreatePrintableGroundingDocument(ProjectGroundingRow row, int rowNumber, ProjectOptions options)
+    private static PrintableDocument? CreatePrintableSkillDocument(ProjectSkillRow row, int rowNumber, ProjectOptions options)
     {
         if (row.FullPath == null || !File.Exists(row.FullPath))
             return null;
@@ -538,7 +504,7 @@ public class ProjectCommand
             MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope));
         return new PrintableDocument(
             rowNumber,
-            PackageSections.PackageReadme,
+            ProjectSkillsSection,
             $"{row.Package} {row.Path}",
             row.Path,
             null,
@@ -639,8 +605,7 @@ public class ProjectCommand
         if (string.IsNullOrWhiteSpace(dependency.PackagePath) || !Directory.Exists(dependency.PackagePath))
             return null;
 
-        var declaredReadme = ReadDeclaredReadme(dependency.PackagePath);
-        var readme = PackageFileLister.ResolvePackageReadme(dependency.PackagePath, declaredReadme);
+        var readme = ResolveProjectReadme(dependency.PackagePath);
         if (readme == null)
             return null;
 
@@ -658,9 +623,17 @@ public class ProjectCommand
             content);
     }
 
-    private static string? ReadDeclaredReadme(string packagePath)
+    private static string? ResolveProjectReadme(string packagePath)
     {
-        return NuspecParser.FindAndParse(packagePath)?.ReadmeFile;
+        foreach (var candidate in ProjectReadmeCandidates)
+        {
+            var match = Directory.EnumerateFiles(packagePath, "*", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault(file => Path.GetFileName(file).Equals(candidate, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                return Path.GetRelativePath(packagePath, match).Replace('\\', '/');
+        }
+
+        return null;
     }
 
     private static void WriteOutput(string output, string? outputPath)
@@ -693,10 +666,9 @@ internal sealed record ProjectPackageDocument(
     long Size,
     string Content);
 
-internal sealed record ProjectGroundingRow(
+internal sealed record ProjectSkillRow(
     string Package,
     string Version,
-    string Kind,
     string Path,
     long Size,
     string Name,
@@ -710,8 +682,8 @@ internal sealed record ProjectGroundingRow(
 [JsonSerializable(typeof(ProjectAgentsIndexRow))]
 [JsonSerializable(typeof(ProjectAgentsIndexRow[]))]
 [JsonSerializable(typeof(ProjectPackageDocument))]
-[JsonSerializable(typeof(ProjectGroundingRow))]
-[JsonSerializable(typeof(ProjectGroundingRow[]))]
+[JsonSerializable(typeof(ProjectSkillRow))]
+[JsonSerializable(typeof(ProjectSkillRow[]))]
 internal partial class ProjectCommandJsonContext : JsonSerializerContext
 {
 }
@@ -721,7 +693,7 @@ internal partial class ProjectCommandJsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ProjectAgentsIndexRow))]
 [JsonSerializable(typeof(ProjectPackageDocument))]
-[JsonSerializable(typeof(ProjectGroundingRow))]
+[JsonSerializable(typeof(ProjectSkillRow))]
 internal partial class ProjectCommandCompactJsonContext : JsonSerializerContext
 {
 }
