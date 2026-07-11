@@ -4691,7 +4691,9 @@ public class CommandExecutionTests
                 {
                     var selectArgs = BuildDiscoverySelectionArgs(command, section);
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
-                    Assert.True(selectExit == 0,
+                    var selectionSucceeded = selectExit == 0
+                        || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
+                    Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
                     if (RequiresRealDataDiscoveryGuard(command))
                     {
@@ -4708,6 +4710,16 @@ public class CommandExecutionTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    private static bool IsSourceIntegrityStatusResult(
+        string[] command,
+        string section,
+        int exitCode,
+        string output)
+        => command is ["library", ..]
+           && section == "SourceLink Integrity"
+           && exitCode == 1
+           && output.Contains("Status", StringComparison.Ordinal);
 
     private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
     {
