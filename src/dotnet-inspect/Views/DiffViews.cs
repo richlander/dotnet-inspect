@@ -42,6 +42,30 @@ public record DiffDetailedChangeRow(
     string Old,
     string New);
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class FindingTransitionsView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Finding Transitions")]
+    public List<FindingTransitionRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public record FindingTransitionRow(
+    string Transition,
+    string Finding,
+    string Target,
+    string From,
+    string To,
+    string Old,
+    string New,
+    string? Detail);
+
 /// <summary>
 /// View model for full diff rendering. Uses GroupBy to partition changes
 /// by type name, rendering each type as a subheading with its changes as list items.
@@ -98,6 +122,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffOneLineRow))]
 [MarkoutContext(typeof(DiffDetailedChangesView))]
 [MarkoutContext(typeof(DiffDetailedChangeRow))]
+[MarkoutContext(typeof(FindingTransitionsView))]
+[MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]
 [MarkoutContext(typeof(AnalysisDiffView))]

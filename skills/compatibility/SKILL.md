@@ -76,3 +76,19 @@ resolution does not download every package; only the selected probe is
 acquired. The agent owns the search policy and bound. For recurrence-safe
 current onset, walk backward from the bad version until the first successful
 absence; use binary search only for a predicate known to be monotonic.
+
+The range and point probes identify a candidate boundary. Confirm the adjacent
+pair with Metadata's real Finding comparison rather than inferring introduction
+from probe text:
+
+```bash
+dnx dotnet-inspect -y -- diff \
+  --package System.Text.Json@8.0.6..9.0.0 \
+  -t System.Text.Json.Schema.JsonSchemaExporter \
+  -S "Finding Transitions"
+```
+
+An introduction boundary is a row with `PairFinding.Added`, `Old=absent`, and
+`New=present`. `PairFinding.Present` means the target exists at both endpoints;
+for a type target, no row means it exists at neither. Use `-m Type.Member:1` for
+a member boundary.

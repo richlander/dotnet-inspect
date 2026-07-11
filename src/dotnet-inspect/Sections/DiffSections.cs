@@ -10,6 +10,7 @@ public static class DiffSections
     {
         return new SectionPipeline<DiffDiscoveryModel>()
             .Add<Changes>()
+            .Add<FindingTransitions>()
             .Add<AnalysisDiff>();
     }
 
@@ -17,6 +18,7 @@ public static class DiffSections
     {
         return new DocumentSchema()
             .Add(Changes.Name, "column", "Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New")
+            .Add(FindingTransitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail")
             .Add(AnalysisDiff.Name, "section", "Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence");
     }
 
@@ -25,6 +27,15 @@ public static class DiffSections
         public static string Name => "Changes";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    public sealed class FindingTransitions : ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Finding Transitions";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }

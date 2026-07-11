@@ -6,6 +6,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.Findings;
 using ILInspector.Research;
 using Markout;
 
@@ -58,6 +59,27 @@ public class DiffCommand
             return 1;
         }
 
+        if (SelectsFindingTransitions(options))
+        {
+            if (options.IncludeSections?.Count > 1)
+            {
+                Console.Error.WriteLine("Error: Finding Transitions must be selected by itself.");
+                return 1;
+            }
+            if (options.TypeFilter.Count == 0 && options.MemberFilter.Count == 0)
+            {
+                Console.Error.WriteLine("Error: Finding Transitions requires --type or a type-qualified --member target.");
+                return 1;
+            }
+            if (options.Breaking || options.Additive || options.ChangedOnly
+                || options.AllocRegressionsOnly || options.NameOnly)
+            {
+                Console.Error.WriteLine(
+                    "Error: Finding Transitions reports the exact PairFinding kind and cannot be combined with change-classification, analysis, or name-only filters.");
+                return 1;
+            }
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -98,6 +120,35 @@ public class DiffCommand
 
             try
             {
+                if (SelectsFindingTransitions(options))
+                {
+                    var rows = BuildFindingTransitions(
+                        inputs.FromSurface,
+                        inputs.ToSurface,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        options);
+                    var view = DiffOutputFormatter.BuildFindingTransitionsView(
+                        inputs.Name,
+                        rows,
+                        inputs.FromVersion,
+                        inputs.ToVersion);
+                    if (options.OneLine || options.Tsv || options.Jsonl)
+                    {
+                        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                            options.Columns, options.Fields,
+                            (writer, formatter, writerOptions) =>
+                                MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
+                            options.Rows);
+                    }
+                    else
+                    {
+                        var output = DiffOutputFormatter.RenderFindingTransitionsView(view);
+                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                    }
+                    return 0;
+                }
+
                 if (SelectsAnalysisDiff(options))
                 {
                     var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options, inputs.FromSurface, inputs.ToSurface);
@@ -350,6 +401,9 @@ public class DiffCommand
         => options.AllocRegressionsOnly
             || options.IncludeSections?.Contains("Analysis Diff") == true;
 
+    private static bool SelectsFindingTransitions(DiffOptions options)
+        => options.IncludeSections?.Contains("Finding Transitions") == true;
+
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains("Changes") == true;
 
@@ -597,6 +651,129 @@ public class DiffCommand
 
         return filtered;
     }
+
+    internal static IReadOnlyList<FindingTransitionRow> BuildFindingTransitions(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+    {
+        if (options.TypeFilter.Count == 0 && options.MemberFilter.Count == 0)
+            throw new InvalidOperationException("Finding Transitions requires --type or a type-qualified --member target.");
+
+        var subject = new FindingSubject("api", "API surface");
+        var diffOptions = new ApiDiffOptions(
+            options.IncludeAll ? ApiDiffScope.All : ApiDiffScope.Signature);
+        if (options.MemberFilter.Count == 0)
+        {
+            var typeComparison = MetadataFindings.CompareApiTypes(
+                fromSurface,
+                toSurface,
+                subject,
+                diffOptions);
+            return CompletePairs(typeComparison)
+                .Where(pair => options.TypeFilter.Any(filter =>
+                    MatchesDiffTypeFilter(TypeTarget(pair), filter)))
+                .Select(pair => ToTypeTransitionRow(pair, fromVersion, toVersion))
+                .OrderBy(row => row.Target, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        var targets = ResolveMemberTargetIdentities(
+            fromSurface,
+            toSurface,
+            options.MemberFilter,
+            options.TypeFilter);
+        var memberComparison = MetadataFindings.CompareApiMembers(
+            fromSurface,
+            toSurface,
+            subject,
+            diffOptions);
+        return CompletePairs(memberComparison)
+            .Where(pair => MatchesMemberPair(pair, targets))
+            .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
+            .OrderBy(row => row.Target, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    static IReadOnlyList<PairFinding<T>> CompletePairs<T>(FindingComparison<T> comparison)
+        where T : notnull
+        => comparison switch
+        {
+            FindingComparison<T>.Complete complete => complete.Pairs,
+            FindingComparison<T>.Failed => throw new InvalidOperationException("API Finding comparison did not complete."),
+        };
+
+    static bool MatchesMemberPair(
+        PairFinding<ApiMemberHandle> pair,
+        ResolvedDiffMemberTargets targets)
+    {
+        var oldHandle = OldSide(pair)?.Payload;
+        var newHandle = NewSide(pair)?.Payload;
+        var typeName = newHandle?.TypeFullName ?? oldHandle?.TypeFullName;
+        return typeName is not null
+            && targets.TypeNames.Contains(typeName)
+            && (MatchesHandle(oldHandle, targets.MemberIdentities)
+                || MatchesHandle(newHandle, targets.MemberIdentities));
+    }
+
+    static FindingTransitionRow ToTypeTransitionRow(
+        PairFinding<ApiTypeHandle> pair,
+        string fromVersion,
+        string toVersion)
+        => new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            TypeTarget(pair),
+            fromVersion,
+            toVersion,
+            OldSide(pair) is null ? "absent" : "present",
+            NewSide(pair) is null ? "absent" : "present",
+            pair.Detail);
+
+    static FindingTransitionRow ToMemberTransitionRow(
+        PairFinding<ApiMemberHandle> pair,
+        string fromVersion,
+        string toVersion)
+        => new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            MemberTarget(pair),
+            fromVersion,
+            toVersion,
+            OldSide(pair) is null ? "absent" : "present",
+            NewSide(pair) is null ? "absent" : "present",
+            pair.Detail);
+
+    static string TypeTarget(PairFinding<ApiTypeHandle> pair)
+        => (NewSide(pair) ?? OldSide(pair))!.Payload.TypeFullName;
+
+    static string MemberTarget(PairFinding<ApiMemberHandle> pair)
+    {
+        var handle = (NewSide(pair) ?? OldSide(pair))!.Payload;
+        return $"{handle.TypeFullName}.{handle.StableSelector ?? handle.Identity}";
+    }
+
+    static Finding<T>? OldSide<T>(PairFinding<T> pair)
+        where T : notnull
+        => pair switch
+        {
+            PairFinding<T>.Added => null,
+            PairFinding<T>.Removed removed => removed.Old,
+            PairFinding<T>.Present present => present.Old,
+            PairFinding<T>.Changed changed => changed.Old,
+        };
+
+    static Finding<T>? NewSide<T>(PairFinding<T> pair)
+        where T : notnull
+        => pair switch
+        {
+            PairFinding<T>.Added added => added.New,
+            PairFinding<T>.Removed => null,
+            PairFinding<T>.Present present => present.New,
+            PairFinding<T>.Changed changed => changed.New,
+        };
 
     internal static ApiDiff FilterApiDiffByMemberTargets(ApiDiff diff, ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
     {

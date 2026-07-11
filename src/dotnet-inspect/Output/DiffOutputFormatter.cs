@@ -89,6 +89,28 @@ public static class DiffOutputFormatter
         };
     }
 
+    public static FindingTransitionsView BuildFindingTransitionsView(
+        string name,
+        IReadOnlyList<FindingTransitionRow> rows,
+        string fromVersion,
+        string toVersion)
+        => new()
+        {
+            Title = $"Finding Transitions: {name}",
+            Versions = $"{fromVersion} -> {toVersion}",
+            Status = rows.Count == 0
+                ? new Callout(CalloutSeverity.Note, "No selected Finding exists at either endpoint.")
+                : new Callout(CalloutSeverity.Note, $"{rows.Count} selected Finding transition{(rows.Count == 1 ? "" : "s")}."),
+            Rows = rows.Count > 0 ? rows.ToList() : null
+        };
+
+    public static string RenderFindingTransitionsView(FindingTransitionsView view)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.ToString().TrimEnd();
+    }
+
     public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         var view = new DiffFullView
