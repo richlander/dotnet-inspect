@@ -15,6 +15,25 @@ namespace ILInspector.Research.Tests;
 public class ResearchDiffTests
 {
     [Fact]
+    public void FindingRetention_PreservesExistingPublicConstructorSignatures()
+    {
+        Assert.NotNull(typeof(ResearchComparison).GetConstructor(
+        [
+            typeof(ImmutableArray<ResearchChange>),
+            typeof(ApiDiff),
+            typeof(ApiFindingComparison),
+        ]));
+        Assert.NotNull(typeof(ResearchDiffOptions).GetConstructor(
+        [
+            typeof(ResearchChangeMechanism),
+            typeof(bool),
+            typeof(ApiDiffScope),
+            typeof(IReadOnlySet<string>),
+            typeof(IReadOnlySet<string>),
+        ]));
+    }
+
+    [Fact]
     public void ResearchComparison_StoresChangesOnceAndComputesSubjectGroups()
     {
         var subject = new ResearchSubjectKey(
@@ -765,9 +784,10 @@ public class ResearchDiffTests
         var diff = ResearchDiff.Compare(
             ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
             ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
-            new ResearchDiffOptions(
-                ResearchChangeMechanism.BodySignals,
-                RetainAllocationComparisons: true));
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals)
+            {
+                RetainAllocationComparisons = true,
+            });
 
         Assert.DoesNotContain(diff.Changes, change =>
             change.Descriptor == AnalysisFindings.AllocationDescriptor);

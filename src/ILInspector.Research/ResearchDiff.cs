@@ -16,8 +16,10 @@ public sealed record ResearchDiffOptions(
     bool IncludeAllApi = false,
     ApiDiffScope ApiScope = ApiDiffScope.Signature,
     IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null,
-    bool RetainAllocationComparisons = false);
+    IReadOnlySet<string>? MemberTargetIdentities = null)
+{
+    public bool RetainAllocationComparisons { get; init; }
+}
 
 public sealed record ResearchDiffInput(
     IReadOnlyList<string> AssemblyPaths,
@@ -213,7 +215,10 @@ public static class ResearchDiff
             [.. results.SelectMany(result => result.Changes)],
             apiDiff,
             apiComparison,
-            [.. results.SelectMany(result => result.AllocationComparisons)]);
+            [.. results.SelectMany(result =>
+                result.AllocationComparisons.IsDefault
+                    ? []
+                    : result.AllocationComparisons)]);
     }
 
     public static ResearchComparison CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
@@ -1146,6 +1151,7 @@ public static class ResearchDiff
         public ResearchComparison ToResult()
             => new(
                 [.. _changes],
+                apiDiff: null,
                 apiComparison: ApiComparison,
                 allocationComparisons: [.. _allocationComparisons]);
     }

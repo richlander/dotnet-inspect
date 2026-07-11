@@ -328,8 +328,16 @@ public sealed record ResearchComparison
     public ResearchComparison(
         ImmutableArray<ResearchChange> changes,
         ApiDiff? apiDiff = null,
-        ApiFindingComparison? apiComparison = null,
-        ImmutableArray<AllocationFindingComparison> allocationComparisons = default)
+        ApiFindingComparison? apiComparison = null)
+        : this(changes, apiDiff, apiComparison, [])
+    {
+    }
+
+    public ResearchComparison(
+        ImmutableArray<ResearchChange> changes,
+        ApiDiff? apiDiff,
+        ApiFindingComparison? apiComparison,
+        ImmutableArray<AllocationFindingComparison> allocationComparisons)
     {
         if (changes.IsDefault)
             throw new ArgumentException("Changes must be initialized.", nameof(changes));

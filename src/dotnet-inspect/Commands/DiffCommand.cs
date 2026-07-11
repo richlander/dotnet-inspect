@@ -851,8 +851,10 @@ public class DiffCommand
             new ResearchDiffOptions(
                 ResearchChangeMechanism.BodySignals,
                 TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: targets.MemberIdentities,
-                RetainAllocationComparisons: true));
+                MemberTargetIdentities: targets.MemberIdentities)
+            {
+                RetainAllocationComparisons = true,
+            });
 
         return research.AllocationComparisons
             .SelectMany(comparison => CompletePairs(comparison.Comparison)
