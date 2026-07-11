@@ -90,6 +90,92 @@ public static class DiffOutputFormatter
         };
     }
 
+    public static DiffDocumentView BuildDocumentView(
+        string name,
+        string fromVersion,
+        string toVersion,
+        DiffDetailedChangesView? changes,
+        AnalysisDiffView? analysisDiff,
+        ImplementationDiffView? implementationDiff)
+        => new()
+        {
+            Title = $"Diff: {name}",
+            Versions = $"{fromVersion} -> {toVersion}",
+            ChangesSummary = changes?.Summary,
+            AnalysisDiffSummary = analysisDiff?.Summary,
+            ImplementationDiffSummary = implementationDiff?.Summary,
+            Changes = changes?.Rows,
+            AnalysisDiff = analysisDiff?.Rows,
+            ImplementationDiff = implementationDiff?.Rows
+        };
+
+    public static string RenderDocumentView(DiffDocumentView view)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        writer.WriteHeading(1, view.Title);
+        writer.WriteParagraph($"**Versions:** {view.Versions}");
+
+        if (view.ChangesSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Changes",
+                view.ChangesSummary,
+                ["Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New"],
+                ["change", "classification", "type", "member", "kind", "detail", "old", "new"],
+                view.Changes?.Select(row => new[]
+                {
+                    row.Change, row.Classification, row.Type, row.Member,
+                    row.Kind, row.Detail, row.Old, row.New
+                }));
+        }
+
+        if (view.AnalysisDiffSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Analysis Diff",
+                view.AnalysisDiffSummary,
+                ["Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence"],
+                ["member", "signal", "old", "new", "delta", "shape", "evidence"],
+                view.AnalysisDiff?.Select(row => new[]
+                {
+                    row.Member, row.Signal, row.Old, row.New, row.Delta,
+                    row.Shape ?? "", row.Evidence ?? ""
+                }));
+        }
+
+        if (view.ImplementationDiffSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Implementation Diff",
+                view.ImplementationDiffSummary,
+                ["Member", "Mechanism", "Change", "Evidence"],
+                ["member", "mechanism", "change", "evidence"],
+                view.ImplementationDiff?.Select(row => new[]
+                {
+                    row.Member, row.Mechanism, row.Change, row.Evidence
+                }));
+        }
+
+        return writer.ToString().TrimEnd();
+    }
+
+    private static void WriteDocumentSection(
+        MarkoutWriter writer,
+        string name,
+        string summary,
+        string[] headers,
+        string[] stableHeaders,
+        IEnumerable<string[]>? rows)
+    {
+        writer.WriteHeading(2, name);
+        writer.WriteParagraph(summary);
+        if (rows is not null)
+            writer.WriteTable(headers, stableHeaders, rows.ToArray());
+    }
+
     public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         var view = new DiffFullView

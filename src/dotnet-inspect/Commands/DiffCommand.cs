@@ -8,6 +8,7 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Research;
 using Markout;
+using System.Text.Json;
 
 namespace DotnetInspector.Commands;
 
@@ -41,6 +42,11 @@ public class DiffCommand
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
         }
+
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                options.OneLineExplicitlySet,
+                options.IncludeSections))
+            return 1;
 
         if (!hasPlatform && !hasPackage && !hasLibrary)
         {
@@ -98,6 +104,12 @@ public class DiffCommand
 
             try
             {
+                if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
+                {
+                    WriteSelectedDocument(inputs, options);
+                    return 0;
+                }
+
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
                 {
                     var implementation = BuildImplementationDiff(
@@ -377,13 +389,86 @@ public class DiffCommand
 
     private static bool SelectsAnalysisDiff(DiffOptions options)
         => options.AllocRegressionsOnly
-            || options.IncludeSections?.Contains("Analysis Diff") == true;
+            || options.IncludeSections?.Contains(DiffSections.AnalysisDiff.Name) == true;
 
     private static bool SelectsImplementationDiff(DiffOptions options)
-        => options.IncludeSections?.Contains("Implementation Diff") == true;
+        => options.IncludeSections?.Contains(DiffSections.ImplementationDiff.Name) == true;
 
     private static bool SelectsDetailedChanges(DiffOptions options)
-        => options.IncludeSections?.Contains("Changes") == true;
+        => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
+
+    private static void WriteSelectedDocument(DiffInputs inputs, DiffOptions options)
+    {
+        var selected = options.IncludeSections
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                options.AllocRegressionsOnly
+                    ? DiffSections.AnalysisDiff.Name
+                    : DiffSections.Changes.Name
+            };
+
+        DiffDetailedChangesView? changesView = null;
+        if (selected.Contains(DiffSections.Changes.Name))
+        {
+            var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
+            changesView = DiffOutputFormatter.BuildDetailedChangesView(
+                inputs.Name,
+                ApplyFilters(diff, options),
+                inputs.FromVersion,
+                inputs.ToVersion);
+        }
+
+        AnalysisDiffView? analysisView = null;
+        if (selected.Contains(DiffSections.AnalysisDiff.Name))
+        {
+            var analysis = BuildAnalysisDiff(
+                inputs.FromPaths,
+                inputs.ToPaths,
+                options,
+                inputs.FromSurface,
+                inputs.ToSurface);
+            analysisView = DiffOutputFormatter.BuildAnalysisDiffView(
+                inputs.Name,
+                analysis.Rows,
+                analysis.Summary,
+                inputs.FromVersion,
+                inputs.ToVersion);
+        }
+
+        ImplementationDiffView? implementationView = null;
+        if (selected.Contains(DiffSections.ImplementationDiff.Name))
+        {
+            var implementation = BuildImplementationDiff(
+                inputs.FromPaths,
+                inputs.ToPaths,
+                options,
+                inputs.FromSurface,
+                inputs.ToSurface);
+            implementationView = DiffOutputFormatter.BuildImplementationDiffView(
+                inputs.Name,
+                implementation,
+                inputs.FromVersion,
+                inputs.ToVersion);
+        }
+
+        var view = DiffOutputFormatter.BuildDocumentView(
+            inputs.Name,
+            inputs.FromVersion,
+            inputs.ToVersion,
+            changesView,
+            analysisView,
+            implementationView);
+
+        if (options.JsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
+            return;
+        }
+
+        Console.WriteLine(OutputFormatter.ApplyRowLimit(
+            DiffOutputFormatter.RenderDocumentView(view),
+            options.Rows));
+    }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
 
@@ -948,6 +1033,8 @@ public record DiffOptions
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
+    public bool JsonOutput { get; init; }
+    public bool OneLineExplicitlySet { get; init; }
     public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
