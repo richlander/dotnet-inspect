@@ -43,13 +43,14 @@ internal static class DependencyGraphService
 
         try
         {
-            if (File.Exists(libraryName))
+            if (File.Exists(libraryName)
+                && !libraryName.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
             {
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
                     new AssemblySetRequest { Assemblies = [libraryName], TempDirPrefix = TempDirPrefix },
                     logger.Log);
-                WriteDiagnostics(ownedAssemblySet);
+                AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
                 assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
             }
             else if (PlatformResolver.IsPlatformCandidate(libraryName))
@@ -60,11 +61,12 @@ internal static class DependencyGraphService
                     logger.Log);
                 if (ownedAssemblySet.Assemblies.Count > 0)
                 {
-                    WriteDiagnostics(ownedAssemblySet);
+                    AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
                     assemblyPath = ownedAssemblySet.Assemblies[0].Path;
                 }
                 else
                 {
+                    AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
                     ownedAssemblySet.Dispose();
                     ownedAssemblySet = null;
                 }
@@ -80,17 +82,23 @@ internal static class DependencyGraphService
                         Packages = [libraryName],
                         SourceOptions = sourceOptions,
                         TempDirPrefix = TempDirPrefix,
+                        PackageSelectionMode = AssemblySetPackageSelectionMode.LibAssembliesDescending,
                     },
                     logger.Log);
-                WriteDiagnostics(ownedAssemblySet);
 
                 assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
                 if (assemblyPath == null)
                 {
+                    AssemblySetDiagnosticWriter.Write(ownedAssemblySet, includeErrors: false);
+                    var errorDiagnostic = ownedAssemblySet.Diagnostics
+                        .FirstOrDefault(static d => d.Severity == AssemblySetDiagnosticSeverity.Error);
                     return new LibraryDependencyGraphResult.Error(
-                        $"Could not resolve '{libraryName}' as a file, platform library, or NuGet package.",
+                        errorDiagnostic?.Message
+                            ?? $"Could not resolve '{libraryName}' as a file, platform library, or NuGet package.",
                         libraryName);
                 }
+
+                AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
             }
 
             var (refs, _) = AssemblyInspector.ExtractReferencesAndCompany(assemblyPath);
@@ -122,6 +130,7 @@ internal static class DependencyGraphService
         List<string> tempDirs = [];
         try
         {
+            // Package dependency mode inspects nuspec dependency groups, not assembly sets.
             var (packageName, _) = PackageExtractor.ParsePackageReference(packageRef);
 
             logger.Log($"Resolving package: {packageRef}");
@@ -177,14 +186,8 @@ internal static class DependencyGraphService
         Func<AssemblySet, TResult> operation)
     {
         using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
-        WriteDiagnostics(assemblySet);
+        AssemblySetDiagnosticWriter.Write(assemblySet);
         return operation(assemblySet);
-    }
-
-    private static void WriteDiagnostics(AssemblySet assemblySet)
-    {
-        foreach (var diagnostic in assemblySet.Diagnostics)
-            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
     }
 
     private static void CleanupTempDirs(List<string> tempDirs)

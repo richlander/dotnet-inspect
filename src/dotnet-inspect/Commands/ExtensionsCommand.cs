@@ -86,7 +86,7 @@ public class ExtensionsCommand
             context.HttpClient,
             options.ToAssemblySetRequest("inspect-ext"),
             logger.Log);
-        WriteDiagnostics(assemblySet);
+        AssemblySetDiagnosticWriter.Write(assemblySet);
 
         List<ExtensionMethodResult> results = [];
         var censuses = assemblySet.Assemblies
@@ -225,12 +225,6 @@ public class ExtensionsCommand
         }
 
         return results;
-    }
-
-    private static void WriteDiagnostics(AssemblySet assemblySet)
-    {
-        foreach (var diagnostic in assemblySet.Diagnostics)
-            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
     }
 
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)

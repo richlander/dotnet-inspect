@@ -100,7 +100,7 @@ public class AssemblySetResolverTests
                     SourceOrder =
                     [
                         AssemblySetSourceKind.Directory,
-                        AssemblySetSourceKind.Assembly,
+                        AssemblySetSourceKind.Directory,
                     ],
                 });
 
@@ -108,10 +108,118 @@ public class AssemblySetResolverTests
                 assemblySet.Assemblies,
                 entry => Assert.Equal(AssemblySetSourceKind.Directory, entry.SourceKind),
                 entry => Assert.Equal(AssemblySetSourceKind.Assembly, entry.SourceKind));
+            var diagnostic = Assert.Single(assemblySet.Diagnostics);
+            Assert.Equal(AssemblySetDiagnosticSeverity.Warning, diagnostic.Severity);
+            Assert.Contains("Duplicate assembly source order entry", diagnostic.Message);
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_PackageRuntimeAssembliesAreOptIn()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-runtime-package-test").FullName;
+        var packagePath = Path.Combine(packageDir, "RuntimeOnly.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "runtimes/any/lib/net10.0/RuntimeOnly.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            using var defaultSet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest { Packages = [packagePath] });
+            using var includeRuntimeSet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Packages = [packagePath],
+                    IncludePackageRuntimeAssemblies = true,
+                });
+
+            Assert.Empty(defaultSet.Assemblies);
+            var entry = Assert.Single(includeRuntimeSet.Assemblies);
+            Assert.Contains($"{Path.DirectorySeparatorChar}runtimes{Path.DirectorySeparatorChar}", entry.Path);
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_LibDescendingModeUsesOldLibraryDependencyRootOrder()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-lib-order-test").FullName;
+        var packagePath = Path.Combine(packageDir, "LibOrder.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net6.0/A.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "lib/netstandard2.0/Z.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "runtimes/any/lib/net10.0/Runtime.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Packages = [packagePath],
+                    PackageSelectionMode = AssemblySetPackageSelectionMode.LibAssembliesDescending,
+                });
+
+            var paths = assemblySet.Assemblies.Select(static a => a.Path).ToArray();
+            Assert.Equal(paths.OrderByDescending(static p => p, StringComparer.Ordinal), paths);
+            Assert.All(paths, path => Assert.Contains($"{Path.DirectorySeparatorChar}lib{Path.DirectorySeparatorChar}", path));
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_LibDescendingModeReportsErrorWhenPackageHasNoLibAssemblies()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-no-lib-test").FullName;
+        var packagePath = Path.Combine(packageDir, "NoLib.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "tools/NoLib.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Packages = [packagePath],
+                    PackageSelectionMode = AssemblySetPackageSelectionMode.LibAssembliesDescending,
+                });
+
+            Assert.Empty(assemblySet.Assemblies);
+            var diagnostic = Assert.Single(assemblySet.Diagnostics);
+            Assert.Equal(AssemblySetDiagnosticSeverity.Error, diagnostic.Severity);
+            Assert.Contains("No libraries found in package", diagnostic.Message);
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
         }
     }
 }

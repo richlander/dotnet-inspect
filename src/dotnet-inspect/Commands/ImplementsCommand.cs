@@ -46,7 +46,7 @@ public class ImplementsCommand
                 context.HttpClient,
                 options.ToAssemblySetRequest("inspect-impl"),
                 logger.Log);
-            WriteDiagnostics(assemblySet);
+            AssemblySetDiagnosticWriter.Write(assemblySet);
             logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for types implementing {targetType}");
 
             var results = new List<ImplementerResult>();
@@ -129,12 +129,6 @@ public class ImplementsCommand
         }
 
         return results;
-    }
-
-    private static void WriteDiagnostics(AssemblySet assemblySet)
-    {
-        foreach (var diagnostic in assemblySet.Diagnostics)
-            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
     }
 
     private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)

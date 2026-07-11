@@ -49,8 +49,7 @@ public static class CallerScopeResolver
             },
             logger.Log);
 
-        foreach (var diagnostic in assemblySet.Diagnostics)
-            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
+        AssemblySetDiagnosticWriter.Write(assemblySet);
 
         foreach (var assembly in assemblySet.Assemblies)
             Add(assembly.Path);

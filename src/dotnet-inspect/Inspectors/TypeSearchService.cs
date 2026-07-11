@@ -266,22 +266,40 @@ internal static class TypeSearchService
 
         bool ReachedLimit() => pattern != null && options.Limit.HasValue && results.Count >= options.Limit.Value;
 
-        var request = options.ToAssemblySetRequest("inspect-find", options.BinPaths) with
+        AssemblySetRequest CreateFindRequest(
+            IReadOnlyList<string>? packages = null,
+            IReadOnlyList<string>? assemblies = null,
+            IReadOnlyList<string>? platformAssemblies = null,
+            IReadOnlyList<string>? platformFrameworks = null,
+            IReadOnlyList<string>? projects = null,
+            IReadOnlyList<string>? directories = null)
         {
-            SourceOrder =
-            [
-                AssemblySetSourceKind.Package,
-                AssemblySetSourceKind.Assembly,
-                AssemblySetSourceKind.PlatformAssembly,
-                AssemblySetSourceKind.PlatformFramework,
-                AssemblySetSourceKind.Project,
-                AssemblySetSourceKind.Directory,
-            ],
-        };
-        using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
-
-        foreach (var diagnostic in assemblySet.Diagnostics)
-            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
+            return new AssemblySetRequest
+            {
+                Packages = packages ?? options.Packages,
+                Assemblies = assemblies ?? options.Assemblies,
+                PlatformAssemblies = platformAssemblies ?? options.PlatformAssemblies,
+                PlatformFrameworks = platformFrameworks ?? options.PlatformFrameworks,
+                Projects = projects ?? options.Projects,
+                Directories = directories ?? options.BinPaths,
+                Tfm = options.Tfm,
+                SourceOptions = options.SourceOptions,
+                TempDirPrefix = "inspect-find",
+                PlatformAssemblyFrameworkHint = options.PlatformFrameworks.Length > 0
+                    ? options.PlatformFrameworks[0]
+                    : null,
+                IncludePackageRuntimeAssemblies = true,
+                SourceOrder =
+                [
+                    AssemblySetSourceKind.Package,
+                    AssemblySetSourceKind.Assembly,
+                    AssemblySetSourceKind.PlatformAssembly,
+                    AssemblySetSourceKind.PlatformFramework,
+                    AssemblySetSourceKind.Project,
+                    AssemblySetSourceKind.Directory,
+                ],
+            };
+        }
 
         List<TypeSearchResult> Scan(AssemblySetEntry assembly)
         {
@@ -295,50 +313,110 @@ internal static class TypeSearchService
             return types;
         }
 
-        if (pattern == null || !options.Limit.HasValue)
+        async Task CollectAndScanAsync(AssemblySetRequest request)
         {
-            var perAssembly = new List<TypeSearchResult>[assemblySet.Assemblies.Count];
-            Parallel.For(0, assemblySet.Assemblies.Count, i =>
-            {
-                perAssembly[i] = Scan(assemblySet.Assemblies[i]);
-            });
+            using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
+            AssemblySetDiagnosticWriter.Write(assemblySet);
 
-            foreach (var types in perAssembly)
-                results.AddRange(types);
+            foreach (var assembly in assemblySet.Assemblies)
+            {
+                if (ReachedLimit()) break;
+
+                results.AddRange(Scan(assembly));
+            }
+        }
+
+        if (pattern != null && options.Limit.HasValue)
+        {
+            foreach (var package in options.Packages)
+            {
+                if (ReachedLimit()) break;
+                await CollectAndScanAsync(CreateFindRequest(
+                    packages: [package],
+                    assemblies: [],
+                    platformAssemblies: [],
+                    platformFrameworks: [],
+                    projects: [],
+                    directories: []));
+            }
+
+            foreach (var assembly in options.Assemblies)
+            {
+                if (ReachedLimit()) break;
+                await CollectAndScanAsync(CreateFindRequest(
+                    packages: [],
+                    assemblies: [assembly],
+                    platformAssemblies: [],
+                    platformFrameworks: [],
+                    projects: [],
+                    directories: []));
+            }
+
+            foreach (var platformAssembly in options.PlatformAssemblies)
+            {
+                if (ReachedLimit()) break;
+                await CollectAndScanAsync(CreateFindRequest(
+                    packages: [],
+                    assemblies: [],
+                    platformAssemblies: [platformAssembly],
+                    platformFrameworks: [],
+                    projects: [],
+                    directories: []));
+            }
+
+            foreach (var framework in options.PlatformFrameworks)
+            {
+                if (ReachedLimit()) break;
+                await CollectAndScanAsync(CreateFindRequest(
+                    packages: [],
+                    assemblies: [],
+                    platformAssemblies: [],
+                    platformFrameworks: [framework],
+                    projects: [],
+                    directories: []));
+            }
+
+            foreach (var project in options.Projects)
+            {
+                if (ReachedLimit()) break;
+                await CollectAndScanAsync(CreateFindRequest(
+                    packages: [],
+                    assemblies: [],
+                    platformAssemblies: [],
+                    platformFrameworks: [],
+                    projects: [project],
+                    directories: []));
+            }
+
+            foreach (var directory in options.BinPaths)
+            {
+                if (ReachedLimit()) break;
+                await CollectAndScanAsync(CreateFindRequest(
+                    packages: [],
+                    assemblies: [],
+                    platformAssemblies: [],
+                    platformFrameworks: [],
+                    projects: [],
+                    directories: [directory]));
+            }
 
             return results;
         }
 
-        foreach (var assembly in assemblySet.Assemblies)
-        {
-            if (ReachedLimit()) break;
+        var request = CreateFindRequest();
+        using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
+        AssemblySetDiagnosticWriter.Write(assemblySet);
 
-            results.AddRange(Scan(assembly));
-        }
+        var perAssembly = new List<TypeSearchResult>[assemblySet.Assemblies.Count];
+        Parallel.For(0, assemblySet.Assemblies.Count, i =>
+        {
+            perAssembly[i] = Scan(assemblySet.Assemblies[i]);
+        });
+
+        foreach (var types in perAssembly)
+            results.AddRange(types);
 
         return results;
-    }
-
-    /// <summary>
-    /// Collects types from a path (file or directory), optionally filtered by pattern.
-    /// </summary>
-    public static List<TypeSearchResult> CollectFromPath(string path, string? pattern, bool includeAll, VerboseLogger logger)
-    {
-        if (File.Exists(path) && path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-        {
-            return CollectFromAssembly(path, pattern, includeAll, logger);
-        }
-        else if (Directory.Exists(path))
-        {
-            List<TypeSearchResult> results = [];
-            var dlls = Directory.GetFiles(path, "*.dll", SearchOption.AllDirectories);
-            foreach (var dll in dlls)
-            {
-                results.AddRange(CollectFromAssembly(dll, pattern, includeAll, logger));
-            }
-            return results;
-        }
-        return [];
     }
 
     /// <summary>

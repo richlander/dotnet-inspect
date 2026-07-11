@@ -18,6 +18,10 @@ public sealed record AssemblySetRequest
     public string? Tfm { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public string TempDirPrefix { get; init; } = "inspect";
+    public string? PlatformAssemblyFrameworkHint { get; init; }
+    public bool IncludePackageRuntimeAssemblies { get; init; }
+    public AssemblySetPackageSelectionMode PackageSelectionMode { get; init; } =
+        AssemblySetPackageSelectionMode.TargetFramework;
     public IReadOnlyList<AssemblySetSourceKind> SourceOrder { get; init; } =
     [
         AssemblySetSourceKind.Package,
@@ -45,11 +49,18 @@ public enum AssemblySetSourceKind
     Directory,
 }
 
+public enum AssemblySetPackageSelectionMode
+{
+    TargetFramework,
+    LibAssembliesDescending,
+}
+
 public sealed record AssemblySetDiagnostic(AssemblySetDiagnosticSeverity Severity, string Message);
 
 public enum AssemblySetDiagnosticSeverity
 {
     Warning,
+    Error,
 }
 
 /// <summary>
@@ -104,6 +115,7 @@ public static class AssemblySetResolver
         List<string> tempDirs = [];
 
         void Warn(string message) => diagnostics.Add(new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Warning, message));
+        void Error(string message) => diagnostics.Add(new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Error, message));
 
         async Task AddPackagesAsync()
         {
@@ -126,29 +138,47 @@ public static class AssemblySetResolver
                 if (extracted.TempDir != null)
                     tempDirs.Add(extracted.TempDir);
 
-                var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, request.Tfm)
-                    ?? extracted.ExtractPath;
-
                 IEnumerable<string> dlls;
-                if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                if (request.PackageSelectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
                 {
-                    dlls = [searchPath];
+                    dlls = Directory.GetFiles(extracted.ExtractPath, "*.dll", SearchOption.AllDirectories)
+                        .Where(p => p.Contains("/lib/", StringComparison.Ordinal)
+                            || p.Contains("\\lib\\", StringComparison.Ordinal))
+                        .OrderByDescending(static p => p, StringComparer.Ordinal);
                 }
                 else
                 {
-                    dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-                        .Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
-                            && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
+                    var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, request.Tfm)
+                        ?? extracted.ExtractPath;
+
+                    if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        dlls = [searchPath];
+                    }
+                    else
+                    {
+                        dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories);
+                        if (!request.IncludePackageRuntimeAssemblies)
+                        {
+                            dlls = dlls.Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
+                                && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
+                        }
+                    }
                 }
 
+                var foundAssembly = false;
                 foreach (var dll in dlls)
                 {
+                    foundAssembly = true;
                     assemblies.Add(new AssemblySetEntry(
                         dll,
                         extracted.PackageName ?? pkg,
                         extracted.Version,
                         AssemblySetSourceKind.Package));
                 }
+
+                if (!foundAssembly && request.PackageSelectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
+                    Error($"No libraries found in package '{pkg}'.");
             }
         }
 
@@ -196,12 +226,11 @@ public static class AssemblySetResolver
         {
             foreach (var platformAsm in request.PlatformAssemblies)
             {
-                var framework = request.PlatformFrameworks.Count > 0 ? request.PlatformFrameworks[0] : null;
                 var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
                     platformAsm,
                     httpClient,
                     log,
-                    framework);
+                    request.PlatformAssemblyFrameworkHint);
 
                 if (error != null)
                 {
@@ -277,9 +306,29 @@ public static class AssemblySetResolver
             }
         }
 
-        var sourceOrder = request.SourceOrder.Count > 0
+        var defaultSourceOrder = new AssemblySetRequest().SourceOrder;
+        var requestedSourceOrder = request.SourceOrder.Count > 0
             ? request.SourceOrder
-            : new AssemblySetRequest().SourceOrder;
+            : defaultSourceOrder;
+        var sourceOrder = new List<AssemblySetSourceKind>(defaultSourceOrder.Count);
+        var seenSourceKinds = new HashSet<AssemblySetSourceKind>();
+
+        foreach (var sourceKind in requestedSourceOrder)
+        {
+            if (!seenSourceKinds.Add(sourceKind))
+            {
+                Warn($"Duplicate assembly source order entry '{sourceKind}' ignored.");
+                continue;
+            }
+
+            sourceOrder.Add(sourceKind);
+        }
+
+        foreach (var sourceKind in defaultSourceOrder)
+        {
+            if (seenSourceKinds.Add(sourceKind))
+                sourceOrder.Add(sourceKind);
+        }
 
         foreach (var sourceKind in sourceOrder)
         {
@@ -302,6 +351,9 @@ public static class AssemblySetResolver
                     break;
                 case AssemblySetSourceKind.Directory:
                     AddDirectories();
+                    break;
+                default:
+                    Warn($"Unknown assembly source kind '{sourceKind}' ignored.");
                     break;
             }
         }
