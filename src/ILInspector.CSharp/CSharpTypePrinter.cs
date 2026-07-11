@@ -209,9 +209,9 @@ public sealed class CSharpTypePrinter
             diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
 
         string pad = new(' ', indent * 4);
-        string declaration = formatter.FormatTypeDeclaration(prepared.Type);
-        if (prepared.PrimaryConstructorParameters.Length > 0)
-            declaration = AddPrimaryConstructorParameters(declaration, prepared.PrimaryConstructorParameters);
+        string declaration = formatter.FormatTypeDeclaration(
+            prepared.Type,
+            prepared.PrimaryConstructorParameters);
 
         var lines = new List<string>
         {
@@ -408,20 +408,6 @@ public sealed class CSharpTypePrinter
         => declaration.EndsWith(';') || declaration.EndsWith('}')
             ? declaration
             : declaration + ";";
-
-    static string AddPrimaryConstructorParameters(
-        string declaration,
-        IReadOnlyList<ApiParameter> parameters)
-    {
-        string parameterList = string.Join(", ", parameters.Select(parameter => parameter.Declaration));
-        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
-        string head = constraints >= 0 ? declaration[..constraints] : declaration;
-        string tail = constraints >= 0 ? declaration[constraints..] : "";
-        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
-        return inheritance >= 0
-            ? head[..inheritance] + $"({parameterList})" + head[inheritance..] + tail
-            : $"{head}({parameterList}){tail}";
-    }
 
     static string Indent(string source, int depth)
     {

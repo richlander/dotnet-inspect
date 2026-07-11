@@ -83,10 +83,29 @@ public sealed class CSharpFormatter
             methodParameters));
     }
 
-    public string FormatTypeDeclaration(ApiType type)
+    public string FormatTypeDeclaration(
+        ApiType type,
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return CSharpDeclarationWriter.RenderTypeDeclaration(type, _metadataOptions);
+        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type, _metadataOptions);
+        if (primaryConstructorParameters is not { Count: > 0 })
+            return declaration;
+
+        string declarationWithoutAttributes = CSharpDeclarationWriter.RenderTypeDeclaration(
+            type,
+            _metadataOptions with { IncludeCustomAttributes = false });
+        if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
+        }
+
+        string attributePrefix = declaration[..^declarationWithoutAttributes.Length];
+        return attributePrefix
+            + AddPrimaryConstructorParameters(
+                declarationWithoutAttributes,
+                primaryConstructorParameters);
     }
 
     public string FormatDelegate(ApiType type, ApiMember invoke)
@@ -211,4 +230,18 @@ public sealed class CSharpFormatter
 
     static CSharpFormattedDeclaration ToFormattedDeclaration(CSharpRenderedDeclaration declaration)
         => new(declaration.Source, declaration.Usings.ToArray(), declaration.Diagnostics.ToArray());
+
+    static string AddPrimaryConstructorParameters(
+        string declaration,
+        IReadOnlyList<ApiParameter> parameters)
+    {
+        string parameterList = string.Join(", ", parameters.Select(parameter => parameter.Declaration));
+        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
+        string head = constraints >= 0 ? declaration[..constraints] : declaration;
+        string tail = constraints >= 0 ? declaration[constraints..] : "";
+        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
+        return inheritance >= 0
+            ? head[..inheritance] + $"({parameterList})" + head[inheritance..] + tail
+            : $"{head}({parameterList}){tail}";
+    }
 }

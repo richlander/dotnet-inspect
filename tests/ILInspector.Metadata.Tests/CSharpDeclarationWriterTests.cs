@@ -823,6 +823,35 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ConstructorDeclaration_WithUnmodeledDefaultAndUnrelatedAttributeKeepsCompatibilitySignature()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(42L)] System.DateTime when)",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.DateTime",
+                        Name = "when",
+                        Attributes = ["System.ComponentModel.Description(\"Test\")"],
+                        HasDefault = true
+                    }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Contains("DateTimeConstant(42L)", declaration);
+    }
+
+    [Fact]
     public void AbbreviatedMemberDeclaration_PreservesParameterModifiers()
     {
         var type = new ApiType { Namespace = "Samples", Name = "RefKinds", Kind = "class" };

@@ -272,6 +272,30 @@ public sealed class CSharpTypePrinterTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("System.Diagnostics.DebuggerDisplay(\"{X} : {Y}\")")]
+    [InlineData("System.ComponentModel.Description(\"pick where valid\")")]
+    public void PrimaryConstructorParametersIgnoreAttributeText(string attribute)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Point",
+            Kind = "record",
+            Attributes = [attribute]
+        };
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            primaryConstructorParameters: [new ApiParameter { Type = "int", Name = "value" }]),
+            new CSharpTypePrintOptions { IncludeCustomAttributes = true });
+
+        Assert.Contains(
+            $"[{attribute}] public record Point(int value)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SkeletonPrefersStructuredGenericSignature()
     {

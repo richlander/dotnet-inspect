@@ -550,7 +550,7 @@ public static class CSharpDeclarationWriter
         if (model.Parameters.Any(static parameter =>
                 parameter.HasDefault
                 && string.IsNullOrWhiteSpace(parameter.DefaultValueText)
-                && parameter.Attributes.Count == 0))
+                && !HasStructuredMetadataOnlyDefault(parameter)))
         {
             return false;
         }
@@ -561,6 +561,7 @@ public static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type.Name)}()";
             return true;
         }
+
         if (member.Kind == "constructor")
         {
             signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
@@ -609,6 +610,14 @@ public static class CSharpDeclarationWriter
         // unsupported event shapes on compatibility text until the remaining
         // declaration-level facts are represented in ApiSignature.
         return false;
+
+        static bool HasStructuredMetadataOnlyDefault(ApiParameter parameter)
+            => parameter.Attributes.Any(static attribute =>
+                    attribute == "System.Runtime.InteropServices.Optional")
+                && parameter.Attributes.Any(static attribute =>
+                    attribute.StartsWith(
+                        "System.Runtime.CompilerServices.DateTimeConstant(",
+                        StringComparison.Ordinal));
 
         static string AccessorDeclaration(ApiAccessor accessor)
         {
