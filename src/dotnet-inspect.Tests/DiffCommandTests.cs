@@ -264,6 +264,46 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildAllocationFindingTransitions_AddedOccurrence_IsNativeAddedPair()
+    {
+        var rows = BuildAllocationFindingTransitions("RegressesAllocInLoop");
+
+        var added = Assert.Single(rows, row => row.Transition == "PairFinding.Added");
+        Assert.Equal("analysis.allocation", added.Finding);
+        Assert.Contains("RegressesAllocInLoop", added.Target);
+        Assert.Contains("Newobj/Object object", added.Target);
+        Assert.Equal("absent", added.Old);
+        Assert.Equal("present", added.New);
+    }
+
+    [Fact]
+    public void BuildAllocationFindingTransitions_RetainsPresentAndRemovedOccurrences()
+    {
+        var rows = BuildAllocationFindingTransitions("ImprovesAlloc");
+
+        Assert.Single(rows, row => row.Transition == "PairFinding.Present");
+        Assert.Equal(2, rows.Count(row => row.Transition == "PairFinding.Removed"));
+    }
+
+    [Fact]
+    public void BuildAllocationFindingTransitions_FacetChange_IsNativeChangedPair()
+    {
+        var changed = Assert.Single(
+            BuildAllocationFindingTransitions("SameAllocationCountBecomesHot"));
+
+        Assert.Equal("PairFinding.Changed", changed.Transition);
+        Assert.Contains("in loop: False -> True", changed.Detail);
+        Assert.Equal("present", changed.Old);
+        Assert.Equal("present", changed.New);
+    }
+
+    [Fact]
+    public void BuildAllocationFindingTransitions_EmptyCensuses_HaveNoPair()
+    {
+        Assert.Empty(BuildAllocationFindingTransitions("Stable"));
+    }
+
+    [Fact]
     public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
     {
         var view = DiffOutputFormatter.BuildFindingTransitionsView(
@@ -429,6 +469,28 @@ public class DiffCommandTests
             index += substring.Length;
         }
         return count;
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildAllocationFindingTransitions(
+        string member)
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+        return DiffCommand.BuildAllocationFindingTransitions(
+            [oldPath],
+            [newPath],
+            oldSurface,
+            newSurface,
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = AnalysisFindings.AllocationDescriptor.Id,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = [member],
+            });
     }
 
     [Fact]

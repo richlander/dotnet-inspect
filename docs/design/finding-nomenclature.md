@@ -126,8 +126,20 @@ successful missing census for exact recurrence-safe onset, or use a bounded
 bracket/binary strategy only when its predicate is known to be monotonic.
 The range and sparse probes locate a candidate boundary; they are not
 themselves the introduction result. The final old/new comparison must produce
-the native `PairFinding<T>.Added` transition. For API types and members,
-`diff -S "Finding Transitions"` exposes that Metadata-owned pair directly.
+the native `PairFinding<T>.Added` transition. `diff -S "Finding Transitions"`
+exposes Metadata-owned API pairs directly. For a member-scoped allocation
+boundary, `--finding analysis.allocation` selects Analysis-owned allocation
+pairs instead:
+
+```bash
+dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.allocation
+```
+
+Research retains exact as well as changed allocation comparisons when this lens
+requests them, so it can report `PairFinding.Present`, not only candidate
+boundaries.
 
 ## Research composition
 
