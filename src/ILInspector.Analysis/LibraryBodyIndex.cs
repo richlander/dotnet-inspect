@@ -5322,6 +5322,8 @@ public sealed class LibraryBodyIndex
                     MemberKind.FunctionPointer)
                 {
                     HasThis = signature.Header.IsInstance,
+                    SignatureHeader = signature.Header.RawValue,
+                    GenericArity = signature.GenericParameterCount,
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,
                 };

@@ -157,6 +157,9 @@ public static class AnalysisFindings
         var key = new StringBuilder();
         if (call.Kind == CallKind.CallIndirect && callee.Kind == MemberKind.Unsupported)
         {
+            // Malformed signatures cannot supply structural identity. Keep the fallback
+            // token-free and deliberately coarse so version-local token churn does not
+            // fabricate a removal/addition.
             AppendKeyPart(key, "calli-unsupported");
             return key.ToString();
         }
@@ -165,6 +168,8 @@ public static class AnalysisFindings
         AppendKeyPart(key, GenericMemberIdentity.KeyFragment(callee.DeclaringType));
         AppendKeyPart(key, callee.Name);
         AppendKeyPart(key, callee.HasThis ? "instance" : "static");
+        AppendKeyPart(key, callee.SignatureHeader.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        AppendKeyPart(key, callee.GenericArity.ToString(System.Globalization.CultureInfo.InvariantCulture));
         AppendTypes(key, callee.TypeArguments);
         AppendTypes(key, callee.ParameterTypes);
         AppendKeyPart(key, GenericMemberIdentity.KeyFragment(callee.ReturnType));
@@ -363,6 +368,8 @@ public static class AnalysisFindings
     }
 
     static bool SameCallSiteFacets(DirectCall oldCall, DirectCall newCall)
+        // Deliberate whitelist: new DirectCall fields are identity or provenance unless
+        // explicitly opted into transition classification here.
         => oldCall.Kind == newCall.Kind
             && oldCall.InLoop == newCall.InLoop
             && string.Equals(oldCall.Opcode, newCall.Opcode, StringComparison.Ordinal);

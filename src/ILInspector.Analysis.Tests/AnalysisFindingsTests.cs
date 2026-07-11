@@ -244,6 +244,30 @@ public class AnalysisFindingsTests
     }
 
     [Fact]
+    public void CompareCallSites_DifferentCallingConventions_AreRemovedAndAdded()
+    {
+        var oldCall = Call(4, "calli") with
+        {
+            Callee = Call(4, "calli").Callee with
+            {
+                Kind = MemberKind.FunctionPointer,
+                SignatureHeader = 0x01,
+            },
+            Kind = CallKind.CallIndirect,
+        };
+        var newCall = oldCall with
+        {
+            Callee = oldCall.Callee with { SignatureHeader = 0x02 },
+        };
+
+        var complete = CompleteComparison(
+            AnalysisFindings.CompareCallSites([oldCall], [newCall], Subject));
+
+        Assert.Contains(complete.Pairs, pair => pair is PairFinding<DirectCall>.Removed);
+        Assert.Contains(complete.Pairs, pair => pair is PairFinding<DirectCall>.Added);
+    }
+
+    [Fact]
     public void InspectCallSites_DecodesCallIndirectSignatureStructurally()
     {
         var index = LibraryBodyIndex.Open(typeof(AnalysisFindingsTests).Assembly.Location);

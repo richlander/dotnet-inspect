@@ -97,6 +97,9 @@ public static class BodySignalDiff
         var complete = comparison switch
         {
             FindingComparison<T>.Complete value => value,
+            // FindingComparison fails only when an input inspection is Failed. Both
+            // producer inputs above are total Complete censuses; acceptanceThreshold
+            // affects fringe folding, not the comparison outcome.
             FindingComparison<T>.Failed failed => throw new InvalidOperationException(
                 $"A comparison of total Analysis censuses cannot fail: {failed.Failure}"),
         };
