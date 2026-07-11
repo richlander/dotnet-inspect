@@ -95,6 +95,129 @@ public class StackSlotCopyPropagationPassTests
     }
 
     [Fact]
+    public void DoesNotPropagateWhenDestinationHasMultipleStores()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var firstCopy = new Block(12);
+        firstCopy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        firstCopy.Add(new Branch(16));
+        body.Add(firstCopy);
+        var secondCopy = new Block(16);
+        secondCopy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        secondCopy.Add(UseSlot(1));
+        secondCopy.Add(new Return(null));
+        body.Add(secondCopy);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count(store => store.Slot == 1));
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateSelfCopy()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(1, Int32)));
+        block.Add(UseSlot(1));
+        block.Add(new Return(null));
+        body.Add(block);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count(load => load.Slot == 1));
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenSourceHasSingleStore()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "x", Int32)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        block.Add(UseSlot(1));
+        block.Add(new Return(null));
+        body.Add(block);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenSourceStoresAreInOneBlock()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "x", Int32)));
+        block.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        block.Add(UseSlot(1));
+        block.Add(new Return(null));
+        body.Add(block);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateIntoIncrementDecrementTarget()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        body.Add(copy);
+        var use = new Block(16);
+        use.Add(new ExpressionStatement(new IncrementDecrement(new LoadStackSlot(1, Int32), isIncrement: true, isPrefix: false)));
+        use.Add(new Return(null));
+        body.Add(use);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateAcrossCyclicCopiedValueRegion()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        body.Add(copy);
+        var loop = new Block(16);
+        loop.Add(UseSlot(1));
+        loop.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
+        loop.Add(new ConditionalBranch(new LoadArgument(1, "flag", Bool), 16));
+        body.Add(loop);
+        var exit = new Block(20);
+        exit.Add(new Return(null));
+        body.Add(exit);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
     public void DoesNotPropagateWhenOutsideEdgeCanEnterUseRegion()
     {
         var body = new BlockContainer();
@@ -303,6 +426,32 @@ public class StackSlotCopyPropagationPassTests
         use.Add(new IfStatement(new LoadArgument(1, "flag", Bool), thenArm, null));
         use.Add(new Return(null));
         body.Add(use);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateInsideNestedStructuredContainer()
+    {
+        var lockBody = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        lockBody.Add(copy);
+        var use = new Block(16);
+        use.Add(UseSlot(1));
+        use.Add(new Return(null));
+        lockBody.Add(use);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Pipeline.Lock(new LoadArgument(3, "gate", Object), lockBody));
+        block.Add(new Return(null));
+        body.Add(block);
         var function = Function(body);
 
         new StackSlotCopyPropagationPass().Run(function, PassContext.None);

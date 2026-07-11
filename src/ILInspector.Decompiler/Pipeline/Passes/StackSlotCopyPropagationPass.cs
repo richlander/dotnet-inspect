@@ -63,6 +63,8 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
                 continue;
             if (!SourceStableOnEveryPath(path, source.Slot))
                 continue;
+            if (RegionHasCycle(path))
+                continue;
             if (!RegionDominatedByCopy(path))
                 continue;
 
@@ -112,6 +114,9 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
         if (EnclosingStatement(use) is not { } useStatement || useStatement.Parent is not Block useBlock)
             return null;
         if (!ReferenceEquals(useBlock.Parent, container))
+            return null;
+
+        if (!IsIndependentBodyScope(container))
             return null;
 
         var blocks = container.Blocks;
@@ -178,6 +183,32 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
             }
         }
         return true;
+    }
+
+    static bool RegionHasCycle(CopyPath path)
+    {
+        var state = new Dictionary<int, int>();
+        foreach (int blockIndex in path.RegionBlocks)
+            if (Visit(blockIndex))
+                return true;
+        return false;
+
+        bool Visit(int blockIndex)
+        {
+            if (!path.RegionBlocks.Contains(blockIndex))
+                return false;
+            if (state.GetValueOrDefault(blockIndex) == 1)
+                return true;
+            if (state.GetValueOrDefault(blockIndex) == 2)
+                return false;
+
+            state[blockIndex] = 1;
+            foreach (int successor in Successors(path.Blocks, blockIndex))
+                if (Visit(successor))
+                    return true;
+            state[blockIndex] = 2;
+            return false;
+        }
     }
 
     static bool RegionDominatedByCopy(CopyPath path)
@@ -254,6 +285,9 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
                 yield break;
         }
     }
+
+    static bool IsIndependentBodyScope(BlockContainer container)
+        => container.Parent is IrFunction or Lambda or LocalFunctionStatement;
 
     static bool HasUnmodeledControlFlow(IReadOnlyList<Block> blocks)
     {
