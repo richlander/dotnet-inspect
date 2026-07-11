@@ -79,4 +79,39 @@ public class AssemblySetResolverTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task CollectAsync_UsesRequestedSourceOrder()
+    {
+        var directory = Directory.CreateTempSubdirectory("assembly-set-order-test").FullName;
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+        var copiedAssembly = Path.Combine(directory, "Copied.dll");
+        File.Copy(sourceAssembly, copiedAssembly);
+
+        try
+        {
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Assemblies = [sourceAssembly],
+                    Directories = [directory],
+                    SourceOrder =
+                    [
+                        AssemblySetSourceKind.Directory,
+                        AssemblySetSourceKind.Assembly,
+                    ],
+                });
+
+            Assert.Collection(
+                assemblySet.Assemblies,
+                entry => Assert.Equal(AssemblySetSourceKind.Directory, entry.SourceKind),
+                entry => Assert.Equal(AssemblySetSourceKind.Assembly, entry.SourceKind));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

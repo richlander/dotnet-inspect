@@ -266,7 +266,18 @@ internal static class TypeSearchService
 
         bool ReachedLimit() => pattern != null && options.Limit.HasValue && results.Count >= options.Limit.Value;
 
-        var request = options.ToAssemblySetRequest("inspect-find", options.BinPaths);
+        var request = options.ToAssemblySetRequest("inspect-find", options.BinPaths) with
+        {
+            SourceOrder =
+            [
+                AssemblySetSourceKind.Package,
+                AssemblySetSourceKind.Assembly,
+                AssemblySetSourceKind.PlatformAssembly,
+                AssemblySetSourceKind.PlatformFramework,
+                AssemblySetSourceKind.Project,
+                AssemblySetSourceKind.Directory,
+            ],
+        };
         using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
 
         foreach (var diagnostic in assemblySet.Diagnostics)

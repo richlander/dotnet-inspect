@@ -18,6 +18,15 @@ public sealed record AssemblySetRequest
     public string? Tfm { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public string TempDirPrefix { get; init; } = "inspect";
+    public IReadOnlyList<AssemblySetSourceKind> SourceOrder { get; init; } =
+    [
+        AssemblySetSourceKind.Package,
+        AssemblySetSourceKind.Assembly,
+        AssemblySetSourceKind.Project,
+        AssemblySetSourceKind.PlatformAssembly,
+        AssemblySetSourceKind.PlatformFramework,
+        AssemblySetSourceKind.Directory,
+    ];
 }
 
 public sealed record AssemblySetEntry(
@@ -96,157 +105,204 @@ public static class AssemblySetResolver
 
         void Warn(string message) => diagnostics.Add(new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Warning, message));
 
-        foreach (var pkg in request.Packages)
+        async Task AddPackagesAsync()
         {
-            var outcome = await PackageExtractor.ExtractPackageAsync(
-                httpClient,
-                pkg,
-                log,
-                request.TempDirPrefix,
-                request.SourceOptions);
-
-            if (!outcome.IsSuccess)
+            foreach (var pkg in request.Packages)
             {
-                Warn(outcome.ErrorMessage ?? $"Package '{pkg}' could not be resolved.");
-                continue;
-            }
+                var outcome = await PackageExtractor.ExtractPackageAsync(
+                    httpClient,
+                    pkg,
+                    log,
+                    request.TempDirPrefix,
+                    request.SourceOptions);
 
-            var extracted = outcome.Result!;
-            if (extracted.TempDir != null)
-                tempDirs.Add(extracted.TempDir);
-
-            var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, request.Tfm)
-                ?? extracted.ExtractPath;
-
-            IEnumerable<string> dlls;
-            if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-            {
-                dlls = [searchPath];
-            }
-            else
-            {
-                dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
-                    .Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
-                        && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
-            }
-
-            foreach (var dll in dlls)
-            {
-                assemblies.Add(new AssemblySetEntry(
-                    dll,
-                    extracted.PackageName ?? pkg,
-                    extracted.Version,
-                    AssemblySetSourceKind.Package));
-            }
-        }
-
-        foreach (var asmPath in request.Assemblies)
-        {
-            if (!File.Exists(asmPath))
-            {
-                Warn($"Library not found '{asmPath}', skipping.");
-                continue;
-            }
-
-            assemblies.Add(new AssemblySetEntry(
-                asmPath,
-                System.IO.Path.GetFileName(asmPath),
-                null,
-                AssemblySetSourceKind.Assembly));
-        }
-
-        foreach (var projectPath in request.Projects)
-        {
-            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
-            {
-                Warn(ProjectAssetsParser.DescribeMissingAssets(projectPath, status));
-                continue;
-            }
-
-            log?.Invoke($"Using assets: {assetsPath}");
-            foreach (var (asmPath, packageName, packageVersion) in ProjectAssetsParser.Parse(assetsPath, request.Tfm, log))
-            {
-                assemblies.Add(new AssemblySetEntry(
-                    asmPath,
-                    packageName,
-                    packageVersion,
-                    AssemblySetSourceKind.Project));
-            }
-        }
-
-        foreach (var platformAsm in request.PlatformAssemblies)
-        {
-            var framework = request.PlatformFrameworks.Count > 0 ? request.PlatformFrameworks[0] : null;
-            var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                platformAsm,
-                httpClient,
-                log,
-                framework);
-
-            if (error != null)
-            {
-                Warn($"{error}, skipping.");
-                continue;
-            }
-
-            assemblies.Add(new AssemblySetEntry(
-                assemblyPath!,
-                resolvedFramework ?? "platform",
-                version,
-                AssemblySetSourceKind.PlatformAssembly));
-        }
-
-        if (request.PlatformFrameworks.Count > 0)
-        {
-            var requests = PlatformPackService.GetMissingPackRequests(request.PlatformFrameworks);
-            if (requests.Count > 0)
-            {
-                await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log))
+                if (!outcome.IsSuccess)
                 {
+                    Warn(outcome.ErrorMessage ?? $"Package '{pkg}' could not be resolved.");
+                    continue;
+                }
+
+                var extracted = outcome.Result!;
+                if (extracted.TempDir != null)
+                    tempDirs.Add(extracted.TempDir);
+
+                var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, request.Tfm)
+                    ?? extracted.ExtractPath;
+
+                IEnumerable<string> dlls;
+                if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                {
+                    dlls = [searchPath];
+                }
+                else
+                {
+                    dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories)
+                        .Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
+                            && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
+                }
+
+                foreach (var dll in dlls)
+                {
+                    assemblies.Add(new AssemblySetEntry(
+                        dll,
+                        extracted.PackageName ?? pkg,
+                        extracted.Version,
+                        AssemblySetSourceKind.Package));
                 }
             }
         }
 
-        foreach (var framework in request.PlatformFrameworks)
+        void AddAssemblies()
         {
-            var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
-            if (error != null)
+            foreach (var asmPath in request.Assemblies)
             {
-                Warn($"{error}, skipping.");
-                continue;
-            }
+                if (!File.Exists(asmPath))
+                {
+                    Warn($"Library not found '{asmPath}', skipping.");
+                    continue;
+                }
 
-            var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            log?.Invoke($"Scanning {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
-
-            foreach (var asmInfo in frameworkAssemblies)
-            {
                 assemblies.Add(new AssemblySetEntry(
-                    asmInfo.Path,
-                    framework,
-                    resolvedVersion,
-                    AssemblySetSourceKind.PlatformFramework));
+                    asmPath,
+                    System.IO.Path.GetFileName(asmPath),
+                    null,
+                    AssemblySetSourceKind.Assembly));
             }
         }
 
-        foreach (var dir in request.Directories)
+        void AddProjects()
         {
-            if (!Directory.Exists(dir))
+            foreach (var projectPath in request.Projects)
             {
-                Warn($"Directory not found '{dir}', skipping.");
-                continue;
+                if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
+                {
+                    Warn(ProjectAssetsParser.DescribeMissingAssets(projectPath, status));
+                    continue;
+                }
+
+                log?.Invoke($"Using assets: {assetsPath}");
+                foreach (var (asmPath, packageName, packageVersion) in ProjectAssetsParser.Parse(assetsPath, request.Tfm, log))
+                {
+                    assemblies.Add(new AssemblySetEntry(
+                        asmPath,
+                        packageName,
+                        packageVersion,
+                        AssemblySetSourceKind.Project));
+                }
+            }
+        }
+
+        async Task AddPlatformAssembliesAsync()
+        {
+            foreach (var platformAsm in request.PlatformAssemblies)
+            {
+                var framework = request.PlatformFrameworks.Count > 0 ? request.PlatformFrameworks[0] : null;
+                var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
+                    platformAsm,
+                    httpClient,
+                    log,
+                    framework);
+
+                if (error != null)
+                {
+                    Warn($"{error}, skipping.");
+                    continue;
+                }
+
+                assemblies.Add(new AssemblySetEntry(
+                    assemblyPath!,
+                    resolvedFramework ?? "platform",
+                    version,
+                    AssemblySetSourceKind.PlatformAssembly));
+            }
+        }
+
+        async Task AddPlatformFrameworksAsync()
+        {
+            if (request.PlatformFrameworks.Count > 0)
+            {
+                var requests = PlatformPackService.GetMissingPackRequests(request.PlatformFrameworks);
+                if (requests.Count > 0)
+                {
+                    await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log))
+                    {
+                    }
+                }
             }
 
-            var dlls = Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly);
-            log?.Invoke($"Scanning {dlls.Length} libraries in {dir}");
-
-            foreach (var dll in dlls)
+            foreach (var framework in request.PlatformFrameworks)
             {
-                assemblies.Add(new AssemblySetEntry(
-                    dll,
-                    System.IO.Path.GetFileName(dir),
-                    null,
-                    AssemblySetSourceKind.Directory));
+                var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
+                if (error != null)
+                {
+                    Warn($"{error}, skipping.");
+                    continue;
+                }
+
+                var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
+                log?.Invoke($"Scanning {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
+
+                foreach (var asmInfo in frameworkAssemblies)
+                {
+                    assemblies.Add(new AssemblySetEntry(
+                        asmInfo.Path,
+                        framework,
+                        resolvedVersion,
+                        AssemblySetSourceKind.PlatformFramework));
+                }
+            }
+        }
+
+        void AddDirectories()
+        {
+            foreach (var dir in request.Directories)
+            {
+                if (!Directory.Exists(dir))
+                {
+                    Warn($"Directory not found '{dir}', skipping.");
+                    continue;
+                }
+
+                var dlls = Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly);
+                log?.Invoke($"Scanning {dlls.Length} libraries in {dir}");
+
+                foreach (var dll in dlls)
+                {
+                    assemblies.Add(new AssemblySetEntry(
+                        dll,
+                        System.IO.Path.GetFileName(dir),
+                        null,
+                        AssemblySetSourceKind.Directory));
+                }
+            }
+        }
+
+        var sourceOrder = request.SourceOrder.Count > 0
+            ? request.SourceOrder
+            : new AssemblySetRequest().SourceOrder;
+
+        foreach (var sourceKind in sourceOrder)
+        {
+            switch (sourceKind)
+            {
+                case AssemblySetSourceKind.Package:
+                    await AddPackagesAsync();
+                    break;
+                case AssemblySetSourceKind.Assembly:
+                    AddAssemblies();
+                    break;
+                case AssemblySetSourceKind.PlatformAssembly:
+                    await AddPlatformAssembliesAsync();
+                    break;
+                case AssemblySetSourceKind.PlatformFramework:
+                    await AddPlatformFrameworksAsync();
+                    break;
+                case AssemblySetSourceKind.Project:
+                    AddProjects();
+                    break;
+                case AssemblySetSourceKind.Directory:
+                    AddDirectories();
+                    break;
             }
         }
 
