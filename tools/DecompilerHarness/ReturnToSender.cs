@@ -892,9 +892,10 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!growth.Grew || closureRoots.Count > maxRoots)
+            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
+            if (!growth.Grew || effectiveRootCount > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots
+                string reason = effectiveRootCount > maxRoots
                     ? "closure-root-budget"
                     : ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
@@ -1073,9 +1074,10 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!growth.Grew || closureRoots.Count > maxRoots)
+            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
+            if (!growth.Grew || effectiveRootCount > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots
+                string reason = effectiveRootCount > maxRoots
                     ? "closure-root-budget"
                     : ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
@@ -1255,9 +1257,10 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!growth.Grew || closureRoots.Count > maxRoots)
+            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
+            if (!growth.Grew || effectiveRootCount > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots
+                string reason = effectiveRootCount > maxRoots
                     ? "closure-root-budget"
                     : ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
@@ -1630,6 +1633,18 @@ static class ReturnToSender
         return string.IsNullOrWhiteSpace(message)
             ? diagnostic.Id
             : $"{diagnostic.Id}: {message}";
+    }
+
+    static int EffectiveClosureRootCount(ProductArtifact artifact, IReadOnlySet<TypeDefinitionHandle> oracleClosureRoots)
+    {
+        int count = artifact.ClosureRoots.Count;
+        foreach (var root in oracleClosureRoots)
+        {
+            if (!artifact.ClosureRoots.Contains(root))
+                count++;
+        }
+
+        return count;
     }
 
     static string CanonicalOpcode(string op)

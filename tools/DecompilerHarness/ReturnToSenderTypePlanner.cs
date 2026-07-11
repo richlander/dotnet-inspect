@@ -301,9 +301,13 @@ internal sealed record ProductArtifact(
     string Source,
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
     CompileBackReconstructionPlan Plan)
 {
-    internal static ProductArtifact From(ArtifactRequest request, CompileBackSourceResult result)
+    internal static ProductArtifact From(
+        ArtifactRequest request,
+        CompileBackSourceResult result,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots)
         => new(
             request,
             result.Source,
@@ -313,6 +317,7 @@ internal sealed record ProductArtifact(
                     .Concat(type.RequiredMembers.SelectMany(member => member.SourceFacts)))
                 .ToArray(),
             result.Plan.Diagnostics,
+            closureRoots,
             result.Plan);
 }
 
@@ -535,7 +540,7 @@ public static class CompileBackSourceComposer
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
-        return ProductArtifact.From(request, result);
+        return ProductArtifact.From(request, result, closure.Roots);
     }
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
