@@ -1157,8 +1157,7 @@ public sealed class StructuringPass : IIrPass
                 continue;
             }
             var statements = block.DetachChildren();
-            if (ctx.BranchTargets.Contains(block.StartOffset) && statements.Count > 0)
-                statements[0].SetSourceOffset(block.StartOffset);
+            int resultStart = result.Children.Count;
             var last = statements[^1];
             for (int s = 0; s < statements.Count - 1; s++)
                 result.Add(statements[s]);
@@ -1338,6 +1337,8 @@ public sealed class StructuringPass : IIrPass
                     i++;
                     break;
             }
+            if (ctx.BranchTargets.Contains(block.StartOffset) && result.Children.Count > resultStart)
+                result.Children[resultStart].SetSourceOffset(block.StartOffset);
         }
         return result;
     }

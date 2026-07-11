@@ -869,7 +869,10 @@ internal static class CorpusSensor
         return lines;
     }
 
-    static void PrintQualityMetricChanges(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    static void PrintQualityMetricChanges(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        TextWriter? output = null)
     {
         var rows = new List<MultiSourceRow>
         {
@@ -898,14 +901,25 @@ internal static class CorpusSensor
 
         if (current.ValidityCompileCap > 0)
         {
-            rows.Add(CountChangeRow("Full malformed", baseline.Metrics.FullMalformedMethods, current.Metrics.FullMalformedMethods, Goal.Lower));
+            bool comparableValiditySamples = HaveSameValiditySample(baseline.Methods, current.Methods);
+            rows.Add(CountChangeRow(
+                comparableValiditySamples
+                    ? "Full malformed"
+                    : "Full malformed (sampling differs)",
+                baseline.Metrics.FullMalformedMethods,
+                current.Metrics.FullMalformedMethods,
+                comparableValiditySamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableValiditySamples));
             rows.Add(ShareChangeRow(
-                "Semantic defects",
+                comparableValiditySamples
+                    ? "Semantic defects"
+                    : "Semantic defects (sampling differs)",
                 baseline.Metrics.SemanticDefectMethods,
                 baseline.Metrics.SemanticCheckedMethods,
                 current.Metrics.SemanticDefectMethods,
                 current.Metrics.SemanticCheckedMethods,
-                Goal.Lower));
+                comparableValiditySamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableValiditySamples));
         }
 
         if (current.FidelityCompileCap > 0)
@@ -949,21 +963,59 @@ internal static class CorpusSensor
 
         rows.Add(CountChangeRow("Pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, Goal.Lower));
 
-        var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
+        var writer = new MarkoutWriter(output ?? Console.Out, new MarkdownFormatter());
         writer.WriteMultiSourceTable("Metric", rows);
     }
 
-    static MultiSourceRow CountChangeRow(string metric, int baseline, int current, Goal goal)
+    internal static string QualityMetricChangesForTesting(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+    {
+        using var writer = new StringWriter();
+        PrintQualityMetricChanges(baseline, current, writer);
+        return writer.ToString();
+    }
+
+    static MultiSourceRow CountChangeRow(
+        string metric,
+        int baseline,
+        int current,
+        Goal goal,
+        bool countDeltaKnown = true)
         => new(
             MetricLabel(metric, goal),
             new Source("Change", new Change<int>(baseline, current), new MarkoutCellFormat { Goal = goal }),
-            new Source("Count delta", new QualityText(Delta(current - baseline))));
+            new Source("Count delta", new QualityText(countDeltaKnown ? Delta(current - baseline) : "n/a")));
 
-    static MultiSourceRow ShareChangeRow(string metric, int baseline, int baselineTotal, int current, int currentTotal, Goal goal)
+    static MultiSourceRow ShareChangeRow(
+        string metric,
+        int baseline,
+        int baselineTotal,
+        int current,
+        int currentTotal,
+        Goal goal,
+        bool countDeltaKnown = true)
         => new(
             MetricLabel(metric, goal),
             new Source("Change", new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)), new MarkoutCellFormat { Goal = goal }),
-            new Source("Count delta", new QualityText(Delta(current - baseline))));
+            new Source("Count delta", new QualityText(countDeltaKnown ? Delta(current - baseline) : "n/a")));
+
+    static bool HaveSameValiditySample(
+        IReadOnlyList<CorpusMethodSnapshot>? baselineMethods,
+        IReadOnlyList<CorpusMethodSnapshot>? currentMethods)
+    {
+        if (baselineMethods is null || currentMethods is null)
+            return false;
+
+        static bool IsValidityChecked(CorpusMethodSnapshot method)
+            => method.Validity != "not-sampled";
+
+        return baselineMethods
+            .Where(IsValidityChecked)
+            .Select(MethodKey)
+            .ToHashSet(StringComparer.Ordinal)
+            .SetEquals(currentMethods.Where(IsValidityChecked).Select(MethodKey));
+    }
 
     static string MetricLabel(string metric, Goal goal)
         => goal switch

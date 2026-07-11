@@ -63,17 +63,80 @@ public class CorpusSensorComparisonTests
         Assert.Contains(regressions, regression => regression.StartsWith("fully-raised rate (pinned) dropped", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void QualityMetricChanges_TreatsSemanticDefectMovementAsContextWhenSamplesDiffer()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Three", "valid"), ("Four", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        string semanticRow = report.Split('\n').Single(line => line.Contains("Semantic defects", StringComparison.Ordinal));
+        string malformedRow = report.Split('\n').Single(line => line.Contains("Full malformed", StringComparison.Ordinal));
+
+        Assert.Contains("Semantic defects (sampling differs)", semanticRow);
+        Assert.DoesNotContain("(good)", semanticRow);
+        Assert.EndsWith("| n/a |", semanticRow.TrimEnd());
+        Assert.Contains("Full malformed (sampling differs)", malformedRow);
+        Assert.EndsWith("| n/a |", malformedRow.TrimEnd());
+    }
+
+    [Fact]
+    public void QualityMetricChanges_ScoresSemanticDefectMovementWhenSamplesMatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        string semanticRow = report.Split('\n').Single(line => line.Contains("Semantic defects", StringComparison.Ordinal));
+
+        Assert.Contains("Semantic defects (-)", semanticRow);
+        Assert.Contains("(good)", semanticRow);
+        Assert.EndsWith("| -1 |", semanticRow.TrimEnd());
+        Assert.DoesNotContain("sampling differs", report);
+    }
+
     static CorpusSensorSnapshot Snapshot(
         int totalMethods,
         int fullyRaisedMethods,
         int fullyRaisedBasisPoints,
-        IReadOnlyList<CorpusMethodSnapshot> pinnedMethods)
+        IReadOnlyList<CorpusMethodSnapshot> pinnedMethods,
+        int validityCompileCap = 0,
+        int semanticCheckedMethods = 0,
+        int semanticDefectMethods = 0)
     {
         return new CorpusSensorSnapshot(
             SchemaVersion: 1,
             Description: "test",
             GeneratedUtc: DateTimeOffset.UnixEpoch,
-            ValidityCompileCap: 0,
+            ValidityCompileCap: validityCompileCap,
             FidelityCompileCap: 0,
             MethodCap: 100,
             Tolerances: CorpusSensorTolerances.Default,
@@ -88,8 +151,8 @@ public class CorpusSensorComparisonTests
                 ForwardMergeStoppedContainers: 0,
                 ForwardMergeBasisPoints: 0,
                 FullMalformedMethods: 0,
-                SemanticCheckedMethods: 0,
-                SemanticDefectMethods: 0,
+                SemanticCheckedMethods: semanticCheckedMethods,
+                SemanticDefectMethods: semanticDefectMethods,
                 PassBugs: 0,
                 ResidualBuckets: ImmutableDictionary<string, int>.Empty,
                 Structuring: new StructuringSensorMetrics(0, 0, 0, 0, 0, ImmutableDictionary<string, int>.Empty),
@@ -115,6 +178,29 @@ public class CorpusSensorComparisonTests
                 Residual: isConditional ? "structuring: conditional-branch" : isFullyRaised ? null : "fidelity: unsupported-node",
                 PassBug: null,
                 Validity: "not-sampled",
+                FidelityCheck: "not-sampled"));
+        }
+        return methods.ToImmutable();
+    }
+
+    static IReadOnlyList<CorpusMethodSnapshot> ValidityMethods(
+        params (string Method, string Validity)[] values)
+    {
+        var methods = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(values.Length);
+        foreach (var value in values)
+        {
+            methods.Add(new CorpusMethodSnapshot(
+                Assembly: "Pinned",
+                AssemblyPath: "nuget:pinned/lib.dll",
+                Type: "T",
+                Method: value.Method,
+                Overload: 0,
+                Signature: "()",
+                Fidelity: "Full",
+                FullyRaised: true,
+                Residual: null,
+                PassBug: null,
+                Validity: value.Validity,
                 FidelityCheck: "not-sampled"));
         }
         return methods.ToImmutable();

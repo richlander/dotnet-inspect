@@ -442,10 +442,12 @@ public sealed class BooleanFoldingPass : IIrPass
         outerCondition.Detach();
         var innerParts = inner.DetachChildren();  // [condition, then]
         stepper.StepOver("fold nested if guards into &&", outer);
-        outer.ReplaceWith(new IfStatement(
+        var folded = new IfStatement(
             new LogicalBinary(LogicalKind.And, outerCondition, (IrExpression)innerParts[0]),
             (Block)innerParts[1],
-            null));
+            null);
+        folded.InheritSourceOffset(outer);
+        outer.ReplaceWith(folded);
         return true;
     }
 
