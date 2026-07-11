@@ -100,6 +100,11 @@ public sealed class MetadataExtensionFindingsTests
             static member => member.MethodName == "MixedVisibility");
         Assert.Contains("get;", defaultMixed.Signature, StringComparison.Ordinal);
         Assert.DoesNotContain("set;", defaultMixed.Signature, StringComparison.Ordinal);
+        var defaultPartiallyHidden = Assert.Single(
+            members,
+            static member => member.MethodName == "PartiallyHidden");
+        Assert.Contains("get;", defaultPartiallyHidden.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("set;", defaultPartiallyHidden.Signature, StringComparison.Ordinal);
 
         using var allStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
         var allMembers = ExtensionMethodScanner.FindAllExtensions(
@@ -114,6 +119,10 @@ public sealed class MetadataExtensionFindingsTests
             allMembers,
             static member => member.MethodName == "MixedVisibility");
         Assert.Contains("get; set;", allMixed.Signature, StringComparison.Ordinal);
+        var allPartiallyHidden = Assert.Single(
+            allMembers,
+            static member => member.MethodName == "PartiallyHidden");
+        Assert.Contains("get; set;", allPartiallyHidden.Signature, StringComparison.Ordinal);
 
         using var targetedStream = File.OpenRead(typeof(MetadataExtensionFindingsTests).Assembly.Location);
         var stringExtensions = ExtensionMethodScanner.FindExtensions(
@@ -293,6 +302,12 @@ public static class ExtensionPropertyIdentityFixture
         {
             get => number;
             internal set { }
+        }
+        public int PartiallyHidden
+        {
+            get => number;
+            [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+            set { }
         }
     }
 
