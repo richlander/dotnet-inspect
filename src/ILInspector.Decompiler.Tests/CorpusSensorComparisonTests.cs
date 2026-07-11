@@ -124,6 +124,33 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void QualityMetricChanges_SeparatesSyntacticAndSemanticSamples()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "syntax-valid"), ("Two", "syntax-valid")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 0,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Full malformed (-)", report);
+        Assert.DoesNotContain("Full malformed (sampling differs)", report);
+        Assert.Contains("Semantic defects (sampling differs)", report);
+    }
+
+    [Fact]
     public void QualityMetricChanges_TreatsValidityMovementAsContextWithoutMethodDetails()
     {
         var baseline = Snapshot(

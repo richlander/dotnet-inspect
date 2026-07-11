@@ -901,25 +901,33 @@ internal static class CorpusSensor
 
         if (current.ValidityCompileCap > 0)
         {
-            bool comparableValiditySamples = HaveSameValiditySample(baseline.Methods, current.Methods);
+            bool comparableMalformedSamples = HaveSameValiditySample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.Validity != "not-sampled");
+            bool comparableSemanticSamples = HaveSameValiditySample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.Validity == "valid"
+                    || method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal));
             rows.Add(CountChangeRow(
-                comparableValiditySamples
+                comparableMalformedSamples
                     ? "Full malformed"
                     : "Full malformed (sampling differs)",
                 baseline.Metrics.FullMalformedMethods,
                 current.Metrics.FullMalformedMethods,
-                comparableValiditySamples ? Goal.Lower : Goal.Context,
-                countDeltaKnown: comparableValiditySamples));
+                comparableMalformedSamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableMalformedSamples));
             rows.Add(ShareChangeRow(
-                comparableValiditySamples
+                comparableSemanticSamples
                     ? "Semantic defects"
                     : "Semantic defects (sampling differs)",
                 baseline.Metrics.SemanticDefectMethods,
                 baseline.Metrics.SemanticCheckedMethods,
                 current.Metrics.SemanticDefectMethods,
                 current.Metrics.SemanticCheckedMethods,
-                comparableValiditySamples ? Goal.Lower : Goal.Context,
-                countDeltaKnown: comparableValiditySamples));
+                comparableSemanticSamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableSemanticSamples));
         }
 
         if (current.FidelityCompileCap > 0)
@@ -1002,19 +1010,17 @@ internal static class CorpusSensor
 
     static bool HaveSameValiditySample(
         IReadOnlyList<CorpusMethodSnapshot>? baselineMethods,
-        IReadOnlyList<CorpusMethodSnapshot>? currentMethods)
+        IReadOnlyList<CorpusMethodSnapshot>? currentMethods,
+        Func<CorpusMethodSnapshot, bool> isChecked)
     {
         if (baselineMethods is null || currentMethods is null)
             return false;
 
-        static bool IsValidityChecked(CorpusMethodSnapshot method)
-            => method.Validity != "not-sampled";
-
         return baselineMethods
-            .Where(IsValidityChecked)
+            .Where(isChecked)
             .Select(MethodKey)
             .ToHashSet(StringComparer.Ordinal)
-            .SetEquals(currentMethods.Where(IsValidityChecked).Select(MethodKey));
+            .SetEquals(currentMethods.Where(isChecked).Select(MethodKey));
     }
 
     static string MetricLabel(string metric, Goal goal)
