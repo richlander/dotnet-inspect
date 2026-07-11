@@ -66,7 +66,6 @@ internal static class DependencyGraphService
                 }
                 else
                 {
-                    AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
                     ownedAssemblySet.Dispose();
                     ownedAssemblySet = null;
                 }
