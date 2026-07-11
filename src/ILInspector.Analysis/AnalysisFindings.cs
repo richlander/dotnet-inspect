@@ -14,7 +14,7 @@ public static class AnalysisFindings
     /// Projects one method's allocation occurrences into IL order. An empty occurrence sequence is
     /// a complete empty census; acquisition failures belong to the caller that builds the body index.
     /// </summary>
-    public static FindingInspection<AllocationOccurrence> InspectAllocations(
+    public static ImmutableArray<Finding<AllocationOccurrence>> InspectAllocations(
         IEnumerable<AllocationOccurrence> occurrences,
         FindingSubject subject)
     {
@@ -38,7 +38,7 @@ public static class AnalysisFindings
                 Detail: occurrence.Detail));
         }
 
-        return new FindingInspection<AllocationOccurrence>.Complete(findings.MoveToImmutable());
+        return findings.MoveToImmutable();
     }
 
     /// <summary>
@@ -56,9 +56,15 @@ public static class AnalysisFindings
         ArgumentNullException.ThrowIfNull(newOccurrences);
         ArgumentNullException.ThrowIfNull(subject);
 
+        FindingInspection<AllocationOccurrence> oldInspection =
+            new FindingInspection<AllocationOccurrence>.Complete(
+                InspectAllocations(oldOccurrences, subject));
+        FindingInspection<AllocationOccurrence> newInspection =
+            new FindingInspection<AllocationOccurrence>.Complete(
+                InspectAllocations(newOccurrences, subject));
         return FindingComparison.Compare(
-                InspectAllocations(oldOccurrences, subject),
-                InspectAllocations(newOccurrences, subject),
+                oldInspection,
+                newInspection,
                 acceptanceThreshold: acceptanceThreshold)
             .TransformPairs(ClassifyFacetChanges);
     }

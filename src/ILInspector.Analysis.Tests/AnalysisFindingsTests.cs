@@ -16,9 +16,8 @@ public class AnalysisFindingsTests
 
         var inspection = AnalysisFindings.InspectAllocations([later, earlier], Subject);
 
-        var complete = CompleteInspection(inspection);
         Assert.Collection(
-            complete.Findings,
+            inspection,
             finding =>
             {
                 Assert.Same(earlier, finding.Payload);
@@ -37,8 +36,7 @@ public class AnalysisFindingsTests
     {
         var inspection = AnalysisFindings.InspectAllocations([], Subject);
 
-        var complete = CompleteInspection(inspection);
-        Assert.Empty(complete.Findings);
+        Assert.Empty(inspection);
     }
 
     [Fact]
@@ -105,14 +103,6 @@ public class AnalysisFindingsTests
         Assert.Contains(complete.Pairs, pair => pair is PairFinding<AllocationOccurrence>.Added);
         Assert.DoesNotContain(complete.Pairs, pair => pair is PairFinding<AllocationOccurrence>.Present);
     }
-
-    static FindingInspection<AllocationOccurrence>.Complete CompleteInspection(
-        FindingInspection<AllocationOccurrence> inspection)
-        => inspection switch
-        {
-            FindingInspection<AllocationOccurrence>.Complete complete => complete,
-            _ => throw new InvalidOperationException("Expected a complete allocation inspection."),
-        };
 
     static FindingComparison<AllocationOccurrence>.Complete CompleteComparison(
         FindingComparison<AllocationOccurrence> comparison)

@@ -30,12 +30,11 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         FindingSubject subject = occurrences.IsEmpty
             ? new($"{path}|{function.MetadataToken:X8}", function.Name)
             : ToFindingSubject(occurrences[0].Method);
-        return AnalysisFindings.InspectAllocations(occurrences, subject) switch
-        {
-            FindingInspection<AllocationOccurrence>.Complete complete =>
-                [.. complete.Findings.Select(finding => ToAnnotation(finding.Payload))],
-            _ => [],
-        };
+        return
+        [
+            .. AnalysisFindings.InspectAllocations(occurrences, subject)
+                .Select(finding => ToAnnotation(finding.Payload)),
+        ];
     }
 
     static FindingSubject ToFindingSubject(MethodIdentity method)
