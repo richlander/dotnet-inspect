@@ -139,8 +139,10 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
   assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,
   and produces method signals, direct-call evidence, allocation occurrences, and
   leverage data without depending on the decompiler IR. `AnalysisFindings`
-  projects allocation occurrences into one typed, IL-ordered census used by
-  both single-version and two-version consumers.
+  projects allocations, direct call sites, definite unsafe operations, and
+  broader unsafe evidence into typed censuses used by single-version and
+  two-version consumers. IL occurrences retain producer order; declaration and
+  signature evidence remains an identity multiset without fabricated ordinals.
 - **R2** is the higher decompiler representation. `ILInspector.Decompiler`
   imports one method into IR, raises/lowers it for C# printing, projects raw or
   annotated IL, and supplies IR anchors for source-line placement.
@@ -168,7 +170,11 @@ includes:
 | Producer | Source | Facts |
 | -------- | ------ | ----- |
 | `AllocationOccurrenceFactProducer` | `ILInspector.Analysis` allocation Finding census | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
-| `DecompilerHiddenFactProducer` | existing decompiler annotation classifier | `unsafe.*`, `lifetime.*` |
+| `UnsafetyOccurrenceFactProducer` | `ILInspector.Analysis` unsafety Finding census | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
+| `CallSiteCostFactProducer` | Analysis call-site Findings joined with signals and leverage | `cost.callee` |
+| `CallSiteSemanticsFactProducer` | Analysis call-site Findings joined with callee semantics | `semantics.callee`, `safety.callee` |
+| `MethodHeaderLeverageFactProducer` | Analysis method-signal and leverage aggregates | `cost.method` |
+| `DecompilerLifetimeFactProducer` | existing decompiler lifetime classifier | `lifetime.*` |
 
 The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
 Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or

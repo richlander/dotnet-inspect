@@ -165,3 +165,20 @@ The first end-to-end Analysis proof uses one allocation census for both
 single-version audit and old/new comparison. Research retains the typed
 allocation comparison and derives its compatibility count/hotness projection
 from it; there is no separate count-only allocation diff path.
+
+The remaining Analysis body observations preserve their native families:
+
+- direct calls use an IL-ordered `Finding<DirectCall>` census keyed by exact
+  instantiated callee identity; dispatch, opcode, and loop context remain
+  transition facets, while IL offsets and metadata tokens remain provenance;
+- definite unsafe IL operations use an IL-ordered
+  `Finding<UnsafetyOccurrence>` census;
+- declaration, signature, local, call, and opcode evidence use an identity
+  multiset of `Finding<UnsafeEvidence>` values because some observations have no
+  IL coordinate.
+
+Safety presentation may suppress broader evidence already covered by a definite
+operation at the same IL offset. That is consumer projection policy, not a reason
+for either producer to return an incomplete census. `BodySignalDiff` composes the
+two comparisons and retains only its compatibility count and offset-attribution
+projection; it does not own another matcher.
