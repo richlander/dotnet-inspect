@@ -4718,7 +4718,7 @@ public class CommandExecutionTests
                 ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.CallsInterfaceItem), "--library", TestAssemblyPath],
                 ["member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.Overloaded), "--library", TestAssemblyPath],
                 ["package", packagePath],
-                ["diff", "--library", $"{diffV1}..{diffV2}"]
+                ["diff", "--library", $"{diffV1}..{diffV2}", "-t", "DiffFixtureSample.DiffSample"]
             ];
 
             foreach (var command in commands)
