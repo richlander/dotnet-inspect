@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.DecompilerHarness;
@@ -35,14 +36,15 @@ internal static class ClosureDiagnosticEvidence
         var span = diagnostic.Location.SourceSpan;
         var root = semanticModel.SyntaxTree.GetRoot();
         var node = root.FindNode(span, getInnermostNodeForTie: true);
+        bool preferRightmost = diagnostic.Id is "CS0234" or "CS0122" or "CS1061" or "CS0117";
+        var simpleName = FindSimpleName(node, span, preferRightmost);
         if (diagnostic.Id == "CS1061"
+            && !IsMissingExplicitMemberReference(simpleName, semanticModel)
             && ImplicitMemberReference(node, span, semanticModel) is { } implicitMember)
         {
             return implicitMember;
         }
 
-        bool preferRightmost = diagnostic.Id is "CS0234" or "CS0122" or "CS1061" or "CS0117";
-        var simpleName = FindSimpleName(node, span, preferRightmost);
         if (simpleName is null)
             return null;
 
@@ -61,6 +63,20 @@ internal static class ClosureDiagnosticEvidence
             "CS0246" or "CS0103" => new ClosureDiagnosticReference(name),
             _ => null,
         };
+    }
+
+    static bool IsMissingExplicitMemberReference(
+        SimpleNameSyntax? simpleName,
+        SemanticModel semanticModel)
+    {
+        bool isMemberReference = simpleName?.Parent switch
+        {
+            MemberAccessExpressionSyntax memberAccess => memberAccess.Name == simpleName,
+            MemberBindingExpressionSyntax memberBinding => memberBinding.Name == simpleName,
+            _ => false,
+        };
+        return isMemberReference
+            && semanticModel.GetSymbolInfo(simpleName!).Symbol is null;
     }
 
     static SimpleNameSyntax? FindSimpleName(
@@ -126,25 +142,49 @@ internal static class ClosureDiagnosticEvidence
         Microsoft.CodeAnalysis.Text.TextSpan diagnosticSpan,
         SemanticModel semanticModel)
     {
-        var awaitExpression = node.AncestorsAndSelf()
-            .OfType<AwaitExpressionSyntax>()
-            .FirstOrDefault(candidate => candidate.Span.Contains(diagnosticSpan));
-        if (awaitExpression is not null)
+        var contexts = node.AncestorsAndSelf().ToArray();
+        int awaitIndex = Array.FindIndex(
+            contexts,
+            candidate => candidate is AwaitExpressionSyntax awaitExpression
+                && awaitExpression.Span.Contains(diagnosticSpan));
+        int collectionIndex = Array.FindIndex(
+            contexts,
+            candidate => candidate is InitializerExpressionSyntax initializer
+                && initializer.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.CollectionInitializerExpression));
+
+        var awaitExpression = awaitIndex >= 0
+            ? (AwaitExpressionSyntax)contexts[awaitIndex]
+            : null;
+        bool missingAwaiter = awaitExpression is not null
+            && semanticModel.GetAwaitExpressionInfo(awaitExpression).GetAwaiterMethod is null;
+
+        var collectionInitializer = collectionIndex >= 0
+            ? (InitializerExpressionSyntax)contexts[collectionIndex]
+            : null;
+        var collectionElement = collectionInitializer?.Expressions
+            .FirstOrDefault(candidate => candidate.Span.IntersectsWith(diagnosticSpan))
+            ?? (collectionInitializer?.Expressions.Count == 1
+                ? collectionInitializer.Expressions[0]
+                : null);
+        bool missingAdd = collectionElement is not null
+            && semanticModel.GetCollectionInitializerSymbolInfo(collectionElement).Symbol is null;
+
+        if (missingAwaiter
+            && (!missingAdd || collectionIndex < 0 || awaitIndex < collectionIndex))
         {
-            return TypeName(awaitExpression.Expression, semanticModel) is { } awaiterType
+            return TypeName(awaitExpression!.Expression, semanticModel) is { } awaiterType
                 ? new ClosureDiagnosticReference("GetAwaiter", awaiterType)
                 : null;
         }
 
-        var collectionInitializer = node.AncestorsAndSelf()
-            .OfType<InitializerExpressionSyntax>()
-            .FirstOrDefault(candidate => candidate.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.CollectionInitializerExpression));
-        if (collectionInitializer is null)
-            return null;
+        if (missingAdd)
+        {
+            return InitializerType(collectionInitializer!, semanticModel) is { } collectionType
+                ? new ClosureDiagnosticReference("Add", collectionType)
+                : null;
+        }
 
-        return InitializerType(collectionInitializer, semanticModel) is { } collectionType
-            ? new ClosureDiagnosticReference("Add", collectionType)
-            : null;
+        return null;
     }
 
     static string? InitializerType(SyntaxNode node, SemanticModel semanticModel)
