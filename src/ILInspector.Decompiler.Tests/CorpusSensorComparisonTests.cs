@@ -162,6 +162,33 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void PinnedGateSummary_MarksSkippedCountGatesAsUngated()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Two", "semantic-defect:CS0159")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1,
+            semanticDefectMethods: 1);
+
+        string summary = Assert.IsType<string>(
+            CorpusSensor.PinnedGateSummaryForTesting(baseline, current));
+
+        Assert.Contains("Full malformed ungated (sampling differs)", summary);
+        Assert.Contains("semantic defects ungated (sampling differs)", summary);
+        Assert.Contains("fidelity ungated (sampling differs; rely on changed-method fidelity)", summary);
+    }
+
+    [Fact]
     public void QualityMetricChanges_TreatsSemanticDefectMovementAsContextWhenSamplesDiffer()
     {
         var baseline = Snapshot(

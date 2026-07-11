@@ -777,31 +777,66 @@ internal static class CorpusSensor
     /// </summary>
     static void PrintPinnedGate(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
     {
-        if (PinnedCounts(baseline) is not { } basePinned || PinnedCounts(current) is not { } curPinned)
+        string? summary = PinnedGateSummary(baseline, current);
+        if (summary is null)
             return;
-        var fidelity = basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
+
+        Console.WriteLine();
+        Console.WriteLine(summary);
+    }
+
+    internal static string? PinnedGateSummaryForTesting(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+        => PinnedGateSummary(baseline, current);
+
+    static string? PinnedGateSummary(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        if (PinnedCounts(baseline) is not { } basePinned || PinnedCounts(current) is not { } curPinned)
+            return null;
+
+        bool comparableMalformedSamples = HaveSameMethodSample(
+            baseline.Methods,
+            current.Methods,
+            static method => IsPinnedAssembly(method.AssemblyPath)
+                && method.Validity != "not-sampled");
+        bool comparableSemanticSamples = HaveSameMethodSample(
+            baseline.Methods,
+            current.Methods,
+            static method => IsPinnedAssembly(method.AssemblyPath)
+                && (method.Validity == "valid"
+                    || method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal)));
+        bool comparableFidelitySamples = basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
             && current.FidelityCompileCap == baseline.FidelityCompileCap
             && HaveSameMethodSample(
                 baseline.Methods,
                 current.Methods,
                 static method => IsPinnedAssembly(method.AssemblyPath)
-                    && method.FidelityCheck != "not-sampled")
+                    && method.FidelityCheck != "not-sampled");
+        var fidelity = comparableFidelitySamples
             ? $"opcode diffs {Number(basePinned.OpcodeDiff)} -> {Number(curPinned.OpcodeDiff)} "
                 + $"({Delta(curPinned.OpcodeDiff - basePinned.OpcodeDiff)})"
             : "fidelity ungated (sampling differs; rely on changed-method fidelity)";
         var fullMalformed = current.ValidityCompileCap > 0
-            ? $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
-                + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
+            ? comparableMalformedSamples
+                ? $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
+                    + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
+                : "Full malformed ungated (sampling differs); "
             : "";
-        Console.WriteLine();
-        Console.WriteLine(
-            "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
+        var semanticDefects = current.ValidityCompileCap > 0
+            ? comparableSemanticSamples
+                ? $"semantic defects {Number(basePinned.SemanticDefect)} -> {Number(curPinned.SemanticDefect)} "
+                    + $"({Delta(curPinned.SemanticDefect - basePinned.SemanticDefect)}); "
+                : "semantic defects ungated (sampling differs); "
+            : "";
+        return "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
             + $"Fully raised {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)}); "
             + $"conditional residual {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)}); "
             + fullMalformed
-            + fidelity + ".");
+            + semanticDefects
+            + fidelity + ".";
     }
 
     static void PrintAdvisoryRateMovements(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)

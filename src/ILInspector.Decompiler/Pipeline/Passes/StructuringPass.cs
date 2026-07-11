@@ -1235,7 +1235,9 @@ public sealed class StructuringPass : IIrPass
                     int branchTarget = offsetToIndex[branch.TargetOffset];
                     if (breakTarget == branchTarget)
                     {
-                        result.Add(new Break());
+                        var next = new Break();
+                        next.InheritSourceOffset(branch);
+                        result.Add(next);
                         i++;
                         break;
                     }
