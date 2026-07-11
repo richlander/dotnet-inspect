@@ -214,7 +214,17 @@ public class CommandExecutionTests
         var libraryEntries = string.Join(",\n", packages.Select(package =>
         {
             var packageRoot = Path.Combine(tempDir, "packages", package.Id.ToLowerInvariant(), package.Version.ToLowerInvariant());
-            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(packageRoot.Replace('\\', '/'))} }}";
+            var files = new List<string> { $"{package.Id.ToLowerInvariant()}.nuspec" };
+            if (!package.OmitReadme)
+                files.Add(package.ReadmeFile.Replace('\\', '/'));
+            if (package.AgentsText != null)
+                files.Add("AGENTS.md");
+            if (package.ProjectText != null)
+                files.Add("PROJECT.md");
+            files.AddRange((package.Skills ?? []).Select(skill => skill.Path.Replace('\\', '/')));
+
+            var fileEntries = string.Join(", ", files.Select(JsonString));
+            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(packageRoot.Replace('\\', '/'))}, \"files\": [ {fileEntries} ] }}";
         }));
         var dependencyEntries = string.Join(",\n", packages.Select(package =>
             $"{JsonString(package.Id)}: {{ \"target\": \"Package\", \"version\": {JsonString($"[{package.Version}, )")} }}"));

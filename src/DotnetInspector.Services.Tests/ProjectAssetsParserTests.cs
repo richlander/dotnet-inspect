@@ -227,6 +227,145 @@ public class ProjectAssetsParserTests
     }
 
     [Fact]
+    public void ParsePackageFileEntries_ReturnsDirectPackageFilesMatchingPattern()
+    {
+        var packageRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var skillPath = Path.Combine(packageRoot, "skills", "query", "SKILL.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
+        File.WriteAllText(skillPath, "# Skill");
+
+        var transitiveRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(transitiveRoot, "skills", "transitive"));
+
+        var json = $$"""
+        {
+            "targets": {
+                "net9.0": {
+                    "Direct.Package/2.1.0": {},
+                    "Transitive.Package/1.0.0": {},
+                    "ProjectRef/1.0.0": {}
+                }
+            },
+            "libraries": {
+                "Direct.Package/2.1.0": {
+                    "type": "package",
+                    "path": "{{packageRoot.Replace("\\", "/")}}",
+                    "files": [
+                        "README.md",
+                        "skills/query/SKILL.md"
+                    ]
+                },
+                "Transitive.Package/1.0.0": {
+                    "type": "package",
+                    "path": "{{transitiveRoot.Replace("\\", "/")}}",
+                    "files": [
+                        "skills/transitive/SKILL.md"
+                    ]
+                },
+                "ProjectRef/1.0.0": {
+                    "type": "project",
+                    "path": "../ProjectRef/ProjectRef.csproj"
+                }
+            },
+            "project": {
+                "frameworks": {
+                    "net9.0": {
+                        "dependencies": {
+                            "Direct.Package": {
+                                "target": "Package",
+                                "version": "[2.0.0, )"
+                            },
+                            "ProjectRef": {
+                                "target": "Project"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        try
+        {
+            var result = ProjectAssetsParser.ParsePackageFileEntries(
+                assetsPath,
+                null,
+                ["skills/**/SKILL.md"],
+                null);
+
+            var entry = Assert.Single(result);
+            Assert.Equal("Direct.Package", entry.PackageName);
+            Assert.Equal("2.1.0", entry.Version);
+            Assert.Equal("skills/query/SKILL.md", entry.Path);
+            Assert.Equal("net9.0", entry.TargetFramework);
+            Assert.Equal(Path.GetFullPath(packageRoot), entry.PackagePath);
+            Assert.Equal(Path.GetFullPath(skillPath), entry.FullPath);
+            Assert.True(ProjectAssetsParser.HasPackageFileEntries(assetsPath, null, ["skills/**/SKILL.md"], null));
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+            Directory.Delete(packageRoot, recursive: true);
+            Directory.Delete(transitiveRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ParsePackageFileEntries_ReturnsEmptyWhenPatternDoesNotMatch()
+    {
+        var json = """
+        {
+            "targets": {
+                "net9.0": {
+                    "Direct.Package/1.0.0": {}
+                }
+            },
+            "libraries": {
+                "Direct.Package/1.0.0": {
+                    "type": "package",
+                    "path": "direct.package/1.0.0",
+                    "files": [
+                        "README.md"
+                    ]
+                }
+            },
+            "project": {
+                "frameworks": {
+                    "net9.0": {
+                        "dependencies": {
+                            "Direct.Package": {
+                                "target": "Package",
+                                "version": "[1.0.0, )"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        try
+        {
+            Assert.Empty(ProjectAssetsParser.ParsePackageFileEntries(
+                assetsPath,
+                null,
+                ["skills/**/SKILL.md"],
+                null));
+            Assert.False(ProjectAssetsParser.HasPackageFileEntries(
+                assetsPath,
+                null,
+                ["skills/**/SKILL.md"],
+                null));
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+        }
+    }
+
+    [Fact]
     public void Parse_WithoutTfmFilter_SelectsHighestPriorityTfm()
     {
         var json = """

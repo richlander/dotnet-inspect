@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Enumeration;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using NuGetFetch;
@@ -9,6 +10,14 @@ public sealed record ProjectPackageReference(
     string PackageName,
     string Version,
     string? PackagePath,
+    string TargetFramework);
+
+public sealed record ProjectPackageFileEntry(
+    string PackageName,
+    string Version,
+    string Path,
+    string? PackagePath,
+    string? FullPath,
     string TargetFramework);
 
 /// <summary>
@@ -257,6 +266,102 @@ public static class ProjectAssetsParser
             .ToList();
     }
 
+    /// <summary>
+    /// Parses a project.assets.json file and returns direct dependency package files
+    /// whose package-relative paths match any supplied glob pattern.
+    /// </summary>
+    public static List<ProjectPackageFileEntry> ParsePackageFileEntries(
+        string assetsPath,
+        string? tfmFilter,
+        IEnumerable<string> patterns,
+        Action<string>? log)
+    {
+        var normalizedPatterns = patterns
+            .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+            .Select(NormalizeAssetPath)
+            .ToArray();
+        if (normalizedPatterns.Length == 0)
+            return [];
+
+        List<ProjectPackageFileEntry> results = [];
+
+        try
+        {
+            var json = File.ReadAllText(assetsPath);
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("targets", out var targets))
+                return results;
+            if (!doc.RootElement.TryGetProperty("libraries", out var libraries))
+                return results;
+
+            var selectedTfm = SelectTargetFramework(targets, tfmFilter);
+            if (selectedTfm == null)
+                return results;
+
+            log?.Invoke($"Using target framework: {selectedTfm}");
+            var baseTfm = GetBaseTfm(selectedTfm);
+            if (!TryGetFrameworkDependencies(doc.RootElement, baseTfm, out var frameworkDependencies))
+                return results;
+
+            var targetDependencies = targets.GetProperty(selectedTfm);
+            foreach (var dependency in frameworkDependencies.EnumerateObject())
+            {
+                if (IsProjectDependency(dependency.Value))
+                    continue;
+
+                if (!TryResolvePackage(
+                    dependency.Name,
+                    targetDependencies,
+                    libraries,
+                    selectedTfm,
+                    out var packageReference))
+                {
+                    continue;
+                }
+
+                var packageKey = $"{packageReference.PackageName}/{packageReference.Version}";
+                if (!TryGetPropertyCaseInsensitive(libraries, packageKey, out var library)
+                    || !library.TryGetProperty("files", out var files)
+                    || files.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var file in files.EnumerateArray())
+                {
+                    var path = NormalizeAssetPath(file.GetString());
+                    if (path.Length == 0 || !MatchesAny(path, normalizedPatterns))
+                        continue;
+
+                    results.Add(new ProjectPackageFileEntry(
+                        packageReference.PackageName,
+                        packageReference.Version,
+                        path,
+                        packageReference.PackagePath,
+                        ResolvePackageFilePath(packageReference.PackagePath, path),
+                        packageReference.TargetFramework));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Warning: Failed to parse project.assets.json: {ex.Message}");
+        }
+
+        return results
+            .OrderBy(result => result.PackageName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(result => result.Path, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public static bool HasPackageFileEntries(
+        string assetsPath,
+        string? tfmFilter,
+        IEnumerable<string> patterns,
+        Action<string>? log)
+        => ParsePackageFileEntries(assetsPath, tfmFilter, patterns, log).Count > 0;
+
     private static string? SelectTargetFramework(JsonElement targets, string? tfmFilter)
     {
         if (!string.IsNullOrEmpty(tfmFilter))
@@ -379,6 +484,24 @@ public static class ProjectAssetsParser
             ? Path.GetFullPath(normalized)
             : Path.GetFullPath(Path.Combine(NuGetCache.GetNuGetCachePath(), normalized));
     }
+
+    private static string? ResolvePackageFilePath(string? packagePath, string packageRelativePath)
+    {
+        if (string.IsNullOrWhiteSpace(packagePath))
+            return null;
+
+        return Path.GetFullPath(Path.Combine(
+            packagePath,
+            packageRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+    }
+
+    private static string NormalizeAssetPath(string? path)
+        => string.IsNullOrWhiteSpace(path)
+            ? ""
+            : path.Replace('\\', '/').TrimStart('/');
+
+    private static bool MatchesAny(string path, IEnumerable<string> patterns)
+        => patterns.Any(pattern => FileSystemName.MatchesSimpleExpression(pattern, path, ignoreCase: true));
 
     private static bool TryGetPropertyCaseInsensitive(JsonElement element, string propertyName, out JsonElement value)
     {

@@ -143,7 +143,7 @@ public class ProjectCommand
             return WriteAgentsIndex(dependencies, options);
 
         if (sectionMode)
-            return WriteSkills(dependencies, options);
+            return WriteSkills(assetsPath, options, logger.Log);
 
         return await WriteReadmeAsync(dependencies, options, context);
     }
@@ -328,10 +328,16 @@ public class ProjectCommand
         return builder.ToString();
     }
 
-    private static int WriteSkills(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
+    private static int WriteSkills(string assetsPath, ProjectOptions options, Action<string>? log)
     {
-        var rows = dependencies
-            .SelectMany(CreateSkillRows)
+        var rows = ProjectAssetsParser.ParsePackageFileEntries(
+                assetsPath,
+                options.Tfm,
+                ["skills/**/SKILL.md"],
+                log)
+            .Select(CreateSkillRow)
+            .Where(row => row is not null)
+            .Cast<ProjectSkillRow>()
             .ToList();
 
         if (options.Value || options.Urls || options.Paths)
@@ -354,33 +360,24 @@ public class ProjectCommand
         return 0;
     }
 
-    private static IEnumerable<ProjectSkillRow> CreateSkillRows(ProjectPackageReference dependency)
+    private static ProjectSkillRow? CreateSkillRow(ProjectPackageFileEntry file)
     {
-        if (string.IsNullOrWhiteSpace(dependency.PackagePath) || !Directory.Exists(dependency.PackagePath))
-            yield break;
+        if (string.IsNullOrWhiteSpace(file.FullPath) || !File.Exists(file.FullPath))
+            return null;
 
-        var skillsRoot = Path.Combine(dependency.PackagePath, "skills");
-        if (!Directory.Exists(skillsRoot))
-            yield break;
+        var content = File.ReadAllText(file.FullPath);
+        var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
+        frontmatter.TryGetValue("name", out var name);
+        frontmatter.TryGetValue("description", out var description);
 
-        foreach (var fullPath in Directory.EnumerateFiles(skillsRoot, "SKILL.md", SearchOption.AllDirectories)
-            .Order(StringComparer.Ordinal))
-        {
-            var path = Path.GetRelativePath(dependency.PackagePath, fullPath).Replace('\\', '/');
-            var content = File.ReadAllText(fullPath);
-            var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
-            frontmatter.TryGetValue("name", out var name);
-            frontmatter.TryGetValue("description", out var description);
-
-            yield return new ProjectSkillRow(
-                dependency.PackageName,
-                dependency.Version,
-                path,
-                new FileInfo(fullPath).Length,
-                name ?? "",
-                description ?? "",
-                fullPath);
-        }
+        return new ProjectSkillRow(
+            file.PackageName,
+            file.Version,
+            file.Path,
+            new FileInfo(file.FullPath).Length,
+            name ?? "",
+            description ?? "",
+            file.FullPath);
     }
 
     private static string RenderSkillJsonl(IEnumerable<ProjectSkillRow> rows)
