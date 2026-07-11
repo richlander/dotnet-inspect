@@ -1,6 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Sections;
 
@@ -25,15 +26,15 @@ public sealed class ScannerContext
     private MethodBodyInspectionSession? _bodySession;
 
     /// <summary>
-    /// Shared method-body analysis session for <see cref="AssemblyPath"/>, built once on first use.
+    /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.
     /// The body-index scanners (unsafe members, top leverage, optimization opportunities) share it
     /// instead of each rebuilding the full <c>LibraryBodyIndex</c>. Scanners run sequentially
     /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required. The build is
     /// narrowed to the phases the requested scanners consume (see <see cref="IncludeOpportunities"/>).
     /// </summary>
-    public MethodBodyInspectionSession BodySession() =>
-        _bodySession ??= MethodBodyInspectionSession.Open(
-            AssemblyPath, includeAllocations: IncludeOpportunities, includeOpportunities: IncludeOpportunities);
+    public Analysis.LibraryBodyIndex BodyIndex() =>
+        (_bodySession ??= MethodBodyInspectionSession.Open(
+            AssemblyPath, includeAllocations: IncludeOpportunities, includeOpportunities: IncludeOpportunities)).BodyIndex;
 }
 
 /// <summary>

@@ -3,6 +3,7 @@ using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
 using DotnetInspector.Commands;
+using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Inspectors;
@@ -106,7 +107,7 @@ public class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiOutputFormatter.OpenTypeAnalysisSession(typeof(OutputFormatterTests).Assembly.Location),
+            ApiOutputFormatter.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
@@ -234,7 +235,7 @@ public class OutputFormatterTests
     public void ScanOptimizationOpportunities_OrdersByTriagePriority()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            () => MethodBodyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+            () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);
@@ -537,7 +538,7 @@ public class OutputFormatterTests
     public void ScanOptimizationOpportunities_SuppressesGeneratedMethods()
     {
         var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            () => MethodBodyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+            () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);

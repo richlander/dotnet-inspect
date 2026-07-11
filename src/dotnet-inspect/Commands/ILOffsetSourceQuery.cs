@@ -268,8 +268,11 @@ internal static class ILOffsetSourceQuery
     {
         try
         {
-            var facts = MethodBodyInspectionSession.Open(assemblyPath)
-                .AllocationFacts(methodToken, ilOffset)
+            var index = MethodBodyInspectionSession.Open(assemblyPath).BodyIndex;
+            var facts = Analysis.SemanticFactProjection.AllocationFacts(
+                    index.GetAllocationOccurrences(),
+                    methodToken,
+                    ilOffset)
                 .Select(ToILOffsetAllocationContext)
                 .ToList();
             if (facts.Count > 0)
