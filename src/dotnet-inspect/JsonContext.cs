@@ -27,6 +27,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<LibraryInspectionFailureJson>))]
 [JsonSerializable(typeof(LibraryResourceJson))]
 [JsonSerializable(typeof(List<LibraryResourceJson>))]
+[JsonSerializable(typeof(LibraryExtensionMethodJson))]
+[JsonSerializable(typeof(List<LibraryExtensionMethodJson>))]
 [JsonSerializable(typeof(LibraryCustomAttributeJson))]
 [JsonSerializable(typeof(List<LibraryCustomAttributeJson>))]
 [JsonSerializable(typeof(TypeForwarderInfo))]

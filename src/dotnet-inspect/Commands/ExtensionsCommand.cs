@@ -1,6 +1,8 @@
 using DotnetInspector.Packages;
 using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -32,25 +34,7 @@ public class ExtensionsCommand
                 };
             }
 
-            List<ExtensionMethodResult> results;
-            if (options.Reachable)
-            {
-                results = await ScanReachableExtensionsAsync(options, context, logger, targetType);
-            }
-            else
-            {
-                results = await AssemblyCollector.ScanAsync(
-                    context.HttpClient,
-                    options,
-                    logger,
-                    "inspect-ext",
-                    assemblyInfo => ScanForExtensions(assemblyInfo.Path, targetType, options.IncludeAll, logger),
-                    (result, assemblyInfo) =>
-                    {
-                        result.Source = assemblyInfo.Source;
-                        result.SourceVersion = assemblyInfo.Version;
-                    });
-            }
+            var results = await ScanExtensionsAsync(options, context, logger, targetType);
 
             // Apply limit
             if (options.Limit.HasValue && results.Count > options.Limit.Value)
@@ -91,7 +75,7 @@ public class ExtensionsCommand
         }
     }
 
-    private static async Task<List<ExtensionMethodResult>> ScanReachableExtensionsAsync(
+    private static async Task<List<ExtensionMethodResult>> ScanExtensionsAsync(
         ExtensionsOptions options,
         CommandContext context,
         VerboseLogger logger,
@@ -105,22 +89,26 @@ public class ExtensionsCommand
             assemblyInfos =>
             {
                 List<ExtensionMethodResult> results = [];
+                var censuses = assemblyInfos
+                    .Select(assembly => InspectExtensionAssembly(assembly, options.IncludeAll))
+                    .ToList();
+                var availableCensuses = new List<ExtensionAssemblyCensus>(censuses.Count);
 
-                void Stamp(ExtensionMethodResult ext, AssemblyCollector.AssemblyInfo asmInfo)
+                foreach (var census in censuses)
                 {
-                    ext.Source = asmInfo.Source;
-                    ext.SourceVersion = asmInfo.Version;
-                }
-
-                foreach (var asmInfo in assemblyInfos)
-                {
-                    var extensions = ScanForExtensions(asmInfo.Path, targetType, options.IncludeAll, logger);
-                    foreach (var ext in extensions)
+                    if (census.Inspection.Failure() is { } failure)
                     {
-                        Stamp(ext, asmInfo);
-                        results.Add(ext);
+                        Console.Error.WriteLine(
+                            $"Warning: Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
+                        continue;
                     }
+
+                    availableCensuses.Add(census);
+                    results.AddRange(ProjectExtensions(census, targetType));
                 }
+
+                if (!options.Reachable)
+                    return results;
 
                 var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
                 var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
@@ -128,16 +116,13 @@ public class ExtensionsCommand
                 {
                     if (reachableType == targetType) continue;
 
-                    foreach (var asmInfo in assemblyInfos)
+                    foreach (var census in availableCensuses)
                     {
-                        var extensions = ScanForExtensions(asmInfo.Path, reachableType, options.IncludeAll, logger);
-                        foreach (var ext in extensions)
-                        {
-                            Stamp(ext, asmInfo);
-                            ext.ReachablePath = path;
-                            ext.ReachableFromType = reachableType;
-                            results.Add(ext);
-                        }
+                        results.AddRange(ProjectExtensions(
+                            census,
+                            reachableType,
+                            reachablePath: path,
+                            reachableFromType: reachableType));
                     }
                 }
 
@@ -145,35 +130,99 @@ public class ExtensionsCommand
             });
     }
 
-    private static List<ExtensionMethodResult> ScanForExtensions(
-        string assemblyPath,
-        string targetType,
-        bool includeAll,
-        VerboseLogger logger)
-    {
-        List<ExtensionMethodResult> results = [];
+    internal sealed record ExtensionAssemblyCensus(
+        AssemblyCollector.AssemblyInfo Assembly,
+        IReadOnlyList<ExtensionMethodInfo> Members,
+        FindingInspection<ExtensionMemberObservation> Inspection);
 
+    internal static ExtensionAssemblyCensus InspectExtensionAssembly(
+        AssemblyCollector.AssemblyInfo assembly,
+        bool includeAll)
+    {
         try
         {
-            using var stream = File.OpenRead(assemblyPath);
-            var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-
-            foreach (var ext in ExtensionMethodScanner.FindExtensions(stream, targetType, includeAll))
-            {
-                results.Add(new ExtensionMethodResult
-                {
-                    MethodName = ext.MethodName,
-                    ExtensionClass = ext.ExtensionClass,
-                    ExtendedType = ext.ExtendedType,
-                    Assembly = assemblyName,
-                    Signature = ext.Signature,
-                    Kind = ext.Kind
-                });
-            }
+            using var stream = File.OpenRead(assembly.Path);
+            var members = ExtensionMethodScanner.FindAllExtensions(stream, includeAll).ToList();
+            var inspection = MetadataFindings.InspectExtensionMembers(
+                members,
+                new FindingSubject(Path.GetFullPath(assembly.Path), Path.GetFileName(assembly.Path)));
+            return new ExtensionAssemblyCensus(assembly, members, inspection);
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning {assemblyPath}: {ex.Message}");
+            return new ExtensionAssemblyCensus(
+                assembly,
+                [],
+                new FindingInspection<ExtensionMemberObservation>.Failed(
+                    new InspectionError(
+                        new FindingSubject(
+                            Path.GetFullPath(assembly.Path),
+                            Path.GetFileName(assembly.Path)),
+                        MetadataFindings.ExtensionMemberDescriptor,
+                        ex.Message)));
+        }
+    }
+
+    internal static List<ExtensionMethodResult> ProjectExtensions(
+        ExtensionAssemblyCensus census,
+        string targetType,
+        string? reachablePath = null,
+        string? reachableFromType = null)
+    {
+        var observationsByAnchor = census.Inspection.Findings()
+            .ToLookup(
+                static finding => finding.Payload.Anchor,
+                static finding => finding.Payload);
+        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        List<ExtensionMethodResult> results = [];
+
+        foreach (var member in census.Members)
+        {
+            var expectedKind = member.Kind == "method"
+                ? ExtensionMemberKind.Method
+                : ExtensionMemberKind.Property;
+            var observation = member.Anchor is { } anchor
+                ? observationsByAnchor[anchor].FirstOrDefault(candidate =>
+                    candidate.Kind == expectedKind
+                    && string.Equals(
+                        candidate.ExtendedType,
+                        member.CanonicalExtendedType,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.ReturnType,
+                        member.ReturnType,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.Assembly,
+                        member.Assembly,
+                        StringComparison.Ordinal))
+                : null;
+            if (observation is null)
+            {
+                throw new InvalidOperationException(
+                    $"Extension member census for {census.Assembly.Path} does not correspond to its scanner inventory.");
+            }
+
+            if (!TypeMatcher.Matches(
+                    TypeMatcher.Normalize(member.ExtendedType),
+                    normalizedTarget))
+            {
+                continue;
+            }
+
+            results.Add(new ExtensionMethodResult
+            {
+                MethodName = member.MethodName,
+                ExtensionClass = member.ExtensionClass,
+                ExtendedType = member.ExtendedType,
+                Assembly = Path.GetFileNameWithoutExtension(census.Assembly.Path),
+                Signature = member.Signature,
+                Kind = observation.Kind == ExtensionMemberKind.Method ? "method" : "property",
+                Source = census.Assembly.Source,
+                SourceVersion = census.Assembly.Version,
+                ReachablePath = reachablePath,
+                ReachableFromType = reachableFromType,
+            });
         }
 
         return results;
