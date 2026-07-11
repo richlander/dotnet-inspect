@@ -19,6 +19,8 @@ public record ClassifiedMethodInfo(
     public MemberAnchor? Anchor { get; init; }
     public string? ReturnType { get; init; }
 
+    // Preserve the original six-field record contract. Anchor and ReturnType are
+    // derived structured data and intentionally do not participate in equality.
     public virtual bool Equals(ClassifiedMethodInfo? other)
         => ReferenceEquals(this, other)
         || other is not null
