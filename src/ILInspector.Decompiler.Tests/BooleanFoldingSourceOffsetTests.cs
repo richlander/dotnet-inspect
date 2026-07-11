@@ -7,7 +7,10 @@ namespace ILInspector.Decompiler.Tests;
 public class BooleanFoldingSourceOffsetTests
 {
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
 
     [Fact]
@@ -53,6 +56,80 @@ public class BooleanFoldingSourceOffsetTests
 
         var folded = Assert.IsType<Return>(Assert.Single(block.Children));
         Assert.Equal(0x20, folded.SourceOffset);
+    }
+
+    [Fact]
+    public void BooleanElementStoreRetype_PreservesSourceOffset()
+    {
+        var store = new StoreElement(
+            Byte,
+            new LoadArgument(0, "values", TypeRef.SzArray(Boolean)),
+            new Constant(0, Int32),
+            new Constant(1, Int32));
+        store.SetSourceOffset(0x30);
+
+        var block = new Block(0);
+        block.Add(store);
+        var function = Function(
+            block,
+            Void,
+            [new Parameter("values", TypeRef.SzArray(Boolean))]);
+
+        new BooleanFoldingPass().Run(function, PassContext.None);
+
+        var folded = Assert.IsType<StoreElement>(Assert.Single(block.Children));
+        Assert.Equal(0x30, folded.SourceOffset);
+    }
+
+    [Fact]
+    public void CoalesceStoreFold_PreservesSourceOffset()
+    {
+        var initial = new StoreLocal(0, Object, new LoadArgument(0, "value", Object));
+        initial.SetSourceOffset(0x40);
+        var then = new Block(0);
+        then.Add(new StoreLocal(0, Object, new LoadArgument(1, "fallback", Object)));
+        var guard = new IfStatement(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadArgument(0, "value", Object),
+                new Constant(null, Object)),
+            then,
+            null);
+
+        var block = new Block(0);
+        block.Add(initial);
+        block.Add(guard);
+        var function = Function(
+            block,
+            Void,
+            [new Parameter("value", Object), new Parameter("fallback", Object)]);
+
+        new BooleanFoldingPass().Run(function, PassContext.None);
+
+        var folded = Assert.IsType<StoreLocal>(Assert.Single(block.Children));
+        Assert.Equal(0x40, folded.SourceOffset);
+    }
+
+    [Fact]
+    public void SlotDiamondFold_PreservesSourceOffset()
+    {
+        var then = new Block(0);
+        then.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+        var @else = new Block(0);
+        @else.Add(new StoreStackSlot(0, new Constant(2, Int32)));
+        var diamond = new IfStatement(new LoadArgument(0, "c", Boolean), then, @else);
+        diamond.SetSourceOffset(0x50);
+
+        var block = new Block(0);
+        block.Add(diamond);
+        block.Add(new Return(new LoadStackSlot(0, Int32)));
+        var function = Function(block, Int32, [new Parameter("c", Boolean)]);
+
+        new BooleanFoldingPass().Run(function, PassContext.None);
+
+        var folded = Assert.IsType<StoreStackSlot>(block.Children[0]);
+        Assert.Equal(0x50, folded.SourceOffset);
     }
 
     static IrFunction Function(

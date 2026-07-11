@@ -57,7 +57,9 @@ public sealed class BooleanFoldingPass : IIrPass
                     if (value is Constant { Value: int intValue } && intValue is 0 or 1)
                         value = new Constant(intValue == 1, boolType);
                     stepper.StepOver("retype bool-array element store", store);
-                    store.ReplaceWith(new StoreElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1], value));
+                    var replacement = new StoreElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1], value);
+                    replacement.InheritSourceOffset(store);
+                    store.ReplaceWith(replacement);
                     return true;
                 }
             }
@@ -658,11 +660,19 @@ public sealed class BooleanFoldingPass : IIrPass
         switch (previous)
         {
             case StoreStackSlot slot:
-                previous.ReplaceWith(new StoreStackSlot(slot.Slot, coalesce));
+            {
+                var replacement = new StoreStackSlot(slot.Slot, coalesce);
+                replacement.InheritSourceOffset(previous);
+                previous.ReplaceWith(replacement);
                 break;
+            }
             case StoreLocal local:
-                previous.ReplaceWith(new StoreLocal(local.Index, local.Type, coalesce));
+            {
+                var replacement = new StoreLocal(local.Index, local.Type, coalesce);
+                replacement.InheritSourceOffset(previous);
+                previous.ReplaceWith(replacement);
                 break;
+            }
         }
         return true;
     }
@@ -699,7 +709,11 @@ public sealed class BooleanFoldingPass : IIrPass
         var whenTrue = (IrExpression)thenStore.DetachChildren()[0];
         var whenFalse = (IrExpression)elseStore.DetachChildren()[0];
         stepper.StepOver("fold store diamond into ternary", diamond);
-        diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
+        var foldedStore = new StoreStackSlot(
+            thenStore.Slot,
+            new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType });
+        foldedStore.InheritSourceOffset(diamond);
+        diamond.ReplaceWith(foldedStore);
         return true;
     }
 
