@@ -460,11 +460,19 @@ public static class ExtensionMethodScanner
                     continue;
 
                 if (!includeAll
-                    && (AttributeReader.HasHiddenAttribute(reader, property.GetCustomAttributes())
-                        || includeGetter && IsHiddenAccessor(reader, accessors.Getter)
-                        || includeSetter && IsHiddenAccessor(reader, accessors.Setter)))
+                    && AttributeReader.HasHiddenAttribute(reader, property.GetCustomAttributes()))
                 {
                     continue;
+                }
+
+                if (!includeAll)
+                {
+                    if (includeGetter && IsHiddenAccessor(reader, accessors.Getter))
+                        includeGetter = false;
+                    if (includeSetter && IsHiddenAccessor(reader, accessors.Setter))
+                        includeSetter = false;
+                    if (!includeGetter && !includeSetter)
+                        continue;
                 }
 
                 var markerMethod = reader.GetMethodDefinition(markerMethodHandle);
