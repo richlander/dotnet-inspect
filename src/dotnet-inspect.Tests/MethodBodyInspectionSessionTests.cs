@@ -5,7 +5,8 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Tests the command-policy and cross-assembly composition owned by
-/// <see cref="MethodBodyInspectionSession"/>. Neutral index queries are tested by Analysis.
+/// <see cref="MethodBodyInspectionSession"/>. Neutral query behavior is covered
+/// by its owning Analysis tests or end-to-end CLI section tests.
 /// </summary>
 public class MethodBodyInspectionSessionTests
 {

@@ -1867,8 +1867,9 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
         {
+            var allocationOccurrences = index.GetAllocationOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.AllocationFacts(index.GetAllocationOccurrences(), token))
+                .SelectMany(token => Analysis.SemanticFactProjection.AllocationFacts(allocationOccurrences, token))
                 .Select(fact => ToAllocationFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.AllocationFacts))
@@ -1877,10 +1878,12 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
+            var unsafeEvidenceByMember = index.GetUnsafeEvidenceByMember();
+            var unsafetyOccurrences = index.GetUnsafetyOccurrences();
             var rows = methodTokens
                 .SelectMany(token => Analysis.SemanticFactProjection.SafetyFacts(
-                    index.GetUnsafeEvidenceByMember(),
-                    index.GetUnsafetyOccurrences(),
+                    unsafeEvidenceByMember,
+                    unsafetyOccurrences,
                     token))
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
@@ -1890,8 +1893,9 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
+            var directCallsByCaller = index.GetDirectCallsByCaller();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(index.GetDirectCallsByCaller(), token))
+                .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCallsByCaller, token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CostFacts))
