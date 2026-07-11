@@ -52,6 +52,15 @@ public partial class JsonContext : JsonSerializerContext
 {
 }
 
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(DiffDocumentView))]
+internal partial class DiffJsonContext : JsonSerializerContext
+{
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PackageFileJsonRow))]
 internal partial class PackageFileJsonRowContext : JsonSerializerContext

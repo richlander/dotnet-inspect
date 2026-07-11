@@ -92,6 +92,8 @@ Compares two package, platform, or local-library versions:
 - `-S "Analysis Diff"` selects body-signal changes.
 - `-S "Implementation Diff"` selects Research-composed C# + IL evidence grouped
   by member.
+- Multiple selected sections compose in Markdown and JSON. Explicit
+  table/TSV/JSONL output requires exactly one selected section.
 - Version range syntax is `Package@v1..v2` or `old/Foo.dll..new/Foo.dll`.
 
 ### find
