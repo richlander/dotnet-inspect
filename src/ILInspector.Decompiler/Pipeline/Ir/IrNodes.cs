@@ -365,61 +365,9 @@ public sealed class IrFunction : IrNode
     /// <see cref="DecompilationFidelity.Partial"/>.
     /// </summary>
     public DecompilationFidelity Fidelity
-        => Descendants.Prepend(this).Any(n =>
-            n is UnsupportedNode
-            || n is LoadFunctionPointer
-            || n is Call { HasUnverifiedByRefArgument: true }
-            || n is NewObject { HasUnverifiedByRefArgument: true }
-            || n is LoadToken { Kind: not RuntimeTokenKind.Type }
-            || n is EndFilter
-            || n is Continue
-            || n is LoadIndirect { IsVolatile: true }
-            || n is StoreIndirect { IsVolatile: true }
-            || n.DirectTypes.Any(t => t.ContainsUnsupported)
-            || CSharpSpellability.HasUnrepresentableMetadataName(n)
-            || n is IrExpression { ResultType: null }
-            || (n as IrExpression)?.ResultType?.ContainsUnsupported == true)
-            || HasUnraisedPinnedLocal()
+        => FidelityRemarks.HasAny(this)
             ? DecompilationFidelity.Partial
             : DecompilationFidelity.Full;
-
-    /// <summary>
-    /// True when a <c>pinned</c> local survives un-raised: still referenced by a
-    /// load/store/address yet owned by no <see cref="Fixed"/> statement. Such a
-    /// slot renders as the IL-only <c>pinned ref T name;</c> declaration, which is
-    /// not legal C# (CS1585) — so the method must degrade honestly rather than
-    /// claim <see cref="DecompilationFidelity.Full"/>. <see cref="FixedStatementPass"/>
-    /// raises the provable shapes (the marshalling-stub forms it cannot prove are
-    /// deliberately left flat); a raised pin is either its owning <c>fixed</c>
-    /// variable or, when the derived pointer is folded, left unreferenced — both
-    /// excluded here, so only the genuinely flat pin trips this.
-    /// </summary>
-    bool HasUnraisedPinnedLocal()
-    {
-        HashSet<int>? pinned = null;
-        for (int i = 0; i < Locals.Length; i++)
-        {
-            if (Locals[i].Kind == TypeRefKind.Pinned)
-                (pinned ??= []).Add(i);
-        }
-        if (pinned is null)
-            return false;
-
-        var fixedOwned = Descendants.OfType<Fixed>().Select(f => f.LocalIndex).ToHashSet();
-        foreach (var node in Descendants)
-        {
-            int slot = node switch
-            {
-                LoadLocal load => load.Index,
-                StoreLocal store => store.Index,
-                LoadLocalAddress address => address.Index,
-                _ => -1,
-            };
-            if (slot >= 0 && pinned.Contains(slot) && !fixedOwned.Contains(slot))
-                return true;
-        }
-        return false;
-    }
 
     public override string Describe()
         => $"Function {Signature.ReturnType.ToDisplayString()} {Name}({string.Join(", ", Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))})";

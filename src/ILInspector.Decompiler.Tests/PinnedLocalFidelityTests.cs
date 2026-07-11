@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -49,6 +50,15 @@ public class PinnedLocalFidelityTests
         var function = Function([PinnedRefInt], body);
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var cause = Assert.Single(
+            DecompilerFindings.InspectFidelityCauses(function, new FindingSubject("M", "M")) switch
+            {
+                FindingInspection<DecompilerFidelityCause>.Complete complete => complete.Findings,
+                _ => throw new InvalidOperationException("Expected a complete fidelity-cause inspection."),
+            }).Payload;
+        Assert.Equal(DiagnosticIds.UnraisedPinnedLocal, cause.Code);
+        Assert.Equal(DecompilerFidelityLocationKind.Local, cause.Location.Kind);
+        Assert.Equal(0, cause.Location.LocalIndex);
     }
 
     [Fact]
@@ -63,6 +73,7 @@ public class PinnedLocalFidelityTests
         var function = Function([PinnedRefInt], body);
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
     }
 
     [Fact]
@@ -76,5 +87,6 @@ public class PinnedLocalFidelityTests
         var function = Function([PinnedRefInt, Int32], body);
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
     }
 }

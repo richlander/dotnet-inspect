@@ -32,7 +32,7 @@ AnalysisFindings.InspectCallSites(...)
 AnalysisFindings.InspectUnsafety(...)
 MetadataFindings.InspectApiMembers(...)
 MetadataFindings.InspectApiTypes(...)
-DecompilerFindings.InspectDiagnostics(...)
+DecompilerFindings.InspectFidelityCauses(...)
 ```
 
 Do not create `AllocationFindings`, `CallSiteFindings`, or
@@ -88,6 +88,11 @@ transitions into a product view, but it does not become their source of truth.
 
 An inspection failure is an operation outcome, not an observation. Do not wrap
 it in `Finding<InspectionError>` or make it implement `IFinding`.
+
+For decompilation, fidelity causes are the raw per-site observations. Import,
+context, and projection failures such as `DEC0001`-`DEC0003` are inspection
+failures, while a method's `Full` or `Partial` fidelity is a fold over its cause
+census. Human diagnostic messages are not occurrence identity.
 
 ## 5. Choose identity and ordering semantics
 

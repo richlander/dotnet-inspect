@@ -6,72 +6,214 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>DEC####</c> code and a human reason — the optimization-remarks analog
 /// (LLVM <c>-Rpass</c> / opt-viewer) for the decompiler (issue #637). The walk
 /// applies the same predicate as <see cref="IrFunction.Fidelity"/>, so a remark
-/// exists for exactly the nodes that lower fidelity and the view cannot drift
+/// exists for every site that lowers fidelity and the view cannot drift
 /// from the score. Fidelity is computed from the final tree (never asserted by a
 /// pass), so a remark names the <em>IR site</em> and cause rather than a pass.
 /// </summary>
 public static class FidelityRemarks
 {
     /// <summary>
-    /// One fidelity-lowering site. <paramref name="Offset"/> is the enclosing
-    /// block's IL offset (or the node's own offset when it carries one); -1 for
-    /// a signature-level cause (an unrepresentable parameter, return, or local
-    /// type) that belongs to no block.
+    /// Compatibility view over the typed fidelity-cause census. Local and
+    /// signature causes have no IL coordinate and retain the historical -1.
     /// </summary>
     public sealed record Remark(string Code, int Offset, string Node, string Reason);
 
     public static IReadOnlyList<Remark> Collect(IrFunction function)
     {
-        var remarks = new List<Remark>();
+        ArgumentNullException.ThrowIfNull(function);
+        return Enumerate(function)
+            .Select(static cause => new Remark(
+                cause.Code,
+                cause.Location.ILOffset ?? -1,
+                cause.Node,
+                cause.Reason))
+            .ToArray();
+    }
+
+    internal static IReadOnlyList<DecompilerFidelityCause> CollectCauses(IrFunction function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        return Enumerate(function).ToArray();
+    }
+
+    internal static bool HasAny(IrFunction function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        return Enumerate(function).Any();
+    }
+
+    static IEnumerable<DecompilerFidelityCause> Enumerate(IrFunction function)
+    {
         foreach (var node in function.Descendants.Prepend(function))
         {
             switch (node)
             {
                 case UnsupportedNode u:
-                    Add(remarks, DiagnosticIds.UnsupportedConstruct, u.ILOffset, u, $"{u.Opcode}: {u.Reason}");
+                    yield return Cause(
+                        DiagnosticIds.UnsupportedConstruct,
+                        u.ILOffset >= 0
+                            ? DecompilerFidelityLocation.AtIlOffset(u.ILOffset)
+                            : LocationOf(u),
+                        u,
+                        $"{u.Opcode}: {u.Reason}",
+                        u.Opcode);
                     continue;  // its own type checks are noise next to the explicit reason
                 case LoadFunctionPointer:
-                    Add(remarks, DiagnosticIds.UnsupportedFunctionPointer, OffsetOf(node), node,
+                    yield return Cause(
+                        DiagnosticIds.UnsupportedFunctionPointer,
+                        LocationOf(node),
+                        node,
                         "bare function-pointer load (ldftn/ldvirtftn) with no C# spelling");
                     break;
                 case Call { HasUnverifiedByRefArgument: true }:
                 case NewObject { HasUnverifiedByRefArgument: true }:
-                    Add(remarks, DiagnosticIds.UnverifiedByRefArgument, OffsetOf(node), node,
+                    yield return Cause(
+                        DiagnosticIds.UnverifiedByRefArgument,
+                        LocationOf(node),
+                        node,
                         "by-ref argument rendered against an unknown call-site ref-kind (out/in cannot be distinguished from ref)");
                     break;
                 case LoadToken { Kind: not RuntimeTokenKind.Type }:
-                    Add(remarks, DiagnosticIds.UnsupportedRuntimeToken, OffsetOf(node), node,
+                    yield return Cause(
+                        DiagnosticIds.UnsupportedRuntimeToken,
+                        LocationOf(node),
+                        node,
                         "runtime method/field token load (ldtoken) with no C# expression spelling");
                     break;
                 case EndFilter:
-                    Add(remarks, DiagnosticIds.UnsupportedExceptionFilter, OffsetOf(node), node,
+                    yield return Cause(
+                        DiagnosticIds.UnsupportedExceptionFilter,
+                        LocationOf(node),
+                        node,
                         "residual exception filter boundary (endfilter) with no standalone C# spelling");
+                    break;
+                case Continue:
+                    yield return Cause(
+                        DiagnosticIds.UnverifiedContinue,
+                        LocationOf(node),
+                        node,
+                        "residual continue is not currently proven opcode-exact");
                     break;
                 case LoadIndirect { IsVolatile: true }:
                 case StoreIndirect { IsVolatile: true }:
-                    Add(remarks, DiagnosticIds.VolatileIndirectAccess, OffsetOf(node), node,
+                    yield return Cause(
+                        DiagnosticIds.VolatileIndirectAccess,
+                        LocationOf(node),
+                        node,
                         "volatile. indirect access (volatile. ldind/stind) renders as a bare *p, dropping the acquire/release ordering — no faithful plain-C# spelling");
                     break;
             }
 
-            var unsupportedType = node.DirectTypes.FirstOrDefault(t => t.ContainsUnsupported)
-                ?? ((node as IrExpression)?.ResultType is { ContainsUnsupported: true } rt ? rt : null);
-            if (unsupportedType is not null)
-                Add(remarks, DiagnosticIds.UnsupportedType, OffsetOf(node), node,
-                    $"references an unrepresentable type ({UnrepresentableTypeText(unsupportedType)})");
+            List<TypeRef>? unsupportedTypes = null;
+            foreach (var type in node.DirectTypes)
+            {
+                if (type.ContainsUnsupported
+                    && (unsupportedTypes is null || !unsupportedTypes.Contains(type)))
+                {
+                    (unsupportedTypes ??= []).Add(type);
+                }
+            }
+            if ((node as IrExpression)?.ResultType is { ContainsUnsupported: true } resultType
+                && (unsupportedTypes is null || !unsupportedTypes.Contains(resultType)))
+            {
+                (unsupportedTypes ??= []).Add(resultType);
+            }
+            if (unsupportedTypes is not null)
+            {
+                string types = string.Join("; ", unsupportedTypes.Select(UnrepresentableTypeText));
+                string discriminator = string.Join(
+                    "; ",
+                    unsupportedTypes
+                        .SelectMany(static type => type.UnsupportedReasons())
+                        .Distinct(StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal));
+                yield return Cause(
+                    DiagnosticIds.UnsupportedType,
+                    LocationOf(node),
+                    node,
+                    $"references an unrepresentable type ({types})",
+                    discriminator);
+            }
 
             if (CSharpSpellability.UnrepresentableMetadataNameReason(node) is { } nameReason)
-                Add(remarks, DiagnosticIds.UnrepresentableMetadataName, OffsetOf(node), node, nameReason);
+            {
+                yield return Cause(
+                    DiagnosticIds.UnrepresentableMetadataName,
+                    LocationOf(node),
+                    node,
+                    nameReason);
+            }
 
             if (node is IrExpression { ResultType: null })
-                Add(remarks, DiagnosticIds.UnknownResultType, OffsetOf(node), node,
+            {
+                yield return Cause(
+                    DiagnosticIds.UnknownResultType,
+                    LocationOf(node),
+                    node,
                     "expression result type is unknown (e.g. a slot merged from conflicting types)");
+            }
         }
-        return remarks;
+
+        foreach (int localIndex in UnraisedPinnedLocals(function))
+        {
+            yield return new DecompilerFidelityCause(
+                DiagnosticIds.UnraisedPinnedLocal,
+                DecompilerFidelityLocation.AtLocal(localIndex),
+                "PinnedLocal",
+                $"Pinned local V_{localIndex}",
+                "referenced pinned local has no owning fixed statement and no faithful C# declaration",
+                function.Locals[localIndex].ToDisplayString());
+        }
     }
 
-    static void Add(List<Remark> remarks, string code, int offset, IrNode node, string reason)
-        => remarks.Add(new Remark(code, offset, node.Describe(), reason));
+    static DecompilerFidelityCause Cause(
+        string code,
+        DecompilerFidelityLocation location,
+        IrNode node,
+        string reason,
+        string? discriminator = null)
+        => new(
+            code,
+            location,
+            node.GetType().Name,
+            node.Describe(),
+            reason,
+            discriminator);
+
+    static IEnumerable<int> UnraisedPinnedLocals(IrFunction function)
+    {
+        HashSet<int>? pinned = null;
+        for (int i = 0; i < function.Locals.Length; i++)
+        {
+            if (function.Locals[i].Kind == TypeRefKind.Pinned)
+                (pinned ??= []).Add(i);
+        }
+        if (pinned is null)
+            yield break;
+
+        var fixedOwned = function.Descendants
+            .OfType<Fixed>()
+            .Select(static fixedStatement => fixedStatement.LocalIndex)
+            .ToHashSet();
+        var reported = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            int slot = node switch
+            {
+                LoadLocal load => load.Index,
+                StoreLocal store => store.Index,
+                LoadLocalAddress address => address.Index,
+                _ => -1,
+            };
+            if (slot >= 0
+                && pinned.Contains(slot)
+                && !fixedOwned.Contains(slot)
+                && reported.Add(slot))
+            {
+                yield return slot;
+            }
+        }
+    }
 
     static string UnrepresentableTypeText(TypeRef type)
     {
@@ -93,12 +235,14 @@ public static class FidelityRemarks
             _ => type.ToDisplayString(),
         };
 
-    /// <summary>The enclosing block's offset, climbing parents; -1 when the node hangs off the signature.</summary>
-    static int OffsetOf(IrNode node)
+    static DecompilerFidelityLocation LocationOf(IrNode node)
     {
+        if (node.SourceOffset >= 0)
+            return DecompilerFidelityLocation.AtIlOffset(node.SourceOffset);
+
         for (IrNode? n = node; n is not null; n = n.Parent)
             if (n is Block b)
-                return b.StartOffset;
-        return -1;
+                return DecompilerFidelityLocation.AtIlOffset(b.StartOffset);
+        return DecompilerFidelityLocation.Signature;
     }
 }

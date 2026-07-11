@@ -599,7 +599,7 @@ static class Program
                 string id = $"{typeName}::{methodName}";
                 string? bucket = Completeness.Residual(function)
                     ?? (function.Fidelity != DecompilationFidelity.Full
-                        ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
+                        ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(function, id)}"
                         : null);
 
                 if (bucket is null)
@@ -684,9 +684,10 @@ static class Program
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             var context = PassContext.ForImport(ImportSeam(source));
-            foreach (var (_, _, function) in IrImporter.ImportAssembly(source))
+            foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
             {
                 total++;
+                string id = $"{typeName}::{methodName}";
                 try
                 {
                     IrPasses.Run(function, IrPasses.Default, context);
@@ -709,7 +710,7 @@ static class Program
                     Console.Error.WriteLine($"IMPORTER BUG: {diagnostic.Message}");
                     continue;
                 }
-                string bucket = BucketFor(diagnostic);
+                string bucket = FidelityCauseBuckets.PrimaryBucket(function, id);
                 stops[bucket] = stops.GetValueOrDefault(bucket) + 1;
             }
         }
@@ -719,25 +720,6 @@ static class Program
         foreach (var stop in stops.OrderByDescending(s => s.Value).Take(15))
             Console.WriteLine($"  {stop.Value,8}  {stop.Key}");
         return crashes > 0 ? 1 : 0;
-    }
-
-    /// <summary>
-    /// The roadmap bucket for a stop. Type-level stops
-    /// (<see cref="DiagnosticIds.UnsupportedType"/>) group by their reason —
-    /// the function-pointer and custom-modifier signatures that used to sink
-    /// fidelity silently into the "(typed)" catch-all; the parenthetical detail
-    /// (the specific modifier type) is trimmed so they aggregate. Opcode-level
-    /// stops keep their second message token (the IL opcode).
-    /// </summary>
-    static string BucketFor(DecompilerDiagnostic diagnostic)
-    {
-        if (diagnostic.Id == DiagnosticIds.UnsupportedType)
-        {
-            var message = diagnostic.Message ?? "(typed)";
-            int detail = message.IndexOf('(');
-            return detail < 0 ? message : message[..detail].TrimEnd();
-        }
-        return diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
     }
 
     /// <summary>
@@ -1202,22 +1184,30 @@ static class Program
                 continue;
 
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
-            var remarks = FidelityRemarks.Collect(function);
+            var census = FidelityCauseBuckets.Inspect(function, dumpMethod);
+            if (!census.Succeeded)
+                return Fail($"Fidelity-cause inspection failed: {census.Failure}");
+            var remarks = census.Causes;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");
             Console.WriteLine();
             Console.WriteLine($"fidelity: {function.Fidelity}");
-            if (remarks.Count == 0)
+            if (remarks.Length == 0)
             {
                 Console.WriteLine("remarks: (none) — every construct raised; representable C#");
                 return 0;
             }
 
-            Console.WriteLine($"remarks: {remarks.Count} site{(remarks.Count == 1 ? "" : "s")} cap fidelity below Full");
+            Console.WriteLine($"remarks: {remarks.Length} site{(remarks.Length == 1 ? "" : "s")} cap fidelity below Full");
             Console.WriteLine();
             foreach (var r in remarks)
             {
-                string where = r.Offset >= 0 ? $"IL_{r.Offset:X4}" : "(signature)";
+                string where = r.Location.Kind switch
+                {
+                    DecompilerFidelityLocationKind.IlOffset => $"IL_{r.Location.ILOffset:X4}",
+                    DecompilerFidelityLocationKind.Local => $"V_{r.Location.LocalIndex}",
+                    _ => "(signature)",
+                };
                 Console.WriteLine($"  {r.Code}  {where,-12}  {r.Reason}");
                 Console.WriteLine($"           at: {r.Node}");
             }

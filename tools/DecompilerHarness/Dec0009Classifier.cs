@@ -79,7 +79,13 @@ internal static class Dec0009Classifier
                     continue;
                 }
 
-                var allRemarks = FidelityRemarks.Collect(function);
+                var census = FidelityCauseBuckets.Inspect(function, id);
+                if (!census.Succeeded)
+                {
+                    passBugs++;
+                    continue;
+                }
+                var allRemarks = census.Causes;
                 var methodRemarks = allRemarks
                     .Where(r => r.Code == DiagnosticIds.UnrepresentableMetadataName)
                     .ToArray();
@@ -128,7 +134,7 @@ internal static class Dec0009Classifier
                 .Select(b => new Dec0009CategoryReport(b.Category, b.Disposition, b.Methods, b.PrimaryMethods, b.Remarks, [.. b.Examples]))]);
     }
 
-    internal static string Classify(string methodId, IReadOnlyList<FidelityRemarks.Remark> remarks)
+    internal static string Classify(string methodId, IReadOnlyList<DecompilerFidelityCause> remarks)
     {
         string haystack = methodId + "\n" + string.Join('\n', remarks.Select(r => r.Reason + "\n" + r.Node));
 

@@ -26,7 +26,9 @@ public enum DecompilationFidelity
 /// <summary>
 /// A diagnostic with a stable machine-readable identifier. Identifiers drive
 /// fallback routing and CI triage, so they are stable across releases; the
-/// message is for humans and carries no contract.
+/// message is for humans and carries no contract. Use
+/// <see cref="DecompilerFindings.InspectFidelityCauses"/> for the complete
+/// identity-bearing census of fidelity-lowering sites.
 /// </summary>
 public readonly record struct DecompilerDiagnostic(string Id, string Message)
 {
@@ -167,6 +169,18 @@ public static class DiagnosticIds
     /// faithful — the volatility lives on the field declaration.
     /// </summary>
     public const string VolatileIndirectAccess = "DEC0012";
+
+    /// <summary>
+    /// A residual <c>continue</c> whose source-like spelling is not currently
+    /// proven opcode-exact.
+    /// </summary>
+    public const string UnverifiedContinue = "DEC0013";
+
+    /// <summary>
+    /// A referenced <c>pinned</c> local survived without an owning
+    /// <c>fixed</c> statement and has no faithful C# declaration spelling.
+    /// </summary>
+    public const string UnraisedPinnedLocal = "DEC0014";
 }
 
 /// <summary>
