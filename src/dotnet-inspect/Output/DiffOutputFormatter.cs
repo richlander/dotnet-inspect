@@ -103,7 +103,9 @@ public static class DiffOutputFormatter
             Versions = $"{fromVersion} -> {toVersion}",
             ChangesSummary = changes?.Summary,
             AnalysisDiffSummary = analysisDiff?.Summary,
+            AnalysisDiffNote = DistinctStatusMessage(analysisDiff),
             ImplementationDiffSummary = implementationDiff?.Summary,
+            ImplementationDiffNote = DistinctStatusMessage(implementationDiff),
             Changes = changes?.Rows,
             AnalysisDiff = analysisDiff?.Rows,
             ImplementationDiff = implementationDiff?.Rows
@@ -121,6 +123,7 @@ public static class DiffOutputFormatter
                 writer,
                 "Changes",
                 view.ChangesSummary,
+                null,
                 ["Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New"],
                 ["change", "classification", "type", "member", "kind", "detail", "old", "new"],
                 view.Changes?.Select(row => new[]
@@ -136,6 +139,7 @@ public static class DiffOutputFormatter
                 writer,
                 "Analysis Diff",
                 view.AnalysisDiffSummary,
+                view.AnalysisDiffNote,
                 ["Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence"],
                 ["member", "signal", "old", "new", "delta", "shape", "evidence"],
                 view.AnalysisDiff?.Select(row => new[]
@@ -151,6 +155,7 @@ public static class DiffOutputFormatter
                 writer,
                 "Implementation Diff",
                 view.ImplementationDiffSummary,
+                view.ImplementationDiffNote,
                 ["Member", "Mechanism", "Change", "Evidence"],
                 ["member", "mechanism", "change", "evidence"],
                 view.ImplementationDiff?.Select(row => new[]
@@ -166,15 +171,28 @@ public static class DiffOutputFormatter
         MarkoutWriter writer,
         string name,
         string summary,
+        string? note,
         string[] headers,
         string[] stableHeaders,
         IEnumerable<string[]>? rows)
     {
         writer.WriteHeading(2, name);
         writer.WriteParagraph(summary);
+        if (note is not null)
+            writer.WriteCallout(CalloutSeverity.Note, note);
         if (rows is not null)
             writer.WriteTable(headers, stableHeaders, rows.ToArray());
     }
+
+    private static string? DistinctStatusMessage(AnalysisDiffView? view)
+        => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
+            ? view.Status.Message
+            : null;
+
+    private static string? DistinctStatusMessage(ImplementationDiffView? view)
+        => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
+            ? view.Status.Message
+            : null;
 
     public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {

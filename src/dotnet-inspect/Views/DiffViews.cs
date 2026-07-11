@@ -51,7 +51,9 @@ public class DiffDocumentView
     public string Versions { get; set; } = "";
     public string? ChangesSummary { get; set; }
     public string? AnalysisDiffSummary { get; set; }
+    public string? AnalysisDiffNote { get; set; }
     public string? ImplementationDiffSummary { get; set; }
+    public string? ImplementationDiffNote { get; set; }
 
     [MarkoutSection(Name = "Changes")]
     public List<DiffDetailedChangeRow>? Changes { get; set; }

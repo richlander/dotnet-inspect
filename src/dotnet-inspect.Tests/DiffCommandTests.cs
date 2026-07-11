@@ -826,6 +826,14 @@ public class DiffCommandTests
         Assert.Contains("## Implementation Diff", output, StringComparison.Ordinal);
         Assert.Contains("RegressesAllocInLoop", output, StringComparison.Ordinal);
         Assert.Contains("ConstantValue", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "Analysis signal changes are body-level evidence, not public API compatibility changes.",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -870,6 +878,12 @@ public class DiffCommandTests
         using var document = System.Text.Json.JsonDocument.Parse(output);
         Assert.True(document.RootElement.TryGetProperty("analysis_diff", out var analysis));
         Assert.True(document.RootElement.TryGetProperty("implementation_diff", out var implementation));
+        Assert.Equal(
+            "Analysis signal changes are body-level evidence, not public API compatibility changes.",
+            document.RootElement.GetProperty("analysis_diff_note").GetString());
+        Assert.Equal(
+            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
+            document.RootElement.GetProperty("implementation_diff_note").GetString());
         Assert.True(analysis.GetArrayLength() > 0);
         Assert.True(implementation.GetArrayLength() > 0);
     }
