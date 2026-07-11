@@ -28,6 +28,7 @@ public sealed record CSharpFormatOptions
     public bool IncludeCustomAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
+    public bool OmitPropertyAccessors { get; init; }
 }
 
 public sealed record CSharpFormattedDeclaration(
@@ -82,10 +83,63 @@ public sealed class CSharpFormatter
             methodParameters));
     }
 
-    public string FormatTypeDeclaration(ApiType type)
+    public string FormatTypeDeclaration(
+        ApiType type,
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return CSharpDeclarationWriter.RenderTypeDeclaration(type, _metadataOptions);
+        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type, _metadataOptions);
+        if (primaryConstructorParameters is not { Count: > 0 })
+            return declaration;
+
+        string declarationWithoutAttributes = CSharpDeclarationWriter.RenderTypeDeclaration(
+            type,
+            _metadataOptions with { IncludeCustomAttributes = false });
+        if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
+        }
+
+        string attributePrefix = declaration[..^declarationWithoutAttributes.Length];
+        return attributePrefix
+            + AddPrimaryConstructorParameters(
+                declarationWithoutAttributes,
+                primaryConstructorParameters);
+    }
+
+    public string FormatDelegate(ApiType type, ApiMember invoke)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(invoke);
+        if (type.Kind != "delegate")
+            throw new ArgumentException($"Type '{type.FullName}' is not a delegate.", nameof(type));
+        if (invoke.SignatureModel is not { } signature)
+        {
+            throw new NotSupportedException(
+                $"Delegate '{type.FullName}' requires a structured Invoke signature.");
+        }
+
+        string attributes = _metadataOptions.IncludeCustomAttributes && type.Attributes.Count > 0
+            ? $"[{string.Join(", ", type.Attributes)}] "
+            : "";
+        string unsafeText = invoke.IsUnsafe ? " unsafe" : "";
+        string parameters = string.Join(", ", signature.Parameters.Select(parameter => parameter.Declaration));
+        string declaration =
+            $"{attributes}public{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type, includeVariance: true)}({parameters})";
+        foreach (var typeParameter in type.TypeParameters)
+        {
+            if (typeParameter.ConstraintsSummary is { } constraints)
+            {
+                declaration +=
+                    $" where {EscapeIdentifier(typeParameter.Name)} : "
+                    + EscapeKnownIdentifiers(
+                        constraints,
+                        type.TypeParameters.Select(parameter => parameter.Name));
+            }
+        }
+
+        return declaration + ";";
     }
 
     public CSharpFormattedDeclaration FormatTypeUnit(
@@ -97,6 +151,60 @@ public sealed class CSharpFormatter
             type,
             members,
             _metadataOptions));
+    }
+
+    public static string EscapeIdentifier(string identifier)
+        => CSharpDeclarationWriter.EscapeIdentifier(identifier);
+
+    public static string EscapeNamespace(string @namespace)
+        => CSharpDeclarationWriter.EscapeNamespace(@namespace);
+
+    public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
+        => CSharpDeclarationWriter.EscapeKnownIdentifiers(text, rawNames);
+
+    public static string FormatTypeName(ApiType type, bool includeVariance = false)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        int tick = type.Name.IndexOf('`');
+        string name = tick >= 0 ? type.Name[..tick] : type.Name;
+        name = EscapeIdentifier(name);
+        return type.TypeParameters.Count == 0
+            ? name
+            : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
+    }
+
+    public static string NormalizeGeneratedMetadataTypeName(string metadataName)
+    {
+        ArgumentNullException.ThrowIfNull(metadataName);
+        if (!IsGeneratedMetadataName(metadataName))
+            return metadataName;
+
+        int arity = metadataName.IndexOf('`');
+        string sourceName = arity < 0 ? metadataName : metadataName[..arity];
+        var builder = new System.Text.StringBuilder(sourceName.Length + 1);
+        if (sourceName.Length == 0 || !(char.IsLetter(sourceName[0]) || sourceName[0] == '_'))
+            builder.Append('_');
+        foreach (char character in sourceName)
+            builder.Append(char.IsLetterOrDigit(character) || character == '_' ? character : '_');
+        return builder.ToString();
+    }
+
+    public static bool IsGeneratedMetadataName(string name)
+        => name.StartsWith('<') && name.Contains('>', StringComparison.Ordinal);
+
+    public static string FormatConstructorInitializer(CSharpConstructorInitializer initializer)
+    {
+        ArgumentNullException.ThrowIfNull(initializer);
+        string target = initializer.Kind switch
+        {
+            CSharpConstructorInitializerKind.This => "this",
+            CSharpConstructorInitializerKind.Base => "base",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(initializer),
+                initializer.Kind,
+                "Unknown constructor initializer kind.")
+        };
+        return $": {target}({string.Join(", ", initializer.Arguments)})";
     }
 
     static CSharpDeclarationOptions ToMetadataOptions(
@@ -125,9 +233,29 @@ public sealed class CSharpFormatter
             ForceUnsafe = options.ForceUnsafe,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,
-            OmitInterfaceMemberModifiers = options.OmitInterfaceMemberModifiers
+            OmitInterfaceMemberModifiers = options.OmitInterfaceMemberModifiers,
+            OmitPropertyAccessors = options.OmitPropertyAccessors
         };
 
     static CSharpFormattedDeclaration ToFormattedDeclaration(CSharpRenderedDeclaration declaration)
         => new(declaration.Source, declaration.Usings.ToArray(), declaration.Diagnostics.ToArray());
+
+    static string FormatTypeParameter(TypeParameter parameter, bool includeVariance)
+        => includeVariance && parameter.Variance is { } variance
+            ? $"{variance} {EscapeIdentifier(parameter.Name)}"
+            : EscapeIdentifier(parameter.Name);
+
+    static string AddPrimaryConstructorParameters(
+        string declaration,
+        IReadOnlyList<ApiParameter> parameters)
+    {
+        string parameterList = string.Join(", ", parameters.Select(parameter => parameter.Declaration));
+        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
+        string head = constraints >= 0 ? declaration[..constraints] : declaration;
+        string tail = constraints >= 0 ? declaration[constraints..] : "";
+        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
+        return inheritance >= 0
+            ? head[..inheritance] + $"({parameterList})" + head[inheritance..] + tail
+            : $"{head}({parameterList}){tail}";
+    }
 }

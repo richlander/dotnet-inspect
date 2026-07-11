@@ -364,6 +364,7 @@ public class ApiMember
     public bool IsReadOnly { get; set; }
     public bool IsConst { get; set; }
     public bool IsUnsafe { get; set; }
+    public bool IsAsync { get; set; }
 
     /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").
