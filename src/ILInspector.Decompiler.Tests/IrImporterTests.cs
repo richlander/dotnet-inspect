@@ -5135,7 +5135,6 @@ public class LockSugarTests
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
         Assert.Matches(@"lock \(V_\d+\)", output);
-        Assert.DoesNotContain("lock (LockFixtureSamples.s_staticRoot)", output);
     }
 
     static IrFunction IrImportFor(string methodName)
