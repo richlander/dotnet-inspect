@@ -139,7 +139,7 @@ public class ExtensionsCommandTests
     }
 
     [Fact]
-    public void CommandProjection_ConsumesFindingCensusAndPreservesDisplayShape()
+    public void CommandProjection_ConsumesFindingCensusAndHandlesEdgeCases()
     {
         var assembly = new AssemblyCollector.AssemblyInfo(
             typeof(ExtensionsCommandTests).Assembly.Location,
@@ -158,27 +158,12 @@ public class ExtensionsCommandTests
         Assert.Contains("this string", result.Signature, StringComparison.Ordinal);
         Assert.Equal("tests", result.Source);
         Assert.Equal("1.0.0", result.SourceVersion);
-    }
-
-    [Fact]
-    public void CommandProjection_MatchesGenericReceiverDisplayType()
-    {
-        var assembly = new AssemblyCollector.AssemblyInfo(
-            typeof(ExtensionsCommandTests).Assembly.Location,
-            "tests",
-            "1.0.0");
-
-        var census = ExtensionsCommand.InspectExtensionAssembly(assembly, includeAll: true);
-        var result = Assert.Single(
+        var genericResult = Assert.Single(
             ExtensionsCommand.ProjectExtensions(census, "IEnumerable"),
             result => result.MethodName == "FirstOrNull");
 
-        Assert.Contains("IEnumerable<T>", result.ExtendedType, StringComparison.Ordinal);
-    }
+        Assert.Contains("IEnumerable<T>", genericResult.ExtendedType, StringComparison.Ordinal);
 
-    [Fact]
-    public void CommandProjection_AllowsDuplicateFindingAnchors()
-    {
         var first = FindingTestData.ExtensionMember(
             "Duplicate",
             "string",
@@ -189,16 +174,12 @@ public class ExtensionsCommandTests
             ReturnType = "System.Int32",
         };
         var members = new[] { first, second };
-        var assembly = new AssemblyCollector.AssemblyInfo(
-            typeof(ExtensionsCommandTests).Assembly.Location,
-            "tests",
-            "1.0.0");
-        var census = new ExtensionsCommand.ExtensionAssemblyCensus(
+        var duplicateCensus = new ExtensionsCommand.ExtensionAssemblyCensus(
             assembly,
             members,
             MetadataFindings.InspectExtensionMembers(members, FindingTestData.Subject));
 
-        var results = ExtensionsCommand.ProjectExtensions(census, "System.String");
+        var results = ExtensionsCommand.ProjectExtensions(duplicateCensus, "System.String");
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, result => result.Signature == first.Signature);
