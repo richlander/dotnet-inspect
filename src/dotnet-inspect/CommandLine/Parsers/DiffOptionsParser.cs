@@ -119,6 +119,8 @@ public static class DiffOptionsParser
             OneLine = opts.ResolveOneLine(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
+            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),

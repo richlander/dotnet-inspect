@@ -112,8 +112,15 @@ static class SlotResidualCensus
     static int F2PassIndex()
     {
         var passes = IrPasses.Default;
-        for (int i = 0; i + 1 < passes.Length; i++)
-            if (passes[i] is ExpressionInliningPass && passes[i + 1] is SlotMaterializationPass)
+        int materialization = -1;
+        for (int i = 0; i < passes.Length; i++)
+            if (passes[i] is SlotMaterializationPass)
+            {
+                materialization = i;
+                break;
+            }
+        for (int i = materialization - 1; i >= 0; i--)
+            if (passes[i] is ExpressionInliningPass)
                 return i;
         throw new InvalidOperationException("Could not find late F2 ExpressionInliningPass before SlotMaterializationPass.");
     }

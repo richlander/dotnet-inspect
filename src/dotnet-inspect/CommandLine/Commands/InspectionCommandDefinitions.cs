@@ -72,6 +72,8 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(typeFilterOption);
         diffCommand.Options.Add(memberFilterOption);
         opts.AddTableOptionsTo(diffCommand);
+        diffCommand.Options.Add(opts.Json);
+        diffCommand.Options.Add(opts.Markdown);
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);

@@ -1444,7 +1444,6 @@ public class SectionPipelineTests
             SwitchInspection = MetadataFindings.InspectSwitches(
                 [new SwitchInfo("Feature Switch", "Switch", "Api")],
                 FindingTestData.Subject),
-            ExtensionMethods = [new ExtensionMethodSummary { MethodName = "Ext", ExtendedType = "Target", ExtensionClass = "Extensions" }],
             UnsafeMembers = [new UnsafeMemberSummary { Member = "T.M()", Reason = "Unsafe signature", Detail = "int*", Kind = "signature" }],
             TopLeverage = [new MethodLeverageSummary { Member = "T.M()", Callers = 1 }],
             OptimizationOpportunities =
@@ -1493,6 +1492,15 @@ public class SectionPipelineTests
                 [new AssemblyAttributeInfo("Attr", "Assembly", null)],
                 FindingTestData.Subject),
             jsonOrder: null);
+        ExtensionMethodInfo[] extensionMembers =
+        [
+            FindingTestData.ExtensionMember("Ext", "Target"),
+        ];
+        library.SetExtensionMemberInspection(
+            MetadataFindings.InspectExtensionMembers(
+                extensionMembers,
+                FindingTestData.Subject),
+            extensionMembers);
         yield return DiscoverableCase("library", libraryPipeline, library);
 
         var packagePipeline = PackageSectionDescriptors.CreatePipeline();

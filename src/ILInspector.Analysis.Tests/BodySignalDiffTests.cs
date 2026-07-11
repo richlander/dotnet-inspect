@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Analysis;
 using DotnetInspector.Fixtures;
 
@@ -134,6 +136,59 @@ public class BodySignalDiffTests
         var added = Assert.Single(diff.Rows);
         Assert.Equal(BodySignalDiffKind.Added, added.Kind);
         Assert.Null(added.ILOffset);
+    }
+
+    [Fact]
+    public void CompareUnsafe_DoesNotMatchMemberEvidenceToBodyEvidence()
+    {
+        var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", null, null)]);
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 4, null)]);
+
+        var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        Assert.Contains(diff.Rows, row =>
+            row.Kind == BodySignalDiffKind.Removed
+            && row.ILOffset is null);
+        Assert.Contains(diff.Rows, row =>
+            row.Kind == BodySignalDiffKind.Added
+            && row.ILOffset == 4);
+    }
+
+    [Fact]
+    public void CompareUnsafe_ReorderedOperationsDoNotBecomeRemoveAddRows()
+    {
+        var method = DiffMethod(TypeRef.Definition("Asm", "Ns", "UnsafeApi"), "Use");
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [],
+            unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>
+            {
+                [method.MetadataToken] =
+                [
+                    new(method, 0, UnsafetyKind.StackAlloc, "byte*"),
+                    new(method, 4, UnsafetyKind.Deref, "int"),
+                ],
+            });
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [method],
+            [],
+            unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>
+            {
+                [method.MetadataToken] =
+                [
+                    new(method, 0, UnsafetyKind.Deref, "int"),
+                    new(method, 4, UnsafetyKind.StackAlloc, "byte*"),
+                ],
+            });
+
+        var diff = BodySignalDiff.CompareUnsafe(oldIndex, newIndex);
+
+        Assert.Empty(diff.Rows);
     }
 
     static MethodIdentity DiffMethod(TypeRef declaring, string name)

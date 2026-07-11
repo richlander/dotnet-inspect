@@ -9,6 +9,7 @@ using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Research;
 using Markout;
+using System.Text.Json;
 
 namespace DotnetInspector.Commands;
 
@@ -27,6 +28,16 @@ public class DiffCommand
             return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
+        if (options.Finding is not null && options.IncludeSections is null)
+        {
+            options = options with
+            {
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.FindingTransitions.Name,
+                }
+            };
+        }
 
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
@@ -42,6 +53,11 @@ public class DiffCommand
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
         }
+
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                options.OneLineExplicitlySet,
+                options.IncludeSections))
+            return 1;
 
         if (!hasPlatform && !hasPackage && !hasLibrary)
         {
@@ -62,9 +78,11 @@ public class DiffCommand
         if (SelectsFindingTransitions(options))
         {
             if (options.IncludeSections is { Count: > 0 } sections
-                && (sections.Count != 1 || !sections.Contains("Finding Transitions")))
+                && (sections.Count != 1
+                    || !sections.Contains(DiffSections.FindingTransitions.Name)))
             {
-                Console.Error.WriteLine("Error: Finding Transitions must be selected by itself.");
+                Console.Error.WriteLine(
+                    "Error: Finding Transitions must be selected by itself because it is a focused endpoint-confirmation lens; select comparison sections explicitly instead of using @All.");
                 return 1;
             }
             if (options.Finding is null
@@ -149,24 +167,15 @@ public class DiffCommand
 
             try
             {
+                if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
+                {
+                    WriteSelectedDocument(inputs, options);
+                    return 0;
+                }
+
                 if (SelectsFindingTransitions(options))
                 {
-                    TryResolveFindingDescriptor(options, out var findingDescriptor, out _);
-                    var rows = findingDescriptor == AnalysisFindings.AllocationDescriptor.Id
-                        ? BuildAllocationFindingTransitions(
-                            inputs.FromPaths,
-                            inputs.ToPaths,
-                            inputs.FromSurface,
-                            inputs.ToSurface,
-                            inputs.FromVersion,
-                            inputs.ToVersion,
-                            options)
-                        : BuildFindingTransitions(
-                            inputs.FromSurface,
-                            inputs.ToSurface,
-                            inputs.FromVersion,
-                            inputs.ToVersion,
-                            options);
+                    var rows = BuildSelectedFindingTransitions(inputs, options);
                     var view = DiffOutputFormatter.BuildFindingTransitionsView(
                         inputs.Name,
                         rows,
@@ -220,7 +229,13 @@ public class DiffCommand
                 if (SelectsAnalysisDiff(options))
                 {
                     var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options, inputs.FromSurface, inputs.ToSurface);
-                    var view = DiffOutputFormatter.BuildAnalysisDiffView(inputs.Name, analysis.Rows, analysis.Summary, inputs.FromVersion, inputs.ToVersion);
+                    var view = DiffOutputFormatter.BuildAnalysisDiffView(
+                        inputs.Name,
+                        analysis.Rows,
+                        analysis.Summary,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        decorateMember: !options.Jsonl);
                     if (options.Tsv || options.Jsonl)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
@@ -467,11 +482,11 @@ public class DiffCommand
 
     private static bool SelectsAnalysisDiff(DiffOptions options)
         => options.AllocRegressionsOnly
-            || options.IncludeSections?.Contains("Analysis Diff") == true;
+            || options.IncludeSections?.Contains(DiffSections.AnalysisDiff.Name) == true;
 
     private static bool SelectsFindingTransitions(DiffOptions options)
         => options.Finding is not null
-            || options.IncludeSections?.Contains("Finding Transitions") == true;
+            || options.IncludeSections?.Contains(DiffSections.FindingTransitions.Name) == true;
 
     private static bool TryResolveFindingDescriptor(
         DiffOptions options,
@@ -505,11 +520,125 @@ public class DiffCommand
         return false;
     }
 
+    private static string ResolveFindingDescriptor(DiffOptions options)
+    {
+        if (TryResolveFindingDescriptor(options, out var descriptor, out var error))
+            return descriptor;
+
+        throw new InvalidOperationException(
+            error ?? "Finding descriptor resolution failed.");
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildSelectedFindingTransitions(
+        DiffInputs inputs,
+        DiffOptions options)
+        => ResolveFindingDescriptor(options) == AnalysisFindings.AllocationDescriptor.Id
+            ? BuildAllocationFindingTransitions(
+                inputs.FromPaths,
+                inputs.ToPaths,
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.FromVersion,
+                inputs.ToVersion,
+                options)
+            : BuildFindingTransitions(
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.FromVersion,
+                inputs.ToVersion,
+                options);
+
     private static bool SelectsImplementationDiff(DiffOptions options)
-        => options.IncludeSections?.Contains("Implementation Diff") == true;
+        => options.IncludeSections?.Contains(DiffSections.ImplementationDiff.Name) == true;
 
     private static bool SelectsDetailedChanges(DiffOptions options)
-        => options.IncludeSections?.Contains("Changes") == true;
+        => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
+
+    private static void WriteSelectedDocument(DiffInputs inputs, DiffOptions options)
+    {
+        var selected = options.IncludeSections
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                options.AllocRegressionsOnly
+                    ? DiffSections.AnalysisDiff.Name
+                    : DiffSections.Changes.Name
+            };
+
+        DiffDetailedChangesView? changesView = null;
+        if (selected.Contains(DiffSections.Changes.Name))
+        {
+            var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
+            changesView = DiffOutputFormatter.BuildDetailedChangesView(
+                inputs.Name,
+                ApplyFilters(diff, options),
+                inputs.FromVersion,
+                inputs.ToVersion);
+        }
+
+        AnalysisDiffView? analysisView = null;
+        if (selected.Contains(DiffSections.AnalysisDiff.Name))
+        {
+            var analysis = BuildAnalysisDiff(
+                inputs.FromPaths,
+                inputs.ToPaths,
+                options,
+                inputs.FromSurface,
+                inputs.ToSurface);
+            analysisView = DiffOutputFormatter.BuildAnalysisDiffView(
+                inputs.Name,
+                analysis.Rows,
+                analysis.Summary,
+                inputs.FromVersion,
+                inputs.ToVersion,
+                decorateMember: false);
+        }
+
+        ImplementationDiffView? implementationView = null;
+        if (selected.Contains(DiffSections.ImplementationDiff.Name))
+        {
+            var implementation = BuildImplementationDiff(
+                inputs.FromPaths,
+                inputs.ToPaths,
+                options,
+                inputs.FromSurface,
+                inputs.ToSurface);
+            implementationView = DiffOutputFormatter.BuildImplementationDiffView(
+                inputs.Name,
+                implementation,
+                inputs.FromVersion,
+                inputs.ToVersion);
+        }
+
+        FindingTransitionsView? findingTransitionsView = null;
+        if (selected.Contains(DiffSections.FindingTransitions.Name))
+        {
+            var rows = BuildSelectedFindingTransitions(inputs, options);
+            findingTransitionsView = DiffOutputFormatter.BuildFindingTransitionsView(
+                inputs.Name,
+                rows,
+                inputs.FromVersion,
+                inputs.ToVersion);
+        }
+
+        var view = DiffOutputFormatter.BuildDocumentView(
+            inputs.Name,
+            inputs.FromVersion,
+            inputs.ToVersion,
+            changesView,
+            analysisView,
+            implementationView,
+            findingTransitionsView);
+
+        if (options.JsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(view, DiffJsonContext.Default.DiffDocumentView));
+            return;
+        }
+
+        Console.WriteLine(OutputFormatter.ApplyRowLimit(
+            DiffOutputFormatter.RenderDocumentView(view),
+            options.Rows));
+    }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
 
@@ -547,7 +676,7 @@ public class DiffCommand
                 && change.Signal is { Length: > 0 })
             .Select(change => new RankedAnalysisRow(
                 new AnalysisDiffRow(
-                    MarkoutInline.Code(change.Subject.Display),
+                    change.Subject.Display,
                     change.Signal!,
                     change.OldValue ?? "",
                     change.NewValue ?? "",
@@ -1270,6 +1399,8 @@ public record DiffOptions
     public bool OneLine { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
+    public bool JsonOutput { get; init; }
+    public bool OneLineExplicitlySet { get; init; }
     public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
@@ -1291,5 +1422,5 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => OneLine || Jsonl || NoHeader || NameOnly;
+    public bool IsRawOutput => OneLine || Jsonl || JsonOutput || NoHeader || NameOnly;
 }

@@ -1398,6 +1398,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_FindingTransitions_ImpliedSelectionRejectsCompositionBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "-m", "HotPath",
+            "--finding", "analysis.allocation",
+            "-S", "Analysis Diff",
+            "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Finding Transitions must be selected by itself", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Diff_FindingTransitions_IsDiscoverableAndSelectableForLocalPair()
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -4021,6 +4038,40 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("runtime@", output);
         Assert.DoesNotContain("@runtime", output);
+    }
+
+    [Fact]
+    public async Task Extensions_FailedAssemblyWarnsAndPreservesSuccessfulResults()
+    {
+        var corruptPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-corrupt-{Guid.NewGuid():N}.dll");
+        try
+        {
+            await File.WriteAllTextAsync(
+                corruptPath,
+                "not a PE image",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "extensions",
+                "MetadataReader",
+                "--library", typeof(MetadataFindings).Assembly.Location,
+                "--library", corruptPath,
+                "--count",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.True(int.Parse(output.Trim()) > 0);
+            Assert.Contains(
+                "Warning: Extension member inspection failed",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(corruptPath);
+        }
     }
 
     [Fact]

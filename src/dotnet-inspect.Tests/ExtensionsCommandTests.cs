@@ -1,5 +1,8 @@
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -133,6 +136,73 @@ public class ExtensionsCommandTests
         var typeDefExtensions = extensions.Where(e =>
             e.ExtendedType.Contains("TypeDefinition")).ToList();
         Assert.Contains(typeDefExtensions, e => e.MethodName == "IsPublic" && e.Kind == "property");
+    }
+
+    [Fact]
+    public void CommandProjection_ConsumesFindingCensusAndHandlesEdgeCases()
+    {
+        var assembly = new AssemblyCollector.AssemblyInfo(
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "tests",
+            "1.0.0");
+
+        var census = ExtensionsCommand.InspectExtensionAssembly(assembly, includeAll: true);
+        var finding = Assert.Single(
+            census.Inspection.Findings(),
+            finding => finding.Payload.Anchor.MemberName == "ToUpperCase");
+        var result = Assert.Single(
+            ExtensionsCommand.ProjectExtensions(census, "System.String"),
+            result => result.MethodName == "ToUpperCase");
+
+        Assert.Same(MetadataFindings.ExtensionMemberDescriptor, finding.Descriptor);
+        Assert.Contains("this string", result.Signature, StringComparison.Ordinal);
+        Assert.Equal("tests", result.Source);
+        Assert.Equal("1.0.0", result.SourceVersion);
+        var genericResult = Assert.Single(
+            ExtensionsCommand.ProjectExtensions(census, "IEnumerable"),
+            result => result.MethodName == "FirstOrNull");
+
+        Assert.Contains("IEnumerable<T>", genericResult.ExtendedType, StringComparison.Ordinal);
+
+        var first = FindingTestData.ExtensionMember(
+            "Duplicate",
+            "string",
+            signature: "void Duplicate(this string value)");
+        var second = first with
+        {
+            Signature = "int Duplicate(this string value)",
+            ReturnType = "System.Int32",
+        };
+        var members = new[] { first, second };
+        var duplicateCensus = new ExtensionsCommand.ExtensionAssemblyCensus(
+            assembly,
+            members,
+            MetadataFindings.InspectExtensionMembers(members, FindingTestData.Subject));
+
+        var results = ExtensionsCommand.ProjectExtensions(duplicateCensus, "System.String");
+
+        Assert.Equal(2, results.Count);
+        Assert.Contains(results, result => result.Signature == first.Signature);
+        Assert.Contains(results, result => result.Signature == second.Signature);
+    }
+
+    [Fact]
+    public void CommandProjection_SurfacesFindingInspectionFailure()
+    {
+        var missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var census = ExtensionsCommand.InspectExtensionAssembly(
+            new AssemblyCollector.AssemblyInfo(missingPath, "missing", null),
+            includeAll: false);
+
+        var failure = Assert.IsType<FindingInspection<ExtensionMemberObservation>.Failed>(
+            census.Inspection.Value);
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ExtensionsCommand.ProjectExtensions(census, "System.String"));
+
+        Assert.Same(MetadataFindings.ExtensionMemberDescriptor, failure.Error.Descriptor);
+        Assert.Contains("Finding inspection failed", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

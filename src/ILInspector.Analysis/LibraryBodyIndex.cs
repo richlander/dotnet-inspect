@@ -740,7 +740,8 @@ public sealed class LibraryBodyIndex
     internal static LibraryBodyIndex FromEvidence(
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
-        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null)
+        IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null,
+        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null)
         => new(
             path: "",
             methods,
@@ -757,7 +758,8 @@ public sealed class LibraryBodyIndex
             bodySignals: new Dictionary<int, BodySignals>(),
             allocationOccurrences: allocationOccurrences
                 ?? new Dictionary<int, ImmutableArray<AllocationOccurrence>>(),
-            unsafetyOccurrences: new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>(),
+            unsafetyOccurrences: unsafetyOccurrences
+                ?? new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>(),
             inAssemblyTypeIsException: new Dictionary<(string Namespace, string Name), bool>(),
             suppressedOpportunityTokens: new HashSet<int>(),
             exceptionTypeNames: new HashSet<string>(StringComparer.Ordinal),
@@ -5274,7 +5276,7 @@ public sealed class LibraryBodyIndex
                         int token = OperandInt32(instruction);
                         calls.Add(new DirectCall(
                             caller,
-                            MemberRef.Unsupported($"calli signature token 0x{token:X8}"),
+                            ResolveCalliMember(token, callerScope),
                             offset,
                             token,
                             token,
@@ -5292,6 +5294,46 @@ public sealed class LibraryBodyIndex
                             unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", unsafeOpcode, "opcode", offset, null));
                         break;
                 }
+            }
+        }
+
+        MemberRef ResolveCalliMember(int token, GenericScope scope)
+        {
+            try
+            {
+                var handle = MetadataTokens.EntityHandle(token);
+                if (handle.Kind != HandleKind.StandaloneSignature)
+                    return MemberRef.Unsupported("calli signature unavailable");
+                var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                        _reader,
+                        standalone.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                {
+                    return MemberRef.Unsupported("calli signature unavailable");
+                }
+
+                var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
+                return new MemberRef(
+                    TypeRef.Unsupported("function pointer"),
+                    "calli",
+                    signature.ParameterTypes,
+                    signature.ReturnType,
+                    MemberKind.FunctionPointer)
+                {
+                    HasThis = signature.Header.IsInstance,
+                    SignatureHeader = signature.Header.RawValue,
+                    GenericArity = signature.GenericParameterCount,
+                    OpenParameterTypes = signature.ParameterTypes,
+                    OpenReturnType = signature.ReturnType,
+                };
+            }
+            catch (Exception ex) when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or OverflowException)
+            {
+                return MemberRef.Unsupported("calli signature unavailable");
             }
         }
 

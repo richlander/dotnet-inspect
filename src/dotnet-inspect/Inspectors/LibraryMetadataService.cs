@@ -150,7 +150,7 @@ internal static class LibraryMetadataService
                 try
                 {
                     using var session = AssemblyInspectionSession.Open(path);
-                    inspection.ExtensionMethods = ScanExtensionMethods(session, path, logger);
+                    ScanExtensionMembers(session, path, inspection, logger);
                     ScanClassifiedMethods(session, path, inspection, logger);
                     inspection.ResourceInspection = ScanResources(session, path, logger);
                     ScanCustomAttributes(session, path, inspection, logger);
@@ -160,6 +160,13 @@ internal static class LibraryMetadataService
                 catch (Exception ex)
                 {
                     logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+                    if (inspection.ExtensionMemberInspection is null)
+                    {
+                        inspection.SetExtensionMemberInspection(
+                            FailedInspection<ExtensionMemberObservation>(
+                                path, MetadataFindings.ExtensionMemberDescriptor, ex),
+                            displayOrder: null);
+                    }
                     inspection.ClassifiedMethodInspection ??= FailedInspection<ClassifiedMethodObservation>(
                         path, MetadataFindings.ClassifiedMethodDescriptor, ex);
                     inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
@@ -453,52 +460,50 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
-    /// Scans an assembly for all extension methods and returns collapsed summaries.
+    /// Scans an assembly for extension members and retains Metadata's typed census.
     /// </summary>
-    internal static List<ExtensionMethodSummary>? ScanExtensionMethods(string path, VerboseLogger logger)
+    internal static void ScanExtensionMembers(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger)
     {
         try
         {
             using var session = AssemblyInspectionSession.Open(path);
-            return ScanExtensionMethods(session, path, logger);
+            ScanExtensionMembers(session, path, inspection, logger);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
-            return null;
+            inspection.SetExtensionMemberInspection(
+                FailedInspection<ExtensionMemberObservation>(
+                    path, MetadataFindings.ExtensionMemberDescriptor, ex),
+                displayOrder: null);
         }
     }
 
-    internal static List<ExtensionMethodSummary>? ScanExtensionMethods(AssemblyInspectionSession session, string path, VerboseLogger logger)
+    internal static void ScanExtensionMembers(
+        AssemblyInspectionSession session,
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger)
     {
         try
         {
-            var extensions = session.ExtensionMethods();
-
-            var collapsed = extensions
-                .GroupBy(e => (e.MethodName, e.Kind, e.ExtensionClass, e.ExtendedType))
-                .Select(g =>
-                {
-                    var count = g.Count();
-                    return new ExtensionMethodSummary
-                    {
-                        MethodName = g.Key.MethodName,
-                        ExtendedType = g.Key.ExtendedType,
-                        ExtensionClass = g.Key.ExtensionClass,
-                        Kind = g.Key.Kind,
-                        Overloads = count > 1 ? count : null
-                    };
-                })
-                .OrderBy(e => e.ExtendedType)
-                .ThenBy(e => e.MethodName)
-                .ToList();
-
-            return collapsed.Count > 0 ? collapsed : null;
+            var extensions = session.ExtensionMethods().ToArray();
+            inspection.SetExtensionMemberInspection(
+                MetadataFindings.InspectExtensionMembers(
+                    extensions,
+                    FindingSubjectFor(path)),
+                extensions);
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
-            return null;
+            inspection.SetExtensionMemberInspection(
+                FailedInspection<ExtensionMemberObservation>(
+                    path, MetadataFindings.ExtensionMemberDescriptor, ex),
+                displayOrder: null);
         }
     }
 
@@ -1149,7 +1154,8 @@ internal static class LibraryMetadataService
         try
         {
             using var session = AssemblyInspectionSession.Open(path);
-            inspection.ExtensionMethods ??= ScanExtensionMethods(session, path, logger);
+            if (inspection.ExtensionMemberInspection is null)
+                ScanExtensionMembers(session, path, inspection, logger);
             ScanClassifiedMethods(session, path, inspection, logger);
             inspection.ResourceInspection ??= ScanResources(session, path, logger);
             ScanCustomAttributes(session, path, inspection, logger);
@@ -1158,6 +1164,13 @@ internal static class LibraryMetadataService
         catch (Exception ex)
         {
             logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+            if (inspection.ExtensionMemberInspection is null)
+            {
+                inspection.SetExtensionMemberInspection(
+                    FailedInspection<ExtensionMemberObservation>(
+                        path, MetadataFindings.ExtensionMemberDescriptor, ex),
+                    displayOrder: null);
+            }
             inspection.ClassifiedMethodInspection ??= FailedInspection<ClassifiedMethodObservation>(
                 path, MetadataFindings.ClassifiedMethodDescriptor, ex);
             inspection.ResourceInspection ??= FailedInspection<MetadataResource>(
