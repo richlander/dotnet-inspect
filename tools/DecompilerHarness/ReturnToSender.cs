@@ -889,7 +889,14 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), TopLevelRootOf(reader, typeHandle), closureRoots, closureFacts);
+            bool grew = AddClosureRoots(
+                errors,
+                compilation.GetSemanticModel(tree),
+                indexes,
+                reader.GetString(typeDef.Namespace),
+                TopLevelRootOf(reader, typeHandle),
+                closureRoots,
+                closureFacts);
             if (!grew || closureRoots.Count > maxRoots)
             {
                 string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
@@ -1063,7 +1070,14 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), TopLevelRootOf(reader, typeHandle), closureRoots, closureFacts);
+            bool grew = AddClosureRoots(
+                errors,
+                compilation.GetSemanticModel(tree),
+                indexes,
+                reader.GetString(typeDef.Namespace),
+                TopLevelRootOf(reader, typeHandle),
+                closureRoots,
+                closureFacts);
             if (!grew || closureRoots.Count > maxRoots)
             {
                 string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
@@ -1238,7 +1252,14 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(errors, indexes, reader.GetString(typeDef.Namespace), TopLevelRootOf(reader, typeHandle), closureRoots, closureFacts);
+            bool grew = AddClosureRoots(
+                errors,
+                compilation.GetSemanticModel(tree),
+                indexes,
+                reader.GetString(typeDef.Namespace),
+                TopLevelRootOf(reader, typeHandle),
+                closureRoots,
+                closureFacts);
             if (!grew || closureRoots.Count > maxRoots)
             {
                 string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
@@ -1901,6 +1922,7 @@ static class ReturnToSender
 
     static bool AddClosureRoots(
         IReadOnlyList<Diagnostic> diagnostics,
+        SemanticModel semanticModel,
         ClosureIndex indexes,
         string targetNamespace,
         TypeDefinitionHandle preferredRoot,
@@ -1910,54 +1932,85 @@ static class ReturnToSender
         bool grew = false;
         foreach (var diagnostic in diagnostics)
         {
+            var reference = ClosureDiagnosticEvidence.Extract(diagnostic, semanticModel);
+            if (reference is null)
+                continue;
+
             if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103" or "CS0122")
             {
-                var names = QuotedNames(diagnostic.GetMessage()).ToList();
-                foreach (var name in names)
+                if (reference.ContainingType is { } containingType)
                 {
-                    var index = name.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
-                    var key = name.Contains('.', StringComparison.Ordinal) ? name : NormalizeTypeName(name);
-                    grew |= AddRoots(indexes, index, key, diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
-                    if (diagnostic.Id is "CS0103")
-                    {
-                        grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                        grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(name), diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                        grew |= AddRoots(indexes, indexes.Fields, name, diagnostic, name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
-                    }
+                    grew |= AddTypeRoots(diagnostic, containingType, $"{containingType}.{reference.Name}", addMemberSurfaceFact: true);
                 }
-                if (diagnostic.Id is "CS0234" && names.Count == 2)
+                else
                 {
-                    grew |= AddRoots(indexes, indexes.FullTypes, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
-                    grew |= AddRoots(indexes, indexes.Namespaces, $"{names[1]}.{names[0]}", diagnostic, $"{names[1]}.{names[0]}", targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
+                    grew |= AddTypeRoots(diagnostic, reference.Name, reference.Name, addMemberSurfaceFact: false);
                 }
-            }
-            else if (diagnostic.Id is "CS1061")
-            {
-                var names = QuotedNames(diagnostic.GetMessage()).ToList();
-                if (names.Count >= 2)
+
+                if (diagnostic.Id is "CS0103")
                 {
-                    var typeName = names[0];
-                    var index = typeName.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
-                    var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
-                    var typeGrew = AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts, out var typeResolved);
-                    grew |= typeGrew;
+                    grew |= AddRoots(indexes, indexes.Methods, NormalizeTypeName(reference.Name), diagnostic, reference.Name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    grew |= AddRoots(indexes, indexes.Properties, NormalizeTypeName(reference.Name), diagnostic, reference.Name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                    grew |= AddRoots(indexes, indexes.Fields, reference.Name, diagnostic, reference.Name, targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts);
+                }
+
+                if (diagnostic.Id is "CS0234"
+                    && reference.ContainingNamespace is { Length: > 0 } containingNamespace)
+                {
+                    string metadataFullName = $"{containingNamespace}.{reference.Name}";
+                    string displayNamespace = CompileBackCSharpNames.EscapeNamespace(containingNamespace);
+                    string displayName = CompileBackCSharpNames.Identifier(reference.Name);
+                    string displayFullName = $"{displayNamespace}.{displayName}";
+                    grew |= AddRoots(indexes, indexes.FullTypes, displayFullName, diagnostic, metadataFullName, targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
+                    grew |= AddRoots(indexes, indexes.Namespaces, metadataFullName, diagnostic, metadataFullName, targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
                 }
             }
-            else if (diagnostic.Id is "CS0117")
+            else if ((diagnostic.Id is "CS1061" or "CS0117")
+                     && reference.ContainingType is { } containingType)
             {
-                var names = QuotedNames(diagnostic.GetMessage()).ToList();
-                if (names.Count >= 2)
-                {
-                    var typeName = names[0];
-                    var index = typeName.Contains('.', StringComparison.Ordinal) ? indexes.FullTypes : indexes.Types;
-                    var key = typeName.Contains('.', StringComparison.Ordinal) ? typeName : NormalizeTypeName(typeName);
-                    var typeGrew = AddRoots(indexes, index, key, diagnostic, $"{typeName}.{names[1]}", targetNamespace, preferredRoot, addMemberSurfaceFact: true, closureRoots, closureFacts, out var typeResolved);
-                    grew |= typeGrew;
-                }
+                grew |= AddTypeRoots(diagnostic, containingType, $"{containingType}.{reference.Name}", addMemberSurfaceFact: true);
             }
         }
 
         return grew;
+
+        bool AddTypeRoots(Diagnostic diagnostic, string typeName, string detail, bool addMemberSurfaceFact)
+        {
+            bool changed = false;
+            bool resolved = false;
+            if (typeName.Contains('.', StringComparison.Ordinal))
+            {
+                changed |= AddRoots(
+                    indexes,
+                    indexes.FullTypes,
+                    typeName,
+                    diagnostic,
+                    detail,
+                    targetNamespace,
+                    preferredRoot,
+                    addMemberSurfaceFact,
+                    closureRoots,
+                    closureFacts,
+                    out resolved);
+            }
+
+            if (!resolved)
+            {
+                changed |= AddRoots(
+                    indexes,
+                    indexes.Types,
+                    NormalizeTypeName(typeName),
+                    diagnostic,
+                    detail,
+                    targetNamespace,
+                    preferredRoot,
+                    addMemberSurfaceFact,
+                    closureRoots,
+                    closureFacts);
+            }
+
+            return changed;
+        }
     }
 
     static bool AddRoots(
@@ -2055,33 +2108,6 @@ static class ReturnToSender
     }
 
     static string NormalizeTypeName(string name)
-    {
-        int angle = name.IndexOf('<');
-        if (angle >= 0)
-            name = name[..angle];
-        int dot = name.LastIndexOf('.');
-        if (dot >= 0)
-            name = name[(dot + 1)..];
-        int tick = name.IndexOf('`');
-        return tick >= 0 ? name[..tick] : name;
-    }
-
-    static IEnumerable<string> QuotedNames(string message)
-    {
-        int i = 0;
-        while (true)
-        {
-            int start = message.IndexOf('\'', i);
-            if (start < 0)
-                yield break;
-            int end = message.IndexOf('\'', start + 1);
-            if (end < 0)
-                yield break;
-            yield return message[(start + 1)..end];
-            i = end + 1;
-        }
-    }
-
-
+        => ClosureDiagnosticEvidence.NormalizeTypeName(name);
 
 }

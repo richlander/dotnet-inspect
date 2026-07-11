@@ -1,0 +1,57 @@
+using ILInspector.DecompilerHarness;
+
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ILInspector.Decompiler.Tests;
+
+public class ClosureDiagnosticEvidenceTests
+{
+    [Theory]
+    [InlineData("@class", "class")]
+    [InlineData("@for.@class", "class")]
+    [InlineData("Namespace.Generic<T>", "Generic")]
+    [InlineData("Namespace.Metadata`1", "Metadata")]
+    public void NormalizeTypeName_ReturnsRawMetadataLeaf(string name, string expected)
+        => Assert.Equal(expected, ClosureDiagnosticEvidence.NormalizeTypeName(name));
+
+    [Theory]
+    [InlineData("CS0246", "class C { MissingType Field; }", "MissingType", null, null)]
+    [InlineData("CS0234", "class C { Root.Missing.Value Field; } namespace Root { public class Existing {} }", "Missing", null, "Root")]
+    [InlineData("CS0234", "class C { @for.Missing.Value Field; } namespace @for { public class Existing {} }", "Missing", null, "for")]
+    [InlineData("CS0103", "class C { void M() { MissingName(); } }", "MissingName", null, null)]
+    [InlineData("CS0122", "class Holder { private class Hidden {} } class C { Holder.Hidden Field; }", "Holder.Hidden", null, null)]
+    [InlineData("CS1061", "class Receiver {} class C { void M(Receiver value) { value.Missing(); } }", "Missing", "Receiver", null)]
+    [InlineData("CS1061", "class Receiver {} class C { void M(Receiver value) { value?.Missing(); } }", "Missing", "Receiver", null)]
+    [InlineData("CS1061", "class Receiver {} class C { object M(Receiver value) => value?.Missing; }", "Missing", "Receiver", null)]
+    [InlineData("CS1061", "namespace @for { class @class {} class C { void M(@class value) { value.Missing(); } } }", "Missing", "@for.@class", null)]
+    [InlineData("CS0117", "class Receiver {} class C { void M() { Receiver.Missing(); } }", "Missing", "Receiver", null)]
+    public void Extract_UsesStructuredSyntaxAndSemanticEvidence(
+        string diagnosticId,
+        string source,
+        string expectedName,
+        string? expectedContainingType,
+        string? expectedContainingNamespace)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-diagnostic-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(candidate => candidate.Id == diagnosticId));
+
+        var reference = ClosureDiagnosticEvidence.Extract(
+            diagnostic,
+            compilation.GetSemanticModel(tree));
+
+        Assert.NotNull(reference);
+        Assert.Equal(expectedName, reference.Name);
+        Assert.Equal(expectedContainingType, reference.ContainingType);
+        Assert.Equal(expectedContainingNamespace, reference.ContainingNamespace);
+    }
+}

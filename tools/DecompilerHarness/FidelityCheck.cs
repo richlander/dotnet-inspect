@@ -1443,27 +1443,32 @@ static class FidelityCheck
             var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
             firstError = errors.FirstOrDefault();
             bool grew = false;
+            var semanticModel = comp.GetSemanticModel(tree);
             foreach (var diagnostic in errors)
             {
+                var reference = ClosureDiagnosticEvidence.Extract(diagnostic, semanticModel);
+                if (reference is null)
+                    continue;
+
                 // CS0246/CS0234: a missing type; CS0103: a missing name used as an
                 // expression (a static helper class referenced by name). Both name
                 // a target-assembly type the closure must add.
-                if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103")
+                if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103" or "CS0122")
                 {
-                    var names = QuotedNames(diagnostic.GetMessage()).ToList();
-                    foreach (var name in names)
-                        if (nameIndex.TryGetValue(NormalizeTypeName(name), out var roots))
-                            foreach (var root in roots)
-                                grew |= include.Add(root);
+                    string typeName = reference.ContainingType ?? reference.Name;
+                    if (nameIndex.TryGetValue(NormalizeTypeName(typeName), out var roots))
+                        foreach (var root in roots)
+                            grew |= include.Add(root);
                     // CS0234 names a missing namespace SEGMENT ("'Serialization'
                     // does not exist in the namespace 'Newtonsoft.Json'") rather
                     // than a leaf type, so the leaf-name index cannot resolve it.
-                    // Reconstruct the full namespace from the two quoted spans
+                    // Reconstruct the full namespace from syntax location evidence
                     // (parent + '.' + child) and pull in the roots declared
                     // directly in it; the compile-driven loop walks any deeper
                     // segment on the next iteration.
-                    if (diagnostic.Id is "CS0234" && names.Count == 2
-                        && namespaceIndex.TryGetValue($"{names[1]}.{names[0]}", out var nsRoots))
+                    if (diagnostic.Id is "CS0234"
+                        && reference.ContainingNamespace is { Length: > 0 } containingNamespace
+                        && namespaceIndex.TryGetValue($"{containingNamespace}.{reference.Name}", out var nsRoots))
                         foreach (var root in nsRoots)
                             grew |= include.Add(root);
                 }
@@ -1472,10 +1477,16 @@ static class FidelityCheck
                 // declaring a (static) method of that name.
                 else if (diagnostic.Id is "CS1061")
                 {
-                    foreach (var name in QuotedNames(diagnostic.GetMessage()))
-                        if (methodIndex.TryGetValue(NormalizeTypeName(name), out var roots))
-                            foreach (var root in roots)
-                                grew |= include.Add(root);
+                    if (methodIndex.TryGetValue(NormalizeTypeName(reference.Name), out var roots))
+                        foreach (var root in roots)
+                            grew |= include.Add(root);
+                }
+                else if (diagnostic.Id is "CS0117"
+                         && reference.ContainingType is { } containingType
+                         && nameIndex.TryGetValue(NormalizeTypeName(containingType), out var roots))
+                {
+                    foreach (var root in roots)
+                        grew |= include.Add(root);
                 }
             }
             if (!grew || include.Count > maxRoots)
@@ -1530,33 +1541,7 @@ static class FidelityCheck
 
     /// <summary>A type name with its trailing generic arguments and arity stripped to the leaf simple name.</summary>
     static string NormalizeTypeName(string name)
-    {
-        int angle = name.IndexOf('<');
-        if (angle >= 0)
-            name = name[..angle];
-        int dot = name.LastIndexOf('.');
-        if (dot >= 0)
-            name = name[(dot + 1)..];
-        int tick = name.IndexOf('`');
-        return tick >= 0 ? name[..tick] : name;
-    }
-
-    /// <summary>The single-quoted spans of a compiler diagnostic message (the named types).</summary>
-    static IEnumerable<string> QuotedNames(string message)
-    {
-        int i = 0;
-        while (true)
-        {
-            int start = message.IndexOf('\'', i);
-            if (start < 0)
-                yield break;
-            int end = message.IndexOf('\'', start + 1);
-            if (end < 0)
-                yield break;
-            yield return message[(start + 1)..end];
-            i = end + 1;
-        }
-    }
+        => ClosureDiagnosticEvidence.NormalizeTypeName(name);
 
     static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
         new(fullType, e.Name, e.Overload, e.Signature,
