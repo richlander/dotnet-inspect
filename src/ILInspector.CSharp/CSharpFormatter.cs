@@ -126,7 +126,7 @@ public sealed class CSharpFormatter
         string unsafeText = invoke.IsUnsafe ? " unsafe" : "";
         string parameters = string.Join(", ", signature.Parameters.Select(parameter => parameter.Declaration));
         string declaration =
-            $"{attributes}public{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type)}({parameters})";
+            $"{attributes}public{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type, includeVariance: true)}({parameters})";
         foreach (var typeParameter in type.TypeParameters)
         {
             if (typeParameter.ConstraintsSummary is { } constraints)
@@ -153,7 +153,7 @@ public sealed class CSharpFormatter
     public static string EscapeNamespace(string @namespace)
         => CSharpDeclarationWriter.EscapeNamespace(@namespace);
 
-    public static string FormatTypeName(ApiType type)
+    public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {
         ArgumentNullException.ThrowIfNull(type);
         int tick = type.Name.IndexOf('`');
@@ -161,7 +161,7 @@ public sealed class CSharpFormatter
         name = EscapeIdentifier(name);
         return type.TypeParameters.Count == 0
             ? name
-            : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => EscapeIdentifier(parameter.Name)))}>";
+            : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
     }
 
     public static string NormalizeGeneratedMetadataTypeName(string metadataName)
@@ -230,6 +230,11 @@ public sealed class CSharpFormatter
 
     static CSharpFormattedDeclaration ToFormattedDeclaration(CSharpRenderedDeclaration declaration)
         => new(declaration.Source, declaration.Usings.ToArray(), declaration.Diagnostics.ToArray());
+
+    static string FormatTypeParameter(TypeParameter parameter, bool includeVariance)
+        => includeVariance && parameter.Variance is { } variance
+            ? $"{variance} {EscapeIdentifier(parameter.Name)}"
+            : EscapeIdentifier(parameter.Name);
 
     static string AddPrimaryConstructorParameters(
         string declaration,

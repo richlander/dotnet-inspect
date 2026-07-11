@@ -995,6 +995,16 @@ public static class CompileBackSourceComposer
                     member,
                     CSharpBodyPolicy.Full,
                     PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
+                && primaryConstructorParameterCount > 0
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(
+                        requirement.TargetBody!,
+                        new CSharpConstructorInitializer(
+                            CSharpConstructorInitializerKind.This,
+                            Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
             CompileBackStubBodyKind.TargetBody
                 => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(requirement.TargetBody!)),
             CompileBackStubBodyKind.TargetGetterWithSetter

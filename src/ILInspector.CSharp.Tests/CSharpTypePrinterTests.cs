@@ -775,7 +775,7 @@ public sealed class CSharpTypePrinterTests
             Name = "Converter`1",
             MetadataName = "Converter`1",
             Kind = "delegate",
-            TypeParameters = [new TypeParameter { Name = "T" }],
+            TypeParameters = [new TypeParameter { Name = "T", Variance = "in" }],
             Members = [invoke]
         };
 
@@ -795,7 +795,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("public enum Choice\n{\n    One = 1\n}", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains(
-            "public delegate int Converter<T>(string value);",
+            "public delegate int Converter<in T>(string value);",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
