@@ -88,7 +88,7 @@ static class CompileBackCSharpNames
     public static string Identifier(string name) => CSharpNaming.SafeIdentifier(name);
 
     public static string EscapeNamespace(string ns)
-        => CSharpDeclarationWriter.EscapeNamespace(ns);
+        => CSharpFormatter.EscapeNamespace(ns);
 
     static string EscapeTypeKeywords(string type)
     {
@@ -956,7 +956,9 @@ public static class CompileBackSourceComposer
         return accessors;
     }
 
-    static CSharpMemberPolicy ToMemberPolicy(CompileBackMemberRequirement requirement)
+    static CSharpMemberPolicy ToMemberPolicy(
+        CompileBackMemberRequirement requirement,
+        int primaryConstructorParameterCount)
     {
         var member = ToApiMember(requirement);
         return requirement.StubBody switch
@@ -969,6 +971,16 @@ public static class CompileBackSourceComposer
                 => new(member, CSharpBodyPolicy.Skeleton),
             CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
                 => new(member, CSharpBodyPolicy.Stub, PropertyBody(requirement, CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.Throw when requirement.Kind == CompileBackMemberKind.Constructor
+                && primaryConstructorParameterCount > 0
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpBlockBody(
+                        "throw null;",
+                        new CSharpConstructorInitializer(
+                            CSharpConstructorInitializerKind.This,
+                            Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
             CompileBackStubBodyKind.Throw
                 => new(member, CSharpBodyPolicy.Stub),
             CompileBackStubBodyKind.ThrowGetSet
@@ -2467,7 +2479,12 @@ public static class CompileBackSourceComposer
             var producedRequirement = requirement with { RequiredMembers = members };
             producedRequirements.Add(producedRequirement);
 
-            var policies = members.Select(ToMemberPolicy).ToArray();
+            var primaryConstructorParameters = requirement.PrimaryConstructor?.ParameterList
+                .Select(ToApiParameter)
+                .ToArray() ?? [];
+            var policies = members
+                .Select(member => ToMemberPolicy(member, primaryConstructorParameters.Length))
+                .ToArray();
             var type = new ApiType
             {
                 Namespace = requirement.Type.Namespace,
@@ -2492,9 +2509,7 @@ public static class CompileBackSourceComposer
                 type,
                 members: type.Members,
                 memberPolicyOverrides: policies,
-                primaryConstructorParameters: requirement.PrimaryConstructor?.ParameterList
-                    .Select(ToApiParameter)
-                    .ToArray(),
+                primaryConstructorParameters: primaryConstructorParameters,
                 nestedTypes: NestedTypes(
                     reader,
                     typeDef,

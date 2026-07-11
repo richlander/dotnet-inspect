@@ -1887,7 +1887,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackSourceComposer_PrimaryConstructorParametersPrecedeGenericConstraints()
+    public void CSharpTypePrinter_PrimaryConstructorParametersPrecedeGenericConstraints()
     {
         var type = new ApiType
         {

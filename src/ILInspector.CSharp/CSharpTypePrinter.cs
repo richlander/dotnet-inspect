@@ -51,7 +51,7 @@ public sealed class CSharpTypePrinter
                 group.Select(type => RenderType(type, indent: 0, options, diagnostics)));
             if (containingNamespace is not null)
             {
-                string renderedNamespace = CSharpDeclarationWriter.EscapeNamespace(containingNamespace);
+                string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
                 source = options.NamespaceStyle switch
                 {
                     CSharpNamespaceStyle.FileScoped => $"namespace {renderedNamespace};\n\n{source}",
@@ -93,8 +93,8 @@ public sealed class CSharpTypePrinter
         var metadataName = string.IsNullOrWhiteSpace(type.MetadataName)
             ? type.Name
             : type.MetadataName;
-        bool hasGeneratedMetadataName = IsGeneratedMetadataName(type.Name);
-        type.Name = SourceTypeName(type.Name);
+        bool hasGeneratedMetadataName = CSharpFormatter.IsGeneratedMetadataName(type.Name);
+        type.Name = CSharpFormatter.NormalizeGeneratedMetadataTypeName(type.Name);
         ValidateRequiredShape(type, hasGeneratedMetadataName);
         bool isNested = canonicalParent is not null;
         ValidateTypeKindAndContainment(type, isNested);
@@ -110,7 +110,7 @@ public sealed class CSharpTypePrinter
                 parameterName);
         }
 
-        var outputName = DisplayTypeName(type);
+        var outputName = CSharpFormatter.FormatTypeName(type);
         var canonicalPath = canonicalParent is null ? metadataName : $"{canonicalParent}+{metadataName}";
         var outputPath = outputParent is null ? outputName : $"{outputParent}.{outputName}";
         if (!canonicalIdentities.Add(new TypeOutputIdentity(typeNamespace, canonicalPath))
@@ -130,7 +130,12 @@ public sealed class CSharpTypePrinter
             var policy = overrides.TryGetValue(original, out var memberPolicy)
                 ? memberPolicy
                 : new CSharpMemberPolicy(original, request.BodyPolicy);
-            ValidateResolvedBodyPolicy(type, snapshot, policy, parameterName);
+            ValidateResolvedBodyPolicy(
+                type,
+                snapshot,
+                policy,
+                request.PrimaryConstructorParameters.Count,
+                parameterName);
             members.Add(new PreparedMember(snapshot, policy.BodyPolicy, policy.Body));
         }
 
@@ -187,19 +192,24 @@ public sealed class CSharpTypePrinter
         CSharpTypePrintOptions options,
         ImmutableArray<CSharpTypePrintDiagnostic>.Builder diagnostics)
     {
+        var formatter = DeclarationFormatter(prepared.Namespace, options);
         if (prepared.Type.Kind == "delegate")
-            return RenderDelegate(prepared, indent);
+            return RenderDelegate(prepared, formatter, indent);
 
-        var declarationOptions = DeclarationOptions(prepared.Namespace, options);
-        var diagnosticPass = CSharpDeclarationWriter.RenderTypeUnit(
-            prepared.Type,
-            prepared.Type.Members,
-            declarationOptions with { TerminateMemberDeclaration = true });
+        var propertyFormatter = DeclarationFormatter(
+            prepared.Namespace,
+            options,
+            omitPropertyAccessors: true);
+        var diagnosticPass = DeclarationFormatter(
+            prepared.Namespace,
+            options,
+            terminateMemberDeclaration: true)
+            .FormatTypeUnit(prepared.Type, prepared.Type.Members);
         diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
             diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
 
         string pad = new(' ', indent * 4);
-        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(prepared.Type, declarationOptions);
+        string declaration = formatter.FormatTypeDeclaration(prepared.Type);
         if (prepared.PrimaryConstructorParameters.Length > 0)
             declaration = AddPrimaryConstructorParameters(declaration, prepared.PrimaryConstructorParameters);
 
@@ -216,7 +226,7 @@ public sealed class CSharpTypePrinter
         else
         {
             foreach (var member in prepared.Members)
-                lines.AddRange(RenderMember(prepared, member, indent + 1, declarationOptions));
+                lines.AddRange(RenderMember(prepared, member, formatter, propertyFormatter, indent + 1));
             foreach (var nested in prepared.NestedTypes)
                 lines.Add(RenderType(nested, indent + 1, options, diagnostics));
         }
@@ -227,42 +237,32 @@ public sealed class CSharpTypePrinter
     static IEnumerable<string> RenderMember(
         PreparedType type,
         PreparedMember member,
-        int indent,
-        CSharpDeclarationOptions declarationOptions)
+        CSharpFormatter formatter,
+        CSharpFormatter propertyFormatter,
+        int indent)
     {
         string pad = new(' ', indent * 4);
         if (member.Member.Kind == "field")
         {
-            string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-                type.Type,
-                member.Member,
-                declarationOptions);
+            string declaration = formatter.FormatMember(type.Type, member.Member);
             if (member.Body is CSharpFieldInitializer fieldInitializer)
                 return [$"{pad}{declaration} = {fieldInitializer.Source};"];
             return [$"{pad}{EnsureTerminated(declaration)}"];
         }
 
         if (member.Member.Kind == "property")
-            return RenderProperty(type, member, indent, declarationOptions);
+            return RenderProperty(type, member, formatter, propertyFormatter, indent);
 
-        string memberDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-            type.Type,
-            member.Member,
-            declarationOptions);
+        string memberDeclaration = formatter.FormatMember(type.Type, member.Member);
         if (type.Type.Kind == "interface"
             || member.Member.IsAbstract
             || member.Policy == CSharpBodyPolicy.Skeleton)
         {
             return [$"{pad}{EnsureTerminated(memberDeclaration)}"];
         }
-        if (member.Member.Kind == "event")
-            return [$"{pad}{EnsureTerminated(memberDeclaration)}"];
-
-        string initializer = member.Member.Kind == "constructor"
-            && member.Policy == CSharpBodyPolicy.Stub
-            && type.PrimaryConstructorParameters.Length > 0
-                ? $" : this({string.Join(", ", Enumerable.Repeat("default", type.PrimaryConstructorParameters.Length))})"
-                : "";
+        string initializer = member.Body is CSharpBlockBody { ConstructorInitializer: { } constructorInitializer }
+            ? " " + CSharpFormatter.FormatConstructorInitializer(constructorInitializer)
+            : "";
         if (member.Body is null && member.Policy == CSharpBodyPolicy.Stub)
             return [$"{pad}{memberDeclaration}{initializer} {{ throw null; }}"];
 
@@ -272,44 +272,27 @@ public sealed class CSharpTypePrinter
             _ => throw new InvalidOperationException(
                 $"Member '{member.Member.Name}' has no renderable block body."),
         };
+        if (member.Policy == CSharpBodyPolicy.Stub && body == "throw null;")
+            return [$"{pad}{memberDeclaration}{initializer} {{ throw null; }}"];
         return RenderBlock(memberDeclaration + initializer, body, indent);
     }
 
     static IEnumerable<string> RenderProperty(
         PreparedType type,
         PreparedMember member,
-        int indent,
-        CSharpDeclarationOptions declarationOptions)
+        CSharpFormatter formatter,
+        CSharpFormatter propertyFormatter,
+        int indent)
     {
         string pad = new(' ', indent * 4);
         if (member.Policy == CSharpBodyPolicy.Skeleton)
         {
-            string skeleton = CSharpDeclarationWriter.RenderMemberDeclaration(
-                type.Type,
-                member.Member,
-                declarationOptions);
+            string skeleton = formatter.FormatMember(type.Type, member.Member);
             return [$"{pad}{EnsureTerminated(skeleton)}"];
         }
 
-        var body = member.Body as CSharpPropertyBody;
-        if (body is null && member.Policy == CSharpBodyPolicy.Stub)
-        {
-            var accessors = member.Member.SignatureModel?.Accessors
-                ?? throw new InvalidOperationException(
-                    $"Stub property '{member.Member.Name}' requires structured accessors.");
-            body = new CSharpPropertyBody(
-                accessors.Any(accessor => accessor.Kind == "get") ? CSharpAccessorBody.Throw : null,
-                accessors.Any(accessor => accessor.Kind == "set") ? CSharpAccessorBody.Throw : null);
-        }
-        if (body is null)
-        {
-            throw new InvalidOperationException(
-                $"Property '{member.Member.Name}' requires an accessor body shape.");
-        }
-        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
-            type.Type,
-            member.Member,
-            declarationOptions with { OmitPropertyAccessors = true });
+        var body = (CSharpPropertyBody)member.Body!;
+        string declaration = propertyFormatter.FormatMember(type.Type, member.Member);
         if (AllAuto(body))
         {
             var accessors = new List<string>();
@@ -371,26 +354,11 @@ public sealed class CSharpTypePrinter
         return string.Join(" ", parts);
     }
 
-    static string RenderDelegate(PreparedType prepared, int indent)
+    static string RenderDelegate(PreparedType prepared, CSharpFormatter formatter, int indent)
     {
         string pad = new(' ', indent * 4);
         var invoke = prepared.Members.Single(member => member.Member.Name == "Invoke").Member;
-        var signature = invoke.SignatureModel
-            ?? throw new InvalidOperationException(
-                $"Delegate '{prepared.Type.FullName}' requires a structured Invoke signature.");
-        string attributes = prepared.Type.Attributes.Count == 0
-            ? ""
-            : $"[{string.Join(", ", prepared.Type.Attributes)}] ";
-        string unsafeText = invoke.IsUnsafe ? " unsafe" : "";
-        string typeName = DisplayTypeName(prepared.Type);
-        string parameters = string.Join(", ", signature.Parameters.Select(parameter => parameter.Declaration));
-        string declaration = $"{attributes}public{unsafeText} delegate {signature.ReturnType ?? "void"} {typeName}({parameters})";
-        foreach (var typeParameter in prepared.Type.TypeParameters)
-        {
-            if (typeParameter.ConstraintsSummary is { } constraints)
-                declaration += $" where {CSharpDeclarationWriter.EscapeIdentifier(typeParameter.Name)} : {constraints}";
-        }
-        return $"{pad}{declaration};";
+        return $"{pad}{formatter.FormatDelegate(prepared.Type, invoke)}";
     }
 
     static string RenderEnumMember(PreparedMember member, int indent, bool trailingComma)
@@ -399,19 +367,23 @@ public sealed class CSharpTypePrinter
         string initializer = member.Body is CSharpFieldInitializer value
             ? $" = {value.Source}"
             : "";
-        return $"{pad}{CSharpDeclarationWriter.EscapeIdentifier(member.Member.Name)}{initializer}{(trailingComma ? "," : "")}";
+        return $"{pad}{CSharpFormatter.EscapeIdentifier(member.Member.Name)}{initializer}{(trailingComma ? "," : "")}";
     }
 
-    static CSharpDeclarationOptions DeclarationOptions(
+    static CSharpFormatter DeclarationFormatter(
         string containingNamespace,
-        CSharpTypePrintOptions options)
-        => new()
+        CSharpTypePrintOptions options,
+        bool omitPropertyAccessors = false,
+        bool terminateMemberDeclaration = false)
+        => new(new CSharpFormatOptions
         {
-            TypeNameMode = CSharpTypeNameMode.ContextualShort,
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
             ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
-            NamespaceMode = CSharpNamespaceMode.Omit,
-            IncludeCustomAttributes = options.IncludeCustomAttributes
-        };
+            NamespacePolicy = CSharpNamespacePolicy.Omit,
+            IncludeCustomAttributes = options.IncludeCustomAttributes,
+            OmitPropertyAccessors = omitPropertyAccessors,
+            TerminateMemberDeclaration = terminateMemberDeclaration
+        });
 
     static IEnumerable<string> RenderBlock(string declaration, string source, int indent)
     {
@@ -450,34 +422,6 @@ public sealed class CSharpTypePrinter
             ? head[..inheritance] + $"({parameterList})" + head[inheritance..] + tail
             : $"{head}({parameterList}){tail}";
     }
-
-    static string DisplayTypeName(ApiType type)
-    {
-        int tick = type.Name.IndexOf('`');
-        string name = tick >= 0 ? type.Name[..tick] : type.Name;
-        name = CSharpDeclarationWriter.EscapeIdentifier(name);
-        return type.TypeParameters.Count == 0
-            ? name
-            : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => CSharpDeclarationWriter.EscapeIdentifier(parameter.Name)))}>";
-    }
-
-    static string SourceTypeName(string metadataName)
-    {
-        if (!metadataName.StartsWith('<') || !metadataName.Contains('>', StringComparison.Ordinal))
-            return metadataName;
-
-        int arity = metadataName.IndexOf('`');
-        string sourceName = arity < 0 ? metadataName : metadataName[..arity];
-        var builder = new System.Text.StringBuilder(sourceName.Length + 1);
-        if (sourceName.Length == 0 || !(char.IsLetter(sourceName[0]) || sourceName[0] == '_'))
-            builder.Append('_');
-        foreach (char character in sourceName)
-            builder.Append(char.IsLetterOrDigit(character) || character == '_' ? character : '_');
-        return builder.ToString();
-    }
-
-    static bool IsGeneratedMetadataName(string name)
-        => name.StartsWith('<') && name.Contains('>', StringComparison.Ordinal);
 
     static string Indent(string source, int depth)
     {
@@ -649,6 +593,7 @@ public sealed class CSharpTypePrinter
         ApiType type,
         ApiMember member,
         CSharpMemberPolicy policy,
+        int primaryConstructorParameterCount,
         string parameterName)
     {
         if (policy.BodyPolicy == CSharpBodyPolicy.Skeleton && policy.Body is not null)
@@ -661,6 +606,39 @@ public sealed class CSharpTypePrinter
         {
             throw new NotSupportedException(
                 $"C# member body policy '{policy.BodyPolicy}' for '{member.Name}' requires a body provider.");
+        }
+        if (member.IsAbstract && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
+        {
+            throw new ArgumentException(
+                $"Abstract member '{member.Name}' must use skeleton body policy.",
+                parameterName);
+        }
+        if (member.Kind == "event" && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
+        {
+            throw new NotSupportedException(
+                $"Event '{member.Name}' does not support body policy '{policy.BodyPolicy}'.");
+        }
+        if (member.Kind == "property"
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && policy.Body is null)
+        {
+            throw new NotSupportedException(
+                $"Property '{member.Name}' requires an explicit accessor body shape.");
+        }
+        if (policy.Body is CSharpBlockBody { ConstructorInitializer: not null }
+            && member.Kind != "constructor")
+        {
+            throw new ArgumentException(
+                $"Only constructors can carry a constructor initializer.",
+                parameterName);
+        }
+        if (member.Kind == "constructor"
+            && primaryConstructorParameterCount > 0
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && policy.Body is not CSharpBlockBody { ConstructorInitializer: not null })
+        {
+            throw new NotSupportedException(
+                $"Constructor '{member.Name}' in a primary-constructor type requires an explicit constructor initializer.");
         }
 
         bool validBody = (member.Kind, policy.Body) switch

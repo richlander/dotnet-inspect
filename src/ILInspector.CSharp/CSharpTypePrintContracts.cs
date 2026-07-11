@@ -12,7 +12,35 @@ public enum CSharpBodyPolicy
 
 public abstract record CSharpMemberBody;
 
-public sealed record CSharpBlockBody(string Source) : CSharpMemberBody;
+public enum CSharpConstructorInitializerKind
+{
+    This,
+    Base
+}
+
+public sealed class CSharpConstructorInitializer
+{
+    public CSharpConstructorInitializer(
+        CSharpConstructorInitializerKind kind,
+        IReadOnlyList<string> arguments)
+    {
+        if (!Enum.IsDefined(kind))
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        ArgumentNullException.ThrowIfNull(arguments);
+        if (arguments.Any(argument => argument is null))
+            throw new ArgumentException("Constructor initializer arguments cannot contain null.", nameof(arguments));
+
+        Kind = kind;
+        Arguments = arguments.ToArray();
+    }
+
+    public CSharpConstructorInitializerKind Kind { get; }
+    public IReadOnlyList<string> Arguments { get; }
+}
+
+public sealed record CSharpBlockBody(
+    string Source,
+    CSharpConstructorInitializer? ConstructorInitializer = null) : CSharpMemberBody;
 
 public sealed record CSharpFieldInitializer(string Source) : CSharpMemberBody;
 

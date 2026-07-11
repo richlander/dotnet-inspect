@@ -169,7 +169,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void StubTypePolicySynthesizesPropertyAccessorBodies()
+    public void StubPropertyRendersExplicitAccessorBodies()
     {
         var property = new ApiMember
         {
@@ -189,7 +189,15 @@ public sealed class CSharpTypePrinterTests
         var type = CreateEmptyType("Samples", "Widget");
         type.Members.Add(property);
 
-        var result = _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub));
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    property,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw))
+            ]));
 
         Assert.Contains(
             """
@@ -210,7 +218,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void StubTypePolicyKeepsFieldLikeEventsAsDeclarations()
+    public void StubFieldLikeEventFailsClosed()
     {
         var type = CreateEmptyType("Samples", "Widget");
         type.Members.Add(new ApiMember
@@ -224,10 +232,10 @@ public sealed class CSharpTypePrinterTests
             }
         });
 
-        var result = _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub));
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub)));
 
-        Assert.Contains("public event System.EventHandler Changed;", result.Units[0].Source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Changed {", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.Contains("does not support body policy 'Stub'", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -245,7 +253,17 @@ public sealed class CSharpTypePrinterTests
         var result = _printer.Print(new CSharpTypePrintRequest(
             type,
             members: [constructor],
-            memberPolicyOverrides: [new CSharpMemberPolicy(constructor, CSharpBodyPolicy.Stub)],
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    constructor,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpBlockBody(
+                        "throw null;",
+                        new CSharpConstructorInitializer(
+                            CSharpConstructorInitializerKind.This,
+                            ["default"])))
+            ],
             primaryConstructorParameters: [new ApiParameter { Type = "int", Name = "value" }]));
 
         Assert.Contains(
@@ -354,10 +372,8 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("public class __State_d__0<T>", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains("public class __State_d__0<T, U>", result.Units[0].Source, StringComparison.Ordinal);
     }
-
-
     [Fact]
-    public void SkeletonMatchesMetadataDeclarationWriter()
+    public void SkeletonMatchesCSharpFormatter()
     {
         var type = CreateEmptyType("Samples", "Widget");
         type.Members.Add(new ApiMember
@@ -370,21 +386,18 @@ public sealed class CSharpTypePrinterTests
                 MemberName = "Create"
             }
         });
-        var declarationOptions = new CSharpDeclarationOptions
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
         {
-            TypeNameMode = CSharpTypeNameMode.ContextualShort,
+            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
             ContainingNamespace = "Samples",
-            NamespaceMode = CSharpNamespaceMode.Omit,
+            NamespacePolicy = CSharpNamespacePolicy.Omit,
             TerminateMemberDeclaration = true
-        };
-        var expectedDeclaration = CSharpDeclarationWriter.RenderTypeUnit(
-            type,
-            type.Members,
-            declarationOptions);
+        });
+        var expectedDeclaration = formatter.FormatTypeUnit(type, type.Members);
 
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
-        Assert.Equal($"namespace Samples;\n\n{expectedDeclaration.Source}", result.Units[0].Source);
+        Assert.Equal($"namespace Samples;\n\n{expectedDeclaration.Text}", result.Units[0].Source);
         Assert.Equal(expectedDeclaration.Diagnostics, result.Diagnostics.Select(diagnostic => diagnostic.Message));
     }
 
@@ -541,6 +554,72 @@ public sealed class CSharpTypePrinterTests
             "public void Stub() { throw null; }",
             result.Units[0].Source,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpBodyPolicy.Full)]
+    [InlineData(CSharpBodyPolicy.Stub)]
+    public void AbstractMembersRejectImplementationPolicies(CSharpBodyPolicy bodyPolicy)
+    {
+        var member = CreateMethod("Run");
+        member.IsAbstract = true;
+        var type = CreateEmptyType("Samples", "Widget");
+        type.IsAbstract = true;
+        type.Members.Add(member);
+        var body = bodyPolicy == CSharpBodyPolicy.Full
+            ? new CSharpBlockBody("return;")
+            : null;
+
+        var exception = Assert.Throws<ArgumentException>(() => _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: [new CSharpMemberPolicy(member, bodyPolicy, body)])));
+
+        Assert.Contains("must use skeleton body policy", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StubPropertyRequiresExplicitAccessorBodyShape()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(property);
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type, CSharpBodyPolicy.Stub)));
+
+        Assert.Contains("requires an explicit accessor body shape", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PrimaryConstructorTypeRequiresExplicitConstructorInitializer()
+    {
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature()
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(constructor);
+
+        var exception = Assert.Throws<NotSupportedException>(() => _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: [new CSharpMemberPolicy(constructor, CSharpBodyPolicy.Stub)],
+                primaryConstructorParameters: [new ApiParameter { Type = "int", Name = "value" }])));
+
+        Assert.Contains("requires an explicit constructor initializer", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

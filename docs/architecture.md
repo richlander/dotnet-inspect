@@ -542,7 +542,8 @@ Research overlay bridge, and the application layer:
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.CSharp (C# type views)                         │
 │                                                             │
-│  CSharpTypePrinter, typed request and body composition       │
+│  CSharpFormatter declaration spelling                       │
+│  CSharpTypePrinter typed request and body composition        │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Metadata (Domain provider — PE/Assembly)       │
 │                                                             │
@@ -554,7 +555,7 @@ Research overlay bridge, and the application layer:
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
-- **CSharp** owns C# spelling and exact request rendering over Metadata models, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **CSharp** owns C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
 - **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading.
 - **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
