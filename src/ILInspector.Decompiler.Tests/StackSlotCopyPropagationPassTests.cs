@@ -130,6 +130,128 @@ public class StackSlotCopyPropagationPassTests
     }
 
     [Fact]
+    public void DoesNotPropagateWhenSwitchEdgeCanEnterUseRegion()
+    {
+        var body = OutsideEntryBody();
+        var outside = new Block(16);
+        outside.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [20]));
+        body.Add(outside);
+        var join = new Block(20);
+        join.Add(UseSlot(1));
+        join.Add(new Return(null));
+        body.Add(join);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenSwitchTargetRewritesSourceBeforeUse()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        copy.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [20]));
+        body.Add(copy);
+        var fallthrough = new Block(16);
+        fallthrough.Add(new Branch(24));
+        body.Add(fallthrough);
+        var switchTarget = new Block(20);
+        switchTarget.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
+        switchTarget.Add(new Branch(24));
+        body.Add(switchTarget);
+        var join = new Block(24);
+        join.Add(UseSlot(1));
+        join.Add(new Return(null));
+        body.Add(join);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenLeaveEdgeCanEnterUseRegion()
+    {
+        var body = OutsideEntryBody();
+        var outside = new Block(16);
+        outside.Add(new Leave(20));
+        body.Add(outside);
+        var join = new Block(20);
+        join.Add(UseSlot(1));
+        join.Add(new Return(null));
+        body.Add(join);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenLeaveTargetRewritesSourceBeforeUse()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        copy.Add(new ConditionalBranch(new LoadArgument(1, "flag", Bool), 20));
+        body.Add(copy);
+        var fallthrough = new Block(16);
+        fallthrough.Add(new Leave(24));
+        body.Add(fallthrough);
+        var branchTarget = new Block(20);
+        branchTarget.Add(new Branch(28));
+        body.Add(branchTarget);
+        var leaveTarget = new Block(24);
+        leaveTarget.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
+        leaveTarget.Add(new Branch(28));
+        body.Add(leaveTarget);
+        var join = new Block(28);
+        join.Add(UseSlot(1));
+        join.Add(new Return(null));
+        body.Add(join);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
+    public void DoesNotPropagateWhenContainerHasUnmodeledLoopTerminator()
+    {
+        var body = MultiBlockSourceBeforeCopy();
+        var copy = new Block(12);
+        copy.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        body.Add(copy);
+        var use = new Block(16);
+        use.Add(UseSlot(1));
+        use.Add(new Return(null));
+        body.Add(use);
+        var loopExit = new Block(20);
+        loopExit.Add(new Break());
+        body.Add(loopExit);
+        var function = Function(body);
+
+        new StackSlotCopyPropagationPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
+    }
+
+    [Fact]
     public void DoesNotCrossNestedBodyScope()
     {
         var lambdaBody = new BlockContainer();
@@ -241,6 +363,27 @@ public class StackSlotCopyPropagationPassTests
         secondSourceStore.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
         secondSourceStore.Add(new Branch(12));
         body.Add(secondSourceStore);
+        return body;
+    }
+
+    static BlockContainer OutsideEntryBody()
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0);
+        entry.Add(new ConditionalBranch(new LoadArgument(1, "flag", Bool), 8));
+        body.Add(entry);
+        var firstSourceStore = new Block(4);
+        firstSourceStore.Add(new StoreStackSlot(0, new LoadArgument(0, "x", Int32)));
+        firstSourceStore.Add(new Branch(12));
+        body.Add(firstSourceStore);
+        var secondSourceStore = new Block(8);
+        secondSourceStore.Add(new StoreStackSlot(0, new LoadArgument(2, "y", Int32)));
+        secondSourceStore.Add(new ConditionalBranch(new LoadArgument(1, "flag", Bool), 16));
+        body.Add(secondSourceStore);
+        var copyJoin = new Block(12);
+        copyJoin.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        copyJoin.Add(new Branch(20));
+        body.Add(copyJoin);
         return body;
     }
 

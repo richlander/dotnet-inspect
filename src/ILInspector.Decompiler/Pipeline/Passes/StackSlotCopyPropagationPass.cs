@@ -115,6 +115,9 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
             return null;
 
         var blocks = container.Blocks;
+        if (HasUnmodeledTerminator(blocks))
+            return null;
+
         int copyBlockIndex = copyBlock.ChildIndex;
         int useBlockIndex = useBlock.ChildIndex;
         if (copyBlockIndex < 0 || useBlockIndex < 0)
@@ -228,7 +231,22 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
                 if (index + 1 < blocks.Count)
                     yield return index + 1;
                 yield break;
-            case Return or Throw or Leave or EndFinally or EndFilter or SwitchBranch:
+            case Leave leave:
+                int leaveTarget = IndexOfOffset(blocks, leave.TargetOffset);
+                if (leaveTarget >= 0)
+                    yield return leaveTarget;
+                yield break;
+            case SwitchBranch branch:
+                foreach (int targetOffset in branch.TargetOffsets)
+                {
+                    int switchTarget = IndexOfOffset(blocks, targetOffset);
+                    if (switchTarget >= 0)
+                        yield return switchTarget;
+                }
+                if (index + 1 < blocks.Count)
+                    yield return index + 1;
+                yield break;
+            case Return or Throw or EndFinally or EndFilter:
                 yield break;
             default:
                 if (index + 1 < blocks.Count)
@@ -236,6 +254,9 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
                 yield break;
         }
     }
+
+    static bool HasUnmodeledTerminator(IReadOnlyList<Block> blocks)
+        => blocks.Any(block => block.Children is [.., Break or Continue]);
 
     static int IndexOfOffset(IReadOnlyList<Block> blocks, int offset)
     {
