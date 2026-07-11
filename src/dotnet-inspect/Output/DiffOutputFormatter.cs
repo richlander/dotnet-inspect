@@ -90,6 +90,129 @@ public static class DiffOutputFormatter
         };
     }
 
+    public static DiffDocumentView BuildDocumentView(
+        string name,
+        string fromVersion,
+        string toVersion,
+        DiffDetailedChangesView? changes,
+        AnalysisDiffView? analysisDiff,
+        ImplementationDiffView? implementationDiff,
+        FindingTransitionsView? findingTransitions)
+        => new()
+        {
+            Title = $"Diff: {name}",
+            Versions = $"{fromVersion} -> {toVersion}",
+            ChangesSummary = changes?.Summary,
+            AnalysisDiffSummary = analysisDiff?.Summary,
+            AnalysisDiffNote = DistinctStatusMessage(analysisDiff),
+            ImplementationDiffSummary = implementationDiff?.Summary,
+            ImplementationDiffNote = DistinctStatusMessage(implementationDiff),
+            FindingTransitionsSummary = findingTransitions?.Status.Message,
+            Changes = changes?.Rows,
+            AnalysisDiff = analysisDiff?.Rows,
+            ImplementationDiff = implementationDiff?.Rows,
+            FindingTransitions = findingTransitions?.Rows
+        };
+
+    public static string RenderDocumentView(DiffDocumentView view)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        writer.WriteHeading(1, view.Title);
+        writer.WriteParagraph($"**Versions:** {view.Versions}");
+
+        if (view.ChangesSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Changes",
+                view.ChangesSummary,
+                null,
+                ["Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New"],
+                ["change", "classification", "type", "member", "kind", "detail", "old", "new"],
+                view.Changes?.Select(row => new[]
+                {
+                    row.Change, row.Classification, row.Type, row.Member,
+                    row.Kind, row.Detail, row.Old, row.New
+                }));
+        }
+
+        if (view.AnalysisDiffSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Analysis Diff",
+                view.AnalysisDiffSummary,
+                view.AnalysisDiffNote,
+                ["Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence"],
+                ["member", "signal", "old", "new", "delta", "shape", "evidence"],
+                view.AnalysisDiff?.Select(row => new[]
+                {
+                    MarkoutInline.Code(row.Member), row.Signal, row.Old, row.New, row.Delta,
+                    row.Shape ?? "", row.Evidence ?? ""
+                }));
+        }
+
+        if (view.ImplementationDiffSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Implementation Diff",
+                view.ImplementationDiffSummary,
+                view.ImplementationDiffNote,
+                ["Member", "Mechanism", "Change", "Evidence"],
+                ["member", "mechanism", "change", "evidence"],
+                view.ImplementationDiff?.Select(row => new[]
+                {
+                    row.Member, row.Mechanism, row.Change, row.Evidence
+                }));
+        }
+
+        if (view.FindingTransitionsSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Finding Transitions",
+                view.FindingTransitionsSummary,
+                null,
+                ["Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail"],
+                ["transition", "finding", "target", "from", "to", "old", "new", "detail"],
+                view.FindingTransitions?.Select(row => new[]
+                {
+                    row.Transition, row.Finding, row.Target, row.From,
+                    row.To, row.Old, row.New, row.Detail ?? ""
+                }));
+        }
+
+        return writer.ToString().TrimEnd();
+    }
+
+    private static void WriteDocumentSection(
+        MarkoutWriter writer,
+        string name,
+        string summary,
+        string? note,
+        string[] headers,
+        string[] stableHeaders,
+        IEnumerable<string[]>? rows)
+    {
+        writer.WriteHeading(2, name);
+        writer.WriteParagraph(summary);
+        if (note is not null)
+            writer.WriteCallout(CalloutSeverity.Note, note);
+        if (rows is not null)
+            writer.WriteTable(headers, stableHeaders, rows.ToArray());
+    }
+
+    private static string? DistinctStatusMessage(AnalysisDiffView? view)
+        => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
+            ? view.Status.Message
+            : null;
+
+    private static string? DistinctStatusMessage(ImplementationDiffView? view)
+        => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
+            ? view.Status.Message
+            : null;
+
     public static FindingTransitionsView BuildFindingTransitionsView(
         string name,
         IReadOnlyList<FindingTransitionRow> rows,
@@ -154,7 +277,13 @@ public static class DiffOutputFormatter
     /// <summary>
     /// Builds the Analysis Diff view with a caller-supplied summary line.
     /// </summary>
-    public static AnalysisDiffView BuildAnalysisDiffView(string name, IReadOnlyList<AnalysisDiffRow> rows, string summary, string fromVersion, string toVersion)
+    public static AnalysisDiffView BuildAnalysisDiffView(
+        string name,
+        IReadOnlyList<AnalysisDiffRow> rows,
+        string summary,
+        string fromVersion,
+        string toVersion,
+        bool decorateMember = true)
         => new()
         {
             Title = $"Analysis Diff: {name}",
@@ -163,7 +292,11 @@ public static class DiffOutputFormatter
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
-            Rows = rows.Count > 0 ? rows.ToList() : null
+            Rows = rows.Count > 0
+                ? rows.Select(row => decorateMember
+                    ? row with { Member = MarkoutInline.Code(row.Member) }
+                    : row).ToList()
+                : null
         };
 
     /// <summary>

@@ -667,7 +667,11 @@ public static class ResearchDiff
                     continue;
                 }
 
-                var diff = IlBodyDiff.Compare(oldBody!, newBody!);
+                var diff = IlBodyDiff.Compare(
+                    oldBodies.MetadataReader,
+                    oldBody!,
+                    newBodies.MetadataReader,
+                    newBody!);
                 if (diff.IsExact)
                     continue;
                 if (!diff.FailureRows.IsDefaultOrEmpty)
@@ -1134,7 +1138,9 @@ public static class ResearchDiff
             _metadataReader = _peReader.GetMetadataReader();
         }
 
-        public bool TryDecode(int metadataToken, out MethodInstructions? body, out string? unavailableReason)
+        public MetadataReader MetadataReader => _metadataReader;
+
+        public bool TryDecode(int metadataToken, out MethodBodyBlock? body, out string? unavailableReason)
         {
             body = null;
             unavailableReason = null;
@@ -1152,7 +1158,7 @@ public static class ResearchDiff
                 return false;
             }
 
-            body = MethodInstructions.Decode(_peReader.GetMethodBody(method.RelativeVirtualAddress));
+            body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
             return true;
         }
 

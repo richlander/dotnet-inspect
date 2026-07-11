@@ -1002,6 +1002,39 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ImplementationDiff_CompareAssemblies_SameTokenBearingAssemblyIsExact()
+    {
+        var path = FixtureCatalog.DiffPair.OldAssemblyPath();
+
+        var diff = ImplementationDiff.CompareAssemblies(
+            path,
+            path,
+            new ImplementationDiffOptions(
+                ImplementationDiffMechanism.IlBody,
+                TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        Assert.True(diff.IsEmpty);
+    }
+
+    [Fact]
+    public void ImplementationDiff_CompareAssemblies_ResolvesChangedTokenOperandsSymbolically()
+    {
+        var diff = ImplementationDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ImplementationDiffOptions(
+                ImplementationDiffMechanism.IlBody,
+                TypeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DiffSample" }));
+
+        var changed = Assert.Single(diff.Members, member => member.Subject.MemberName == "CallToken");
+        Assert.DoesNotContain(changed.Changes, change => change.IlDisplayFailureRow is not null);
+        Assert.Contains(changed.Changes, change =>
+            ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("::Abs(", StringComparison.Ordinal)));
+        Assert.Contains(changed.Changes, change =>
+            ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("::Sign(", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void ImplementationDiff_CompareAssemblies_FiltersIlEvidenceByType()
     {
         var diff = ImplementationDiff.CompareAssemblies(

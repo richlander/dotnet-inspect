@@ -27,6 +27,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<LibraryInspectionFailureJson>))]
 [JsonSerializable(typeof(LibraryResourceJson))]
 [JsonSerializable(typeof(List<LibraryResourceJson>))]
+[JsonSerializable(typeof(LibraryExtensionMethodJson))]
+[JsonSerializable(typeof(List<LibraryExtensionMethodJson>))]
 [JsonSerializable(typeof(LibraryCustomAttributeJson))]
 [JsonSerializable(typeof(List<LibraryCustomAttributeJson>))]
 [JsonSerializable(typeof(TypeForwarderInfo))]
@@ -47,6 +49,15 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(PackageSourceFileInfo))]
 [JsonSerializable(typeof(List<PackageSourceFileInfo>))]
 public partial class JsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(DiffDocumentView))]
+internal partial class DiffJsonContext : JsonSerializerContext
 {
 }
 

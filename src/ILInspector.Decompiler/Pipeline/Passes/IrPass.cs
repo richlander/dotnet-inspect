@@ -334,6 +334,11 @@ public static class IrPasses
         // reconstructed `x++` would inline to an invalid `1++`; see the pass
         // doc and #2379 piece 1 census).
         new ExpressionInliningPass(slotsOnly: true),
+        // Collapse proof-backed synthetic slot copies (`S_dst = S_src`) that
+        // survive the slots-only inliner only because the use sits across
+        // control-flow blocks. This keeps copy carriers out of the printer's
+        // residual unifier while preserving the source slot's live value.
+        new StackSlotCopyPropagationPass(),
         // A decided in-domain slot (one testified type, all stores at it or
         // renderably coercible) is a finished variable: materialize it as a
         // typed local BEFORE insertion, so its minted locals are coerced at

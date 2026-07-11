@@ -551,17 +551,18 @@ type must be stubbed, so a single un-reconstructable sibling type — an unrelat
 printer gap in a type the target never touches — poisons the compile and the
 target is scored `RecompileFail` for reasons that have nothing to do with its
 own fidelity. Cluster mode reconstructs only the target's transitive closure: it
-emits the target's type, compiles, and adds every same-assembly type the
-compiler names as missing (`CS0246`/`CS0234`/`CS0103` for types, `CS1061` for
-static/extension members), recompiling until the unit binds or the closure stops
-growing. The compiler computes the exact closure, so unrelated sibling types are
-simply omitted. A `CS0234` names a missing namespace *segment*
-(`'Serialization' does not exist in the namespace 'Newtonsoft.Json'`) rather than
-a leaf type, so the closure reconstructs the full namespace from the diagnostic's
-two quoted spans and pulls in the roots declared directly in it — without this,
-any body that reaches into a sub-namespace stalls the closure (it was the dominant
-bail on real libraries: ~81% on Newtonsoft.Json, driving exact-match from 7.9% to
-10.3%).
+emits the target's type, compiles, and adds every same-assembly type identified
+by structured Roslyn diagnostic evidence (`CS0246`/`CS0234`/`CS0103`/`CS0122`
+for types, `CS1061`/`CS0117` for members), recompiling until the unit binds or
+the closure stops growing. Membership uses diagnostic IDs, source locations,
+syntax, semantic receiver types, and inaccessible candidate symbols rather than
+localized message text. The compiler computes the exact closure, so unrelated
+sibling types are simply omitted. A `CS0234` identifies a missing namespace
+*segment* rather than a leaf type, so the closure reconstructs the full
+namespace from the qualified-name syntax and pulls in the roots declared
+directly in it — without this, any body that reaches into a sub-namespace
+stalls the closure (it was the dominant bail on real libraries: ~81% on
+Newtonsoft.Json, driving exact-match from 7.9% to 10.3%).
 
 `CB_CLUSTER=1` runs the **escalation** order: the cheap whole-module grouped
 compile first, and only the rows it could not check (`RecompileFail`/`ContextFail`)
@@ -575,7 +576,12 @@ all-or-nothing skeleton failed for unrelated reasons. A persistent bail is itsel
 a useful signal — the target is *not safely capturable* in isolation (typically a
 Roslyn-class internal cross-assembly graph), the population for which
 changed-method fidelity is least meaningful. `CB_CLUSTER_DUMP=1` prints bail
-diagnostics.
+diagnostics. Cluster-bailed result rows also retain a durable `CaptureDetail`;
+when a supported diagnostic cannot be mapped from structured evidence, it uses
+`closure-stalled-unextracted[CS####,...]` rather than folding the miss into an
+ordinary closure stall. Return-to-sender failures use the same reason shape in
+their `Detail`, making extractor coverage gaps visible in JSON and summary
+output without enabling debug logging.
 
 Each row carries its capture provenance (whole-module, cluster-rescued, or
 cluster-bailed), and the changed-method report prints the segmented

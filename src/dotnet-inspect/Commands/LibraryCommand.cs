@@ -1495,7 +1495,8 @@ public class LibraryCommand
 
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
-            return failureSection is "Resources"
+            return failureSection is "Extension Methods"
+                or "Resources"
                 or "Custom Attributes"
                 or "Type Forwarders"
                 or "Union Types"

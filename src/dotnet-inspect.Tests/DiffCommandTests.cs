@@ -1,3 +1,5 @@
+using System.CommandLine;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -84,11 +86,12 @@ public class DiffCommandTests
     {
         var markdown = DiffOutputFormatter.RenderAnalysisDiffMarkdown(
             "Sample",
-            [new AnalysisDiffRow("`Sample.Type.M()`", "allocations", "0", "1", "+1", null, "old -; new IL_0001")],
+            [new AnalysisDiffRow("Sample.Type.M()", "allocations", "0", "1", "+1", null, "old -; new IL_0001")],
             "old.dll",
             "new.dll");
 
         Assert.Contains("## Analysis Diff", markdown);
+        Assert.Contains("`Sample.Type.M()`", markdown);
         Assert.Contains("allocations", markdown);
         Assert.Contains("+1", markdown);
         Assert.Contains("IL_0001", markdown);
@@ -893,6 +896,12 @@ public class DiffCommandTests
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Mechanism == "IL"
             && row.Evidence.Contains("ldc.i4 1", StringComparison.Ordinal));
+        Assert.Contains(view.Rows!, row =>
+            row.Member.Contains("CallToken", StringComparison.Ordinal)
+            && row.Mechanism == "IL"
+            && row.Evidence.Contains("System.Math::Abs", StringComparison.Ordinal));
+        Assert.DoesNotContain(view.Rows!, row =>
+            row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -944,6 +953,19 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildImplementationDiff_SameTokenBearingAssembly_IsEmpty()
+    {
+        var assembly = FixtureCatalog.DiffPair.OldAssemblyPath();
+
+        var result = DiffCommand.BuildImplementationDiff([assembly], [assembly], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"]
+        });
+
+        Assert.True(result.IsEmpty);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ImplementationDiff_RendersSelectedTable()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -967,6 +989,205 @@ public class DiffCommandTests
         Assert.Contains("C#", output, StringComparison.Ordinal);
         Assert.Contains("IL", output, StringComparison.Ordinal);
         Assert.DoesNotContain("API Diff", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MultipleSelectedSections_ComposesMarkdown()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                TypeFilter = ["DiffSample"],
+                ChangedOnly = true
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("## Analysis Diff", output, StringComparison.Ordinal);
+        Assert.Contains("## Implementation Diff", output, StringComparison.Ordinal);
+        Assert.Contains("RegressesAllocInLoop", output, StringComparison.Ordinal);
+        Assert.Contains("ConstantValue", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "Analysis signal changes are body-level evidence, not public API compatibility changes.",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MultipleSelectedSections_ExplicitTableReturnsError()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Changes", "Implementation Diff"],
+                OneLine = true,
+                OneLineExplicitlySet = true
+            }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("Selection matches 2 sections", error, StringComparison.Ordinal);
+        Assert.Contains("--table, --tsv, and --jsonl display one section at a time", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MultipleSelectedSections_ComposesJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+                ChangedOnly = true
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("analysis_diff", out var analysis));
+        Assert.True(document.RootElement.TryGetProperty("implementation_diff", out var implementation));
+        Assert.Equal(
+            "Analysis signal changes are body-level evidence, not public API compatibility changes.",
+            document.RootElement.GetProperty("analysis_diff_note").GetString());
+        Assert.Equal(
+            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
+            document.RootElement.GetProperty("implementation_diff_note").GetString());
+        Assert.DoesNotContain(analysis.EnumerateArray(), row =>
+            row.GetProperty("member").GetString()!.Contains("<code>", StringComparison.Ordinal)
+            || row.GetProperty("member").GetString()!.Contains("&lt;", StringComparison.Ordinal));
+        Assert.Contains(analysis.EnumerateArray(), row =>
+            row.GetProperty("member").GetString()!.Contains("List<object>", StringComparison.Ordinal));
+        Assert.True(analysis.GetArrayLength() > 0);
+        Assert.True(implementation.GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task CommandLine_MultipleSelectedSections_ComposesJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var args = CommandLineBuilder.PreprocessArgs(
+        [
+            "diff", "--library", $"{v1}..{v2}",
+            "-S", "Analysis Diff,Implementation Diff",
+            "--json", "--type", "DiffSample"
+        ]);
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+            await CommandLineBuilder.CreateRootCommand().Parse(args).InvokeAsync());
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("analysis_diff", out _));
+        Assert.True(document.RootElement.TryGetProperty("implementation_diff", out _));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ComparisonSections_ComposeEveryMarkdownSection()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Changes", "Analysis Diff", "Implementation Diff"],
+                TypeFilter = ["MethodRemovalSample"]
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("## Changes", output, StringComparison.Ordinal);
+        Assert.Contains("## Analysis Diff", output, StringComparison.Ordinal);
+        Assert.Contains("## Implementation Diff", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AllSections_ReportsFocusedFindingTransitionsException()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = "missing-old.dll..missing-new.dll",
+                Select = ["@All"],
+                TypeFilter = ["Sample.Widget"]
+            }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("focused endpoint-confirmation lens", error, StringComparison.Ordinal);
+        Assert.Contains("instead of using @All", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FindingTransitions_ComposesJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Finding Transitions"],
+                JsonOutput = true,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = ["ConstantValue"]
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(
+            "1 selected Finding transition.",
+            document.RootElement.GetProperty("finding_transitions_summary").GetString());
+        var transition = Assert.Single(
+            document.RootElement.GetProperty("finding_transitions").EnumerateArray());
+        Assert.Equal("PairFinding.Present", transition.GetProperty("transition").GetString());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_JsonAllocationRegressions_SelectsAnalysisDiff()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                JsonOutput = true,
+                AllocRegressionsOnly = true,
+                TypeFilter = ["DiffSample"]
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("analysis_diff", out var analysis));
+        Assert.False(document.RootElement.TryGetProperty("changes", out _));
+        Assert.True(analysis.GetArrayLength() > 0);
     }
 
     [Theory]
