@@ -123,11 +123,37 @@ public class CorpusSensorComparisonTests
         Assert.DoesNotContain("sampling differs", report);
     }
 
+    [Fact]
+    public void QualityMetricChanges_TreatsValidityMovementAsContextWithoutMethodDetails()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Full malformed (sampling differs)", report);
+        Assert.Contains("Semantic defects (sampling differs)", report);
+    }
+
     static CorpusSensorSnapshot Snapshot(
         int totalMethods,
         int fullyRaisedMethods,
         int fullyRaisedBasisPoints,
-        IReadOnlyList<CorpusMethodSnapshot> pinnedMethods,
+        IReadOnlyList<CorpusMethodSnapshot>? pinnedMethods,
         int validityCompileCap = 0,
         int semanticCheckedMethods = 0,
         int semanticDefectMethods = 0)
