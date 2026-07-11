@@ -1,5 +1,6 @@
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -18,10 +19,18 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
         var function = context.Imported;
         if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
             return [];
-        var index = AnalysisIndexCache.ForPath(path);
-        if (!index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences))
+        var index = context.Assembly?.Index ?? AnalysisIndexCache.ForPath(path);
+        if (!index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences)
+            || occurrences.IsEmpty)
             return [];
-        return [.. occurrences.Select(ToAnnotation)];
+        var subject = ResearchMemberIdentity.SubjectFromMethod(occurrences[0].Method);
+        return
+        [
+            .. AnalysisFindings.InspectUnsafety(
+                    occurrences,
+                    new FindingSubject(subject.Id, subject.Display))
+                .Select(finding => ToAnnotation(finding.Payload)),
+        ];
     }
 
     static Annotation ToAnnotation(UnsafetyOccurrence occurrence)

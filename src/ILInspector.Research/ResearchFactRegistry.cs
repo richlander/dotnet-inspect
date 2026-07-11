@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Analysis;
+using ILInspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -11,6 +14,16 @@ public sealed record ResearchAssemblyContext(
     IReadOnlyDictionary<int, IReadOnlyList<DirectCall>> CallsByCaller,
     IReadOnlyDictionary<int, IReadOnlyList<UnsafeEvidence>> UnsafeEvidenceByToken)
 {
+    public ImmutableArray<Finding<DirectCall>> InspectCallSites(int methodToken)
+    {
+        if (!CallsByCaller.TryGetValue(methodToken, out var calls) || calls.Count == 0)
+            return [];
+        var subject = ResearchMemberIdentity.SubjectFromMethod(calls[0].Caller);
+        return AnalysisFindings.InspectCallSites(
+            calls,
+            new FindingSubject(subject.Id, subject.Display));
+    }
+
     public static ResearchAssemblyContext Create(LibraryBodyIndex index)
     {
         var leverage = index.TopLeverage(int.MaxValue)

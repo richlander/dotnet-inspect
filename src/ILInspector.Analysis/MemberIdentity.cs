@@ -90,6 +90,15 @@ public sealed record MemberRef(
     public bool HasThis { get; init; }
 
     /// <summary>
+    /// Raw ECMA-335 method-signature header. This preserves calling convention and
+    /// <c>explicitthis</c>/<c>generic</c> flags that parameter and return types do not encode.
+    /// </summary>
+    public byte SignatureHeader { get; init; }
+
+    /// <summary>The method-signature generic parameter count.</summary>
+    public int GenericArity { get; init; }
+
+    /// <summary>
     /// The parameter signature with generic markers (VAR/MVAR) preserved — i.e. before
     /// the declaring-type / method-type instantiation that <see cref="ParameterTypes"/>
     /// carries. Cross-assembly caller-graph identity keys on this so a constructed call

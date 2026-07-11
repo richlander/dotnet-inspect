@@ -20,12 +20,14 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
     {
         if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
             return [];
-        if (!assembly.CallsByCaller.TryGetValue(context.Imported.MetadataToken, out var calls))
+        var callSites = assembly.InspectCallSites(context.Imported.MetadataToken);
+        if (callSites.IsEmpty)
             return [];
 
         var facts = new List<Annotation>();
-        foreach (var call in calls)
+        foreach (var finding in callSites)
         {
+            var call = finding.Payload;
             int calleeToken = ResolveCallee(call, assembly);
             if (calleeToken == 0)
                 continue;

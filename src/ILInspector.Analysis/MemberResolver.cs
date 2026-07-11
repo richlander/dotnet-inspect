@@ -28,6 +28,8 @@ internal static class MemberResolver
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,
                     HasThis = signature.Header.IsInstance,
+                    SignatureHeader = signature.Header.RawValue,
+                    GenericArity = signature.GenericParameterCount,
                 };
             }
             case HandleKind.MemberReference:
@@ -50,6 +52,8 @@ internal static class MemberResolver
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,
                     HasThis = signature.Header.IsInstance,
+                    SignatureHeader = signature.Header.RawValue,
+                    GenericArity = signature.GenericParameterCount,
                 };
             }
             case HandleKind.MethodSpecification:
