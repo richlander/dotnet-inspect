@@ -79,6 +79,21 @@ public class DecompilerFindingsTests
     }
 
     [Fact]
+    public void Inspect_CauseInSyntheticBlock_HasUnknownLocation()
+    {
+        var function = Function(new Continue(), blockOffset: -10);
+
+        var cause = Assert.Single(
+            CompleteInspection(DecompilerFindings.InspectFidelityCauses(function, Subject))
+                .Findings).Payload;
+
+        Assert.Equal(DiagnosticIds.UnverifiedContinue, cause.Code);
+        Assert.Equal(DecompilerFidelityLocationKind.Unknown, cause.Location.Kind);
+        Assert.Null(cause.Location.ILOffset);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    [Fact]
     public void Inspect_UnsupportedTypesAtOneSite_AggregateEveryReason()
     {
         var container = new BlockContainer();

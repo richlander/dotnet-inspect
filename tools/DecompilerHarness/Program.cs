@@ -1207,7 +1207,8 @@ static class Program
                 {
                     DecompilerFidelityLocationKind.IlOffset => $"IL_{r.Location.ILOffset:X4}",
                     DecompilerFidelityLocationKind.Local => $"V_{r.Location.LocalIndex}",
-                    _ => "(signature)",
+                    DecompilerFidelityLocationKind.Signature => "(signature)",
+                    _ => "(synthetic)",
                 };
                 Console.WriteLine($"  {r.Code}  {where,-12}  {r.Reason}");
                 Console.WriteLine($"           at: {r.Node}");

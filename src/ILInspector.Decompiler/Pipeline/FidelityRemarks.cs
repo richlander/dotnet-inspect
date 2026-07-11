@@ -154,7 +154,10 @@ public static class FidelityRemarks
             }
         }
 
-        foreach (int localIndex in UnraisedPinnedLocals(function))
+        if (UnraisedPinnedLocals(function) is not { } unraisedPinnedLocals)
+            yield break;
+
+        foreach (int localIndex in unraisedPinnedLocals)
         {
             yield return new DecompilerFidelityCause(
                 DiagnosticIds.UnraisedPinnedLocal,
@@ -180,7 +183,7 @@ public static class FidelityRemarks
             reason,
             discriminator);
 
-    static IEnumerable<int> UnraisedPinnedLocals(IrFunction function)
+    static IEnumerable<int>? UnraisedPinnedLocals(IrFunction function)
     {
         HashSet<int>? pinned = null;
         for (int i = 0; i < function.Locals.Length; i++)
@@ -189,8 +192,15 @@ public static class FidelityRemarks
                 (pinned ??= []).Add(i);
         }
         if (pinned is null)
-            yield break;
+            return null;
 
+        return EnumerateUnraisedPinnedLocals(function, pinned);
+    }
+
+    static IEnumerable<int> EnumerateUnraisedPinnedLocals(
+        IrFunction function,
+        HashSet<int> pinned)
+    {
         var fixedOwned = function.Descendants
             .OfType<Fixed>()
             .Select(static fixedStatement => fixedStatement.LocalIndex)
@@ -241,8 +251,10 @@ public static class FidelityRemarks
             return DecompilerFidelityLocation.AtIlOffset(node.SourceOffset);
 
         for (IrNode? n = node; n is not null; n = n.Parent)
-            if (n is Block b)
+            if (n is Block { StartOffset: >= 0 } b)
                 return DecompilerFidelityLocation.AtIlOffset(b.StartOffset);
-        return DecompilerFidelityLocation.Signature;
+        return node is IrFunction
+            ? DecompilerFidelityLocation.Signature
+            : DecompilerFidelityLocation.Unknown;
     }
 }

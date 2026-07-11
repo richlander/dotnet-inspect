@@ -2,6 +2,7 @@ namespace ILInspector.Decompiler;
 
 public enum DecompilerFidelityLocationKind
 {
+    Unknown,
     Signature,
     IlOffset,
     Local,
@@ -28,6 +29,9 @@ public readonly record struct DecompilerFidelityLocation
     public int? ILOffset { get; }
 
     public int? LocalIndex { get; }
+
+    public static DecompilerFidelityLocation Unknown { get; } =
+        new(DecompilerFidelityLocationKind.Unknown, null, null);
 
     public static DecompilerFidelityLocation Signature { get; } =
         new(DecompilerFidelityLocationKind.Signature, null, null);
