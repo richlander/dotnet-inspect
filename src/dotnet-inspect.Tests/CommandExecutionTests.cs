@@ -8328,7 +8328,7 @@ public class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Paths.One", "1.0.0", "README.md", "one", Skills:
-                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+                [new ProjectSkillDoc("skills/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Paths.Two", "1.0.0", "README.md", "two", Skills:
                 [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
 
@@ -8339,7 +8339,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal(["skills/one/SKILL.md", "skills/two/SKILL.md"], output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Equal(["skills/SKILL.md", "skills/two/SKILL.md"], output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {

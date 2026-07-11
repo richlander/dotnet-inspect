@@ -143,7 +143,7 @@ public class ProjectCommand
             return WriteAgentsIndex(dependencies, options);
 
         if (sectionMode)
-            return WriteSkills(assetsPath, options, logger.Log);
+            return WriteSkills(assetsPath, options, log: null);
 
         return await WriteReadmeAsync(dependencies, options, context);
     }
@@ -333,7 +333,7 @@ public class ProjectCommand
         var rows = ProjectAssetsParser.ParsePackageFileEntries(
                 assetsPath,
                 options.Tfm,
-                ["skills/**/SKILL.md"],
+                ["skills/SKILL.md", "skills/**/SKILL.md"],
                 log)
             .Select(CreateSkillRow)
             .Where(row => row is not null)

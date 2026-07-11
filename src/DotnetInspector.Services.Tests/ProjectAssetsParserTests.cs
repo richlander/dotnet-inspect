@@ -251,6 +251,7 @@ public class ProjectAssetsParserTests
                     "type": "package",
                     "path": "{{packageRoot.Replace("\\", "/")}}",
                     "files": [
+                        42,
                         "README.md",
                         "skills/query/SKILL.md"
                     ]
@@ -308,6 +309,64 @@ public class ProjectAssetsParserTests
             File.Delete(assetsPath);
             Directory.Delete(packageRoot, recursive: true);
             Directory.Delete(transitiveRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ParsePackageFileEntries_CanMatchTopLevelSkillFile()
+    {
+        var packageRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var skillPath = Path.Combine(packageRoot, "skills", "SKILL.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
+        File.WriteAllText(skillPath, "# Skill");
+
+        var json = $$"""
+        {
+            "targets": {
+                "net9.0": {
+                    "Direct.Package/1.0.0": {}
+                }
+            },
+            "libraries": {
+                "Direct.Package/1.0.0": {
+                    "type": "package",
+                    "path": "{{packageRoot.Replace("\\", "/")}}",
+                    "files": [
+                        "skills/SKILL.md"
+                    ]
+                }
+            },
+            "project": {
+                "frameworks": {
+                    "net9.0": {
+                        "dependencies": {
+                            "Direct.Package": {
+                                "target": "Package",
+                                "version": "[1.0.0, )"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """;
+
+        var assetsPath = WriteTempFile(json);
+        try
+        {
+            var entry = Assert.Single(ProjectAssetsParser.ParsePackageFileEntries(
+                assetsPath,
+                null,
+                ["skills/SKILL.md", "skills/**/SKILL.md"],
+                null));
+
+            Assert.Equal("skills/SKILL.md", entry.Path);
+            Assert.Equal(Path.GetFullPath(skillPath), entry.FullPath);
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+            Directory.Delete(packageRoot, recursive: true);
         }
     }
 

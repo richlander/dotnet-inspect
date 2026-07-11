@@ -330,6 +330,9 @@ public static class ProjectAssetsParser
 
                 foreach (var file in files.EnumerateArray())
                 {
+                    if (file.ValueKind != JsonValueKind.String)
+                        continue;
+
                     var path = NormalizeAssetPath(file.GetString());
                     if (path.Length == 0 || !MatchesAny(path, normalizedPatterns))
                         continue;
