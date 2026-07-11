@@ -703,8 +703,9 @@ static class Program
                     full++;
                     continue;
                 }
-                var diagnostic = function.Diagnostics.FirstOrDefault();
-                if (diagnostic.Id == DiagnosticIds.InternalError)
+                var diagnostic = function.Diagnostics.FirstOrDefault(static diagnostic =>
+                    diagnostic.Id == DiagnosticIds.InternalError);
+                if (diagnostic.Id is not null)
                 {
                     crashes++;
                     Console.Error.WriteLine($"IMPORTER BUG: {diagnostic.Message}");
