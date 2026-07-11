@@ -169,6 +169,50 @@ static class CompileBackCSharpNames
             or "while" or "record" or "required" or "init" or "file" or "scoped";
 }
 
+internal enum ArtifactKind
+{
+    Method,
+    PropertyGetter,
+    PropertySetter,
+}
+
+internal sealed record ArtifactRequest(
+    ArtifactKind Kind,
+    string AssemblyPath,
+    MetadataReader Reader,
+    IrFunction Function,
+    TypeDefinitionHandle TargetType,
+    MethodDefinitionHandle TargetMethod,
+    string TargetBody,
+    string FullType,
+    string MethodName,
+    int Overload,
+    string SignatureText,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements,
+    PropertyDefinitionHandle? TargetProperty);
+
+internal sealed record ProductArtifact(
+    ArtifactRequest Request,
+    string Source,
+    IReadOnlyList<CompileBackFact> SourceFacts,
+    IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics,
+    CompileBackReconstructionPlan Plan)
+{
+    internal static ProductArtifact From(ArtifactRequest request, CompileBackSourceResult result)
+        => new(
+            request,
+            result.Source,
+            result.Plan.Types
+                .SelectMany(type => type.SourceFacts
+                    .Concat(type.PrimaryConstructor?.FieldInitializers.SelectMany(member => member.SourceFacts) ?? [])
+                    .Concat(type.RequiredMembers.SelectMany(member => member.SourceFacts)))
+                .ToArray(),
+            result.Plan.Diagnostics,
+            result.Plan);
+}
+
 public sealed record CompileBackSourceResult(CompileBackReconstructionPlan Plan, string Source);
 
 public sealed record CompileBackReconstructionPlan(
@@ -336,6 +380,64 @@ public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, 
 
 public static class CompileBackSourceComposer
 {
+    internal static ProductArtifact Compose(ArtifactRequest request)
+    {
+        var result = request.Kind switch
+        {
+            ArtifactKind.PropertyGetter => ComposePropertyGetter(
+                request.AssemblyPath,
+                request.Reader,
+                request.Function,
+                request.TargetType,
+                RequiredProperty(request),
+                request.TargetMethod,
+                request.TargetBody,
+                request.FullType,
+                request.MethodName,
+                request.Overload,
+                request.SignatureText,
+                request.ClosureRoots,
+                request.ClosureFacts,
+                request.ClosureMemberRequirements),
+            ArtifactKind.PropertySetter => ComposePropertySetter(
+                request.AssemblyPath,
+                request.Reader,
+                request.Function,
+                request.TargetType,
+                RequiredProperty(request),
+                request.TargetMethod,
+                request.TargetBody,
+                request.FullType,
+                request.MethodName,
+                request.Overload,
+                request.SignatureText,
+                request.ClosureRoots,
+                request.ClosureFacts,
+                request.ClosureMemberRequirements),
+            ArtifactKind.Method => ComposeMethod(
+                request.AssemblyPath,
+                request.Reader,
+                request.Function,
+                request.TargetType,
+                request.TargetMethod,
+                request.TargetBody,
+                request.FullType,
+                request.MethodName,
+                request.Overload,
+                request.SignatureText,
+                request.ClosureRoots,
+                request.ClosureFacts,
+                request.ClosureMemberRequirements),
+            _ => throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown artifact kind."),
+        };
+
+        return ProductArtifact.From(request, result);
+    }
+
+    static PropertyDefinitionHandle RequiredProperty(ArtifactRequest request)
+        => request.TargetProperty
+            ?? throw new ArgumentException($"{request.Kind} artifact requests require a target property.", nameof(request));
+
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
