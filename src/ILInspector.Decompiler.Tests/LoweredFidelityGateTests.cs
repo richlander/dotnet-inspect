@@ -92,6 +92,12 @@ public class LoweredFidelityGateTests
         // neither). See the sibling FidelityGateTests docket.
         "CharConditionalElementStore",
         "WhileNestedContinueKeepsArmExclusive",
+        // PointerStoreUsesOriginalAddress (#2644): same intentional residual as
+        // the sugared view. The lowered body keeps the original pointer address
+        // in the store target, but compile-back introduces locals around the
+        // conditional value before stind.i4, so the canonical opcode stream
+        // differs without changing the represented address semantics.
+        "PointerStoreUsesOriginalAddress",
         // Unmasked by the in/out skeleton-parameter fix (#1931): RecompileFail before
         // (the reconstructed CfgSampleClass failed to compile on InOperatorVec's
         // in-parameter operators rendered as illegal `ref`). Now compile-checked,

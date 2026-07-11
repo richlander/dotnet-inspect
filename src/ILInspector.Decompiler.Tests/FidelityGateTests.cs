@@ -102,6 +102,13 @@ public class FidelityGateTests
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
         // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect / publish only).
         "CharConditionalElementStore",
+        // PointerStoreUsesOriginalAddress (#2644): the raised source preserves
+        // the original pointer address across the argument reassignment
+        // (`*S_... =`, never `*ptr =`), but compile-back introduces locals around
+        // the conditional value before the indirect store. Valid C#, not
+        // opcode-exact; the address-preservation shape is pinned separately by
+        // Rung6PointerStore_PreservesOriginalAddressAcrossArgumentStore.
+        "PointerStoreUsesOriginalAddress",
         // Unmasked by the in/out skeleton-parameter fix (#1931): these CfgSampleClass
         // methods were RecompileFail before — the whole reconstructed type failed to
         // compile because InOperatorVec's in-parameter operators rendered as illegal
