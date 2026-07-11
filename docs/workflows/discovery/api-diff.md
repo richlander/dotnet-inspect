@@ -183,6 +183,11 @@ only the supplied pair; it does not traverse the version range. Use
 `PairFinding.Present` means the target exists at both endpoints, while
 `PairFinding.Removed` means only the old endpoint contains it.
 
+This focused endpoint-confirmation lens must be selected by itself. It does not
+compose with the comparison sections or `-S @All`; select `Changes`,
+`Analysis Diff`, and `Implementation Diff` explicitly when composing those
+views.
+
 ## 8. Name-only output
 
 > Goal: Get a quick list of which types changed, without details.

@@ -111,13 +111,7 @@ public static class SemanticFactProjection
     {
         var operationRows = occurrences
             .Where(occurrence => ilOffset is null || occurrence.ILOffset == ilOffset)
-            .Select(occurrence => new SafetyFact(
-                occurrence.Method,
-                occurrence.ILOffset,
-                FormatUnsafetyKind(occurrence.Kind),
-                occurrence.Detail ?? FormatUnsafetyKind(occurrence.Kind),
-                "requires unsafe",
-                FormatUnsafetyKind(occurrence.Kind)));
+            .Select(ToSafetyFact);
 
         var coveredOperations = operationRows
             .Where(row => row.ILOffset is not null)
@@ -128,19 +122,31 @@ public static class SemanticFactProjection
             .Where(evidence => ilOffset is null || evidence.ILOffset == ilOffset)
             .Where(evidence => evidence.ILOffset is null
                 || !coveredOperations.Contains((evidence.Member.MetadataToken, evidence.ILOffset.Value)))
-            .Select(evidence => new SafetyFact(
-                evidence.Member,
-                evidence.ILOffset,
-                evidence.Reason,
-                evidence.Detail,
-                "requires unsafe",
-                evidence.Kind));
+            .Select(ToSafetyFact);
 
         return [.. operationRows.Concat(unsafeCallRows)
             .OrderBy(row => row.Method.MetadataToken)
             .ThenBy(row => row.ILOffset)
             .ThenBy(row => row.SafetyKind, StringComparer.Ordinal)];
     }
+
+    internal static SafetyFact ToSafetyFact(UnsafetyOccurrence occurrence)
+        => new(
+            occurrence.Method,
+            occurrence.ILOffset,
+            FormatUnsafetyKind(occurrence.Kind),
+            occurrence.Detail ?? FormatUnsafetyKind(occurrence.Kind),
+            "requires unsafe",
+            FormatUnsafetyKind(occurrence.Kind));
+
+    internal static SafetyFact ToSafetyFact(UnsafeEvidence evidence)
+        => new(
+            evidence.Member,
+            evidence.ILOffset,
+            evidence.Reason,
+            evidence.Detail,
+            "requires unsafe",
+            evidence.Kind);
 
     public static ImmutableArray<CostFact> CostFacts(
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>> directCalls,

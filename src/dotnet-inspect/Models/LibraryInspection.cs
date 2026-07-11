@@ -235,11 +235,32 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSurface? ApiSurface { get; set; }
 
-    /// <summary>
-    /// Extension methods defined in this assembly, grouped by extended type.
-    /// </summary>
+    private FindingInspection<ExtensionMemberObservation>? _extensionMemberInspection;
+    private IReadOnlyList<ExtensionMethodInfo>? _extensionMemberDisplayOrder;
+    private bool _extensionMethodsInitialized;
+    private List<LibraryExtensionMethodJson>? _extensionMethods;
+
+    [JsonIgnore]
+    public FindingInspection<ExtensionMemberObservation>? ExtensionMemberInspection =>
+        _extensionMemberInspection;
+
+    internal void SetExtensionMemberInspection(
+        FindingInspection<ExtensionMemberObservation> inspection,
+        IReadOnlyList<ExtensionMethodInfo>? displayOrder)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+
+        _extensionMemberInspection = inspection;
+        _extensionMemberDisplayOrder = displayOrder?.ToArray();
+        ResetFindingProjectionCaches();
+    }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ExtensionMethodSummary>? ExtensionMethods { get; set; }
+    public List<LibraryExtensionMethodJson>? ExtensionMethods =>
+        GetOrCreate(
+            ref _extensionMethodsInitialized,
+            ref _extensionMethods,
+            ProjectExtensionMethods);
 
     private List<ClassifiedMethodSummary>? _unsafeMethods;
 
@@ -454,6 +475,7 @@ public class LibraryInspection
             List<LibraryInspectionFailureJson> failures = [];
             AddFailure(failures, "References", AssemblyReferenceInspection);
             AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
+            AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
             AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);
             AddFailure(failures, "Resources", ResourceInspection);
@@ -723,6 +745,8 @@ public class LibraryInspection
 
     private void ResetFindingProjectionCaches()
     {
+        _extensionMethodsInitialized = false;
+        _extensionMethods = null;
         _inspectionFailuresInitialized = false;
         _inspectionFailures = null;
         _integrationsInitialized = false;
@@ -745,6 +769,37 @@ public class LibraryInspection
             ? fallback
             : ClassifiedMethodInspection.PayloadsForRendering().Count(
                 method => method.Classification == classification);
+
+    private List<LibraryExtensionMethodJson>? ProjectExtensionMethods()
+    {
+        if (_extensionMemberDisplayOrder is null)
+            return null;
+
+        var anchors = ExtensionMemberInspection.PayloadsForRendering()
+            .Select(static observation => observation.Anchor)
+            .ToHashSet();
+        var rows = _extensionMemberDisplayOrder
+            .Where(member => member.Anchor is { } anchor && anchors.Contains(anchor))
+            .GroupBy(member => (
+                member.MethodName,
+                member.Kind,
+                member.ExtensionClass,
+                member.ExtendedType))
+            .Select(group =>
+            {
+                int count = group.Count();
+                return new LibraryExtensionMethodJson(
+                    group.Key.MethodName,
+                    group.Key.ExtendedType,
+                    group.Key.ExtensionClass,
+                    group.Key.Kind,
+                    count > 1 ? count : null);
+            })
+            .OrderBy(member => member.ExtendedType)
+            .ThenBy(member => member.MethodName)
+            .ToList();
+        return NullIfEmpty(rows);
+    }
 
     private static void AddFailure<T>(
         List<LibraryInspectionFailureJson> failures,
@@ -925,16 +980,14 @@ public class ILOffsetCostContext
 public sealed record SourceFileInfo(string Type, string? Url);
 
 /// <summary>
-/// Summary of an extension method defined in a library.
+/// JSON projection of extension members defined in a library.
 /// </summary>
-public record class ExtensionMethodSummary
-{
-    public string MethodName { get; init; } = "";
-    public string ExtendedType { get; init; } = "";
-    public string ExtensionClass { get; init; } = "";
-    public string Kind { get; init; } = "method";
-    public int? Overloads { get; init; }
-}
+public sealed record LibraryExtensionMethodJson(
+    string MethodName,
+    string ExtendedType,
+    string ExtensionClass,
+    string Kind,
+    int? Overloads);
 
 /// <summary>
 /// Summary of a classified method (unsafe or P/Invoke).

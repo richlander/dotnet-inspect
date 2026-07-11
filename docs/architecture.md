@@ -92,6 +92,8 @@ Compares two package, platform, or local-library versions:
 - `-S "Analysis Diff"` selects body-signal changes.
 - `-S "Implementation Diff"` selects Research-composed C# + IL evidence grouped
   by member.
+- Multiple selected sections compose in Markdown and JSON. Explicit
+  table/TSV/JSONL output requires exactly one selected section.
 - Version range syntax is `Package@v1..v2` or `old/Foo.dll..new/Foo.dll`.
 
 ### find
@@ -139,8 +141,10 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
   assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,
   and produces method signals, direct-call evidence, allocation occurrences, and
   leverage data without depending on the decompiler IR. `AnalysisFindings`
-  projects allocation occurrences into one typed, IL-ordered census used by
-  both single-version and two-version consumers.
+  projects allocations, direct call sites, definite unsafe operations, and
+  broader unsafe evidence into typed censuses used by single-version and
+  two-version consumers. IL occurrences retain producer order; declaration and
+  signature evidence remains an identity multiset without fabricated ordinals.
 - **R2** is the higher decompiler representation. `ILInspector.Decompiler`
   imports one method into IR, raises/lowers it for C# printing, projects raw or
   annotated IL, and supplies IR anchors for source-line placement.
@@ -168,7 +172,11 @@ includes:
 | Producer | Source | Facts |
 | -------- | ------ | ----- |
 | `AllocationOccurrenceFactProducer` | `ILInspector.Analysis` allocation Finding census | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
-| `DecompilerHiddenFactProducer` | existing decompiler annotation classifier | `unsafe.*`, `lifetime.*` |
+| `UnsafetyOccurrenceFactProducer` | `ILInspector.Analysis` unsafety Finding census | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
+| `CallSiteCostFactProducer` | Analysis call-site Findings joined with signals and leverage | `cost.callee` |
+| `CallSiteSemanticsFactProducer` | Analysis call-site Findings joined with callee semantics | `semantics.callee`, `safety.callee` |
+| `MethodHeaderLeverageFactProducer` | Analysis method-signal and leverage aggregates | `cost.method` |
+| `DecompilerLifetimeFactProducer` | existing decompiler lifetime classifier | `lifetime.*` |
 
 The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
 Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or
@@ -187,6 +195,11 @@ directly; Research remains the consumer for views that genuinely join multiple
 producers or preserve producer-native structural evidence. Failed censuses stay
 distinct from empty results and render as inspection diagnostics without
 suppressing unaffected sections.
+
+Extension discovery follows the same rule for both `library` and `extensions`:
+each assembly is scanned once into Metadata's extension-member Finding census,
+then CLI target, reachability, overload, and display projections consume that
+shared inventory.
 
 ### Metadata Extraction
 

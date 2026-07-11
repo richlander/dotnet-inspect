@@ -65,6 +65,8 @@
              Link="CorpusSensor.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ClosureDiagnosticEvidence.cs"
+             Link="ClosureDiagnosticEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\HarnessOpcode.cs"
              Link="HarnessOpcode.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSender.cs"

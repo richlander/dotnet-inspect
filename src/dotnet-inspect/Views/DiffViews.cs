@@ -45,6 +45,33 @@ public record DiffDetailedChangeRow(
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     FieldLayout = FieldLayout.Table)]
+public class DiffDocumentView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+    public string Versions { get; set; } = "";
+    public string? ChangesSummary { get; set; }
+    public string? AnalysisDiffSummary { get; set; }
+    public string? AnalysisDiffNote { get; set; }
+    public string? ImplementationDiffSummary { get; set; }
+    public string? ImplementationDiffNote { get; set; }
+    public string? FindingTransitionsSummary { get; set; }
+
+    [MarkoutSection(Name = "Changes")]
+    public List<DiffDetailedChangeRow>? Changes { get; set; }
+
+    [MarkoutSection(Name = "Analysis Diff")]
+    public List<AnalysisDiffRow>? AnalysisDiff { get; set; }
+
+    [MarkoutSection(Name = "Implementation Diff")]
+    public List<ImplementationDiffRow>? ImplementationDiff { get; set; }
+
+    [MarkoutSection(Name = "Finding Transitions")]
+    public List<FindingTransitionRow>? FindingTransitions { get; set; }
+}
+
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
 public class FindingTransitionsView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
@@ -143,6 +170,7 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(DiffOneLineRow))]
 [MarkoutContext(typeof(DiffDetailedChangesView))]
 [MarkoutContext(typeof(DiffDetailedChangeRow))]
+[MarkoutContext(typeof(DiffDocumentView))]
 [MarkoutContext(typeof(FindingTransitionsView))]
 [MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]

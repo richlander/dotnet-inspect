@@ -45,6 +45,28 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void ExtensionScanner_RetainsFindingSemanticsAndDisplayProjection()
+    {
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ScanExtensionMembers(
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            inspection,
+            new VerboseLogger(enabled: false));
+
+        var finding = Assert.Single(
+            inspection.ExtensionMemberInspection.Findings(),
+            finding => finding.Payload.Anchor.MemberName == "ToUpperCase");
+        var row = Assert.Single(
+            inspection.ExtensionMethods!,
+            row => row.MethodName == "ToUpperCase");
+
+        Assert.Same(MetadataFindings.ExtensionMemberDescriptor, finding.Descriptor);
+        Assert.Equal(ExtensionMemberKind.Method, finding.Payload.Kind);
+        Assert.Contains("string", row.ExtendedType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LibraryJson_ProjectsFindingPayloadsWithExistingShape()
     {
         AssemblyAttributeInfo[] attributes =
@@ -84,6 +106,15 @@ public class LibraryFindingConsumerTests
                 attributes,
                 FindingTestData.Subject),
             attributes);
+        ExtensionMethodInfo[] extensionMembers =
+        [
+            FindingTestData.ExtensionMember("Ext", "Test.Target"),
+        ];
+        inspection.SetExtensionMemberInspection(
+            MetadataFindings.InspectExtensionMembers(
+                extensionMembers,
+                FindingTestData.Subject),
+            extensionMembers);
 
         var json = JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection);
         using var document = JsonDocument.Parse(json);
@@ -103,6 +134,8 @@ public class LibraryFindingConsumerTests
         Assert.Equal("Test.Forwarded", root.GetProperty("type_forwarders")[0].GetProperty("type_name").GetString());
         Assert.Equal("Test.Union", root.GetProperty("union_types")[0].GetProperty("type_name").GetString());
         Assert.Equal("Test.Switch", root.GetProperty("switches")[0].GetProperty("switch").GetString());
+        Assert.Equal("Ext", root.GetProperty("extension_methods")[0].GetProperty("method_name").GetString());
+        Assert.Equal("Test.Target", root.GetProperty("extension_methods")[0].GetProperty("extended_type").GetString());
         Assert.Equal(EcosystemIntegrationNames.AI, root.GetProperty("integrations")[0].GetProperty("integration").GetString());
         Assert.Equal("Test.ChatClient", root.GetProperty("ai")[0].GetProperty("name").GetString());
         Assert.Equal("Test.ActivitySource", root.GetProperty("open_telemetry")[0].GetProperty("name").GetString());
@@ -112,11 +145,15 @@ public class LibraryFindingConsumerTests
     [Fact]
     public void AssemblyAttributeInspection_RequiresExplicitJsonOrder()
     {
-        var property = typeof(LibraryInspection).GetProperty(
+        var attributeProperty = typeof(LibraryInspection).GetProperty(
             nameof(LibraryInspection.AssemblyAttributeInspection));
+        var extensionProperty = typeof(LibraryInspection).GetProperty(
+            nameof(LibraryInspection.ExtensionMemberInspection));
 
-        Assert.NotNull(property);
-        Assert.False(property.CanWrite);
+        Assert.NotNull(attributeProperty);
+        Assert.False(attributeProperty.CanWrite);
+        Assert.NotNull(extensionProperty);
+        Assert.False(extensionProperty.CanWrite);
     }
 
     [Fact]
@@ -134,11 +171,13 @@ public class LibraryFindingConsumerTests
         };
 
         LibraryMetadataService.ScanClassifiedMethods(missingPath, inspection, logger);
+        LibraryMetadataService.ScanExtensionMembers(missingPath, inspection, logger);
         LibraryMetadataService.ScanCustomAttributes(missingPath, inspection, logger);
         LibraryMetadataService.ScanTypeForwarders(missingPath, inspection, logger);
         LibraryMetadataService.ScanIntegrations(missingPath, inspection, logger);
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
+        AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
         AssertFailure(inspection.ResourceInspection, MetadataFindings.ResourceDescriptor);
         AssertFailure(inspection.AssemblyAttributeInspection, MetadataFindings.AssemblyAttributeDescriptor);
         AssertFailure(inspection.TypeForwarderInspection, MetadataFindings.TypeForwarderDescriptor);
@@ -146,7 +185,7 @@ public class LibraryFindingConsumerTests
         AssertFailure(inspection.SwitchInspection, MetadataFindings.SwitchDescriptor);
         AssertFailure(inspection.EcosystemIntegrationInspection, MetadataFindings.EcosystemIntegrationDescriptor);
         AssertFailure(inspection.OpenTelemetryInspection, MetadataFindings.OpenTelemetrySignalDescriptor);
-        Assert.Equal(8, inspection.InspectionFailures!.Count);
+        Assert.Equal(9, inspection.InspectionFailures!.Count);
     }
 
     [Fact]
@@ -208,6 +247,29 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void FailedExtensionInspection_DoesNotRenderPresentationRows()
+    {
+        var member = FindingTestData.ExtensionMember("Ext", "Test.Target");
+        var inspection = new LibraryInspection();
+        inspection.SetExtensionMemberInspection(
+            new FindingInspection<ExtensionMemberObservation>.Failed(
+                new InspectionError(
+                    FindingTestData.Subject,
+                    MetadataFindings.ExtensionMemberDescriptor,
+                    "extension scan failed")),
+            [member]);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => inspection.ExtensionMemberInspection.Findings());
+        Assert.Contains("extension scan failed", exception.Message);
+        Assert.Null(inspection.ExtensionMethods);
+
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal("Extension Methods", failure.Section);
+        Assert.Equal("extension scan failed", failure.Reason);
+    }
+
+    [Fact]
     public void FindingJsonProjections_AreCachedAndInvalidatedWithTheirInspection()
     {
         var inspection = new LibraryInspection
@@ -251,6 +313,7 @@ public class LibraryFindingConsumerTests
     public void ExplicitSelectionFailureWarnings_AreCorrelatedToAffectedSections()
     {
         Assert.True(LibraryCommand.FailureAffectsSection("Classified Methods", "P/Invoke Methods"));
+        Assert.True(LibraryCommand.FailureAffectsSection("Extension Methods", "Library Info"));
         Assert.True(LibraryCommand.FailureAffectsSection("Switches", "Library Info"));
         Assert.True(LibraryCommand.FailureAffectsSection(
             LibraryIntegrationCatalog.RollupName,

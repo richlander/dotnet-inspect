@@ -1222,11 +1222,16 @@ public class OutputFormatterTests
             new UnsafeMemberSummary { Member = "B.Type.A()", Reason = "Unsafe signature", Detail = "void A()", Kind = "signature" },
             new UnsafeMemberSummary { Member = "A.Type.Z()", Reason = "Unsafe signature", Detail = "void Z()", Kind = "signature" }
         ];
-        inspection.ExtensionMethods =
+        ExtensionMethodInfo[] extensionMembers =
         [
-            new ExtensionMethodSummary { ExtendedType = "B.Type", MethodName = "A", ExtensionClass = "Extensions" },
-            new ExtensionMethodSummary { ExtendedType = "A.Type", MethodName = "Z", ExtensionClass = "Extensions" }
+            FindingTestData.ExtensionMember("A", "B.Type"),
+            FindingTestData.ExtensionMember("Z", "A.Type"),
         ];
+        inspection.SetExtensionMemberInspection(
+            MetadataFindings.InspectExtensionMembers(
+                extensionMembers,
+                FindingTestData.Subject),
+            extensionMembers);
 
         var output = Serialize(inspection);
 

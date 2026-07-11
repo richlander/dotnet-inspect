@@ -91,7 +91,7 @@ public static class LibrarySections
     {
         return new ScannerRegistry()
             .Add(ScannerExtensionMethods, ctx =>
-                ctx.Model.ExtensionMethods = LibraryMetadataService.ScanExtensionMethods(ctx.AssemblyPath, ctx.Logger))
+                LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerClassifiedMethods, ctx =>
                 LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerResources, ctx =>
@@ -482,7 +482,7 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerExtensionMethods;
         public static bool CanRender(LibraryInspection model)
-            => model.ExtensionMethods is { Count: > 0 } || model.HasExtensionTypes;
+            => model.ExtensionMemberInspection.CanRenderWithPresence(model.HasExtensionTypes);
     }
 
     public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
