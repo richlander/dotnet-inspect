@@ -142,6 +142,49 @@ public class SwitchBranchRenderingTests
     }
 
     [Fact]
+    public void BooleanFolding_PreservesLabelWhenSwitchTargetBecomesGuardReturn()
+    {
+        var entry = new Block(0);
+        entry.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [0x10]));
+
+        var fallthrough = new Block(0x04);
+        fallthrough.Add(new Return(new Constant(false, Boolean)));
+
+        var target = new Block(0x10);
+        target.Add(new ConditionalBranch(new LoadArgument(1, "flag", Boolean), 0x14));
+
+        var arm = new Block(0x12);
+        arm.Add(new Return(new Constant(true, Boolean)));
+
+        var exit = new Block(0x14);
+        exit.Add(new Return(new Constant(false, Boolean)));
+
+        var container = new BlockContainer();
+        foreach (var block in (Block[])[entry, fallthrough, target, arm, exit])
+            container.Add(block);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Sample"),
+            new MethodSignature(
+                Boolean,
+                [new Parameter("x", Int32), new Parameter("flag", Boolean)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        new BooleanFoldingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
+        Assert.Contains("IL_0010:", output);
+        AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
     public void FullPipeline_PreservesEveryResidualSwitchTargetLabel()
     {
         using var source = MetadataSource.Open(typeof(CSharpSpellability).Assembly.Location);

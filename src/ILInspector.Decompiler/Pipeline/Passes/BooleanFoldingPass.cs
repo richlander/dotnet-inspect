@@ -508,7 +508,9 @@ public sealed class BooleanFoldingPass : IIrPass
 
         tailReturn.Detach();
         stepper.StepOver("fold guarded return into short-circuit", guard);
-        guard.ReplaceWith(new Return(folded));
+        var foldedReturn = new Return(folded);
+        foldedReturn.InheritSourceOffset(guard);
+        guard.ReplaceWith(foldedReturn);
         return true;
     }
 
@@ -581,8 +583,10 @@ public sealed class BooleanFoldingPass : IIrPass
         tailReturn.Detach();
 
         stepper.StepOver("fold guarded return into ternary", guard);
-        guard.ReplaceWith(new Return(
-            new Conditional(Conditions.Negate(condition), tailValue, thenValue) { MergedType = mergedType }));
+        var foldedReturn = new Return(
+            new Conditional(Conditions.Negate(condition), tailValue, thenValue) { MergedType = mergedType });
+        foldedReturn.InheritSourceOffset(guard);
+        guard.ReplaceWith(foldedReturn);
         return true;
     }
 
