@@ -20,15 +20,14 @@ internal static class DependencyGraphService
         DependsOptions options,
         VerboseLogger logger)
     {
-        return AssemblyCollector.WithAssembliesAsync(
+        return WithAssemblySetAsync(
             httpClient,
-            options,
+            options.ToAssemblySetRequest(TempDirPrefix),
             logger,
-            TempDirPrefix,
-            assemblyInfos =>
+            assemblySet =>
             {
-                logger.Log($"Scanning {assemblyInfos.Count} libraries for type {options.TargetType}");
-                var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
+                logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
+                var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
                 return TypeDependencyScanner.BuildDependencyTree(options.TargetType, assemblyPaths);
             });
     }
@@ -39,50 +38,59 @@ internal static class DependencyGraphService
         NuGetSourceOptions? sourceOptions,
         VerboseLogger logger)
     {
-        List<string> tempDirs = [];
+        string? assemblyPath = null;
+        AssemblySet? ownedAssemblySet = null;
+
         try
         {
-            string? assemblyPath = null;
-
             if (File.Exists(libraryName))
             {
-                assemblyPath = libraryName;
+                ownedAssemblySet = await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest { Assemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    logger.Log);
+                WriteDiagnostics(ownedAssemblySet);
+                assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
             }
             else if (PlatformResolver.IsPlatformCandidate(libraryName))
             {
-                var (resolved, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    libraryName, httpClient, logger.Log);
-                if (error == null && resolved != null)
-                    assemblyPath = resolved;
+                ownedAssemblySet = await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest { PlatformAssemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    logger.Log);
+                if (ownedAssemblySet.Assemblies.Count > 0)
+                {
+                    WriteDiagnostics(ownedAssemblySet);
+                    assemblyPath = ownedAssemblySet.Assemblies[0].Path;
+                }
+                else
+                {
+                    ownedAssemblySet.Dispose();
+                    ownedAssemblySet = null;
+                }
             }
 
             if (assemblyPath == null)
             {
                 logger.Log($"Resolving package: {libraryName}");
-                var outcome = await PackageExtractor.ExtractPackageAsync(
-                    httpClient, libraryName, logger.Log,
-                    sourceOptions: sourceOptions);
-                if (!outcome.IsSuccess)
+                ownedAssemblySet = await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        Packages = [libraryName],
+                        SourceOptions = sourceOptions,
+                        TempDirPrefix = TempDirPrefix,
+                    },
+                    logger.Log);
+                WriteDiagnostics(ownedAssemblySet);
+
+                assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
+                if (assemblyPath == null)
                 {
                     return new LibraryDependencyGraphResult.Error(
                         $"Could not resolve '{libraryName}' as a file, platform library, or NuGet package.",
                         libraryName);
                 }
-
-                var extracted = outcome.Result!;
-                if (extracted.TempDir != null)
-                    tempDirs.Add(extracted.TempDir);
-
-                var dllFiles = Directory.GetFiles(extracted.ExtractPath, "*.dll", SearchOption.AllDirectories)
-                    .Where(f => f.Contains("/lib/") || f.Contains("\\lib\\"))
-                    .OrderByDescending(f => f)
-                    .ToArray();
-                if (dllFiles.Length == 0)
-                {
-                    return new LibraryDependencyGraphResult.Error($"No libraries found in package '{libraryName}'.");
-                }
-
-                assemblyPath = dllFiles[0];
             }
 
             var (refs, _) = AssemblyInspector.ExtractReferencesAndCompany(assemblyPath);
@@ -100,7 +108,7 @@ internal static class DependencyGraphService
         }
         finally
         {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
+            ownedAssemblySet?.Dispose();
         }
     }
 
@@ -158,7 +166,32 @@ internal static class DependencyGraphService
         }
         finally
         {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
+            CleanupTempDirs(tempDirs);
+        }
+    }
+
+    private static async Task<TResult> WithAssemblySetAsync<TResult>(
+        HttpClient httpClient,
+        AssemblySetRequest request,
+        VerboseLogger logger,
+        Func<AssemblySet, TResult> operation)
+    {
+        using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
+        WriteDiagnostics(assemblySet);
+        return operation(assemblySet);
+    }
+
+    private static void WriteDiagnostics(AssemblySet assemblySet)
+    {
+        foreach (var diagnostic in assemblySet.Diagnostics)
+            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
+    }
+
+    private static void CleanupTempDirs(List<string> tempDirs)
+    {
+        foreach (var dir in tempDirs)
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
         }
     }
 }

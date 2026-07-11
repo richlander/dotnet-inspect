@@ -1,6 +1,4 @@
-using DotnetInspector.Options;
 using DotnetInspector.Output;
-using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Inspectors;
@@ -17,14 +15,13 @@ public static class CallerScopeResolver
     /// <paramref name="ownAssemblyPath"/> (already scanned as the member's own assembly) and
     /// de-duplicating by normalized full path.
     /// </summary>
-    public static async Task<IReadOnlyList<string>> ResolveAsync(
+    public static async Task<CallerScopeAssemblySet> ResolveAsync(
         IReadOnlyList<string> directories,
         IReadOnlyList<string> projects,
         IReadOnlyList<string> packages,
         string? tfm,
         string? ownAssemblyPath,
         HttpClient httpClient,
-        List<string> tempDirs,
         VerboseLogger logger)
     {
         var result = new List<string>();
@@ -40,66 +37,39 @@ public static class CallerScopeResolver
                 result.Add(full);
         }
 
-        // Packages: download and extract via AssemblyCollector
-        if (packages.Count > 0)
-        {
-            var scopeOptions = new CallerScopeOptions(packages, tfm);
-            var assemblies = await AssemblyCollector.CollectAsync(
-                httpClient, scopeOptions, tempDirs, logger, "inspect-caller");
-            foreach (var asm in assemblies)
-                Add(asm.Path);
-        }
-
-        // Projects: restored dependencies via project.assets.json
-        foreach (var projectPath in projects)
-        {
-            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
+        var assemblySet = await AssemblySetResolver.CollectAsync(
+            httpClient,
+            new AssemblySetRequest
             {
-                Console.Error.WriteLine($"Warning: {ProjectAssetsParser.DescribeMissingAssets(projectPath, status)}");
-                continue;
-            }
+                Packages = packages,
+                Projects = projects,
+                Directories = directories,
+                Tfm = tfm,
+                TempDirPrefix = "inspect-caller",
+            },
+            logger.Log);
 
-            logger.Log($"Using assets: {assetsPath}");
-            foreach (var (asmPath, _, _) in ProjectAssetsParser.Parse(assetsPath, tfm, logger.Log))
-                Add(asmPath);
-        }
+        foreach (var diagnostic in assemblySet.Diagnostics)
+            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
 
-        // Directories: top-level *.dll files
-        foreach (var dir in directories)
-        {
-            if (!Directory.Exists(dir))
-            {
-                Console.Error.WriteLine($"Warning: Directory not found '{dir}', skipping.");
-                continue;
-            }
+        foreach (var assembly in assemblySet.Assemblies)
+            Add(assembly.Path);
 
-            foreach (var dll in Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly))
-                Add(dll);
-        }
-
-        return result;
+        return new CallerScopeAssemblySet(result, assemblySet);
     }
+}
 
-    /// <summary>
-    /// Minimal IAssemblySourceOptions implementation for caller-scope package resolution.
-    /// </summary>
-    private sealed class CallerScopeOptions : IAssemblySourceOptions
+public sealed class CallerScopeAssemblySet : IDisposable
+{
+    private readonly AssemblySet _assemblySet;
+
+    internal CallerScopeAssemblySet(IReadOnlyList<string> assemblies, AssemblySet assemblySet)
     {
-        public CallerScopeOptions(IReadOnlyList<string> packages, string? tfm)
-        {
-            Packages = packages.ToArray();
-            Tfm = tfm;
-        }
-
-        public string[] Packages { get; }
-        public string[] Assemblies { get; } = [];
-        public string[] PlatformAssemblies { get; } = [];
-        public string[] PlatformFrameworks { get; } = [];
-        public string[] Projects { get; } = [];
-        public string? Tfm { get; }
-        
-        NuGetSourceOptions? IAssemblySourceOptions.SourceOptions => null;
-        
-        public bool HasAnyScope => Packages.Length > 0;
+        Assemblies = assemblies;
+        _assemblySet = assemblySet;
     }
+
+    public IReadOnlyList<string> Assemblies { get; }
+
+    public void Dispose() => _assemblySet.Dispose();
 }

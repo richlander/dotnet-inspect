@@ -119,23 +119,19 @@ internal static class TypeFindIfMissResolver
         if (!LooksLikeSimpleTypeQuery(query))
             return TypeFindIfMissResult.None(query ?? "");
 
-        List<string> tempDirs = [];
-        try
+        var normalizedQuery = TypeMatcher.Normalize(query!);
+        var findOptions = new FindOptions
         {
-            var normalizedQuery = TypeMatcher.Normalize(query!);
-            var findOptions = new FindOptions
-            {
-                Pattern = normalizedQuery,
-                PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
-                IncludeAll = includeAll,
-                SourceOptions = sourceOptions
-            };
-            var results = await TypeSearchService.CollectTypesAsync(
-                findOptions,
-                normalizedQuery,
-                logger,
-                tempDirs,
-                httpClient);
+            Pattern = normalizedQuery,
+            PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+            IncludeAll = includeAll,
+            SourceOptions = sourceOptions
+        };
+        var results = await TypeSearchService.CollectTypesAsync(
+            findOptions,
+            normalizedQuery,
+            logger,
+            httpClient);
 
             var exactMatches = results
                 .Select(r => new TypeFindResult
@@ -165,17 +161,12 @@ internal static class TypeFindIfMissResolver
                 : exactSimpleNameMatches.Count > 0 ? exactSimpleNameMatches
                 : exactMatches;
 
-            return candidateMatches.Count switch
-            {
-                0 => TypeFindIfMissResult.None(query!),
-                1 => TypeFindIfMissResult.Found(query!, candidateMatches[0]),
-                _ => TypeFindIfMissResult.Ambiguous(query!, candidateMatches)
-            };
-        }
-        finally
+        return candidateMatches.Count switch
         {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
-        }
+            0 => TypeFindIfMissResult.None(query!),
+            1 => TypeFindIfMissResult.Found(query!, candidateMatches[0]),
+            _ => TypeFindIfMissResult.Ambiguous(query!, candidateMatches)
+        };
     }
 
     public static async Task<TypeMemberFindIfMissResult> ResolvePlatformMemberAsync(

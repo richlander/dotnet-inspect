@@ -3,9 +3,6 @@ using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
-using DotnetInspector.Packages;
-using NuGetFetch;
-using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Inspectors;
@@ -24,27 +21,25 @@ internal static class TypeSearchService
         FindOptions options,
         string[] patterns,
         VerboseLogger logger,
-        List<string> tempDirs,
         HttpClient httpClient)
     {
         // Optimized single-pattern path: collect with filtering, then partial match if empty
         if (patterns.Length == 1 && !options.OneLine)
         {
-            return await FindSinglePatternAsync(patterns[0], options, logger, tempDirs, httpClient);
+            return await FindSinglePatternAsync(patterns[0], options, logger, httpClient);
         }
 
         // Multi-pattern or tabular output: collect all types, then match each pattern
-        return await FindMultiPatternAsync(patterns, options, logger, tempDirs, httpClient);
+        return await FindMultiPatternAsync(patterns, options, logger, httpClient);
     }
 
     private static async Task<List<TypeFindResult>> FindMultiPatternAsync(
         string[] patterns,
         FindOptions options,
         VerboseLogger logger,
-        List<string> tempDirs,
         HttpClient httpClient)
     {
-        var allTypes = await CollectTypesAsync(options, null, logger, tempDirs, httpClient);
+        var allTypes = await CollectTypesAsync(options, null, logger, httpClient);
         var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
         Dictionary<string, List<TypeSearchResult>> resultsByPattern = [];
@@ -136,16 +131,15 @@ internal static class TypeSearchService
         string pattern,
         FindOptions options,
         VerboseLogger logger,
-        List<string> tempDirs,
         HttpClient httpClient)
     {
-        var results = await CollectTypesAsync(options, pattern, logger, tempDirs, httpClient);
+        var results = await CollectTypesAsync(options, pattern, logger, httpClient);
 
         List<TypeSearchResult>? partialMatches = null;
         Dictionary<string, double>? partialSimilarities = null;
         if (results.Count == 0 && !pattern.Contains('*') && !pattern.Contains('?'))
         {
-            var allTypes = await CollectTypesAsync(options, null, logger, tempDirs, httpClient);
+            var allTypes = await CollectTypesAsync(options, null, logger, httpClient);
             var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
             if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixResults))
@@ -266,206 +260,49 @@ internal static class TypeSearchService
         FindOptions options,
         string? pattern,
         VerboseLogger logger,
-        List<string> tempDirs,
         HttpClient httpClient)
     {
         List<TypeSearchResult> results = [];
 
         bool ReachedLimit() => pattern != null && options.Limit.HasValue && results.Count >= options.Limit.Value;
 
-        // 1. Search packages
-        foreach (var pkg in options.Packages)
+        var request = options.ToAssemblySetRequest("inspect-find", options.BinPaths);
+        using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
+
+        foreach (var diagnostic in assemblySet.Diagnostics)
+            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
+
+        List<TypeSearchResult> Scan(AssemblySetEntry assembly)
         {
-            if (ReachedLimit()) break;
-
-            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, pkg, logger.Log, "inspect-find", options.SourceOptions);
-            if (!outcome.IsSuccess)
-            {
-                Console.Error.WriteLine($"Warning: {outcome.ErrorMessage}");
-                continue;
-            }
-            var extracted = outcome.Result!;
-
-            var (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
-            if (tempDir != null) tempDirs.Add(tempDir);
-
-            var tfmPath = TfmResolver.ResolvePackagePath(searchPath, options.Tfm);
-            if (tfmPath != null) searchPath = tfmPath;
-
-            var types = CollectFromPath(searchPath, pattern, options.IncludeAll, logger);
+            var types = CollectFromAssembly(assembly.Path, pattern, options.IncludeAll, logger);
             foreach (var t in types)
             {
-                t.Source = packageName ?? pkg;
-                t.SourceVersion = packageVersion;
+                t.Source = assembly.Source;
+                t.SourceVersion = assembly.Version;
             }
-            results.AddRange(types);
+
+            return types;
         }
 
-        // 2. Search assemblies
-        foreach (var asmPath in options.Assemblies)
+        if (pattern == null || !options.Limit.HasValue)
         {
-            if (ReachedLimit()) break;
-
-            if (!File.Exists(asmPath))
+            var perAssembly = new List<TypeSearchResult>[assemblySet.Assemblies.Count];
+            Parallel.For(0, assemblySet.Assemblies.Count, i =>
             {
-                Console.Error.WriteLine($"Warning: Library not found '{asmPath}', skipping.");
-                continue;
-            }
+                perAssembly[i] = Scan(assemblySet.Assemblies[i]);
+            });
 
-            var types = CollectFromAssembly(asmPath, pattern, options.IncludeAll, logger);
-            foreach (var t in types)
-            {
-                t.Source = Path.GetFileName(asmPath);
-            }
-            results.AddRange(types);
-        }
-
-        // 3. Search platform assemblies
-        foreach (var platformAsm in options.PlatformAssemblies)
-        {
-            if (ReachedLimit()) break;
-
-            var framework = options.PlatformFrameworks.Length > 0 ? options.PlatformFrameworks[0] : null;
-            var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                platformAsm, httpClient, logger.Log, framework);
-
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-
-            logger.Log($"Searching platform library: {platformAsm} ({resolvedFramework} {version})");
-            var types = CollectFromAssembly(assemblyPath!, pattern, options.IncludeAll, logger);
-            foreach (var t in types)
-            {
-                t.Source = resolvedFramework;
-                t.SourceVersion = version;
-            }
-            results.AddRange(types);
-        }
-
-        // 4. Search platform frameworks (download ref packs only if not locally available)
-        if (options.PlatformFrameworks.Length > 0)
-        {
-            var requests = PlatformPackService.GetMissingPackRequests(options.PlatformFrameworks);
-            if (requests.Count > 0)
-            {
-                await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
-                {
-                }
-            }
-        }
-
-        foreach (var framework in options.PlatformFrameworks)
-        {
-            if (ReachedLimit()) break;
-
-            var (refPath, resolvedVersion, error) = PlatformResolver.ResolveFramework(framework);
-            if (error != null)
-            {
-                Console.Error.WriteLine($"Warning: {error}, skipping.");
-                continue;
-            }
-
-            var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-            logger.Log($"Searching {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
-
-            void Tag(List<TypeSearchResult> types)
-            {
-                foreach (var t in types)
-                {
-                    t.Source = framework;
-                    t.SourceVersion = resolvedVersion;
-                }
-            }
-
-            // With an active result limit, scan sequentially to honor the early-exit (which results
-            // appear when capped must stay deterministic). Otherwise the per-assembly scans are
-            // independent and CPU-bound, so run them in parallel and reassemble in discovery order.
-            if (pattern != null && options.Limit.HasValue)
-            {
-                foreach (var asmInfo in frameworkAssemblies)
-                {
-                    if (ReachedLimit()) break;
-
-                    var types = CollectFromAssembly(asmInfo.Path, pattern, options.IncludeAll, logger);
-                    Tag(types);
-                    results.AddRange(types);
-                }
-            }
-            else
-            {
-                var perAssembly = new List<TypeSearchResult>[frameworkAssemblies.Count];
-                Parallel.For(0, frameworkAssemblies.Count, i =>
-                {
-                    var types = CollectFromAssembly(frameworkAssemblies[i].Path, pattern, options.IncludeAll, logger);
-                    Tag(types);
-                    perAssembly[i] = types;
-                });
-
-                foreach (var types in perAssembly)
-                    results.AddRange(types);
-            }
-        }
-
-        // 5. Search projects
-        foreach (var projectPath in options.Projects)
-        {
-            if (ReachedLimit()) break;
-
-            if (!ProjectAssetsParser.TryFindAssets(projectPath, out var assetsPath, out var status))
-            {
-                Console.Error.WriteLine($"Warning: {ProjectAssetsParser.DescribeMissingAssets(projectPath, status)}");
-                continue;
-            }
-
-            var projectName = Directory.Exists(projectPath)
-                ? new DirectoryInfo(Path.GetFullPath(projectPath)).Name
-                : Path.GetFileNameWithoutExtension(projectPath);
-            logger.Log($"Using assets: {assetsPath}");
-            var assemblies = ProjectAssetsParser.Parse(assetsPath, options.Tfm, logger.Log);
-            logger.Log($"Searching {assemblies.Count} libraries from {projectName}");
-
-            foreach (var (asmPath, packageName, packageVersion) in assemblies)
-            {
-                if (ReachedLimit()) break;
-
-                var types = CollectFromAssembly(asmPath, pattern, options.IncludeAll, logger);
-                foreach (var t in types)
-                {
-                    t.Source = packageName;
-                    t.SourceVersion = packageVersion;
-                }
+            foreach (var types in perAssembly)
                 results.AddRange(types);
-            }
+
+            return results;
         }
 
-        // 6. Search bin directories
-        foreach (var binPath in options.BinPaths)
+        foreach (var assembly in assemblySet.Assemblies)
         {
             if (ReachedLimit()) break;
 
-            if (!Directory.Exists(binPath))
-            {
-                Console.Error.WriteLine($"Warning: Directory not found '{binPath}', skipping.");
-                continue;
-            }
-
-            var dlls = Directory.GetFiles(binPath, "*.dll", SearchOption.TopDirectoryOnly);
-            logger.Log($"Searching {dlls.Length} libraries in {binPath}");
-
-            foreach (var dll in dlls)
-            {
-                if (ReachedLimit()) break;
-
-                var types = CollectFromAssembly(dll, pattern, options.IncludeAll, logger);
-                foreach (var t in types)
-                {
-                    t.Source = Path.GetFileName(binPath);
-                }
-                results.AddRange(types);
-            }
+            results.AddRange(Scan(assembly));
         }
 
         return results;

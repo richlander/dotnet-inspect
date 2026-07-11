@@ -4,6 +4,7 @@ using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
 
@@ -41,18 +42,23 @@ public class ImplementsCommand
                 };
             }
 
-            var results = await AssemblyCollector.ScanAsync(
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
                 context.HttpClient,
-                options,
-                logger,
-                "inspect-impl",
-                assemblyInfo => ScanForImplementers(assemblyInfo.Path, targetType, options.IncludeAll, logger),
-                (result, assemblyInfo) =>
+                options.ToAssemblySetRequest("inspect-impl"),
+                logger.Log);
+            WriteDiagnostics(assemblySet);
+            logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for types implementing {targetType}");
+
+            var results = new List<ImplementerResult>();
+            foreach (var assemblyInfo in assemblySet.Assemblies)
+            {
+                foreach (var result in ScanForImplementers(assemblyInfo.Path, targetType, options.IncludeAll, logger))
                 {
                     result.Source = assemblyInfo.Source;
                     result.SourceVersion = assemblyInfo.Version;
-                },
-                assemblyInfos => logger.Log($"Scanning {assemblyInfos.Count} libraries for types implementing {targetType}"));
+                    results.Add(result);
+                }
+            }
 
             // Deduplicate by type name + source (same type from multiple TFM folders)
             results = results
@@ -115,6 +121,7 @@ public class ImplementsCommand
                     Assembly = assemblyName
                 });
             }
+
         }
         catch (Exception ex)
         {
@@ -122,6 +129,12 @@ public class ImplementsCommand
         }
 
         return results;
+    }
+
+    private static void WriteDiagnostics(AssemblySet assemblySet)
+    {
+        foreach (var diagnostic in assemblySet.Diagnostics)
+            Console.Error.WriteLine($"Warning: {diagnostic.Message}");
     }
 
     private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
