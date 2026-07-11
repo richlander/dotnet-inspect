@@ -13,7 +13,7 @@ using Markout;
 namespace DotnetInspector.Commands;
 
 /// <summary>
-/// Compares API surfaces between two package or platform versions.
+/// Compares API surfaces or selected body-level evidence between two versions.
 /// </summary>
 public class DiffCommand
 {
@@ -144,6 +144,35 @@ public class DiffCommand
                     else
                     {
                         var output = DiffOutputFormatter.RenderFindingTransitionsView(view);
+                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                    }
+                    return 0;
+                }
+
+                if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
+                {
+                    var implementation = BuildImplementationDiff(
+                        inputs.FromPaths,
+                        inputs.ToPaths,
+                        options,
+                        inputs.FromSurface,
+                        inputs.ToSurface);
+                    var view = DiffOutputFormatter.BuildImplementationDiffView(
+                        inputs.Name,
+                        implementation,
+                        inputs.FromVersion,
+                        inputs.ToVersion);
+                    if (options.OneLine)
+                    {
+                        OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                            options.Columns, options.Fields,
+                            (writer, formatter, writerOptions) =>
+                                MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
+                            options.Rows);
+                    }
+                    else
+                    {
+                        var output = DiffOutputFormatter.RenderImplementationDiffView(view);
                         Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
                     }
                     return 0;
@@ -404,6 +433,9 @@ public class DiffCommand
     private static bool SelectsFindingTransitions(DiffOptions options)
         => options.IncludeSections?.Contains("Finding Transitions") == true;
 
+    private static bool SelectsImplementationDiff(DiffOptions options)
+        => options.IncludeSections?.Contains("Implementation Diff") == true;
+
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains("Changes") == true;
 
@@ -457,6 +489,31 @@ public class DiffCommand
             .ToList();
 
         return RankAnalysisRows(ranked, options.ChangedOnly, options.AllocRegressionsOnly);
+    }
+
+    internal static ImplementationDiffResult BuildImplementationDiff(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        DiffOptions options,
+        ApiSurface? fromSurface = null,
+        ApiSurface? toSurface = null)
+    {
+        var memberTargetIdentities = options.MemberFilter.Count == 0
+            ? null
+            : ResolveMemberTargetIdentities(
+                fromSurface ?? MergeSurfaces(fromPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
+                toSurface ?? MergeSurfaces(toPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
+                options.MemberFilter,
+                options.TypeFilter,
+                requireBodyTargets: true,
+                bodySectionName: "Implementation Diff").MemberIdentities;
+
+        return ImplementationDiff.Compare(
+            ResearchDiffInput.FromAssemblies(fromPaths),
+            ResearchDiffInput.FromAssemblies(toPaths),
+            new ImplementationDiffOptions(
+                TypeFilters: options.TypeFilter,
+                MemberTargetIdentities: memberTargetIdentities));
     }
 
     // Applies the changed-only / allocation-regression filters, ranks rows (in-place
@@ -821,7 +878,8 @@ public class DiffCommand
         ApiSurface toSurface,
         IReadOnlyCollection<string> memberTargets,
         IReadOnlyCollection<string> typeFilters,
-        bool requireBodyTargets = false)
+        bool requireBodyTargets = false,
+        string bodySectionName = "Analysis Diff")
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
         HashSet<string> typeNames = new(StringComparer.OrdinalIgnoreCase);
@@ -871,7 +929,7 @@ public class DiffCommand
             if (!found)
                 throw new InvalidOperationException(nonFatalDiagnostic?.Message ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
             if (requireBodyTargets && !bodyFound)
-                throw new InvalidOperationException($"Analysis Diff --member requires a method-like target; '{rawTarget}' resolved to a member with no method body.");
+                throw new InvalidOperationException($"{bodySectionName} --member requires a method-like target; '{rawTarget}' resolved to a member with no method body.");
         }
 
         return new ResolvedDiffMemberTargets(identities, typeNames);

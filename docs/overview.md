@@ -8,7 +8,7 @@ It is built for both humans and agents. Markdown is the default output because h
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details. `MetadataFindings` projects API type/member observations and comparisons onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
-- `src/ILInspector.CSharp/` is the lightweight C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` projects selected Metadata declarations into C# text; `CSharpTypePrinter` composes body-independent namespace/type skeletons. The layer does not select APIs or take a Decompiler or Research dependency. During migration, the facade delegates to Metadata's compatibility declaration writer.
+- `src/ILInspector.CSharp/` is the lightweight C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation occurrences, method signals, and whole-assembly leverage without decompiling to C#.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
@@ -17,8 +17,9 @@ It is built for both humans and agents. Markdown is the default output because h
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
 - `src/DotnetInspector.Services/` contains shared services such as platform/package resolution, dependency resolution, signatures, source fetching, and nuspec parsing.
-- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies. It consumes `ILInspector.CSharp` for body-independent type and member declaration spelling.
+- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
+- `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 
 ## Agent contract
 
@@ -46,7 +47,7 @@ Agents working in this repo should preserve these principles:
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
-- [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by future CLI surfaces, RTS, and harnesses.
+- [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.

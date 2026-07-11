@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using ILInspector.Research;
 using DotnetInspector.Views;
 using Markout;
 
@@ -179,6 +180,73 @@ public static class DiffOutputFormatter
     {
         var summary = rows.Count == 0 ? "No analysis signal changes detected." : $"{rows.Count} changed analysis signals";
         return RenderAnalysisDiffView(BuildAnalysisDiffView(name, rows, summary, fromVersion, toVersion));
+    }
+
+    public static ImplementationDiffView BuildImplementationDiffView(
+        string name,
+        ImplementationDiffResult diff,
+        string fromVersion,
+        string toVersion)
+    {
+        List<ImplementationDiffRow> rows = [];
+        foreach (var member in diff.Members)
+        {
+            foreach (var change in member.Changes)
+            {
+                var mechanism = change.Mechanism switch
+                {
+                    ResearchChangeMechanism.CSharp => "C#",
+                    ResearchChangeMechanism.IlBody => "IL",
+                    _ => change.Mechanism.ToString()
+                };
+                var evidenceLines = ImplementationDiff.UnifiedLines(change);
+                if (evidenceLines.IsDefaultOrEmpty)
+                {
+                    rows.Add(new ImplementationDiffRow(
+                        member.Subject.Display,
+                        mechanism,
+                        change.Kind.ToString().ToLowerInvariant(),
+                        change.Detail ?? change.Descriptor.Title));
+                    continue;
+                }
+
+                foreach (var evidence in evidenceLines)
+                {
+                    rows.Add(new ImplementationDiffRow(
+                        member.Subject.Display,
+                        mechanism,
+                        change.Kind.ToString().ToLowerInvariant(),
+                        evidence));
+                }
+            }
+        }
+
+        var csharpCount = rows.Count(row => row.Mechanism == "C#");
+        var ilCount = rows.Count(row => row.Mechanism == "IL");
+        var summary = rows.Count == 0
+            ? "No implementation differences detected."
+            : $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
+              + $"{csharpCount} C# and {ilCount} IL evidence row{(rows.Count == 1 ? "" : "s")}.";
+
+        return new ImplementationDiffView
+        {
+            Title = $"Implementation Diff: {name}",
+            Versions = $"{fromVersion} -> {toVersion}",
+            Summary = summary,
+            Status = rows.Count == 0
+                ? new Callout(CalloutSeverity.Note, summary)
+                : new Callout(
+                    CalloutSeverity.Note,
+                    "C# and IL implementation evidence is body-level evidence, not public API compatibility."),
+            Rows = rows.Count > 0 ? rows : null
+        };
+    }
+
+    public static string RenderImplementationDiffView(ImplementationDiffView view)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter());
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.ToString().TrimEnd();
     }
 
     internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking)

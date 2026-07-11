@@ -135,7 +135,29 @@ Member filters also target body-signal diffs:
 dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" -m MyType.HotPath --changed
 ```
 
-## 6. Confirm an API introduction boundary
+## 6. Compare implementation evidence
+
+> Goal: See body-level C# and IL changes without replacing the default API compatibility lens.
+
+Select the explicit `Implementation Diff` section. Rows are grouped by member
+identity and identify the producer in the `Mechanism` column:
+
+```bash
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -t MyType -m HotPath
+```
+
+The same section works for package and platform ranges. Use `--table`, `--tsv`,
+or `--jsonl` for columnar output:
+
+```bash
+dotnet-inspect diff --package Foo@1.0.0..2.0.0 -S "Implementation Diff" --jsonl
+```
+
+This is implementation evidence, not an API compatibility classification or a
+semantic-equivalence proof. Omit `-S "Implementation Diff"` to retain the
+default API diff.
+
+## 7. Confirm an API introduction boundary
 
 > Goal: Confirm that a focused type or member is absent at the old endpoint and
 > present at the new endpoint using Metadata's native Finding comparison.
@@ -161,7 +183,7 @@ only the supplied pair; it does not traverse the version range. Use
 `PairFinding.Present` means the target exists at both endpoints, while
 `PairFinding.Removed` means only the old endpoint contains it.
 
-## 7. Name-only output
+## 8. Name-only output
 
 > Goal: Get a quick list of which types changed, without details.
 
@@ -179,11 +201,11 @@ System.Text.Json.JsonElement
 wc -l | tr -d ' '
 ```
 
-## 8. Oneline output for scripting
+## 9. Oneline output for scripting
 
 > Goal: Columnar output showing change type and summary per type.
 
-### 8a. With header
+### 9a. With header
 
 ```bash
 dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table | head -5
@@ -195,7 +217,7 @@ TYPE
 DETAIL
 ```
 
-### 8b. Without header
+### 9b. Without header
 
 ```bash
 dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table --no-headers | head -5
@@ -209,7 +231,7 @@ additive
 CHANGE
 ```
 
-## 9. Large migration diff (beta to stable)
+## 10. Large migration diff (beta to stable)
 
 > Goal: Compare a pre-release version to a stable release — common for migration planning.
 
@@ -232,11 +254,11 @@ signature changed
 grep -oE '[0-9]+ breaking'
 ```
 
-## 10. Platform library diff
+## 11. Platform library diff
 
 > Goal: Compare platform assembly versions (not NuGet packages).
 
-### 10a. NuGet 8 to 10
+### 11a. NuGet 8 to 10
 
 ```bash
 dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15
@@ -247,7 +269,7 @@ dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15
 Versions: **8.0.0** -> **10.0.0**
 ```
 
-### 10b. Diff against preview SDK
+### 11b. Diff against preview SDK
 
 ```prompt
 What changed in the platform System.Text.Json assembly between .NET 8 and the .NET 11 preview?

@@ -1,4 +1,5 @@
 using ILInspector.DecompilerHarness;
+using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -827,9 +828,11 @@ public class ReturnToSenderPrototypeTests
                 .Single(item => item.Plan.TargetMethod.Method == "get_FromGeneric");
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(result.Plan.PrintRequests, request =>
+                request.Type.Name == "Helper`1"
+                && request.Type.TypeParameters.Single().Name == "T");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Helper"
-                && type.TypeParameters.Single().Name == "T"
                 && !type.SourceFacts.Any(fact => fact.Id == "closure-member" && fact.Producer == "roslyn")
                 && type.Members.Any(member => member.Name == "Value"
                     && member.SourceFacts.Any(fact => fact.Id == "typed-closure-property" && fact.Detail == "get_Value"))
@@ -1241,7 +1244,7 @@ public class ReturnToSenderPrototypeTests
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
-            Assert.Contains(result.Plan.Types, type =>
+            Assert.Contains(result.Plan.PrintRequests, type =>
                 type.Name == "Outer"
                 && type.NestedTypes.Any(nested => nested.Name == "Inner"));
             Assert.Contains("public class Outer", result.Source);
@@ -1277,13 +1280,16 @@ public class ReturnToSenderPrototypeTests
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            Assert.Contains(result.Plan.Types, type =>
+            Assert.Contains(result.Plan.PrintRequests, type =>
                 type.Name == "Outer"
                 && !type.Members.Any(member => member.Name == "Leak")
                 && type.NestedTypes.Any(nested =>
                     nested.Name == "Inner"
-                    && nested.Members.Any(member => member.Name == "GetValue"
-                        && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue"))));
+                    && nested.Members.Any(member => member.Name == "GetValue")));
+            Assert.Contains(result.Plan.Types, type =>
+                type.Name == "Inner"
+                && type.Members.Any(member => member.Name == "GetValue"
+                    && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue")));
             Assert.Contains("public static int GetValue()", result.Source);
             Assert.DoesNotContain("Leak", result.Source);
         }
@@ -1312,8 +1318,8 @@ public class ReturnToSenderPrototypeTests
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            var type = Assert.Single(result.Plan.Types);
-            Assert.Contains(type.NestedTypes, nested =>
+            var type = Assert.Single(result.Plan.Types, type => type.Name == "Class1");
+            Assert.Contains(result.Plan.Types, nested =>
                 nested.Name == "Inner"
                 && nested.Members.Any(member => member.Name == "GetValue"
                     && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue")));
@@ -1347,10 +1353,10 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("Class1.Inner", "FromOuter", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            var root = Assert.Single(result.Plan.Types);
+            var root = Assert.Single(result.Plan.Types, type => type.Name == "Class1");
             Assert.Contains(root.Members, member => member.Name == "GetOuterValue"
                 && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetOuterValue"));
-            var inner = Assert.Single(root.NestedTypes);
+            var inner = Assert.Single(result.Plan.Types, type => type.Name == "Inner");
             Assert.Contains(inner.Members, member => member.Name == "FromOuter"
                 && member.SourceFacts.Any(fact => fact.Id == "target-method"));
             Assert.Contains("public int GetOuterValue()", result.Source);
@@ -1382,8 +1388,7 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("Class1", "FromNested", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            var root = Assert.Single(result.Plan.Types);
-            Assert.Contains(root.NestedTypes, nested =>
+            Assert.Contains(result.Plan.Types, nested =>
                 nested.Name == "Inner"
                 && nested.Members.Any(member => member.Name == "GetValue"
                     && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue")));
@@ -1813,7 +1818,7 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("Class1.Inner", "FromSibling", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            var inner = Assert.Single(Assert.Single(result.Plan.Types).NestedTypes);
+            var inner = Assert.Single(result.Plan.Types, type => type.Name == "Inner");
             Assert.Contains(inner.Members, member => member.Name == "GetValue"
                 && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "GetValue"));
             Assert.DoesNotContain(inner.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
@@ -1882,16 +1887,23 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackSourceComposer_PrimaryConstructorParametersPrecedeGenericConstraints()
+    public void CSharpTypePrinter_PrimaryConstructorParametersPrecedeGenericConstraints()
     {
-        var method = typeof(CompileBackSourceComposer).GetMethod(
-            "AddPrimaryConstructorParameters",
-            BindingFlags.NonPublic | BindingFlags.Static);
-        var result = Assert.IsType<string>(method?.Invoke(
-            null,
-            ["public class Class1<T> where T : class", "string message"]));
+        var type = new ApiType
+        {
+            Name = "Class1`1",
+            MetadataName = "Class1`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "T", Constraints = ["class"] }],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            primaryConstructorParameters:
+            [
+                new ApiParameter { Type = "string", Name = "message" }
+            ]));
 
-        Assert.Equal("public class Class1<T>(string message) where T : class", result);
+        Assert.Contains("public class Class1<T>(string message) where T : class", Assert.Single(result.Units).Source);
     }
 
     [Fact]
@@ -3444,7 +3456,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackSourceComposer_NestedGenericTypeParametersSkipDeclaringTypeParameters()
+    public void ReturnToSenderTypePlanner_NestedGenericTypeParametersSkipDeclaringTypeParameters()
     {
         var assemblyPath = CompileFixture("""
             public class Outer<T>
@@ -3470,6 +3482,36 @@ public class ReturnToSenderPrototypeTests
                 method?.Invoke(null, [reader, nested]));
             var typeParameter = Assert.Single(typeParameters);
             Assert.Equal("U", typeParameter.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ReturnToSenderTypePlanner_TypeParametersPreserveDelegateVariance()
+    {
+        var assemblyPath = CompileFixture("""
+            public delegate void Handler<in T>(T value);
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Single(type => reader.GetString(type.Name).StartsWith("Handler", StringComparison.Ordinal));
+            var method = typeof(CompileBackSourceComposer).GetMethod(
+                "TypeParameters",
+                BindingFlags.NonPublic | BindingFlags.Static,
+                [typeof(MetadataReader), typeof(TypeDefinition)]);
+
+            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
+                method?.Invoke(null, [reader, type]));
+            var typeParameter = Assert.Single(typeParameters);
+            Assert.Equal("T", typeParameter.Name);
+            Assert.Equal("in", typeParameter.Variance);
         }
         finally
         {

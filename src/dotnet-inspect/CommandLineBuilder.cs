@@ -134,7 +134,7 @@ public static class CommandLineBuilder
                 new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
                 new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
-                new Tip(ProjectCommand.Name, "--agents-index", "index package grounding for a project"),
+                new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
                 new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
             return 0;
         });

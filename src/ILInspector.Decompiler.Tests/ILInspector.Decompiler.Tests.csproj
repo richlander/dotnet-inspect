@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
@@ -64,6 +65,8 @@
              Link="HarnessOpcode.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSender.cs"
              Link="ReturnToSender.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTypePlanner.cs"
+             Link="ReturnToSenderTypePlanner.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderEvidence.cs"
              Link="ReturnToSenderEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderClosureEvidence.cs"

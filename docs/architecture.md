@@ -36,7 +36,7 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 │  Search for types across packages, platform, and assets      │
 ├─────────────────────────────────────────────────────────────┤
 │                         diff                                 │
-│  Compare API surfaces between package/platform versions      │
+│  Compare API, analysis, or implementation evidence           │
 ├─────────────────────────────────────────────────────────────┤
 │            depends / extensions / implements                 │
 │  Relationship discovery for APIs, packages, and libraries    │
@@ -63,8 +63,8 @@ Inspects NuGet package metadata without extracting libraries:
 Inspects a restored project through `project.assets.json`:
 
 - Direct package references with resolved versions per selected TFM
-- Compact `AGENTS.md` frontmatter index for package grounding
-- Version-resolved best package docs for one direct dependency
+- Package `skills/**/SKILL.md` files from direct dependencies
+- Version-resolved README/PROJECT docs for one direct dependency
 
 ### library
 
@@ -85,11 +85,14 @@ Extract public API surface using metadata:
 
 ### diff
 
-Compares API surfaces between two package versions:
+Compares two package, platform, or local-library versions:
 
-- Added, removed, and modified types
-- Member-level changes within types
-- Version range syntax: `Package@v1..v2`
+- API compatibility is the default lens: added, removed, and modified types and
+  members.
+- `-S "Analysis Diff"` selects body-signal changes.
+- `-S "Implementation Diff"` selects Research-composed C# + IL evidence grouped
+  by member.
+- Version range syntax is `Package@v1..v2` or `old/Foo.dll..new/Foo.dll`.
 
 ### find
 
@@ -542,7 +545,8 @@ Research overlay bridge, and the application layer:
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.CSharp (C# type views)                         │
 │                                                             │
-│  CSharpFormatter, CSharpTypePrinter, type-view composition   │
+│  CSharpFormatter declaration spelling                       │
+│  CSharpTypePrinter typed request and body composition        │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Metadata (Domain provider — PE/Assembly)       │
 │                                                             │
@@ -554,9 +558,10 @@ Research overlay bridge, and the application layer:
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
-- **CSharp** owns C# spelling and body-independent type views over Metadata models. Consumers retain API selection, grouping, and output rendering, then use `CSharpFormatter` for declaration text. `CSharpTypePrinter` composes those declarations into namespace/type units. CSharp does not depend on Decompiler or Research. The formatter temporarily delegates to Metadata's compatibility declaration writer while structured spelling primitives move to their owning layer.
+- **CSharp** owns C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
 - **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading.
-- **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes. It consumes CSharp for body-independent declaration spelling and combines those declarations with reconstructed bodies.
+- **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
 - **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
 - **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.
 - **Views** wrap models and own all Markout attributes, sections, field builders, and computed display properties. They are the only types registered in `MarkoutContext`.

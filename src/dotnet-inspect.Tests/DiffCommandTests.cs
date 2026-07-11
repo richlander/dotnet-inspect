@@ -865,6 +865,110 @@ public class DiffCommandTests
         Assert.Contains("method-like target", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void BuildImplementationDiff_VersionPair_ProjectsCSharpAndIlEvidence()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var result = DiffCommand.BuildImplementationDiff([v1], [v2], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"]
+        });
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "DiffFixtureSample",
+            result,
+            "old.dll",
+            "new.dll");
+
+        var member = Assert.Single(result.Members, candidate =>
+            candidate.Subject.MemberName == "ConstantValue");
+        Assert.True(member.HasCSharpChanges);
+        Assert.True(member.HasIlChanges);
+        Assert.Contains(view.Rows!, row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.Mechanism == "C#"
+            && row.Evidence.Contains("return 1", StringComparison.Ordinal));
+        Assert.Contains(view.Rows!, row =>
+            row.Member.Contains("ConstantValue", StringComparison.Ordinal)
+            && row.Mechanism == "IL"
+            && row.Evidence.Contains("ldc.i4 1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildImplementationDiff_MemberFilter_UsesResolverBackedTarget()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var result = DiffCommand.BuildImplementationDiff([v1], [v2], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"],
+            MemberFilter = ["ConstantValue"]
+        });
+
+        var member = Assert.Single(result.Members);
+        Assert.Equal("ConstantValue", member.Subject.MemberName);
+        Assert.True(member.HasCSharpChanges);
+        Assert.True(member.HasIlChanges);
+    }
+
+    [Fact]
+    public void BuildImplementationDiff_MemberFilter_RejectsNonMethodTargets()
+    {
+        var surface = DiffSurface(DiffProperty("Value"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildImplementationDiff([], [], new DiffOptions
+            {
+                TypeFilter = ["Widget"],
+                MemberFilter = ["Value"]
+            }, surface, surface));
+
+        Assert.Contains("Implementation Diff --member", error.Message, StringComparison.Ordinal);
+        Assert.Contains("method-like target", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildImplementationDiff_SameMember_IsEmpty()
+    {
+        var assembly = FixtureCatalog.DiffPair.OldAssemblyPath();
+
+        var result = DiffCommand.BuildImplementationDiff([assembly], [assembly], new DiffOptions
+        {
+            TypeFilter = ["DiffSample"],
+            MemberFilter = ["ConstantValue"]
+        });
+
+        Assert.True(result.IsEmpty);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImplementationDiff_RendersSelectedTable()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Implementation Diff"],
+                OneLine = true,
+                TypeFilter = ["DiffSample"],
+                MemberFilter = ["ConstantValue"]
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("Member", output, StringComparison.Ordinal);
+        Assert.Contains("Mechanism", output, StringComparison.Ordinal);
+        Assert.Contains("ConstantValue", output, StringComparison.Ordinal);
+        Assert.Contains("C#", output, StringComparison.Ordinal);
+        Assert.Contains("IL", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("API Diff", output, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("int*", "System.Int32*")]
     [InlineData("int[,]", "System.Int32[,]")]

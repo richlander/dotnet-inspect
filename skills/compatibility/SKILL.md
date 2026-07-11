@@ -44,6 +44,19 @@ dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 -S "Analysis Diff"
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" --changed
 ```
 
+## Did the implementation change? (C# + IL)
+
+`-S "Implementation Diff"` selects Research-composed body evidence instead of
+the default API compatibility view. Rows identify the member, producer (`C#` or
+`IL`), change kind, and producer-owned evidence. Narrow with `-t` and `-m`; use
+`--table`, `--tsv`, or `--jsonl` for columnar output.
+
+```bash
+dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -t MyType -m HotPath
+```
+
+Treat these rows as implementation evidence, not semantic-equivalence proof.
+
 ## What can be configured? (feature switches)
 
 `-S Switches` (alias `-S @Switches`) on `library` or `package --library` reports

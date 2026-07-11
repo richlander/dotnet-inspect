@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 
 using DotnetInspector.Services;
+using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
@@ -808,7 +809,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = ResearchReturnToSenderShells.ComposePropertyGetter(
+            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
                 assemblyPath,
                 reader,
                 function,
@@ -907,7 +908,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = ResearchReturnToSenderShells.ComposePropertyGetter(
+            var sourceResult = CompileBackSourceComposer.ComposePropertyGetter(
                 assemblyPath,
                 reader,
                 function,
@@ -983,7 +984,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = ResearchReturnToSenderShells.ComposeMethod(
+            var sourceResult = CompileBackSourceComposer.ComposeMethod(
                 assemblyPath,
                 reader,
                 function,
@@ -1081,7 +1082,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = ResearchReturnToSenderShells.ComposeMethod(
+            var sourceResult = CompileBackSourceComposer.ComposeMethod(
                 assemblyPath,
                 reader,
                 function,
@@ -1157,7 +1158,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = ResearchReturnToSenderShells.ComposePropertySetter(
+            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
                 assemblyPath,
                 reader,
                 function,
@@ -1256,7 +1257,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = ResearchReturnToSenderShells.ComposePropertySetter(
+            var sourceResult = CompileBackSourceComposer.ComposePropertySetter(
                 assemblyPath,
                 reader,
                 function,
@@ -1302,38 +1303,34 @@ static class ReturnToSender
         string ns = reader.GetString(typeDef.Namespace);
         string typeName = reader.GetString(typeDef.Name);
         string propertyName = reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name);
+        var property = new ApiMember
+        {
+            Name = propertyName,
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "object",
+                MemberName = propertyName,
+                Accessors = [new ApiAccessor { Kind = "get" }],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = ns,
+            Name = typeName,
+            MetadataName = typeName,
+            Kind = "class",
+            Members = [property],
+        };
 
         var plan = new CompileBackReconstructionPlan(
             assemblyPath,
             new CompileBackMethodIdentity(fullType, methodName, overload, ""),
             new CompileBackModuleRequirement(["System"], [], []),
-            [
-                new CompileBackTypeDeclaration(
-                    new CompileBackTypeIdentity(ns, typeName, typeName, string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}", string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}"),
-                    CompileBackTypeKind.Class,
-                    CompileBackAccessibility.Public,
-                    BaseType: null,
-                    PrimaryConstructorParameters: null,
-                    TypeParameters: [],
-                    Interfaces: [],
-                    Members:
-                    [
-                        new CompileBackMemberDeclaration(
-                            new CompileBackMethodIdentity(fullType, propertyName, overload, ""),
-                            CompileBackMemberKind.PropertyGet,
-                            CompileBackAccessibility.Public,
-                            IsStatic: false,
-                            ReturnType: null,
-                            Parameters: [],
-                            TypeParameters: [],
-                            CompileBackStubBodyKind.TargetBody,
-                            TargetBody: "",
-                            SourceFacts: [])
-                    ],
-                    SourceFacts: [],
-                    NestedTypes: [])
-            ],
             [],
+            [
+                new CSharpTypePrintRequest(type)
+            ],
             []);
 
         return new Result(
@@ -1755,7 +1752,7 @@ static class ReturnToSender
             AddMemberFact(method.DeclaringType, "method", method.Name);
             AddMemberRequirement(
                 method.DeclaringType,
-                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, method),
+                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method),
                 allowTargetRoot);
         }
 
@@ -1765,7 +1762,7 @@ static class ReturnToSender
             AddMemberFact(field.DeclaringType, "field", field.Name);
             AddMemberRequirement(
                 field.DeclaringType,
-                root => ResearchReturnToSenderShells.TryCreateClosureMemberRequirement(reader, root, field),
+                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field),
                 allowTargetRoot: true);
         }
 

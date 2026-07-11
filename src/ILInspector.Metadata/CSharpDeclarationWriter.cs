@@ -28,6 +28,7 @@ public sealed record CSharpDeclarationOptions
     public bool IncludeCustomAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
+    public bool OmitPropertyAccessors { get; init; }
 }
 
 public sealed record CSharpRenderedDeclaration(
@@ -189,7 +190,7 @@ public static class CSharpDeclarationWriter
         {
             signature = $"{member.ReturnType} {member.Name}";
         }
-        else if (TryRenderSignatureModel(type, member, methodParameters, out var modelSignature))
+        else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
         {
             signature = modelSignature;
         }
@@ -292,7 +293,8 @@ public static class CSharpDeclarationWriter
             modifiers.Add("unsafe");
         }
 
-        if (options.ForceAsync && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+        if ((options.ForceAsync || member.IsAsync)
+            && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
             modifiers.Add("async");
 
         if (modifiers.Count > 0)
@@ -535,6 +537,7 @@ public static class CSharpDeclarationWriter
     static bool TryRenderSignatureModel(
         ApiType type,
         ApiMember member,
+        CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters,
         out string signature)
     {
@@ -542,10 +545,15 @@ public static class CSharpDeclarationWriter
         if (member.SignatureModel is not { } model)
             return false;
 
-        // Keep compatibility text when a default exists but has no source-level
-        // spelling in the structured model (for example DateTimeConstantAttribute).
-        if (model.Parameters.Any(static parameter => parameter.HasDefault && string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
+        // Compatibility text may still carry metadata-only default attributes
+        // that have not been projected into the structured parameter shape.
+        if (model.Parameters.Any(static parameter =>
+                parameter.HasDefault
+                && string.IsNullOrWhiteSpace(parameter.DefaultValueText)
+                && !HasStructuredMetadataOnlyDefault(parameter)))
+        {
             return false;
+        }
 
         var parameters = string.Join(", ", model.Parameters.Select(ParameterDeclaration));
         if (member.Name == ".cctor")
@@ -553,6 +561,7 @@ public static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type.Name)}()";
             return true;
         }
+
         if (member.Kind == "constructor")
         {
             signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
@@ -580,7 +589,9 @@ public static class CSharpDeclarationWriter
                 : string.IsNullOrWhiteSpace(model.MemberName)
                     ? member.Name
                     : model.MemberName!;
-            signature = $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
+            signature = options.OmitPropertyAccessors
+                ? $"{head} {propertyMemberName}"
+                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
             return true;
         }
         if (member.Kind == "event"
@@ -599,6 +610,14 @@ public static class CSharpDeclarationWriter
         // unsupported event shapes on compatibility text until the remaining
         // declaration-level facts are represented in ApiSignature.
         return false;
+
+        static bool HasStructuredMetadataOnlyDefault(ApiParameter parameter)
+            => parameter.Attributes.Any(static attribute =>
+                    attribute == "System.Runtime.InteropServices.Optional")
+                && parameter.Attributes.Any(static attribute =>
+                    attribute.StartsWith(
+                        "System.Runtime.CompilerServices.DateTimeConstant(",
+                        StringComparison.Ordinal));
 
         static string AccessorDeclaration(ApiAccessor accessor)
         {
@@ -848,7 +867,7 @@ public static class CSharpDeclarationWriter
         return prefix[..start] + escaped + prefix[(end + 1)..] + suffix;
     }
 
-    static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
+    public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
     {
         var names = rawNames.Where(name => EscapeIdentifier(name) != name).ToHashSet(StringComparer.Ordinal);
         if (names.Count == 0)
@@ -877,7 +896,7 @@ public static class CSharpDeclarationWriter
     static string EscapeQualifiedName(string name)
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
-    internal static string EscapeIdentifier(string name)
+    public static string EscapeIdentifier(string name)
         => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
@@ -903,6 +922,14 @@ public static class CSharpDeclarationWriter
 
         return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
     }
+
+    public static string EscapeNamespace(string name)
+        => name.Length == 0
+            ? ""
+            : string.Join(
+                ".",
+                name.Split('.').Select(segment =>
+                    segment.StartsWith('@') ? segment : EscapeIdentifier(segment)));
 
     static string AddExtensionThisModifier(string signature)
     {

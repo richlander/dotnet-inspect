@@ -2,7 +2,7 @@
 
 `ImplementationDiff` is the product-side C# + IL/body diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
-future CLI sections, ReturnToSender, harnesses, and other consumers that need one
+the CLI, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
 
 Terminology follows [Finding Nomenclature](finding-nomenclature.md):
@@ -65,9 +65,13 @@ Use `ImplementationDiff.UnifiedLines(change)` only at presentation boundaries.
 The durable model keeps the producer-owned typed display rows rather than a
 third implementation-specific row family.
 
-The component is intentionally not a CLI section yet. CLI wiring should be a
-separate usability change that chooses section names, verbosity, table schema,
-and row limits without changing the product change primitive.
+The `diff` command exposes this component through the explicit-only
+`Implementation Diff` section. The CLI projects one row per producer-owned
+unified line with `Member`, `Mechanism`, `Change`, and `Evidence` columns.
+Package, platform, and local-library ranges use the same acquisition path as the
+default API diff; `--type`, `--member`, row limits, table, TSV, and JSONL
+projection continue to apply. The CLI consumes this product component and does
+not invoke or reconstruct the C# and IL producers independently.
 
 ## Non-goals
 

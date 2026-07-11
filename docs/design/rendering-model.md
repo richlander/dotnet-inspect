@@ -66,7 +66,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
-`Files`, `Grounding`, `Library Files`, and `Markdown Files` all expose package-relative paths and uncompressed byte sizes. `Files` is explicit-only and renders the full package depth; `Grounding` is explicit-only and returns the best grounding candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema. For `project`, `Grounding` renders one best-grounding row per direct dependency.
+`Files`, `Grounding`, `Library Files`, and `Markdown Files` all expose package-relative paths and uncompressed byte sizes. `Files` is explicit-only and renders the full package depth; package `Grounding` is explicit-only and returns the best grounding candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
 
 **Why Files is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S Files` file-resolution view is the correct entry point for structural exploration.
 
@@ -119,10 +119,10 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--files`, `-S Grounding --print`, `--readme`, `--versions`, `-S Signals` |
-| `project` | — | `-S Grounding`, `-S Grounding --print --row N`, `-S Grounding --print-all` |
+| `project` | — | `-S Skills`, `-S Skills --print --row N`, `-S Skills --print-all` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "Original Source" --print` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | Change summary | `--table`, `--tsv`, `--name-only` |
+| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `-S "Finding Transitions"`, `--table`, `--tsv`, `--name-only` |
