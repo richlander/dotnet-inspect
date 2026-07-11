@@ -255,7 +255,8 @@ static class FidelityCheck
     public sealed record CompileBackResult(
         string Type, string Method, int Overload, string Signature, CompileBackStatus Status,
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail,
-        CaptureMode Capture = CaptureMode.WholeModule);
+        CaptureMode Capture = CaptureMode.WholeModule,
+        string? CaptureDetail = null);
 
     internal sealed record CompileBackTarget(
         string AssemblyPath,
@@ -780,6 +781,15 @@ static class FidelityCheck
         Console.WriteLine($"    checkable (whole-module)   : {wholeModuleCheckable}");
         Console.WriteLine($"    checkable (cluster-rescued): {clusterRescued}");
         Console.WriteLine($"    not-safely-capturable      : {notSafelyCapturable}");
+        foreach (var group in rows
+                     .Where(row => row.Result.Capture == CaptureMode.ClusterBailed
+                                   && row.Result.CaptureDetail?.Contains("-unextracted[", StringComparison.Ordinal) == true)
+                     .GroupBy(row => row.Result.CaptureDetail!, StringComparer.Ordinal)
+                     .OrderByDescending(group => group.Count())
+                     .ThenBy(group => group.Key, StringComparer.Ordinal))
+        {
+            Console.WriteLine($"    {group.Key}: {group.Count()}");
+        }
     }
 
     /// <summary>
@@ -1189,10 +1199,14 @@ static class FidelityCheck
             var forced = new List<CompileBackResult>(entries.Count);
             foreach (var e in entries)
             {
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, timings);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, timings, out var captureDetail);
                 forced.Add(captured is not null
                     ? captured with { Capture = CaptureMode.Cluster }
-                    : CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings) with { Capture = CaptureMode.ClusterBailed });
+                    : CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings) with
+                    {
+                        Capture = CaptureMode.ClusterBailed,
+                        CaptureDetail = captureDetail,
+                    });
             }
             return forced;
         }
@@ -1221,10 +1235,14 @@ static class FidelityCheck
             {
                 if (results[i].Status is not (CompileBackStatus.RecompileFail or CompileBackStatus.ContextFail))
                     continue;
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, timings);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, timings, out var captureDetail);
                 results[i] = captured is not null
                     ? captured with { Capture = CaptureMode.Cluster }
-                    : results[i] with { Capture = CaptureMode.ClusterBailed };
+                    : results[i] with
+                    {
+                        Capture = CaptureMode.ClusterBailed,
+                        CaptureDetail = captureDetail,
+                    };
             }
         }
         return results;
@@ -1403,8 +1421,10 @@ static class FidelityCheck
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> methodIndex,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> namespaceIndex,
-        FidelityPhaseTimings? timings)
+        FidelityPhaseTimings? timings,
+        out string? captureDetail)
     {
+        captureDetail = null;
         const int maxRoots = 200;
         const int maxIterations = 80;
         var include = new HashSet<TypeDefinitionHandle>
@@ -1418,7 +1438,11 @@ static class FidelityCheck
             try { unit = timings is null
                 ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)
                 : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)); }
-            catch { return null; } // fall back to the whole-module build
+            catch
+            {
+                captureDetail = "cluster-source-build-failed";
+                return null; // fall back to the whole-module build
+            }
 
             var tree = timings is null
                 ? CSharpSyntaxTree.ParseText(unit, parseOptions)
@@ -1437,18 +1461,28 @@ static class FidelityCheck
                 var rOps = timings is null
                     ? FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList()
                     : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
-                return rOps is null ? null : Classify(fullType, e, rOps);
+                if (rOps is null)
+                {
+                    captureDetail = "cluster-method-not-found";
+                    return null;
+                }
+                return Classify(fullType, e, rOps);
             }
 
             var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
             firstError = errors.FirstOrDefault();
             bool grew = false;
+            var unextractedDiagnosticIds = new HashSet<string>(StringComparer.Ordinal);
             var semanticModel = comp.GetSemanticModel(tree);
             foreach (var diagnostic in errors)
             {
                 var reference = ClosureDiagnosticEvidence.Extract(diagnostic, semanticModel);
                 if (reference is null)
+                {
+                    if (ClosureDiagnosticEvidence.Supports(diagnostic.Id))
+                        unextractedDiagnosticIds.Add(diagnostic.Id);
                     continue;
+                }
 
                 // CS0246/CS0234: a missing type; CS0103: a missing name used as an
                 // expression (a static helper class referenced by name). Both name
@@ -1491,11 +1525,17 @@ static class FidelityCheck
             }
             if (!grew || include.Count > maxRoots)
             {
+                captureDetail = include.Count > maxRoots
+                    ? "closure-root-budget"
+                    : ClosureDiagnosticEvidence.FailureReason(
+                        "closure-stalled",
+                        unextractedDiagnosticIds);
                 if (Environment.GetEnvironmentVariable("CB_CLUSTER_DUMP") is not null)
-                    Console.Error.WriteLine($"BAIL {fullType}.{e.Name} roots={include.Count} grew={grew}: {FormatDiagnostic(firstError)}");
+                    Console.Error.WriteLine($"BAIL {fullType}.{e.Name} roots={include.Count} grew={grew} reason={captureDetail}: {FormatDiagnostic(firstError)}");
                 return null; // closure stopped growing or got too large — fall back
             }
         }
+        captureDetail = "closure-iteration-budget";
         return null; // fall back to the whole-module build
     }
 

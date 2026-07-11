@@ -576,7 +576,12 @@ all-or-nothing skeleton failed for unrelated reasons. A persistent bail is itsel
 a useful signal — the target is *not safely capturable* in isolation (typically a
 Roslyn-class internal cross-assembly graph), the population for which
 changed-method fidelity is least meaningful. `CB_CLUSTER_DUMP=1` prints bail
-diagnostics.
+diagnostics. Cluster-bailed result rows also retain a durable `CaptureDetail`;
+when a supported diagnostic cannot be mapped from structured evidence, it uses
+`closure-stalled-unextracted[CS####,...]` rather than folding the miss into an
+ordinary closure stall. Return-to-sender failures use the same reason shape in
+their `Detail`, making extractor coverage gaps visible in JSON and summary
+output without enabling debug logging.
 
 Each row carries its capture provenance (whole-module, cluster-rescued, or
 cluster-bailed), and the changed-method report prints the segmented

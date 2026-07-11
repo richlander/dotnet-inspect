@@ -889,7 +889,7 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(
+            var growth = AddClosureRoots(
                 errors,
                 compilation.GetSemanticModel(tree),
                 indexes,
@@ -897,9 +897,13 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!grew || closureRoots.Count > maxRoots)
+            if (!growth.Grew || closureRoots.Count > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
+                string reason = closureRoots.Count > maxRoots
+                    ? "closure-root-budget"
+                    : ClosureDiagnosticEvidence.FailureReason(
+                        "closure-stalled",
+                        growth.UnextractedDiagnosticIds);
                 var error = errors.FirstOrDefault() ?? firstError;
                 return new Result(
                     plan,
@@ -1070,7 +1074,7 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(
+            var growth = AddClosureRoots(
                 errors,
                 compilation.GetSemanticModel(tree),
                 indexes,
@@ -1078,9 +1082,13 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!grew || closureRoots.Count > maxRoots)
+            if (!growth.Grew || closureRoots.Count > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
+                string reason = closureRoots.Count > maxRoots
+                    ? "closure-root-budget"
+                    : ClosureDiagnosticEvidence.FailureReason(
+                        "closure-stalled",
+                        growth.UnextractedDiagnosticIds);
                 var error = errors.FirstOrDefault() ?? firstError;
                 return new Result(
                     plan,
@@ -1252,7 +1260,7 @@ static class ReturnToSender
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
             firstError ??= errors.FirstOrDefault();
-            bool grew = AddClosureRoots(
+            var growth = AddClosureRoots(
                 errors,
                 compilation.GetSemanticModel(tree),
                 indexes,
@@ -1260,9 +1268,13 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!grew || closureRoots.Count > maxRoots)
+            if (!growth.Grew || closureRoots.Count > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots ? "closure-root-budget" : "closure-stalled";
+                string reason = closureRoots.Count > maxRoots
+                    ? "closure-root-budget"
+                    : ClosureDiagnosticEvidence.FailureReason(
+                        "closure-stalled",
+                        growth.UnextractedDiagnosticIds);
                 var error = errors.FirstOrDefault() ?? firstError;
                 return new Result(
                     plan,
@@ -1920,7 +1932,9 @@ static class ReturnToSender
         return new ClosureIndex(types, fullTypes, methods, properties, fields, namespaces, rootNamespaces);
     }
 
-    static bool AddClosureRoots(
+    readonly record struct ClosureGrowth(bool Grew, IReadOnlyList<string> UnextractedDiagnosticIds);
+
+    static ClosureGrowth AddClosureRoots(
         IReadOnlyList<Diagnostic> diagnostics,
         SemanticModel semanticModel,
         ClosureIndex indexes,
@@ -1930,11 +1944,16 @@ static class ReturnToSender
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
     {
         bool grew = false;
+        var unextractedDiagnosticIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var diagnostic in diagnostics)
         {
             var reference = ClosureDiagnosticEvidence.Extract(diagnostic, semanticModel);
             if (reference is null)
+            {
+                if (ClosureDiagnosticEvidence.Supports(diagnostic.Id))
+                    unextractedDiagnosticIds.Add(diagnostic.Id);
                 continue;
+            }
 
             if (diagnostic.Id is "CS0246" or "CS0234" or "CS0103" or "CS0122")
             {
@@ -1972,7 +1991,9 @@ static class ReturnToSender
             }
         }
 
-        return grew;
+        return new ClosureGrowth(
+            grew,
+            unextractedDiagnosticIds.Order(StringComparer.Ordinal).ToArray());
 
         bool AddTypeRoots(Diagnostic diagnostic, string typeName, string detail, bool addMemberSurfaceFact)
         {

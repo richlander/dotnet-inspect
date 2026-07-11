@@ -11,6 +11,20 @@ internal sealed record ClosureDiagnosticReference(
 
 internal static class ClosureDiagnosticEvidence
 {
+    public static bool Supports(string diagnosticId)
+        => diagnosticId is "CS0246" or "CS0234" or "CS0103" or "CS0122" or "CS1061" or "CS0117";
+
+    public static string FailureReason(string reason, IEnumerable<string> unextractedDiagnosticIds)
+    {
+        var ids = unextractedDiagnosticIds
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        return ids.Length == 0
+            ? reason
+            : $"{reason}-unextracted[{string.Join(",", ids)}]";
+    }
+
     public static string NormalizeTypeName(string name)
     {
         int angle = name.IndexOf('<');
@@ -255,9 +269,17 @@ internal static class ClosureDiagnosticEvidence
 
         string typeName = string.Join(".", names);
         string ns = named.ContainingNamespace is { IsGlobalNamespace: false } containingNamespace
-            ? containingNamespace.ToDisplayString()
+            ? CompileBackCSharpNames.EscapeNamespace(NamespaceName(containingNamespace))
             : "";
         return ns.Length == 0 ? typeName : $"{ns}.{typeName}";
+    }
+
+    static string NamespaceName(INamespaceSymbol containingNamespace)
+    {
+        var names = new Stack<string>();
+        for (INamespaceSymbol? current = containingNamespace; current is { IsGlobalNamespace: false }; current = current.ContainingNamespace)
+            names.Push(current.Name);
+        return string.Join(".", names);
     }
 
     static string IdentifierPath(SyntaxNode name)

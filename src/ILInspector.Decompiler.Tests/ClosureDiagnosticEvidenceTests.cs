@@ -22,6 +22,10 @@ public class ClosureDiagnosticEvidenceTests
     [InlineData("CS0234", "class C { @for.Missing.Value Field; } namespace @for { public class Existing {} }", "Missing", null, "for")]
     [InlineData("CS0103", "class C { void M() { MissingName(); } }", "MissingName", null, null)]
     [InlineData("CS0122", "class Holder { private class Hidden {} } class C { Holder.Hidden Field; }", "Holder.Hidden", null, null)]
+    [InlineData("CS0122", "class Holder { private void Hidden() {} } class C { void M(Holder value) { value.Hidden(); } }", "Hidden", "Holder", null)]
+    [InlineData("CS0122", "class Holder { private int Hidden => 1; } class C { int M(Holder value) => value.Hidden; }", "Hidden", "Holder", null)]
+    [InlineData("CS0122", "class Holder { private int Hidden; } class C { int M(Holder value) => value.Hidden; }", "Hidden", "Holder", null)]
+    [InlineData("CS0122", "class Holder { private event System.Action Hidden; } class C { void Handler() {} void M(Holder value) { value.Hidden += Handler; } }", "Hidden", "Holder", null)]
     [InlineData("CS1061", "class Receiver {} class C { void M(Receiver value) { value.Missing(); } }", "Missing", "Receiver", null)]
     [InlineData("CS1061", "class Receiver {} class C { void M(Receiver value) { value?.Missing(); } }", "Missing", "Receiver", null)]
     [InlineData("CS1061", "class Receiver {} class C { object M(Receiver value) => value?.Missing; }", "Missing", "Receiver", null)]
@@ -34,6 +38,8 @@ public class ClosureDiagnosticEvidenceTests
     [InlineData("CS1061", "class Receiver : System.Collections.IEnumerable { public System.Collections.IEnumerator GetEnumerator() => null; } class C { async System.Threading.Tasks.Task<Receiver> M(System.Threading.Tasks.Task<int> task) => new Receiver { await task }; }", "Add", "Receiver", null)]
     [InlineData("CS1061", "class Receiver : System.Collections.IEnumerable { public System.Collections.IEnumerator GetEnumerator() => null; } class C { async System.Threading.Tasks.Task M() { await System.Threading.Tasks.Task.FromResult(new Receiver { 1 }); } }", "Add", "Receiver", null)]
     [InlineData("CS1061", "namespace @for { class @class {} class C { void M(@class value) { value.Missing(); } } }", "Missing", "@for.@class", null)]
+    [InlineData("CS1061", "namespace @await { class Receiver {} class C { void M(Receiver value) { value.Missing(); } } }", "Missing", "@await.Receiver", null)]
+    [InlineData("CS1061", "namespace N { class Outer<T> { public class Inner {} } class C { void M(Outer<int>.Inner value) { value.Missing(); } } }", "Missing", "N.Outer.Inner", null)]
     [InlineData("CS0117", "class Receiver {} class C { void M() { Receiver.Missing(); } }", "Missing", "Receiver", null)]
     [InlineData("CS0117", "class Receiver {} class C { Receiver M() => new Receiver { Missing = 1 }; }", "Missing", "Receiver", null)]
     public void Extract_UsesStructuredSyntaxAndSemanticEvidence(
@@ -64,4 +70,37 @@ public class ClosureDiagnosticEvidenceTests
         Assert.Equal(expectedContainingType, reference.ContainingType);
         Assert.Equal(expectedContainingNamespace, reference.ContainingNamespace);
     }
+
+    [Fact]
+    public void Extract_ReturnsNullForSupportedDiagnosticWithoutSourceLocation()
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            "class C {}",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-diagnostic-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)]);
+        var descriptor = new DiagnosticDescriptor(
+            "CS0246",
+            "Missing type",
+            "Missing type",
+            "Compiler",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+        var diagnostic = Diagnostic.Create(descriptor, Location.None);
+
+        Assert.True(ClosureDiagnosticEvidence.Supports(diagnostic.Id));
+        Assert.Null(ClosureDiagnosticEvidence.Extract(
+            diagnostic,
+            compilation.GetSemanticModel(tree)));
+    }
+
+    [Fact]
+    public void FailureReason_ReportsSortedUnextractedDiagnosticIds()
+        => Assert.Equal(
+            "closure-stalled-unextracted[CS0117,CS1061]",
+            ClosureDiagnosticEvidence.FailureReason(
+                "closure-stalled",
+                ["CS1061", "CS0117", "CS1061"]));
 }
