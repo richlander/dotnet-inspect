@@ -169,14 +169,14 @@ static class CompileBackCSharpNames
             or "while" or "record" or "required" or "init" or "file" or "scoped";
 }
 
-public enum ArtifactKind
+internal enum ArtifactKind
 {
     Method,
     PropertyGetter,
     PropertySetter,
 }
 
-public sealed record ArtifactRequest(
+internal sealed record ArtifactRequest(
     ArtifactKind Kind,
     string AssemblyPath,
     MetadataReader Reader,
@@ -191,9 +191,9 @@ public sealed record ArtifactRequest(
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
     IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
     IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements,
-    PropertyDefinitionHandle TargetProperty = default);
+    PropertyDefinitionHandle? TargetProperty);
 
-public sealed record ProductArtifact(
+internal sealed record ProductArtifact(
     ArtifactRequest Request,
     string Source,
     IReadOnlyList<CompileBackFact> SourceFacts,
@@ -205,7 +205,9 @@ public sealed record ProductArtifact(
             request,
             result.Source,
             result.Plan.Types
-                .SelectMany(type => type.SourceFacts.Concat(type.RequiredMembers.SelectMany(member => member.SourceFacts)))
+                .SelectMany(type => type.SourceFacts
+                    .Concat(type.PrimaryConstructor?.FieldInitializers.SelectMany(member => member.SourceFacts) ?? [])
+                    .Concat(type.RequiredMembers.SelectMany(member => member.SourceFacts)))
                 .ToArray(),
             result.Plan.Diagnostics,
             result.Plan);
@@ -378,7 +380,7 @@ public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, 
 
 public static class CompileBackSourceComposer
 {
-    public static ProductArtifact Compose(ArtifactRequest request)
+    internal static ProductArtifact Compose(ArtifactRequest request)
     {
         var result = request.Kind switch
         {
@@ -387,7 +389,7 @@ public static class CompileBackSourceComposer
                 request.Reader,
                 request.Function,
                 request.TargetType,
-                request.TargetProperty,
+                RequiredProperty(request),
                 request.TargetMethod,
                 request.TargetBody,
                 request.FullType,
@@ -402,7 +404,7 @@ public static class CompileBackSourceComposer
                 request.Reader,
                 request.Function,
                 request.TargetType,
-                request.TargetProperty,
+                RequiredProperty(request),
                 request.TargetMethod,
                 request.TargetBody,
                 request.FullType,
@@ -431,6 +433,10 @@ public static class CompileBackSourceComposer
 
         return ProductArtifact.From(request, result);
     }
+
+    static PropertyDefinitionHandle RequiredProperty(ArtifactRequest request)
+        => request.TargetProperty
+            ?? throw new ArgumentException($"{request.Kind} artifact requests require a target property.", nameof(request));
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,

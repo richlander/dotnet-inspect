@@ -1000,7 +1000,8 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: null));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1099,7 +1100,8 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureMemberRequirements: closureMemberRequirements,
+                TargetProperty: null));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
