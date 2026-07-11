@@ -72,6 +72,10 @@ public static class AnalysisFindings
     public static string GetAllocationIdentityKey(AllocationOccurrence occurrence)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
+        // Analysis observations are heuristic evidence and may lack a resolved TypeRef. Keep the
+        // census usable by falling back through the producer's remaining type evidence. Unknown
+        // candidates remain conservatively aligned by stream order, and any non-provenance payload
+        // difference is still classified as Changed.
         string allocatedType = occurrence.AllocatedType?.ToQualifiedDisplayString()
             ?? occurrence.RuntimeAllocationType
             ?? occurrence.Detail
@@ -130,7 +134,7 @@ public static class AnalysisFindings
         AddChange(changes, "escape kind", oldOccurrence.EscapeKind, newOccurrence.EscapeKind);
         AddChange(changes, "multiplicity", oldOccurrence.Multiplicity, newOccurrence.Multiplicity);
         AddChange(changes, "churned type", oldOccurrence.ChurnedType, newOccurrence.ChurnedType);
-        return string.Join("; ", changes);
+        return changes.Count == 0 ? "other facets changed" : string.Join("; ", changes);
     }
 
     static void AddChange<T>(List<string> changes, string name, T oldValue, T newValue)

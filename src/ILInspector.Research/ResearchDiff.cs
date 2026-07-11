@@ -431,9 +431,11 @@ public static class ResearchDiff
             var complete = comparison switch
             {
                 FindingComparison<AllocationOccurrence>.Complete value => value,
-                FindingComparison<AllocationOccurrence>.Failed => null,
+                FindingComparison<AllocationOccurrence>.Failed failed =>
+                    throw new InvalidOperationException(
+                        $"A comparison of total allocation censuses cannot fail: {failed.Failure}"),
             };
-            if (complete is null || complete.IsExact)
+            if (complete.IsExact)
                 return;
 
             int oldValue = oldOccurrences.Count(static occurrence => occurrence.CountsAsHeapAllocation);
