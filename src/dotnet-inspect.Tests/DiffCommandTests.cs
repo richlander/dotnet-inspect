@@ -86,11 +86,12 @@ public class DiffCommandTests
     {
         var markdown = DiffOutputFormatter.RenderAnalysisDiffMarkdown(
             "Sample",
-            [new AnalysisDiffRow("`Sample.Type.M()`", "allocations", "0", "1", "+1", null, "old -; new IL_0001")],
+            [new AnalysisDiffRow("Sample.Type.M()", "allocations", "0", "1", "+1", null, "old -; new IL_0001")],
             "old.dll",
             "new.dll");
 
         Assert.Contains("## Analysis Diff", markdown);
+        Assert.Contains("`Sample.Type.M()`", markdown);
         Assert.Contains("allocations", markdown);
         Assert.Contains("+1", markdown);
         Assert.Contains("IL_0001", markdown);
@@ -884,6 +885,11 @@ public class DiffCommandTests
         Assert.Equal(
             "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
             document.RootElement.GetProperty("implementation_diff_note").GetString());
+        Assert.DoesNotContain(analysis.EnumerateArray(), row =>
+            row.GetProperty("member").GetString()!.Contains("<code>", StringComparison.Ordinal)
+            || row.GetProperty("member").GetString()!.Contains("&lt;", StringComparison.Ordinal));
+        Assert.Contains(analysis.EnumerateArray(), row =>
+            row.GetProperty("member").GetString()!.Contains("List<object>", StringComparison.Ordinal));
         Assert.True(analysis.GetArrayLength() > 0);
         Assert.True(implementation.GetArrayLength() > 0);
     }

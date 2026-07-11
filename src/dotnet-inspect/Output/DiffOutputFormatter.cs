@@ -144,7 +144,7 @@ public static class DiffOutputFormatter
                 ["member", "signal", "old", "new", "delta", "shape", "evidence"],
                 view.AnalysisDiff?.Select(row => new[]
                 {
-                    row.Member, row.Signal, row.Old, row.New, row.Delta,
+                    MarkoutInline.Code(row.Member), row.Signal, row.Old, row.New, row.Delta,
                     row.Shape ?? "", row.Evidence ?? ""
                 }));
         }
@@ -236,7 +236,13 @@ public static class DiffOutputFormatter
     /// <summary>
     /// Builds the Analysis Diff view with a caller-supplied summary line.
     /// </summary>
-    public static AnalysisDiffView BuildAnalysisDiffView(string name, IReadOnlyList<AnalysisDiffRow> rows, string summary, string fromVersion, string toVersion)
+    public static AnalysisDiffView BuildAnalysisDiffView(
+        string name,
+        IReadOnlyList<AnalysisDiffRow> rows,
+        string summary,
+        string fromVersion,
+        string toVersion,
+        bool decorateMember = true)
         => new()
         {
             Title = $"Analysis Diff: {name}",
@@ -245,7 +251,11 @@ public static class DiffOutputFormatter
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
-            Rows = rows.Count > 0 ? rows.ToList() : null
+            Rows = rows.Count > 0
+                ? rows.Select(row => decorateMember
+                    ? row with { Member = MarkoutInline.Code(row.Member) }
+                    : row).ToList()
+                : null
         };
 
     /// <summary>

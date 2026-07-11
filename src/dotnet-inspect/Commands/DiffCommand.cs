@@ -142,7 +142,13 @@ public class DiffCommand
                 if (SelectsAnalysisDiff(options))
                 {
                     var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options, inputs.FromSurface, inputs.ToSurface);
-                    var view = DiffOutputFormatter.BuildAnalysisDiffView(inputs.Name, analysis.Rows, analysis.Summary, inputs.FromVersion, inputs.ToVersion);
+                    var view = DiffOutputFormatter.BuildAnalysisDiffView(
+                        inputs.Name,
+                        analysis.Rows,
+                        analysis.Summary,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        decorateMember: !options.Jsonl);
                     if (options.Tsv || options.Jsonl)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
@@ -432,7 +438,8 @@ public class DiffCommand
                 analysis.Rows,
                 analysis.Summary,
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                decorateMember: false);
         }
 
         ImplementationDiffView? implementationView = null;
@@ -506,7 +513,7 @@ public class DiffCommand
                 && change.Signal is { Length: > 0 })
             .Select(change => new RankedAnalysisRow(
                 new AnalysisDiffRow(
-                    MarkoutInline.Code(change.Subject.Display),
+                    change.Subject.Display,
                     change.Signal!,
                     change.OldValue ?? "",
                     change.NewValue ?? "",
