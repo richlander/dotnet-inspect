@@ -102,6 +102,14 @@ public class FidelityGateTests
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
         // locally — the lowered/sugared gates are Speed=Slow (Deep Inspect / publish only).
         "CharConditionalElementStore",
+        // PointerStoreUsesOriginalAddress (#2644): the raised source preserves
+        // the original pointer address across the argument reassignment
+        // (`*S_... =`, never `*ptr =`), but compile-back introduces locals around
+        // the conditional value before the indirect store. Valid C#, not
+        // opcode-exact; the address-preservation shape is pinned separately by
+        // Rung6PointerStore_PreservesOriginalAddressAcrossArgumentStore and
+        // checkability is pinned below.
+        "PointerStoreUsesOriginalAddress",
         // Unmasked by the in/out skeleton-parameter fix (#1931): these CfgSampleClass
         // methods were RecompileFail before — the whole reconstructed type failed to
         // compile because InOperatorVec's in-parameter operators rendered as illegal
@@ -334,6 +342,22 @@ public class FidelityGateTests
                 result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
                 $"SwitchStoreThenUse regressed to {result.Status}: the switch-store fold (#1710) no longer "
                     + "recompiles. Its decompiled C# must stay recompilable.\n"
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
+    }
+
+    [Fact]
+    public void PointerStoreUsesOriginalAddress_StaysCompileBackCheckable()
+    {
+        var matches = EvaluateFixtures().Where(r => r.Method == "PointerStoreUsesOriginalAddress").ToList();
+
+        Assert.True(matches.Count > 0,
+            "Expected the fidelity check to render PointerStoreUsesOriginalAddress, but it was not evaluated.");
+        foreach (var result in matches)
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                $"PointerStoreUsesOriginalAddress regressed to {result.Status}: the pointer-store residual (#2644) "
+                    + "no longer recompiles. Its decompiled C# must stay recompilable so the known-diff docket "
+                    + "continues to check the address-preservation shape.\n"
                     + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
     }
 }
