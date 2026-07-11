@@ -1121,7 +1121,15 @@ public sealed class StructuringPass : IIrPass
         || block.Children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter);
 
     /// <summary>Phase 2: same walk, moving statements into the structured tree. Mirrors Validate exactly; shapes were already proven.</summary>
-    static Block BuildRegion(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget, int? continueTarget, int? regionExitBreakTarget = null)
+    static Block BuildRegion(
+        Ctx ctx,
+        int start,
+        int stop,
+        int joinIndex,
+        int? breakTarget,
+        int? continueTarget,
+        int? regionExitBreakTarget = null,
+        bool suppressStartTargetLabel = false)
     {
         var blocks = ctx.Blocks;
         var offsetToIndex = ctx.OffsetToIndex;
@@ -1142,11 +1150,21 @@ public sealed class StructuringPass : IIrPass
             {
                 bool fallthroughExits = IsLeaveRetryLoopHead(ctx, i)
                     && MayFallThroughAfterRetryReplacement(blocks[latch], blocks[i].StartOffset);
-                var loopBody = BuildRegion(ctx, i, latch + 1, joinIndex: latch + 1, breakTarget: latch + 1, continueTarget: i);
+                var loopBody = BuildRegion(
+                    ctx,
+                    i,
+                    latch + 1,
+                    joinIndex: latch + 1,
+                    breakTarget: latch + 1,
+                    continueTarget: i,
+                    suppressStartTargetLabel: true);
                 ReplaceRetryLeavesWithContinues(loopBody, blocks[i].StartOffset);
                 if (fallthroughExits)
                     loopBody.Add(new Break());
-                result.Add(new WhileLoop(TrueLiteral(), loopBody));
+                var loop = new WhileLoop(TrueLiteral(), loopBody);
+                if (ctx.BranchTargets.Contains(blocks[i].StartOffset))
+                    loop.SetSourceOffset(blocks[i].StartOffset);
+                result.Add(loop);
                 i = latch + 1;
                 continue;
             }
@@ -1337,8 +1355,12 @@ public sealed class StructuringPass : IIrPass
                     i++;
                     break;
             }
-            if (ctx.BranchTargets.Contains(block.StartOffset) && result.Children.Count > resultStart)
+            if (!(suppressStartTargetLabel && block.StartOffset == blocks[start].StartOffset)
+                && ctx.BranchTargets.Contains(block.StartOffset)
+                && result.Children.Count > resultStart)
+            {
                 result.Children[resultStart].SetSourceOffset(block.StartOffset);
+            }
         }
         return result;
     }

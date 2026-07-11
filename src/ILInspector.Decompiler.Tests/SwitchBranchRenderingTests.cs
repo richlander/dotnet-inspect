@@ -142,6 +142,49 @@ public class SwitchBranchRenderingTests
     }
 
     [Fact]
+    public void Structuring_PreservesLabelOutsideTargetedInfiniteLoop()
+    {
+        var entry = new Block(0);
+        entry.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [0x10]));
+
+        var fallthrough = new Block(0x04);
+        fallthrough.Add(new Return(null));
+
+        var loopHead = new Block(0x10);
+        loopHead.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+
+        var latch = new Block(0x14);
+        latch.Add(new Branch(0x10));
+
+        var container = new BlockContainer();
+        foreach (var block in (Block[])[entry, fallthrough, loopHead, latch])
+            container.Add(block);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Sample"),
+            new MethodSignature(
+                Void,
+                [new Parameter("x", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
+        Assert.Contains("while (true)", output);
+        Assert.True(
+            output.IndexOf("IL_0010:", StringComparison.Ordinal)
+                < output.IndexOf("while (true)", StringComparison.Ordinal),
+            output);
+        AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
     public void BooleanFolding_PreservesLabelWhenSwitchTargetBecomesGuardReturn()
     {
         var entry = new Block(0);
