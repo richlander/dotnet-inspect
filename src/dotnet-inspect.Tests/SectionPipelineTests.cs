@@ -1463,9 +1463,6 @@ public class SectionPipelineTests
             ResourceInspection = MetadataFindings.InspectResources(
                 [new ManifestResourceInfo("res", IsPublic: true, IsEmbedded: true, Size: 1)],
                 FindingTestData.Subject),
-            AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
-                [new AssemblyAttributeInfo("Attr", "Assembly", null)],
-                FindingTestData.Subject),
             TypeForwarderInspection = MetadataFindings.InspectTypeForwarders(
                 [new TypeForwarderInfo("T", "Other")],
                 FindingTestData.Subject),
@@ -1491,6 +1488,11 @@ public class SectionPipelineTests
                 [new OpenTelemetrySignalInfo("T", "M")],
                 FindingTestData.Subject),
         };
+        library.SetAssemblyAttributeInspection(
+            MetadataFindings.InspectAssemblyAttributes(
+                [new AssemblyAttributeInfo("Attr", "Assembly", null)],
+                FindingTestData.Subject),
+            jsonOrder: null);
         yield return DiscoverableCase("library", libraryPipeline, library);
 
         var packagePipeline = PackageSectionDescriptors.CreatePipeline();

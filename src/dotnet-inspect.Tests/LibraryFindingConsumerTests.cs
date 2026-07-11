@@ -63,9 +63,6 @@ public class LibraryFindingConsumerTests
             ResourceInspection = MetadataFindings.InspectResources(
                 resources,
                 FindingTestData.Subject),
-            AssemblyAttributeInspection = MetadataFindings.InspectAssemblyAttributes(
-                attributes,
-                FindingTestData.Subject),
             TypeForwarderInspection = MetadataFindings.InspectTypeForwarders(
                 [new TypeForwarderInfo("Test.Forwarded", "Test.Target")],
                 FindingTestData.Subject),
@@ -83,7 +80,9 @@ public class LibraryFindingConsumerTests
                 FindingTestData.Subject),
         };
         inspection.SetAssemblyAttributeInspection(
-            inspection.AssemblyAttributeInspection!,
+            MetadataFindings.InspectAssemblyAttributes(
+                attributes,
+                FindingTestData.Subject),
             attributes);
 
         var json = JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection);
@@ -108,6 +107,16 @@ public class LibraryFindingConsumerTests
         Assert.Equal("Test.ChatClient", root.GetProperty("ai")[0].GetProperty("name").GetString());
         Assert.Equal("Test.ActivitySource", root.GetProperty("open_telemetry")[0].GetProperty("name").GetString());
         Assert.DoesNotContain("inspection", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AssemblyAttributeInspection_RequiresExplicitJsonOrder()
+    {
+        var property = typeof(LibraryInspection).GetProperty(
+            nameof(LibraryInspection.AssemblyAttributeInspection));
+
+        Assert.NotNull(property);
+        Assert.False(property.CanWrite);
     }
 
     [Fact]
