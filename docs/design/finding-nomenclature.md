@@ -124,6 +124,10 @@ This supports the current-onset question, "when was this not there?", without
 assuming monotonic history. A caller may scan backward until the first
 successful missing census for exact recurrence-safe onset, or use a bounded
 bracket/binary strategy only when its predicate is known to be monotonic.
+The range and sparse probes locate a candidate boundary; they are not
+themselves the introduction result. The final old/new comparison must produce
+the native `PairFinding<T>.Added` transition. For API types and members,
+`diff -S "Finding Transitions"` exposes that Metadata-owned pair directly.
 
 ## Research composition
 

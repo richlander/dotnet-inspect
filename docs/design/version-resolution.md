@@ -70,7 +70,16 @@ previous, midpoint, or adjacent versions without triggering an unbounded scan.
 Stable endpoints exclude prereleases by default. A prerelease endpoint or
 `--preview` on `package --versions` includes prereleases within the range.
 Existing `diff --package Name@A..B` remains the two-endpoint projection of the
-same familiar range syntax.
+same familiar range syntax. After caller-directed probes locate a candidate
+boundary, `diff -S "Finding Transitions"` confirms a focused type or member as
+the native `PairFinding.Added`, `Present`, `Removed`, or `Changed` transition:
+
+```bash
+dotnet-inspect diff \
+  --package System.Text.Json@8.0.6..9.0.0 \
+  --type System.Text.Json.Schema.JsonSchemaExporter \
+  -S "Finding Transitions"
+```
 
 ## Cache locations
 

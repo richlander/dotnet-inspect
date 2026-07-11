@@ -124,6 +124,172 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildFindingTransitions_TypeIntroduction_IsNativeAddedPair()
+    {
+        var oldSurface = new ApiSurface();
+        var newSurface = DiffSurface(DiffType("Sample", "Widget"));
+
+        var rows = DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { TypeFilter = ["Sample.Widget"] });
+
+        var row = Assert.Single(rows);
+        Assert.Equal("PairFinding.Added", row.Transition);
+        Assert.Equal("api.type", row.Finding);
+        Assert.Equal("Sample.Widget", row.Target);
+        Assert.Equal("1.0.0", row.From);
+        Assert.Equal("2.0.0", row.To);
+        Assert.Equal("absent", row.Old);
+        Assert.Equal("present", row.New);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_TypePresent_ReportsBothSides()
+    {
+        var oldSurface = DiffSurface(DiffType("Sample", "Widget"));
+        var newSurface = DiffSurface(DiffType("Sample", "Widget"));
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "1.0.1",
+            new DiffOptions { TypeFilter = ["Widget"] }));
+
+        Assert.Equal("PairFinding.Present", row.Transition);
+        Assert.Equal("present", row.Old);
+        Assert.Equal("present", row.New);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_TypeChanged_ReportsNativeDetail()
+    {
+        var oldType = DiffType("Sample", "Widget");
+        var newType = DiffType("Sample", "Widget");
+        newType.IsSealed = true;
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            DiffSurface(oldType),
+            DiffSurface(newType),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { TypeFilter = ["Widget"] }));
+
+        Assert.Equal("PairFinding.Changed", row.Transition);
+        Assert.Contains("sealed: false -> true", row.Detail);
+        Assert.Equal("present", row.Old);
+        Assert.Equal("present", row.New);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_TypeMissingAtBothEndpoints_HasNoPair()
+    {
+        var rows = DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffType("Sample", "Existing")),
+            DiffSurface(DiffType("Sample", "Existing")),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { TypeFilter = ["Sample.Missing"] });
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberIntroduction_UsesResolvedTarget()
+    {
+        var oldSurface = DiffSurface(DiffMember("Existing"));
+        var newSurface = DiffSurface(DiffMember("Existing"), DiffMember("Added"));
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                TypeFilter = ["Sample.Widget"],
+                MemberFilter = ["Added"]
+            }));
+
+        Assert.Equal("PairFinding.Added", row.Transition);
+        Assert.Equal("api.member", row.Finding);
+        Assert.StartsWith("Sample.Widget.Added~", row.Target);
+        Assert.Equal("absent", row.Old);
+        Assert.Equal("present", row.New);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_RemovedMember_ReportsOldSide()
+    {
+        var oldSurface = DiffSurface(DiffMember("Removed"));
+        var newSurface = DiffSurface(DiffType("Sample", "Widget"));
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                TypeFilter = ["Sample.Widget"],
+                MemberFilter = ["Removed"]
+            }));
+
+        Assert.Equal("PairFinding.Removed", row.Transition);
+        Assert.Equal("present", row.Old);
+        Assert.Equal("absent", row.New);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberMissingAtBothEndpoints_IsInvalidTarget()
+    {
+        var surface = DiffSurface(DiffType("Sample", "Widget"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildFindingTransitions(
+                surface,
+                surface,
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions
+                {
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Missing"]
+                }));
+
+        Assert.Contains("No members matched selector 'Missing'", error.Message);
+    }
+
+    [Fact]
+    public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
+    {
+        var view = DiffOutputFormatter.BuildFindingTransitionsView(
+            "Sample",
+            [new FindingTransitionRow(
+                "PairFinding.Added",
+                "api.type",
+                "Sample.Widget",
+                "1.0.0",
+                "2.0.0",
+                "absent",
+                "present",
+                null)],
+            "1.0.0",
+            "2.0.0");
+
+        var markdown = DiffOutputFormatter.RenderFindingTransitionsView(view);
+
+        Assert.Contains("## Finding Transitions", markdown);
+        Assert.Contains("PairFinding.Added", markdown);
+        Assert.Contains("Sample.Widget", markdown);
+        Assert.Contains("1.0.0", markdown);
+        Assert.Contains("2.0.0", markdown);
+    }
+
+    [Fact]
     public async Task BuildApiDiff_EmptyMemberFilteredDiff_ReportsMemberFilterNotTypeFilter()
     {
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
