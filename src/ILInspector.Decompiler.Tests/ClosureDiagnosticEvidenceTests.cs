@@ -18,14 +18,18 @@ public class ClosureDiagnosticEvidenceTests
     [Theory]
     [InlineData("CS0246", "class C { MissingType Field; }", "MissingType", null, null)]
     [InlineData("CS0234", "class C { Root.Missing.Value Field; } namespace Root { public class Existing {} }", "Missing", null, "Root")]
+    [InlineData("CS0234", "class C { void M() { Root.Missing.Helper.Do(); } } namespace Root { public class Existing {} }", "Missing", null, "Root")]
     [InlineData("CS0234", "class C { @for.Missing.Value Field; } namespace @for { public class Existing {} }", "Missing", null, "for")]
     [InlineData("CS0103", "class C { void M() { MissingName(); } }", "MissingName", null, null)]
     [InlineData("CS0122", "class Holder { private class Hidden {} } class C { Holder.Hidden Field; }", "Holder.Hidden", null, null)]
     [InlineData("CS1061", "class Receiver {} class C { void M(Receiver value) { value.Missing(); } }", "Missing", "Receiver", null)]
     [InlineData("CS1061", "class Receiver {} class C { void M(Receiver value) { value?.Missing(); } }", "Missing", "Receiver", null)]
     [InlineData("CS1061", "class Receiver {} class C { object M(Receiver value) => value?.Missing; }", "Missing", "Receiver", null)]
+    [InlineData("CS1061", "class Receiver {} class C { async System.Threading.Tasks.Task M(Receiver value) { await value; } }", "GetAwaiter", "Receiver", null)]
+    [InlineData("CS1061", "class Receiver : System.Collections.IEnumerable { public System.Collections.IEnumerator GetEnumerator() => null; } class C { Receiver M() => new Receiver { 1 }; }", "Add", "Receiver", null)]
     [InlineData("CS1061", "namespace @for { class @class {} class C { void M(@class value) { value.Missing(); } } }", "Missing", "@for.@class", null)]
     [InlineData("CS0117", "class Receiver {} class C { void M() { Receiver.Missing(); } }", "Missing", "Receiver", null)]
+    [InlineData("CS0117", "class Receiver {} class C { Receiver M() => new Receiver { Missing = 1 }; }", "Missing", "Receiver", null)]
     public void Extract_UsesStructuredSyntaxAndSemanticEvidence(
         string diagnosticId,
         string source,

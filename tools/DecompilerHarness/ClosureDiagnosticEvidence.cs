@@ -35,14 +35,14 @@ internal static class ClosureDiagnosticEvidence
         var span = diagnostic.Location.SourceSpan;
         var root = semanticModel.SyntaxTree.GetRoot();
         var node = root.FindNode(span, getInnermostNodeForTie: true);
-        var simpleName = node as SimpleNameSyntax
-            ?? (node as MemberBindingExpressionSyntax)?.Name
-            ?? node.DescendantNodesAndSelf()
-                .OfType<SimpleNameSyntax>()
-                .FirstOrDefault(candidate => candidate.Span.IntersectsWith(span))
-            ?? node.AncestorsAndSelf()
-                .OfType<SimpleNameSyntax>()
-                .FirstOrDefault(candidate => candidate.Span.Contains(span));
+        if (diagnostic.Id == "CS1061"
+            && ImplicitMemberReference(node, span, semanticModel) is { } implicitMember)
+        {
+            return implicitMember;
+        }
+
+        bool preferRightmost = diagnostic.Id is "CS0234" or "CS0122" or "CS1061" or "CS0117";
+        var simpleName = FindSimpleName(node, span, preferRightmost);
         if (simpleName is null)
             return null;
 
@@ -54,7 +54,8 @@ internal static class ClosureDiagnosticEvidence
                 ContainingNamespace: ContainingNamespace(simpleName)),
             "CS1061" or "CS0117" => new ClosureDiagnosticReference(
                 name,
-                ContainingType: ReceiverType(simpleName, semanticModel)),
+                ContainingType: ReceiverType(simpleName, semanticModel)
+                    ?? InitializerType(simpleName, semanticModel)),
             "CS0122" => InaccessibleReference(simpleName, semanticModel)
                 ?? new ClosureDiagnosticReference(name),
             "CS0246" or "CS0103" => new ClosureDiagnosticReference(name),
@@ -62,12 +63,40 @@ internal static class ClosureDiagnosticEvidence
         };
     }
 
+    static SimpleNameSyntax? FindSimpleName(
+        SyntaxNode node,
+        Microsoft.CodeAnalysis.Text.TextSpan diagnosticSpan,
+        bool preferRightmost)
+    {
+        if (node is SimpleNameSyntax simpleName)
+            return simpleName;
+        if (node is MemberBindingExpressionSyntax memberBinding)
+            return memberBinding.Name;
+
+        var candidates = node.DescendantNodesAndSelf()
+            .OfType<SimpleNameSyntax>()
+            .Where(candidate => candidate.Span.IntersectsWith(diagnosticSpan));
+        var descendant = preferRightmost
+            ? candidates.MaxBy(candidate => candidate.SpanStart)
+            : candidates.MinBy(candidate => candidate.SpanStart);
+        return descendant
+            ?? node.AncestorsAndSelf()
+                .OfType<SimpleNameSyntax>()
+                .FirstOrDefault(candidate => candidate.Span.Contains(diagnosticSpan));
+    }
+
     static string? ContainingNamespace(SimpleNameSyntax simpleName)
     {
         var qualified = simpleName.Ancestors()
             .OfType<QualifiedNameSyntax>()
             .FirstOrDefault(candidate => candidate.Right.Span.Contains(simpleName.Span));
-        return qualified is null ? null : IdentifierPath(qualified.Left);
+        if (qualified is not null)
+            return IdentifierPath(qualified.Left);
+
+        var memberAccess = simpleName.Ancestors()
+            .OfType<MemberAccessExpressionSyntax>()
+            .FirstOrDefault(candidate => candidate.Name.Span.Contains(simpleName.Span));
+        return memberAccess is null ? null : IdentifierPath(memberAccess.Expression);
     }
 
     static string? ReceiverType(SimpleNameSyntax simpleName, SemanticModel semanticModel)
@@ -89,6 +118,64 @@ internal static class ClosureDiagnosticEvidence
 
         var type = semanticModel.GetTypeInfo(receiver).Type
             ?? semanticModel.GetSymbolInfo(receiver).Symbol as ITypeSymbol;
+        return type is null ? null : TypeName(type);
+    }
+
+    static ClosureDiagnosticReference? ImplicitMemberReference(
+        SyntaxNode node,
+        Microsoft.CodeAnalysis.Text.TextSpan diagnosticSpan,
+        SemanticModel semanticModel)
+    {
+        var awaitExpression = node.AncestorsAndSelf()
+            .OfType<AwaitExpressionSyntax>()
+            .FirstOrDefault(candidate => candidate.Span.Contains(diagnosticSpan));
+        if (awaitExpression is not null)
+        {
+            return TypeName(awaitExpression.Expression, semanticModel) is { } awaiterType
+                ? new ClosureDiagnosticReference("GetAwaiter", awaiterType)
+                : null;
+        }
+
+        var collectionInitializer = node.AncestorsAndSelf()
+            .OfType<InitializerExpressionSyntax>()
+            .FirstOrDefault(candidate => candidate.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.CollectionInitializerExpression));
+        if (collectionInitializer is null)
+            return null;
+
+        return InitializerType(collectionInitializer, semanticModel) is { } collectionType
+            ? new ClosureDiagnosticReference("Add", collectionType)
+            : null;
+    }
+
+    static string? InitializerType(SyntaxNode node, SemanticModel semanticModel)
+    {
+        var initializer = node as InitializerExpressionSyntax
+            ?? node.Ancestors()
+                .OfType<InitializerExpressionSyntax>()
+                .FirstOrDefault();
+        if (initializer is null)
+            return null;
+
+        if (initializer.Parent is AssignmentExpressionSyntax assignment
+            && assignment.Right == initializer)
+        {
+            return semanticModel.GetSymbolInfo(assignment.Left).Symbol switch
+            {
+                IPropertySymbol property => TypeName(property.Type),
+                IFieldSymbol field => TypeName(field.Type),
+                _ => null,
+            };
+        }
+
+        return initializer.Parent is ExpressionSyntax expression
+            ? TypeName(expression, semanticModel)
+            : null;
+    }
+
+    static string? TypeName(ExpressionSyntax expression, SemanticModel semanticModel)
+    {
+        var type = semanticModel.GetTypeInfo(expression).Type
+            ?? semanticModel.GetSymbolInfo(expression).Symbol as ITypeSymbol;
         return type is null ? null : TypeName(type);
     }
 
@@ -133,7 +220,7 @@ internal static class ClosureDiagnosticEvidence
         return ns.Length == 0 ? typeName : $"{ns}.{typeName}";
     }
 
-    static string IdentifierPath(NameSyntax name)
+    static string IdentifierPath(SyntaxNode name)
         => string.Join(
             ".",
             name.DescendantTokens()
