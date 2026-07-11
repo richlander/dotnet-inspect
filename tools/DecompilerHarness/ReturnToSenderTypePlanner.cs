@@ -169,15 +169,7 @@ static class CompileBackCSharpNames
             or "while" or "record" or "required" or "init" or "file" or "scoped";
 }
 
-internal enum ArtifactKind
-{
-    Method,
-    PropertyGetter,
-    PropertySetter,
-}
-
-internal sealed record ArtifactRequest(
-    ArtifactKind Kind,
+internal abstract record ArtifactRequest(
     string AssemblyPath,
     MetadataReader Reader,
     IrFunction Function,
@@ -190,8 +182,128 @@ internal sealed record ArtifactRequest(
     string SignatureText,
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
     IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
-    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements,
-    PropertyDefinitionHandle? TargetProperty);
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements);
+
+internal sealed record MethodArtifactRequest(
+    string AssemblyPath,
+    MetadataReader Reader,
+    IrFunction Function,
+    TypeDefinitionHandle TargetType,
+    MethodDefinitionHandle TargetMethod,
+    string TargetBody,
+    string FullType,
+    string MethodName,
+    int Overload,
+    string SignatureText,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements)
+    : ArtifactRequest(
+        AssemblyPath,
+        Reader,
+        Function,
+        TargetType,
+        TargetMethod,
+        TargetBody,
+        FullType,
+        MethodName,
+        Overload,
+        SignatureText,
+        ClosureRoots,
+        ClosureFacts,
+        ClosureMemberRequirements);
+
+internal abstract record PropertyAccessorArtifactRequest(
+    string AssemblyPath,
+    MetadataReader Reader,
+    IrFunction Function,
+    TypeDefinitionHandle TargetType,
+    MethodDefinitionHandle TargetMethod,
+    PropertyDefinitionHandle TargetProperty,
+    string TargetBody,
+    string FullType,
+    string MethodName,
+    int Overload,
+    string SignatureText,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements)
+    : ArtifactRequest(
+        AssemblyPath,
+        Reader,
+        Function,
+        TargetType,
+        TargetMethod,
+        TargetBody,
+        FullType,
+        MethodName,
+        Overload,
+        SignatureText,
+        ClosureRoots,
+        ClosureFacts,
+        ClosureMemberRequirements);
+
+internal sealed record PropertyGetterArtifactRequest(
+    string AssemblyPath,
+    MetadataReader Reader,
+    IrFunction Function,
+    TypeDefinitionHandle TargetType,
+    MethodDefinitionHandle TargetMethod,
+    PropertyDefinitionHandle TargetProperty,
+    string TargetBody,
+    string FullType,
+    string MethodName,
+    int Overload,
+    string SignatureText,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements)
+    : PropertyAccessorArtifactRequest(
+        AssemblyPath,
+        Reader,
+        Function,
+        TargetType,
+        TargetMethod,
+        TargetProperty,
+        TargetBody,
+        FullType,
+        MethodName,
+        Overload,
+        SignatureText,
+        ClosureRoots,
+        ClosureFacts,
+        ClosureMemberRequirements);
+
+internal sealed record PropertySetterArtifactRequest(
+    string AssemblyPath,
+    MetadataReader Reader,
+    IrFunction Function,
+    TypeDefinitionHandle TargetType,
+    MethodDefinitionHandle TargetMethod,
+    PropertyDefinitionHandle TargetProperty,
+    string TargetBody,
+    string FullType,
+    string MethodName,
+    int Overload,
+    string SignatureText,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> ClosureMemberRequirements)
+    : PropertyAccessorArtifactRequest(
+        AssemblyPath,
+        Reader,
+        Function,
+        TargetType,
+        TargetMethod,
+        TargetProperty,
+        TargetBody,
+        FullType,
+        MethodName,
+        Overload,
+        SignatureText,
+        ClosureRoots,
+        ClosureFacts,
+        ClosureMemberRequirements);
 
 internal sealed record ProductArtifact(
     ArtifactRequest Request,
@@ -382,14 +494,14 @@ public static class CompileBackSourceComposer
 {
     internal static ProductArtifact Compose(ArtifactRequest request)
     {
-        var result = request.Kind switch
+        var result = request switch
         {
-            ArtifactKind.PropertyGetter => ComposePropertyGetter(
+            PropertyGetterArtifactRequest getter => ComposePropertyGetter(
                 request.AssemblyPath,
                 request.Reader,
                 request.Function,
                 request.TargetType,
-                RequiredProperty(request),
+                getter.TargetProperty,
                 request.TargetMethod,
                 request.TargetBody,
                 request.FullType,
@@ -399,12 +511,12 @@ public static class CompileBackSourceComposer
                 request.ClosureRoots,
                 request.ClosureFacts,
                 request.ClosureMemberRequirements),
-            ArtifactKind.PropertySetter => ComposePropertySetter(
+            PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
                 request.Function,
                 request.TargetType,
-                RequiredProperty(request),
+                setter.TargetProperty,
                 request.TargetMethod,
                 request.TargetBody,
                 request.FullType,
@@ -414,7 +526,7 @@ public static class CompileBackSourceComposer
                 request.ClosureRoots,
                 request.ClosureFacts,
                 request.ClosureMemberRequirements),
-            ArtifactKind.Method => ComposeMethod(
+            MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
                 request.Reader,
                 request.Function,
@@ -428,15 +540,11 @@ public static class CompileBackSourceComposer
                 request.ClosureRoots,
                 request.ClosureFacts,
                 request.ClosureMemberRequirements),
-            _ => throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown artifact kind."),
+            _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
         return ProductArtifact.From(request, result);
     }
-
-    static PropertyDefinitionHandle RequiredProperty(ArtifactRequest request)
-        => request.TargetProperty
-            ?? throw new ArgumentException($"{request.Kind} artifact requests require a target property.", nameof(request));
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,

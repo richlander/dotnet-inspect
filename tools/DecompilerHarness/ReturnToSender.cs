@@ -809,13 +809,13 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
-                Kind: ArtifactKind.PropertyGetter,
+            var sourceResult = CompileBackSourceComposer.Compose(new PropertyGetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: getterHandle,
+                TargetProperty: propertyHandle,
                 TargetBody: printed.Output,
                 FullType: fullType,
                 MethodName: methodName,
@@ -823,8 +823,7 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements,
-                TargetProperty: propertyHandle));
+                ClosureMemberRequirements: closureMemberRequirements));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -909,13 +908,13 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
-                Kind: ArtifactKind.PropertyGetter,
+            var sourceResult = CompileBackSourceComposer.Compose(new PropertyGetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: getterHandle,
+                TargetProperty: propertyHandle,
                 TargetBody: printed.Output,
                 FullType: fullType,
                 MethodName: methodName,
@@ -923,8 +922,7 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements,
-                TargetProperty: propertyHandle));
+                ClosureMemberRequirements: closureMemberRequirements));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -986,8 +984,7 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
-                Kind: ArtifactKind.Method,
+            var sourceResult = CompileBackSourceComposer.Compose(new MethodArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
@@ -1000,8 +997,7 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements,
-                TargetProperty: null));
+                ClosureMemberRequirements: closureMemberRequirements));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1086,8 +1082,7 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
-                Kind: ArtifactKind.Method,
+            var sourceResult = CompileBackSourceComposer.Compose(new MethodArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
@@ -1100,8 +1095,7 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements,
-                TargetProperty: null));
+                ClosureMemberRequirements: closureMemberRequirements));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -1164,13 +1158,13 @@ static class ReturnToSender
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
-                Kind: ArtifactKind.PropertySetter,
+            var sourceResult = CompileBackSourceComposer.Compose(new PropertySetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: setterHandle,
+                TargetProperty: propertyHandle,
                 TargetBody: printed.Output,
                 FullType: fullType,
                 MethodName: methodName,
@@ -1178,8 +1172,7 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements,
-                TargetProperty: propertyHandle));
+                ClosureMemberRequirements: closureMemberRequirements));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1264,13 +1257,13 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new ArtifactRequest(
-                Kind: ArtifactKind.PropertySetter,
+            var sourceResult = CompileBackSourceComposer.Compose(new PropertySetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: setterHandle,
+                TargetProperty: propertyHandle,
                 TargetBody: printed.Output,
                 FullType: fullType,
                 MethodName: methodName,
@@ -1278,8 +1271,7 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements,
-                TargetProperty: propertyHandle));
+                ClosureMemberRequirements: closureMemberRequirements));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
