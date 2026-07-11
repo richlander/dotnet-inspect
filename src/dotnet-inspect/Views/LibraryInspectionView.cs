@@ -795,7 +795,7 @@ public class LibraryInspectionView
 
     private static int CountOrZero<T>(List<T>? values) => values?.Count ?? 0;
 
-    private static int CountExtensionMethods(List<ExtensionMethodSummary>? methods)
+    private static int CountExtensionMethods(List<LibraryExtensionMethodJson>? methods)
         => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
 
     private static int CountIntegrations(LibraryInspection inspection)

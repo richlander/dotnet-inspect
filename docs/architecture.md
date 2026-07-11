@@ -188,6 +188,11 @@ producers or preserve producer-native structural evidence. Failed censuses stay
 distinct from empty results and render as inspection diagnostics without
 suppressing unaffected sections.
 
+Extension discovery follows the same rule for both `library` and `extensions`:
+each assembly is scanned once into Metadata's extension-member Finding census,
+then CLI target, reachability, overload, and display projections consume that
+shared inventory.
+
 ### Metadata Extraction
 
 ```text
