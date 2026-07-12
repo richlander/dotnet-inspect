@@ -21,13 +21,26 @@ public class ValidityShellNoiseTests
     [InlineData("CS0030", "sealed class Real {} sealed class __Shell { Real M() => (Real)this; }")]
     [InlineData("CS0030", "class Real {} sealed class __Shell { Real[] M() => (Real[])new[] { this }; }")]
     [InlineData("CS0023", "sealed class __Shell { bool M() => !this; }")]
-    [InlineData("CS8121", "class Real {} sealed class Derived : Real {} sealed class __Shell { bool M() => this is Derived; }")]
+    [InlineData(
+        "CS0266",
+        "class Real { public static explicit operator Real(__Shell value) => new(); } sealed class __Shell { Real M() => this; }")]
+    [InlineData(
+        "CS1605",
+        "sealed class __Shell { static void Take(ref __Shell value) {} void M() { Take(ref this); } }")]
+    [InlineData(
+        "CS8121",
+        "class Real {} sealed class Derived : Real {} sealed class __Shell { object M() { if (this is Derived value) return value; return null; } }")]
+    [InlineData(
+        "CS8129",
+        "class Real { public void Deconstruct(out int x, out int y) { x = y = 0; } } sealed class __Shell { void M() { (int x, int y) = this; } }")]
     public void SyntheticShellThisDiagnostics_AreFiltered(string diagnosticId, string source)
     {
         var (diagnostics, tree, semanticModel) = CompileWithModel(source);
+        var matching = diagnostics.Where(d => d.Id == diagnosticId).ToImmutableArray();
+        Assert.NotEmpty(matching);
 
         var defects = ValidityCheck.ClassifySemanticDiagnostics(
-            diagnostics.Where(d => d.Id == diagnosticId),
+            matching,
             tree,
             Function(TypeRef.Definition("fixture", "", "Real")),
             semanticModel);
@@ -89,6 +102,22 @@ public class ValidityShellNoiseTests
     }
 
     [Fact]
+    public void UnenumeratedShellDiagnostic_StaysReportedWithoutEvidenceMiss()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "class Real {} sealed class Derived : Real {} sealed class __Shell { Derived M() => this as Derived; }");
+        var diagnostic = Assert.Single(diagnostics, d => d.Id == "CS0039");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            [diagnostic],
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(["CS0039"], defects.Select(d => d.Id));
+    }
+
+    [Fact]
     public void ProtectedAccessThroughDeclaringTypeReceiver_IsFiltered()
     {
         var (diagnostics, tree, semanticModel) = CompileWithModel("""
@@ -144,9 +173,11 @@ public class ValidityShellNoiseTests
     {
         var (diagnostics, tree, semanticModel) = CompileWithModel(
             "using System;" + Environment.NewLine + source);
+        var matching = diagnostics.Where(d => d.Id == diagnosticId).ToImmutableArray();
+        Assert.NotEmpty(matching);
 
         var defects = ValidityCheck.ClassifySemanticDiagnostics(
-            diagnostics.Where(d => d.Id == diagnosticId),
+            matching,
             tree,
             Function(
                 TypeRef.Definition("fixture", "", "Host"),
@@ -194,6 +225,34 @@ public class ValidityShellNoiseTests
 
         Assert.Equal(
             [diagnosticId, ValidityCheck.StructuredEvidenceMissId],
+            defects.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void SupportedShellDiagnosticWithoutExpectedSyntax_IsFailVisible()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel("class __Shell {}");
+        var descriptor = new DiagnosticDescriptor(
+            "CS0029",
+            "Synthetic",
+            "Synthetic",
+            "Compiler",
+            DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+        var diagnostic = Diagnostic.Create(
+            descriptor,
+            Location.Create(
+                tree,
+                tree.GetRoot(TestContext.Current.CancellationToken).FullSpan));
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            [diagnostic],
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(
+            ["CS0029", ValidityCheck.StructuredEvidenceMissId],
             defects.Select(d => d.Id));
     }
 

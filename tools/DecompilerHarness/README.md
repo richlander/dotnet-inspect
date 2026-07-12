@@ -517,9 +517,16 @@ semantic symbols rather than localized diagnostic prose. If a supported
 diagnostic lacks the source evidence needed to classify it, the original error
 stays reported and the method also receives `VLD0001`; evidence gaps therefore
 remain visible instead of silently joining an ordinary validity bucket.
+Diagnostics outside the enumerated shell-noise set, such as `CS0039`, stay
+reported as ordinary defects without `VLD0001` until they are explicitly
+modeled; surfacing an unknown code is preferred to blanket suppression.
 This intentionally stops suppressing method-level `CS0161` merely because its
 message names `__Shell.__M`; the current decompiler fixture assembly consequently
-exposes ten previously hidden missing-return defects.
+exposes ten previously hidden missing-return defects, pinned by
+`ValidityCoverageReportingTests.DecompilerAssembly_MissingReturnPopulationIsPinned`.
+The separate type-binding report still extracts a `CS0104` ambiguous simple
+name from invariant-culture message text for display; that reporting-only value
+does not control filtering or classification.
 
 **Validity predicate scan** (`--validity-predicate-scan`): the cheap exhaustive
 coverage lane for known validity-risk classes. It does **not** compile or replace

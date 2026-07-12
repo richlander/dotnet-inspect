@@ -762,11 +762,7 @@ static class ValidityCheck
         SemanticModel semanticModel)
     {
         if (diagnosticId == "CS0019")
-        {
-            return IsSyntheticShellBinaryArtifact(node, declaringType, semanticModel)
-                ? EvidenceDisposition.Filter
-                : EvidenceDisposition.Keep;
-        }
+            return ClassifySyntheticShellBinary(node, declaringType, semanticModel);
 
         ExpressionSyntax? subject = diagnosticId switch
         {
@@ -778,7 +774,7 @@ static class ValidityCheck
             _ => ClosestExpression(node),
         };
         if (subject is null)
-            return EvidenceDisposition.Keep;
+            return EvidenceDisposition.Unextracted;
 
         ITypeSymbol? targetType = diagnosticId switch
         {
@@ -800,23 +796,26 @@ static class ValidityCheck
             : EvidenceDisposition.Keep;
     }
 
-    static bool IsSyntheticShellBinaryArtifact(
+    static EvidenceDisposition ClassifySyntheticShellBinary(
         SyntaxNode node,
         TypeRef declaringType,
         SemanticModel semanticModel)
     {
         var binary = node.FirstAncestorOrSelf<BinaryExpressionSyntax>();
         if (binary is null)
-            return false;
+            return EvidenceDisposition.Unextracted;
 
         var leftType = semanticModel.GetTypeInfo(binary.Left).Type;
         var rightType = semanticModel.GetTypeInfo(binary.Right).Type;
-        return IsSyntheticShellValue(binary.Left, semanticModel)
+        bool shellArtifact = IsSyntheticShellValue(binary.Left, semanticModel)
                 && (IsSyntheticShellType(leftType)
                     || TypesEquivalentAfterShellReplacement(leftType, rightType, declaringType))
             || IsSyntheticShellValue(binary.Right, semanticModel)
                 && (IsSyntheticShellType(rightType)
                     || TypesEquivalentAfterShellReplacement(rightType, leftType, declaringType));
+        return shellArtifact
+            ? EvidenceDisposition.Filter
+            : EvidenceDisposition.Keep;
     }
 
     static ExpressionSyntax? ClosestExpression(SyntaxNode node)
