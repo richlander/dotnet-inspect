@@ -178,6 +178,7 @@ static class Program
                     case "--return-to-sender-ab": returnToSenderAb = true; break;
                     case "--return-to-sender-markout": returnToSenderMarkout = true; break;
                     case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
+                    case "--source-correspondence-census": returnToSenderSourceProbe = true; break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
                         returnToSenderCatalog = true;
@@ -294,7 +295,7 @@ static class Program
         if (returnToSenderFixtureGroup is not null
             && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe))
         {
-            return Fail("--return-to-sender-fixtures requires --return-to-sender, --return-to-sender-ab, or --return-to-sender-source-probe.");
+            return Fail("--return-to-sender-fixtures requires --return-to-sender, --return-to-sender-ab, --return-to-sender-source-probe, or --source-correspondence-census.");
         }
 
         using var packageInputs = ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly);
@@ -1682,6 +1683,10 @@ static class Program
                                 reports valid_match, valid_different, invalid,
                                 source_unavailable, and unsupported_target buckets.
                                 Use --json for machine-readable row output.
+          --source-correspondence-census
+                                alias for --return-to-sender-source-probe that
+                                emphasizes the Finding-style source-correspondence
+                                projection emitted in --json output.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for
