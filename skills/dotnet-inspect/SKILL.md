@@ -23,6 +23,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
+| Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages | `package Foo -S Signals`, `--library`, `--path @readme --content`. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; add `--platform`, `-S Signals`. |
 | Relationships | `depends Type`, `extensions Type`, `implements Interface`. |
@@ -43,8 +44,7 @@ dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Me
 
 ## Tips
 
-- Default output is Markdown; for formats, `-D`/`-S` discovery, projection, and
-  limits, load `dotnet-inspect skill query`.
+- Default output is Markdown; for formats, `-D`/`-S` discovery, projection, and limits, load `dotnet-inspect skill query`.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.

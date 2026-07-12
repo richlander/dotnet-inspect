@@ -38,6 +38,9 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 │                         diff                                 │
 │  Compare API, analysis, or implementation evidence           │
 ├─────────────────────────────────────────────────────────────┤
+│                       timeline                               │
+│  Correlate type-owned Findings across a package range         │
+├─────────────────────────────────────────────────────────────┤
 │            depends / extensions / implements                 │
 │  Relationship discovery for APIs, packages, and libraries    │
 ├─────────────────────────────────────────────────────────────┤
@@ -51,8 +54,8 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 
 The command surface has independent source, focus, operation, lens, traversal,
 and rendering axes. Noun-first commands (`package`, `type`, `member`) select a
-structural focus for unary inspection; operation-first commands (`diff`, and a
-future `timeline`) change arity while retaining source/focus selectors. See
+structural focus for unary inspection; operation-first commands (`diff` and
+`timeline`) change arity while retaining source/focus selectors. See
 [Command Transition Model](design/command-transition-model.md) for the decision
 rules and version-range cardinality contract.
 
@@ -104,6 +107,21 @@ Compares two package, platform, or local-library versions:
 - Multiple selected sections compose in Markdown and JSON. Explicit
   table/TSV/JSONL output requires exactly one selected section.
 - Version range syntax is `Package@v1..v2` or `old/Foo.dll..new/Foo.dll`.
+
+### timeline
+
+Correlates one type-focused Finding census across an inclusive package version
+vector:
+
+- `--finding api.type` observes the type's own presence and facets.
+- `--finding api.member` observes all members owned by the type.
+- `--finding api.attribute` observes applied attribute occurrences.
+- No `--at` evaluates zero package payloads; repeated `--at` selectors perform
+  sparse probes; `--at all` explicitly authorizes dense traversal.
+- `Evaluations` preserves `Present`/`Missing` self-presence and
+  `Complete`/`SubjectAbsent` owned censuses, plus `Failed` and `Unevaluated`
+  cells. `Transitions` compares adjacent evaluated cells; a
+  gap-spanning row is qualified and never claims an exact transition version.
 
 ### find
 

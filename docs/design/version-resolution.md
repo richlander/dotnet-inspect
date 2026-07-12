@@ -59,6 +59,10 @@ dotnet-inspect type JsonSerializer \
   --package System.Text.Json@8.0.0..8.0.5 --at '#4'
 dotnet-inspect member JsonSerializer Serialize \
   --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
+dotnet-inspect timeline \
+  --package System.Text.Json@8.0.0..8.0.5 \
+  --type System.Text.Json.JsonSerializer \
+  --finding api.member --at first --at last
 ```
 
 `package --versions` enumerates the vector. Range-capable API commands require
@@ -66,6 +70,14 @@ dotnet-inspect member JsonSerializer Serialize \
 Resolving the vector reads version metadata only. The command downloads or
 opens a package only after the caller selects an address, so an agent can probe
 previous, midpoint, or adjacent versions without triggering an unbounded scan.
+
+`timeline` uses the same vector without changing that authorization rule. With
+no `--at`, it renders every address as `Unevaluated` and recommends a probe
+without downloading package payloads. Repeated `--at` selectors perform sparse
+correlation; `--at all` is the explicit dense-traversal opt-in. Type focus may
+select the type-presence (`api.type`), owned-member (`api.member`), or applied
+attribute (`api.attribute`) census. Sparse transitions spanning unevaluated
+cells are labeled as gaps and do not claim the exact version of a change.
 
 Stable endpoints exclude prereleases by default. A prerelease endpoint or
 `--preview` on `package --versions` includes prereleases within the range.

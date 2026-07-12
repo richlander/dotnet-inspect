@@ -121,6 +121,8 @@ then probe only the cells you choose:
 dnx dotnet-inspect -y -- package Foo@1.0.0..2.0.0 --versions
 dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
 dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
+dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
+  --type TargetType --members --at first --at last
 ```
 
 `--at` accepts an exact version, one-based `#N`, `first`, or `last`. Vector
@@ -128,6 +130,14 @@ resolution does not download every package; only the selected probe is
 acquired. The agent owns the search policy and bound. For recurrence-safe
 current onset, walk backward from the bad version until the first successful
 absence; use binary search only for a predicate known to be monotonic.
+
+`timeline` renders `Evaluations` and `Transitions` over the same vector. Omit
+`--at` for a zero-payload address view and midpoint recommendation, repeat
+`--at` for sparse probes, or pass `--at all` for explicit dense traversal.
+Choose the type-focused census with `--type-presence`, `--members`, or
+`--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
+Gap-spanning transitions are evidence across the selected probes, not claims
+about the exact introduction or removal version.
 
 The range and point probes identify a candidate boundary. Confirm the adjacent
 pair with Metadata's real Finding comparison rather than inferring introduction

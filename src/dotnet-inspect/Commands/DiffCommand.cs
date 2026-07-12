@@ -118,9 +118,19 @@ public class DiffCommand
                     return 1;
                 }
             }
-            else if (options.MemberFilter.Count == 0)
+            else if (findingDescriptor == MetadataFindings.AttributeDescriptor.Id)
             {
-                Console.Error.WriteLine("Error: --finding api.member requires --member.");
+                if (options.TypeFilter.Count == 0 || options.MemberFilter.Count > 0)
+                {
+                    Console.Error.WriteLine("Error: --finding api.attribute requires --type and cannot be combined with --member.");
+                    return 1;
+                }
+            }
+            else if (findingDescriptor == MetadataFindings.MemberDescriptor.Id
+                && options.TypeFilter.Count == 0
+                && options.MemberFilter.Count == 0)
+            {
+                Console.Error.WriteLine("Error: --finding api.member requires --type or --member.");
                 return 1;
             }
             if (options.Breaking || options.Additive || options.ChangedOnly
@@ -301,19 +311,9 @@ public class DiffCommand
         }
     }
 
-    sealed record DiffEndpoint(
-        AssemblySet AssemblySet,
-        ApiSurface Surface) : IDisposable
-    {
-        public IReadOnlyList<string> Paths =>
-            AssemblySet.Assemblies.Select(static entry => entry.Path).ToList();
-
-        public void Dispose() => AssemblySet.Dispose();
-    }
-
     sealed record DiffInputs(
-        DiffEndpoint From,
-        DiffEndpoint To,
+        ApiSurfaceEndpoint From,
+        ApiSurfaceEndpoint To,
         string FromVersion,
         string ToVersion,
         string Name) : IDisposable
@@ -355,7 +355,7 @@ public class DiffCommand
             logger);
         if (from.error is not null)
             return (null, $"Error resolving v{fromVersion}: {from.error}");
-        (DiffEndpoint? endpoint, string? error, bool assembliesResolved) to;
+        (ApiSurfaceEndpoint? endpoint, string? error, bool assembliesResolved) to;
         try
         {
             to = await ResolveDiffEndpointAsync(
@@ -413,7 +413,7 @@ public class DiffCommand
                 ? "Error: Failed to extract API surface from one or both versions."
                 : $"Error resolving v{fromVersion}: {AsEndpointError(from.error)}");
 
-        (DiffEndpoint? endpoint, string? error, bool assembliesResolved) to;
+        (ApiSurfaceEndpoint? endpoint, string? error, bool assembliesResolved) to;
         try
         {
             to = await ResolveDiffEndpointAsync(
@@ -467,7 +467,7 @@ public class DiffCommand
                 ? "Error: Failed to extract API surface from one or both libraries."
                 : $"Error: File not found: {fromPath}");
 
-        (DiffEndpoint? endpoint, string? error, bool assembliesResolved) to;
+        (ApiSurfaceEndpoint? endpoint, string? error, bool assembliesResolved) to;
         try
         {
             to = await ResolveDiffEndpointAsync(
@@ -499,42 +499,16 @@ public class DiffCommand
             Path.GetFileName(fromPath), Path.GetFileName(toPath), name), null);
     }
 
-    private static async Task<(DiffEndpoint? endpoint, string? error, bool assembliesResolved)> ResolveDiffEndpointAsync(
+    private static Task<(ApiSurfaceEndpoint? endpoint, string? error, bool assembliesResolved)> ResolveDiffEndpointAsync(
         HttpClient httpClient,
         AssemblySetRequest request,
         bool includeAll,
         VerboseLogger logger)
-    {
-        var assemblySet = await AssemblySetResolver
-            .CollectAsync(httpClient, request, logger.Log)
-            .ConfigureAwait(false);
-        try
-        {
-            if (assemblySet.Assemblies.Count == 0)
-            {
-                var error = assemblySet.Diagnostics.Count > 0
-                    ? string.Join("; ", assemblySet.Diagnostics.Select(static diagnostic => diagnostic.Message))
-                    : "No assemblies were resolved.";
-                assemblySet.Dispose();
-                return (null, error, false);
-            }
-
-            AssemblySetDiagnosticWriter.Write(assemblySet);
-            var surface = AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log);
-            if (surface is null)
-            {
-                assemblySet.Dispose();
-                return (null, "Failed to extract API surface.", true);
-            }
-
-            return (new DiffEndpoint(assemblySet, surface), null, true);
-        }
-        catch
-        {
-            assemblySet.Dispose();
-            throw;
-        }
-    }
+        => ApiSurfaceEndpointResolver.ResolveAsync(
+            httpClient,
+            request,
+            includeAll,
+            logger);
 
     internal static string AsEndpointError(string error)
     {
@@ -581,6 +555,12 @@ public class DiffCommand
             error = null;
             return true;
         }
+        if (string.Equals(descriptor, MetadataFindings.AttributeDescriptor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            descriptor = MetadataFindings.AttributeDescriptor.Id;
+            error = null;
+            return true;
+        }
         if (string.Equals(descriptor, AnalysisFindings.AllocationDescriptor.Id, StringComparison.OrdinalIgnoreCase))
         {
             descriptor = AnalysisFindings.AllocationDescriptor.Id;
@@ -600,7 +580,7 @@ public class DiffCommand
             return true;
         }
 
-        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, analysis.allocation, analysis.call-site, analysis.unsafety.";
+        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, analysis.unsafety.";
         return false;
     }
 
@@ -1015,7 +995,8 @@ public class DiffCommand
         var subject = new FindingSubject("api", "API surface");
         var diffOptions = new ApiDiffOptions(
             options.IncludeAll ? ApiDiffScope.All : ApiDiffScope.Signature);
-        if (options.MemberFilter.Count == 0)
+        string descriptor = ResolveFindingDescriptor(options);
+        if (descriptor == MetadataFindings.TypeDescriptor.Id)
         {
             var typeComparison = MetadataFindings.CompareApiTypes(
                 fromSurface,
@@ -1030,16 +1011,40 @@ public class DiffCommand
                 .ToList();
         }
 
-        var targets = ResolveMemberTargetIdentities(
-            fromSurface,
-            toSurface,
-            options.MemberFilter,
-            options.TypeFilter);
+        if (descriptor == MetadataFindings.AttributeDescriptor.Id)
+        {
+            var typeNames = ResolveFindingTypeNames(fromSurface, toSurface, options.TypeFilter);
+            return typeNames
+                .SelectMany(typeName => CompletePairs(MetadataFindings.CompareApiAttributes(
+                    fromSurface,
+                    toSurface,
+                    subject,
+                    typeName)))
+                .Select(pair => ToAttributeTransitionRow(pair, fromVersion, toVersion))
+                .OrderBy(row => row.Target, StringComparer.Ordinal)
+                .ToList();
+        }
+
         var memberComparison = MetadataFindings.CompareApiMembers(
             fromSurface,
             toSurface,
             subject,
             diffOptions);
+        if (options.MemberFilter.Count == 0)
+        {
+            return CompletePairs(memberComparison)
+                .Where(pair => options.TypeFilter.Any(filter =>
+                    MatchesDiffTypeFilter(MemberTypeTarget(pair), filter)))
+                .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
+                .OrderBy(row => row.Target, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        var targets = ResolveMemberTargetIdentities(
+            fromSurface,
+            toSurface,
+            options.MemberFilter,
+            options.TypeFilter);
         return CompletePairs(memberComparison)
             .Where(pair => MatchesMemberPair(pair, targets))
             .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
@@ -1203,6 +1208,20 @@ public class DiffCommand
             NewSide(pair) is null ? "absent" : "present",
             pair.Detail);
 
+    static FindingTransitionRow ToAttributeTransitionRow(
+        PairFinding<ApiAttributeHandle> pair,
+        string fromVersion,
+        string toVersion)
+        => new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            AttributeTarget(pair),
+            fromVersion,
+            toVersion,
+            OldSide(pair) is null ? "absent" : "present",
+            NewSide(pair) is null ? "absent" : "present",
+            pair.Detail);
+
     static FindingTransitionRow ToAllocationTransitionRow(
         ResearchSubjectKey subject,
         PairFinding<AllocationOccurrence> pair,
@@ -1311,6 +1330,15 @@ public class DiffCommand
     {
         var handle = (NewSide(pair) ?? OldSide(pair))!.Payload;
         return $"{handle.TypeFullName}.{handle.StableSelector ?? handle.Identity}";
+    }
+
+    static string MemberTypeTarget(PairFinding<ApiMemberHandle> pair)
+        => (NewSide(pair) ?? OldSide(pair))!.Payload.TypeFullName;
+
+    static string AttributeTarget(PairFinding<ApiAttributeHandle> pair)
+    {
+        var handle = (NewSide(pair) ?? OldSide(pair))!.Payload;
+        return $"{handle.TypeFullName} [{handle.Attribute}]";
     }
 
     static Finding<T>? OldSide<T>(PairFinding<T> pair)
@@ -1576,6 +1604,22 @@ public class DiffCommand
         foreach (var type in surface.Types)
             if (TypeMatcher.MatchesTypeFilter(type.FullName, query))
                 yield return type;
+    }
+
+    static IReadOnlyList<string> ResolveFindingTypeNames(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        IReadOnlyCollection<string> typeFilters)
+    {
+        var names = typeFilters
+            .SelectMany(filter => FindTypes(fromSurface, filter)
+                .Concat(FindTypes(toSurface, filter))
+                .Select(type => type.FullName)
+                .DefaultIfEmpty(filter))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        return names;
     }
 
     static ApiType? FindExactType(ApiSurface surface, string fullName)
