@@ -171,8 +171,8 @@ public static class DiscoverOutput
         => effectiveSections.Where(s => schema.GetSection(s) != null).ToList();
 
     /// <summary>
-    /// Restricts effective sections to those that actually produced rendered output in the
-    /// supplied markdown rendering of the same view. A tabular schema section whose
+    /// Restricts effective sections to those that actually produced a table in the
+    /// supplied render manifest. A tabular schema section whose
     /// <c>CanRender</c> probe passed but which rendered no table for this input is dropped,
     /// since it has no data to query. This catches sections whose <c>CanRender</c> is a coarse
     /// proxy — e.g. "Custom Attributes", gated on "the type has methods" but only populated
@@ -180,21 +180,20 @@ public static class DiscoverOutput
     /// effective discovery reflects real data rather than mere potential.
     /// Only tabular sections (those with schema columns) are subject to the drop; non-tabular
     /// sections are left untouched because their content may not render as a markdown table.
-    /// This measures renderability in the current type effective-discovery render path
-    /// (RenderTypeSectionsMarkdown); a section populated only in another command path is
+    /// This measures renderability in the current type effective-discovery render path;
+    /// a section populated only in another command path is
     /// intentionally treated as having no data here.
     /// </summary>
-    public static List<string> RestrictToRenderedSections(
-        List<string> effectiveSections, DocumentSchema schema, string rendered)
-    {
-        var renderedTables = ParseSectionHeaders(rendered);
-        return effectiveSections.Where(name =>
+    internal static List<string> RestrictToRenderedSections(
+        List<string> effectiveSections,
+        DocumentSchema schema,
+        RenderedSectionManifest rendered)
+        => effectiveSections.Where(name =>
         {
             var section = schema.GetSection(name);
             bool tabular = section is { Items.Length: > 0 };
-            return !tabular || renderedTables.ContainsKey(name);
+            return !tabular || rendered.HasTable(name);
         }).ToList();
-    }
 
     /// <summary>
     /// Returns a copy of the schema with the named column removed from every section.
@@ -223,16 +222,16 @@ public static class DiscoverOutput
 
     /// <summary>
     /// Filters a schema's section columns to only those that actually render, given a
-    /// markdown rendering of the same view. Used by effective discovery so the reported
+    /// render manifest for the same view. Used by effective discovery so the reported
     /// columns match what the user would see at their current verbosity/options (e.g. summary
     /// columns replace detailed columns at Minimal verbosity).
-    /// Matches against section-scoped markdown table headers, not the rendered body, to
-    /// avoid false positives from column names appearing in member names or signatures.
+    /// Matches against section-scoped table columns emitted by the serializer.
     /// </summary>
-    public static DocumentSchema FilterSchemaToRenderedHeaders(
-        List<string> effectiveSections, DocumentSchema schema, string rendered)
+    internal static DocumentSchema FilterSchemaToRenderedColumns(
+        List<string> effectiveSections,
+        DocumentSchema schema,
+        RenderedSectionManifest rendered)
     {
-        var headersBySection = ParseSectionHeaders(rendered);
         var filtered = new DocumentSchema();
         foreach (var name in effectiveSections)
         {
@@ -242,7 +241,8 @@ public static class DiscoverOutput
             // No table rendered for this section (e.g. a non-tabular section such as Source/IL,
             // or one not produced by the member renderer): preserve the original schema columns
             // rather than stripping them — we only narrow columns for sections we actually rendered.
-            if (!headersBySection.TryGetValue(name, out var headerCells))
+            var headerCells = rendered.GetTableColumns(name);
+            if (headerCells is null)
             {
                 if (section.Items.Length > 0)
                     filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
@@ -265,44 +265,53 @@ public static class DiscoverOutput
     }
 
     /// <summary>
-    /// Parses a rendered markdown document into a map of section heading text → the set of
-    /// column header cells from the first table under that heading.
+    /// Filters selected field-based schema sections to the field rows emitted by the
+    /// serializer. Other effective sections retain their full schema.
     /// </summary>
-    private static Dictionary<string, HashSet<string>> ParseSectionHeaders(string rendered)
+    internal static DocumentSchema FilterSchemaToRenderedFields(
+        List<string> effectiveSections,
+        DocumentSchema schema,
+        RenderedSectionManifest rendered,
+        IReadOnlySet<string> filteredSections)
     {
-        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        var lines = rendered.Split('\n');
-        string? current = null;
-        for (int i = 0; i < lines.Length; i++)
+        var filtered = new DocumentSchema();
+        foreach (var name in effectiveSections)
         {
-            var trimmed = lines[i].Trim();
-            if (trimmed.StartsWith('#'))
+            var section = schema.GetSection(name);
+            if (section is null)
             {
-                current = trimmed.TrimStart('#').Trim();
+                filtered.AddSection(name);
                 continue;
             }
 
-            // A table header is a pipe row immediately followed by a separator row.
-            if (current != null && !result.ContainsKey(current)
-                && trimmed.StartsWith('|') && i + 1 < lines.Length
-                && IsSeparatorRow(lines[i + 1]))
+            var renderedFields = filteredSections.Contains(name)
+                ? rendered.GetFields(name)
+                : null;
+            if (renderedFields is not null)
             {
-                result[current] = new HashSet<string>(ParseRowCells(trimmed), StringComparer.OrdinalIgnoreCase);
+                var effectiveItems = section.Items
+                    .Where(item => renderedFields.Contains(item.Name))
+                    .Select(item => item.Name)
+                    .ToArray();
+                filtered.Add(
+                    name,
+                    section.ItemKind,
+                    effectiveItems.Length > 0
+                        ? effectiveItems
+                        : section.Items.Select(item => item.Name).ToArray());
+            }
+            else if (section.Items.Length > 0)
+            {
+                filtered.Add(name, section.ItemKind, section.Items.Select(item => item.Name).ToArray());
+            }
+            else
+            {
+                filtered.AddSection(name);
             }
         }
-        return result;
-    }
 
-    private static bool IsSeparatorRow(string line)
-    {
-        var trimmed = line.Trim();
-        if (!trimmed.StartsWith('|'))
-            return false;
-        return trimmed.All(c => c is '|' or '-' or ':' or ' ');
+        return filtered;
     }
-
-    private static IEnumerable<string> ParseRowCells(string row)
-        => row.Trim().Trim('|').Split('|').Select(c => c.Trim()).Where(c => c.Length > 0);
 
     private static List<DiscoveryRow>? GetDiscoveryRows(
         string[]? discover,

@@ -493,8 +493,18 @@ public class PackageCommand
                     if (targetSections.Count > 0)
                     {
                         var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
-                        var rendered = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOpts);
-                        schemaMap = FilterSchemaToEffectiveFields(effective, schemaMap, rendered);
+                        var renderManifest = RenderManifestFormatter.Capture(
+                            view,
+                            InspectionContext.Default,
+                            writerOpts);
+                        schemaMap = DiscoverOutput.FilterSchemaToRenderedFields(
+                            effective,
+                            schemaMap,
+                            renderManifest,
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                            {
+                                PackageSections.PackageInfo
+                            });
                     }
                 }
 
@@ -2533,36 +2543,6 @@ public class PackageCommand
                     .ToList();
             }
         }
-    }
-
-    private static DocumentSchema FilterSchemaToEffectiveFields(
-        List<string> effectiveSections, DocumentSchema schema, string rendered)
-    {
-        var filtered = new DocumentSchema();
-        foreach (var name in effectiveSections)
-        {
-            var section = schema.GetSection(name);
-            if (section == null) { filtered.AddSection(name); continue; }
-
-            if (string.Equals(name, PackageSections.PackageInfo, StringComparison.OrdinalIgnoreCase))
-            {
-                var effectiveItems = section.Items
-                    .Where(item => rendered.Contains(item.Name, StringComparison.OrdinalIgnoreCase))
-                    .Select(item => item.Name)
-                    .ToArray();
-                filtered.Add(name, section.ItemKind,
-                    effectiveItems.Length > 0 ? effectiveItems : section.Items.Select(i => i.Name).ToArray());
-            }
-            else if (section.Items.Length > 0)
-            {
-                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
-            }
-            else
-            {
-                filtered.AddSection(name);
-            }
-        }
-        return filtered;
     }
 
     private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)

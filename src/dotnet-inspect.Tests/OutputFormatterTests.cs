@@ -687,6 +687,75 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void RenderManifestFormatter_CapturesStructuredSectionsColumnsAndFields()
+    {
+        var formatter = new RenderManifestFormatter();
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Methods", context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Name", "Signature | Display"],
+            [["Run", "void Run()"]],
+            skippedRows: 0,
+            MarkoutWriterOptions.Default);
+        formatter.FormatHeading(TextWriter.Null, 2, "Library Info", context: null);
+        formatter.BeginTable(
+            TextWriter.Null,
+            ["Field", "Value"],
+            MarkoutWriterOptions.Default);
+        formatter.WriteRow(TextWriter.Null, ["Assembly Version", "1.0.0.0"]);
+        formatter.EndTable(TextWriter.Null, skippedRows: 0);
+        formatter.FormatHeading(TextWriter.Null, 2, "Other Section", context: null);
+        formatter.FormatFields(
+            TextWriter.Null,
+            [new MarkoutField("Methods", "polluting value")],
+            bold: false);
+
+        var columns = Assert.IsAssignableFrom<IReadOnlySet<string>>(
+            formatter.Manifest.GetTableColumns("Methods"));
+        Assert.Contains("Name", columns);
+        Assert.Contains("Signature | Display", columns);
+        var fields = Assert.IsAssignableFrom<IReadOnlySet<string>>(
+            formatter.Manifest.GetFields("Library Info"));
+        Assert.Contains("Assembly Version", fields);
+        Assert.DoesNotContain("Methods", fields);
+    }
+
+    [Fact]
+    public void BuildTypeRenderManifest_CapturesActualMemberTable()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = "Run",
+                    Signature = "void Run()"
+                }
+            ]
+        };
+        var options = new TypeOptions
+        {
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.Methods
+            }
+        };
+
+        var manifest = ApiCommand.BuildTypeRenderManifest(type, options);
+
+        var columns = Assert.IsAssignableFrom<IReadOnlySet<string>>(
+            manifest.GetTableColumns(SectionNames.Methods));
+        Assert.Contains("Name", columns);
+        Assert.Contains("Signature", columns);
+    }
+
+    [Fact]
     public async Task DiscoverOutput_Tsv_RendersHeaderedTsvRows()
     {
         var schema = new DocumentSchema()
