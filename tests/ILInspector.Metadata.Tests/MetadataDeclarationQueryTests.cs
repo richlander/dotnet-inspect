@@ -135,6 +135,13 @@ public sealed class MetadataDeclarationQueryTests
             method.Signature,
             StringComparison.Ordinal);
         Assert.Contains("\".namespace\"", method.Signature, StringComparison.Ordinal);
+
+        var globalKeyword = Assert.Single(
+            surface.Members,
+            member => member.Name == "GlobalKeyword");
+        Assert.Contains("@class value", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains("List<@class> values = null", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains("\"a\\\"b.class\"", globalKeyword.Signature, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -288,6 +295,13 @@ public class MetadataDeclarationQueryFixtures
     public int @event = 1;
 
     public void QualifiedKeyword(@namespace @class, string text = ".namespace") { }
+
+    public void GlobalKeyword(
+        global::@class value,
+        List<global::@class>? values = null,
+        string text = "a\"b.class")
+    {
+    }
 
     public volatile int VolatileField;
 

@@ -638,7 +638,10 @@ internal static class CSharpDeclarationWriter
 
     internal static string FormatParameter(ApiParameter parameter)
     {
-        var head = parameter.TypeWithModifier;
+        string type = EscapeTypeKeywords(parameter.Type);
+        string head = string.IsNullOrEmpty(parameter.Modifier)
+            ? type
+            : $"{parameter.Modifier} {type}";
         var declaration = string.IsNullOrWhiteSpace(parameter.Name)
             ? head
             : $"{head} {EscapeIdentifier(parameter.Name)}";
@@ -649,6 +652,40 @@ internal static class CSharpDeclarationWriter
             ? declaration
             : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
     }
+
+    static string EscapeTypeKeywords(string type)
+    {
+        var builder = new StringBuilder(type.Length);
+        for (int index = 0; index < type.Length;)
+        {
+            if (!IsIdentifierStart(type[index]))
+            {
+                builder.Append(type[index++]);
+                continue;
+            }
+
+            int end = index + 1;
+            while (end < type.Length && IsIdentifierPart(type[end]))
+                end++;
+
+            string identifier = type[index..end];
+            if ((index == 0 || type[index - 1] != '@')
+                && EscapeIdentifier(identifier) != identifier
+                && !IsTypeSyntaxKeyword(identifier))
+            {
+                builder.Append('@');
+            }
+            builder.Append(identifier);
+            index = end;
+        }
+        return builder.ToString();
+    }
+
+    static bool IsTypeSyntaxKeyword(string identifier)
+        => identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "object" or "short" or "ushort" or "string" or "void" or "delegate"
+            or "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged";
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
     {

@@ -90,11 +90,13 @@ public sealed class CSharpFormatterTests
                 Name = "event",
                 HasDefault = true,
                 DefaultValueText = "default"
-            }
+            },
+            new() { Type = "class", Name = "value" },
+            new() { Type = "System.Collections.Generic.List<class>", Name = "items" }
         };
 
         Assert.Equal(
-            "([System.Runtime.InteropServices.Optional] System.@event.MyClass @event = default)",
+            "([System.Runtime.InteropServices.Optional] System.@event.MyClass @event = default, @class value, System.Collections.Generic.List<@class> items)",
             CSharpFormatter.FormatParameterList(parameters));
     }
 

@@ -760,14 +760,55 @@ public static class MetadataDeclarationQuery
         var attributes = parameter.Attributes.Count == 0
             ? ""
             : $"[{string.Join(", ", parameter.Attributes)}] ";
+        string type = EscapeCompatibilityTypeKeywords(parameter.Type);
+        string typeWithModifier = string.IsNullOrEmpty(parameter.Modifier)
+            ? type
+            : $"{parameter.Modifier} {type}";
         var head = string.IsNullOrWhiteSpace(parameter.Name)
-            ? parameter.TypeWithModifier
-            : $"{parameter.TypeWithModifier} {EscapeIdentifier(parameter.Name)}";
+            ? typeWithModifier
+            : $"{typeWithModifier} {EscapeIdentifier(parameter.Name)}";
         var declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{head} = {parameter.DefaultValueText}"
             : head;
         return EscapeCompatibilityQualifiedKeywordSegments(attributes + declaration);
     }
+
+    static string EscapeCompatibilityTypeKeywords(string type)
+    {
+        var builder = new StringBuilder(type.Length);
+        for (int index = 0; index < type.Length;)
+        {
+            if (!(char.IsLetter(type[index]) || type[index] == '_'))
+            {
+                builder.Append(type[index++]);
+                continue;
+            }
+
+            int end = index + 1;
+            while (end < type.Length
+                   && (char.IsLetterOrDigit(type[end]) || type[end] == '_'))
+            {
+                end++;
+            }
+
+            string identifier = type[index..end];
+            if ((index == 0 || type[index - 1] != '@')
+                && EscapeIdentifier(identifier) != identifier
+                && !IsTypeSyntaxKeyword(identifier))
+            {
+                builder.Append('@');
+            }
+            builder.Append(identifier);
+            index = end;
+        }
+        return builder.ToString();
+    }
+
+    static bool IsTypeSyntaxKeyword(string identifier)
+        => identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "object" or "short" or "ushort" or "string" or "void" or "delegate"
+            or "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged";
 
     // ApiMember.Signature is a legacy compatibility string. Keep its qualified
     // keyword escaping local rather than restoring declaration ownership to Metadata.
@@ -1088,7 +1129,7 @@ public static class MetadataDeclarationQuery
         var sb = new StringBuilder(value.Length + 2);
         sb.Append('"');
         foreach (char ch in value)
-            sb.Append(EscapeCharLiteral(ch));
+            sb.Append(ch == '"' ? "\\\"" : EscapeCharLiteral(ch));
         sb.Append('"');
         return sb.ToString();
     }
