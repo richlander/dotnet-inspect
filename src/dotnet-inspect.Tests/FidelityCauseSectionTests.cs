@@ -1,3 +1,4 @@
+using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
@@ -78,6 +79,30 @@ public class FidelityCauseSectionTests
         Assert.Equal("no body", absentRow.Reason);
         Assert.Equal("Failed", failedRow.State);
         Assert.Equal("DEC0001: importer failed", failedRow.Reason);
+    }
+
+    [Fact]
+    public void BuildInspection_DistinguishesNoBodyFromImporterFailure()
+    {
+        var importerFailure = DecompilerResult.Failure(
+            DiagnosticIds.InternalError,
+            "BadImageFormatException: invalid method body");
+
+        var absent = MemberCodeProvider.BuildFidelityCauseInspection(
+            methodHasBody: false,
+            raisedFunction: null,
+            importerFailure,
+            Subject);
+        var failed = MemberCodeProvider.BuildFidelityCauseInspection(
+            methodHasBody: true,
+            raisedFunction: null,
+            importerFailure,
+            Subject);
+
+        Assert.IsType<FindingInspection<DecompilerFidelityCause>.Absent>(absent.Value);
+        var failure = Assert.IsType<FindingInspection<DecompilerFidelityCause>.Failed>(failed.Value);
+        Assert.Contains(DiagnosticIds.InternalError, failure.Error.Reason);
+        Assert.Contains("BadImageFormatException", failure.Error.Reason);
     }
 
     static Finding<DecompilerFidelityCause> Finding(

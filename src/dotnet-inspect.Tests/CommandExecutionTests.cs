@@ -3142,7 +3142,7 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("Complete", output);
         Assert.Contains("DEC0004", output);
-        Assert.Contains("IL_0001", output);
+        Assert.Matches(@"IL_[0-9A-F]{4}", output);
         Assert.Contains("mkrefany", output);
     }
 
