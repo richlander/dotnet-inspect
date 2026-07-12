@@ -32,6 +32,27 @@ public class CommandExecutionTests
         public int Value { get; }
     }
 
+    private abstract class ConstructorChainBase
+    {
+        protected ConstructorChainBase(int value)
+        {
+            GC.KeepAlive(value);
+        }
+    }
+
+    private sealed class ConstructorChainTarget : ConstructorChainBase
+    {
+        public ConstructorChainTarget(int value)
+            : base(value)
+        {
+        }
+    }
+
+    private sealed class AwaitTextTarget
+    {
+        public string AwaitText() => "await";
+    }
+
     private sealed class ILOffsetAsyncFixture
     {
         public async Task<int> StateMachineAsync()
@@ -617,6 +638,38 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("NestedDrillTarget", output);
         Assert.Contains("Value = value", output);
+    }
+
+    [Fact]
+    public async Task MemberCommand_PlacesTypedConstructorChainOnDeclaration()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DotnetInspector.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Decompiled Source",
+            "-n", "80");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("ConstructorChainTarget(int value) : base(value)", output);
+        Assert.DoesNotContain("\n    : base(value)", output);
+    }
+
+    [Fact]
+    public async Task MemberCommand_DoesNotInferAsyncFromRenderedText()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DotnetInspector.Tests.CommandExecutionTests+AwaitTextTarget", "AwaitText:1",
+            "--library", TestAssemblyPath,
+            "--all",
+            "-S", "Decompiled Source",
+            "-n", "80");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"await\"", output);
+        Assert.DoesNotContain(" async ", output);
     }
 
     // ── bare router ───────────────────────────────────────────────────

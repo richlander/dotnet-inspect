@@ -6,6 +6,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using Xunit;
 
@@ -90,6 +91,90 @@ public class ApiOutputFormatterTests
         var typeRef = TypeRef.SzArray(TypeRef.Definition(Asm, "", "A+B"));
 
         Assert.False(ApiOutputFormatter.SameType(typeRef, apiType));
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_UsesTypedConstructorChain()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        var result = DecompilerResult.Success("return;") with
+        {
+            ConstructorChain = "base(42)"
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+
+        Assert.Contains("Widget() : base(42)", source.ReplaceLineEndings("\n").Split('\n')[0]);
+        Assert.DoesNotContain("    : base(42)", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_DoesNotParseConstructorChainFromBodyText()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        var result = DecompilerResult.Success(": base(42)\nreturn;");
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+        var lines = source.ReplaceLineEndings("\n").Split('\n');
+
+        Assert.DoesNotContain(": base(42)", lines[0]);
+        Assert.Contains("    : base(42)", lines);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    public void FormatSourceWithDeclaration_UsesTypedAsyncEvidence(
+        bool containsAwaitExpression,
+        bool requiresAsyncBodyModifier,
+        bool expectedAsync)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Run",
+                ReturnType = "System.Threading.Tasks.Task"
+            }
+        };
+        var result = DecompilerResult.Success("Console.WriteLine(\"await\");") with
+        {
+            ContainsAwaitExpression = containsAwaitExpression,
+            RequiresAsyncBodyModifier = requiresAsyncBodyModifier
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result);
+        var declaration = source.ReplaceLineEndings("\n").Split('\n')[0];
+
+        Assert.Equal(expectedAsync, declaration.Contains(" async ", StringComparison.Ordinal));
     }
 
     // --- Extraction: MetadataName reconstruction from real metadata (no ilasm) ---
