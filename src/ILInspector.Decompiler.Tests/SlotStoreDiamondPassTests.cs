@@ -179,12 +179,64 @@ public class SlotStoreDiamondPassTests
         new SlotStoreDiamondPass().Run(function, PassContext.None);
 
         var ret = Assert.Single(function.Descendants.OfType<Return>());
-        var and = Assert.IsType<LogicalBinary>(ret.Value);
+        var not = Assert.IsType<LogicalNot>(ret.Value);
+        var and = Assert.IsType<LogicalBinary>(not.Operand);
         Assert.Equal(LogicalKind.And, and.Kind);
         Assert.IsType<LoadArgument>(and.Left);
-        Assert.IsType<LogicalNot>(and.Right);
+        Assert.IsType<IsInstance>(and.Right);
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<Conditional>());
+    }
+
+    [Fact]
+    public void DoesNotRaiseClassUnionStackSlotReturnAcrossIntermediateBlock()
+    {
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Matcher");
+        var pet = TypeRef.Definition("Synthetic", "Samples", "Pet");
+        var cat = TypeRef.Definition("Synthetic", "Samples", "Cat");
+        var getValue = new MethodRef(pet, "get_Value", Object, [], HasThis: true)
+        {
+            AccessorKind = AccessorKind.PropertyGet,
+        };
+        var body = new BlockContainer();
+        var head = new Block(0);
+        head.Add(new ConditionalBranch(new LogicalNot(new LoadArgument(0, "pet", pet)), 12));
+        var testArm = new Block(4);
+        testArm.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: true,
+            new IsInstance(cat, new LoadProperty(getValue, new LoadArgument(0, "pet", pet), [])),
+            new Constant(null, Object))));
+        testArm.Add(new Branch(16));
+        var gap = new Block(8);
+        gap.Add(new StoreLocal(0, Object, new Constant(null, Object)));
+        var nullArm = new Block(12);
+        nullArm.Add(new StoreStackSlot(0, new Constant(0, Int32)));
+        var merge = new Block(16);
+        merge.Add(new Return(new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadStackSlot(0, Bool),
+            new Constant(0, Int32))));
+        var external = new Block(20);
+        external.Add(new Branch(8));
+        foreach (var block in (Block[])[head, testArm, gap, nullArm, merge, external])
+            body.Add(block);
+        var function = new IrFunction(
+            "IsNotCat",
+            owner,
+            new MethodSignature(Bool, [new Parameter("pet", pet)], HasThis: false, GenericParameterCount: 0),
+            [Object],
+            body)
+        {
+            UnionTypes = new[] { pet }.ToHashSet(),
+        };
+
+        new SlotStoreDiamondPass().Run(function, PassContext.None);
+
+        Assert.Contains(function.Body.Blocks, block => block.StartOffset == 8);
+        var ret = Assert.Single(function.Descendants.OfType<Return>());
+        Assert.IsType<Comparison>(ret.Value);
     }
 
     [Fact]

@@ -86,7 +86,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
             || blocks[mergeIndex].Children is not [Return ret]
             || nullIndex == p
             || nullIndex == conditionIndex
-            || nullIndex <= conditionIndex
+            || nullIndex != conditionIndex + 1
             || mergeIndex == p
             || mergeIndex == conditionIndex
             || mergeIndex == nullIndex
@@ -106,8 +106,9 @@ public sealed class SlotStoreDiamondPass : IIrPass
             return false;
         }
 
-        var tested = returnNegates ? Conditions.Negate(condition) : condition;
-        var expression = new LogicalBinary(LogicalKind.And, (IrExpression)receiver.Clone(), tested);
+        IrExpression expression = new LogicalBinary(LogicalKind.And, (IrExpression)receiver.Clone(), condition);
+        if (returnNegates)
+            expression = Conditions.Negate(expression);
         FoldClassUnionStackSlotBoolReturn(container, p, removedIndices, expression, stepper);
         return true;
     }
