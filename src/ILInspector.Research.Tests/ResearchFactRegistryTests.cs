@@ -63,6 +63,33 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void MemberProjection_CollectsFactsOnceForRequestedViews()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+        var producer = new CountingProducer();
+        var registry = new ResearchFactRegistry(producer);
+
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            AnnotatedSource: true,
+            CostOverlay: true,
+            SemanticsOverlay: true,
+            FactRows: true,
+            Registry: registry));
+
+        Assert.Equal(1, producer.FactCollectCount);
+        Assert.Equal(1, producer.HeaderFactCollectCount);
+        Assert.NotNull(producer.AssemblyContext);
+        Assert.Same(producer.AssemblyContext, producer.HeaderAssemblyContext);
+        Assert.Contains("cost.test", projection.AnnotatedSource!.Output);
+        Assert.Contains("cost.test", projection.CostOverlay!.Body.Output);
+        Assert.Contains("semantics.test", projection.SemanticsOverlay!.Output);
+        Assert.Contains(projection.Facts!, row => row.Id == "cost.header.test");
+    }
+
+    [Fact]
     public void DefaultAllocationProducer_ProjectsAnalysisFindingCensus()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
@@ -245,6 +272,46 @@ public class ResearchFactRegistryTests
         public IReadOnlyList<string> Produces { get; } = produces ?? [];
         public IReadOnlyList<string> DependsOn { get; } = dependsOn ?? [];
         public IReadOnlyList<Annotation> Produce(ResearchFactContext context) => facts ?? [];
+    }
+
+    sealed class CountingProducer : IResearchFactProducer
+    {
+        public int FactCollectCount { get; private set; }
+        public int HeaderFactCollectCount { get; private set; }
+        public ResearchAssemblyContext? AssemblyContext { get; private set; }
+        public ResearchAssemblyContext? HeaderAssemblyContext { get; private set; }
+        public string Name => "counting";
+        public IReadOnlyList<string> Produces { get; } = ["cost.test", "semantics.test", "cost.header.test"];
+        public IReadOnlyList<string> DependsOn => [];
+
+        public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+        {
+            FactCollectCount++;
+            AssemblyContext = context.Assembly;
+            return
+            [
+                new Annotation(
+                    new AnnotationDescriptor("cost.test", AnnotationCategory.Cost, "test cost"),
+                    SourceOffset: 0,
+                    Detail: "shared"),
+                new Annotation(
+                    new AnnotationDescriptor("semantics.test", AnnotationCategory.Semantics, "test semantics"),
+                    SourceOffset: 0,
+                    Detail: "shared")
+            ];
+        }
+
+        public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
+        {
+            HeaderFactCollectCount++;
+            HeaderAssemblyContext = context.Assembly;
+            return
+            [
+                new ResearchHeaderFact(
+                    new AnnotationDescriptor("cost.header.test", AnnotationCategory.Cost, "test header"),
+                    "shared")
+            ];
+        }
     }
 }
 

@@ -22,6 +22,121 @@ public static class ResearchViews
         DecompilerResult Body,
         IReadOnlyList<ResearchHeaderFact> HeaderFacts);
 
+    public sealed record MemberProjectionRequest(
+        MetadataSource Source,
+        string Type,
+        string Method,
+        int OverloadIndex = 0,
+        bool PublicOnly = false,
+        bool AnnotatedSource = false,
+        bool CostOverlay = false,
+        bool SemanticsOverlay = false,
+        bool FactRows = false,
+        AnnotationStage AnnotatedStage = AnnotationStage.Raised,
+        ResearchFactRegistry? Registry = null);
+
+    public sealed record MemberProjectionResult(
+        DecompilerResult? AnnotatedSource,
+        CostOverlayResult? CostOverlay,
+        DecompilerResult? SemanticsOverlay,
+        IReadOnlyList<FactRow>? Facts,
+        DecompilerTrace? Trace);
+
+    public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
+    {
+        try
+        {
+            var imported = IrImporter.Import(
+                request.Source,
+                request.Type,
+                request.Method,
+                request.OverloadIndex,
+                request.PublicOnly)
+                ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+
+            var assembly = imported.AssemblyPath is { Length: > 0 } path
+                ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
+                : null;
+            var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
+            var context = new ResearchFactContext(request.Source, imported, assembly);
+            var facts = effectiveRegistry.Collect(context);
+            var headerFacts = request.CostOverlay || request.FactRows
+                ? effectiveRegistry.CollectHeaderFacts(context)
+                : [];
+
+            DecompilerResult? annotatedSource = null;
+            if (request.AnnotatedSource)
+            {
+                annotatedSource = WithTrace(
+                    Run(() => RenderMixedCore(
+                        request.Source,
+                        request.Type,
+                        request.Method,
+                        imported,
+                        facts,
+                        request.AnnotatedStage,
+                        request.OverloadIndex,
+                        request.PublicOnly),
+                        emptyOutputIsFailure: true),
+                    request.Source);
+            }
+
+            CostOverlayResult? costOverlay = null;
+            if (request.CostOverlay)
+            {
+                var costAnnotations = facts
+                    .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
+                    .ToList();
+                var costHeaderFacts = headerFacts
+                    .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
+                    .ToList();
+                var body = WithTrace(
+                    Run(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: true),
+                    request.Source);
+                costOverlay = new CostOverlayResult(body, costHeaderFacts);
+            }
+
+            DecompilerResult? semanticsOverlay = null;
+            if (request.SemanticsOverlay)
+            {
+                var semanticsAnnotations = facts
+                    .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
+                    .ToList();
+                semanticsOverlay = WithTrace(
+                    Run(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: true),
+                    request.Source);
+            }
+
+            IReadOnlyList<FactRow>? factRows = null;
+            if (request.FactRows)
+                factRows = BuildFactRows(request.Type, request.Method, imported, facts, headerFacts);
+
+            return new MemberProjectionResult(
+                annotatedSource,
+                costOverlay,
+                semanticsOverlay,
+                factRows,
+                annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace);
+        }
+        catch (Exception ex)
+        {
+            if (request.FactRows)
+                throw;
+
+            var failure = DecompilerResult.Failure(
+                DiagnosticIds.InternalError,
+                $"{ex.GetType().Name}: {ex.Message}");
+            failure = WithTrace(failure, request.Source);
+
+            return new MemberProjectionResult(
+                request.AnnotatedSource ? failure : null,
+                request.CostOverlay ? new CostOverlayResult(failure, []) : null,
+                request.SemanticsOverlay ? failure : null,
+                request.FactRows ? [] : null,
+                failure.Trace);
+        }
+    }
+
     public static IReadOnlyList<Annotation> CollectFacts(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
@@ -57,28 +172,8 @@ public static class ResearchViews
         var context = new ResearchFactContext(source, imported, assembly);
         var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
         var facts = effectiveRegistry.Collect(context);
-        var linesByFact = CSharpLinesByFact(imported, facts);
-        string member = $"{type}::{method}";
-        var rows = facts.Select(fact => new FactRow(
-            member,
-            fact.SourceOffset >= 0 ? fact.SourceOffset : null,
-            linesByFact.TryGetValue(fact, out int line) ? line + 1 : null,
-            fact.SourceOffset >= 0 ? "offset" : "member-header",
-            fact.Descriptor.Category.ToString(),
-            fact.Descriptor.Id,
-            fact.Detail,
-            fact.Conditionality.ToString()));
-        var headerRows = effectiveRegistry.CollectHeaderFacts(context)
-            .Select(fact => new FactRow(
-                member,
-                ILOffset: null,
-                CSharpLine: null,
-                Anchor: "member-header",
-                fact.Descriptor.Category.ToString(),
-                fact.Descriptor.Id,
-                fact.Detail,
-                Conditionality: "Always"));
-        return [.. rows.Concat(headerRows)];
+        var headerFacts = effectiveRegistry.CollectHeaderFacts(context);
+        return BuildFactRows(type, method, imported, facts, headerFacts);
     }
 
     public static DecompilerResult RenderCostOverlay(
@@ -89,62 +184,26 @@ public static class ResearchViews
     public static CostOverlayResult RenderCostOverlayWithHeaderFacts(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
-    {
-        IReadOnlyList<ResearchHeaderFact> headerFacts = [];
-        var body = Run(() =>
-        {
-            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
-                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-            var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
-            if (result.Output is not { } output)
-                return "";
-            if (imported.AssemblyPath is not { Length: > 0 } path)
-                return output;
-
-            var context = new ResearchFactContext(
-                source,
-                imported,
-                ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path)));
-            var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
-            var annotations = effectiveRegistry.Collect(context)
-                .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
-                .ToList();
-            headerFacts = effectiveRegistry.CollectHeaderFacts(context)
-                .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
-                .ToList();
-            if (annotations.Count > 0)
-                output = AddTrailingComments(imported, output, statementLines, annotations);
-            return output;
-        }, emptyOutputIsFailure: true);
-        return new CostOverlayResult(body, headerFacts);
-    }
+        => ProjectMember(new MemberProjectionRequest(
+            source,
+            type,
+            method,
+            overloadIndex,
+            publicOnly,
+            CostOverlay: true,
+            Registry: registry)).CostOverlay!;
 
     public static DecompilerResult RenderSemanticsOverlay(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
-    {
-        return Run(() =>
-        {
-            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
-                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-            var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
-            if (result.Output is not { } output)
-                return "";
-            if (imported.AssemblyPath is not { Length: > 0 } path)
-                return output;
-
-            var context = new ResearchFactContext(
-                source,
-                imported,
-                ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path)));
-            var annotations = (registry ?? ResearchFactRegistry.Default).Collect(context)
-                .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
-                .ToList();
-            return annotations.Count == 0
-                ? output
-                : AddTrailingComments(imported, output, statementLines, annotations);
-        }, emptyOutputIsFailure: true);
-    }
+        => ProjectMember(new MemberProjectionRequest(
+            source,
+            type,
+            method,
+            overloadIndex,
+            publicOnly,
+            SemanticsOverlay: true,
+            Registry: registry)).SemanticsOverlay!;
 
     public static DecompilerResult RenderAnnotatedSource(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
@@ -165,16 +224,15 @@ public static class ResearchViews
     public static DecompilerResult RenderMixed(
         MetadataSource source, string type, string method, AnnotationStage stage = AnnotationStage.Raised,
         int overloadIndex = 0, bool publicOnly = false, ResearchFactRegistry? registry = null)
-    {
-        var result = Run(
-            () => RenderMixedCore(source, type, method, stage, overloadIndex, publicOnly, registry),
-            emptyOutputIsFailure: true);
-
-        return result with
-        {
-            Trace = new DecompilerTrace(result.Fidelity, source.Symbols, result.Diagnostics),
-        };
-    }
+        => ProjectMember(new MemberProjectionRequest(
+            source,
+            type,
+            method,
+            overloadIndex,
+            publicOnly,
+            AnnotatedSource: true,
+            AnnotatedStage: stage,
+            Registry: registry)).AnnotatedSource!;
 
     public static DecompilerResult ProjectAnnotatedIl(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
@@ -197,6 +255,19 @@ public static class ResearchViews
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
         var annotations = CollectFacts(source, imported, registry);
+        return RenderMixedCore(source, type, method, imported, annotations, stage, overloadIndex, publicOnly);
+    }
+
+    static string RenderMixedCore(
+        MetadataSource source,
+        string type,
+        string method,
+        IrFunction imported,
+        IReadOnlyList<Annotation> annotations,
+        AnnotationStage stage,
+        int overloadIndex,
+        bool publicOnly)
+    {
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
         var csResult = stage == AnnotationStage.Lowered
@@ -254,6 +325,52 @@ public static class ResearchViews
             return body.Length == 0 ? $": {chain}" : $": {chain}{Environment.NewLine}{body}";
         return body;
     }
+
+    static string RenderRaisedOverlay(IrFunction imported, IReadOnlyList<Annotation> annotations)
+    {
+        var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+        if (result.Output is not { } output)
+            return "";
+        return annotations.Count == 0
+            ? output
+            : AddTrailingComments(imported, output, statementLines, annotations);
+    }
+
+    static IReadOnlyList<FactRow> BuildFactRows(
+        string type,
+        string method,
+        IrFunction imported,
+        IReadOnlyList<Annotation> facts,
+        IReadOnlyList<ResearchHeaderFact> headerFacts)
+    {
+        var linesByFact = CSharpLinesByFact(imported, facts);
+        string member = $"{type}::{method}";
+        var rows = facts.Select(fact => new FactRow(
+            member,
+            fact.SourceOffset >= 0 ? fact.SourceOffset : null,
+            linesByFact.TryGetValue(fact, out int line) ? line + 1 : null,
+            fact.SourceOffset >= 0 ? "offset" : "member-header",
+            fact.Descriptor.Category.ToString(),
+            fact.Descriptor.Id,
+            fact.Detail,
+            fact.Conditionality.ToString()));
+        var headerRows = headerFacts.Select(fact => new FactRow(
+            member,
+            ILOffset: null,
+            CSharpLine: null,
+            Anchor: "member-header",
+            fact.Descriptor.Category.ToString(),
+            fact.Descriptor.Id,
+            fact.Detail,
+            Conditionality: "Always"));
+        return [.. rows.Concat(headerRows)];
+    }
+
+    static DecompilerResult WithTrace(DecompilerResult result, MetadataSource source)
+        => result with
+        {
+            Trace = new DecompilerTrace(result.Fidelity, source.Symbols, result.Diagnostics),
+        };
 
     static string AddTrailingComments(
         IrFunction raised,

@@ -116,37 +116,48 @@ internal static class MemberCodeProvider
             Decompiler.DecompilerTrace? decompileTrace = null;
             if (request.DecompiledSource && pipelineSource is not null)
             {
-                var result = RenderPlainSource(pipelineSource, lookupType, method.Name, Decompiler.Annotations.AnnotationStage.Raised, lookupOverloadIndex, publicOnly);
-                decompileTrace = new Decompiler.DecompilerTrace(result.Fidelity, pipelineSource.Symbols, result.Diagnostics);
-                if (result.Output is { } plain)
+                var plainSourceResult = RenderPlainSource(pipelineSource, lookupType, method.Name, Decompiler.Annotations.AnnotationStage.Raised, lookupOverloadIndex, publicOnly);
+                decompileTrace = new Decompiler.DecompilerTrace(plainSourceResult.Fidelity, pipelineSource.Symbols, plainSourceResult.Diagnostics);
+                if (plainSourceResult.Output is { } plain)
                     loweredBody = plain.TrimEnd();
                 else
-                    loweredDiagnostic = DiagnosticComment(result);
+                    loweredDiagnostic = DiagnosticComment(plainSourceResult);
+            }
+
+            ILInspector.Research.ResearchViews.MemberProjectionResult? researchProjection = null;
+            if ((request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.Facts) && pipelineSource is not null)
+            {
+                researchProjection = ILInspector.Research.ResearchViews.ProjectMember(
+                    new ILInspector.Research.ResearchViews.MemberProjectionRequest(
+                        pipelineSource,
+                        lookupType,
+                        method.Name,
+                        lookupOverloadIndex,
+                        publicOnly,
+                        AnnotatedSource: request.AnnotatedSource,
+                        CostOverlay: request.CostOverlay,
+                        SemanticsOverlay: request.SemanticsOverlay,
+                        FactRows: request.Facts));
+                decompileTrace = researchProjection.Trace;
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
             // raw IL interleaved beneath each statement.
             string? annotatedBody = null, annotatedDiagnostic = null;
-            if (request.AnnotatedSource && pipelineSource is not null)
+            if (request.AnnotatedSource && researchProjection?.AnnotatedSource is { } annotatedResult)
             {
-                var result = ILInspector.Research.ResearchViews.RenderMixed(
-                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
-                decompileTrace = result.Trace;
-                if (result.Output is { } annotated)
+                if (annotatedResult.Output is { } annotated)
                     annotatedBody = annotated.TrimEnd();
                 else
-                    annotatedDiagnostic = DiagnosticComment(result);
+                    annotatedDiagnostic = DiagnosticComment(annotatedResult);
             }
 
             string? costOverlayBody = null, costOverlayDiagnostic = null;
             IReadOnlyList<string>? costOverlayHeaderComments = null;
-            if (request.CostOverlay && pipelineSource is not null)
+            if (request.CostOverlay && researchProjection?.CostOverlay is { } overlay)
             {
-                var overlay = ILInspector.Research.ResearchViews.RenderCostOverlayWithHeaderFacts(
-                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
-                var result = overlay.Body;
-                decompileTrace = result.Trace;
-                if (result.Output is { } costOverlay)
+                var costResult = overlay.Body;
+                if (costResult.Output is { } costOverlay)
                 {
                     costOverlayBody = costOverlay.TrimEnd();
                     if (overlay.HeaderFacts.Count > 0)
@@ -155,19 +166,16 @@ internal static class MemberCodeProvider
                             .ToList();
                 }
                 else
-                    costOverlayDiagnostic = DiagnosticComment(result);
+                    costOverlayDiagnostic = DiagnosticComment(costResult);
             }
 
             string? semanticsOverlayBody = null, semanticsOverlayDiagnostic = null;
-            if (request.SemanticsOverlay && pipelineSource is not null)
+            if (request.SemanticsOverlay && researchProjection?.SemanticsOverlay is { } semanticsResult)
             {
-                var result = ILInspector.Research.ResearchViews.RenderSemanticsOverlay(
-                    pipelineSource, lookupType, method.Name, overloadIndex: lookupOverloadIndex, publicOnly: publicOnly);
-                decompileTrace = result.Trace;
-                if (result.Output is { } semanticsOverlay)
+                if (semanticsResult.Output is { } semanticsOverlay)
                     semanticsOverlayBody = semanticsOverlay.TrimEnd();
                 else
-                    semanticsOverlayDiagnostic = DiagnosticComment(result);
+                    semanticsOverlayDiagnostic = DiagnosticComment(semanticsResult);
             }
 
             string? ilText = null, ilDiagnostic = null;
@@ -189,11 +197,8 @@ internal static class MemberCodeProvider
             // Structured Research overlay rows for one method: the table-shaped
             // projection of the same facts the annotated source/IL views render.
             IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? facts = null;
-            if (request.Facts && pipelineSource is not null)
-            {
-                facts = ILInspector.Research.ResearchViews.CollectFactRows(
-                    pipelineSource, lookupType, method.Name, lookupOverloadIndex, publicOnly);
-            }
+            if (request.Facts && researchProjection is not null)
+                facts = researchProjection.Facts;
 
             results.Add((method, new Item(
                 loweredBody,
