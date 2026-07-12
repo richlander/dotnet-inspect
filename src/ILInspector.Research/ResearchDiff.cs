@@ -128,33 +128,6 @@ public static class ResearchDiff
         return new ResearchComparison(changes.ToImmutable());
     }
 
-    public static ResearchComparison FromBodySignalDiff(BodySignalDiffResult diff)
-    {
-        ArgumentNullException.ThrowIfNull(diff);
-        return new ResearchComparison(
-        [
-            .. diff.Rows.Select(row =>
-            {
-                string descriptorId =
-                    $"unsafe.{ToKebabCase(row.Signal)}.{ToKebabCase(row.Kind.ToString())}";
-                var kind = row.Kind == BodySignalDiffKind.Added
-                    ? ResearchChangeKind.Added
-                    : ResearchChangeKind.Removed;
-                return new ResearchChange(
-                    UnknownMemberSubject(row.Member),
-                    ResearchChangeMechanism.BodySignals,
-                    Descriptor(descriptorId, row.Signal),
-                    kind,
-                    oldIlOffset: kind == ResearchChangeKind.Removed ? row.ILOffset : null,
-                    newIlOffset: kind == ResearchChangeKind.Added ? row.ILOffset : null,
-                    detail: $"{row.Operation}: {row.Evidence}",
-                    category: ResearchChangeCategory.BodySignal,
-                    signal: row.Signal,
-                    bodySignalRow: row);
-            })
-        ]);
-    }
-
     public static ResearchComparison FromCSharpBodyDiff(CSharpBodyDiffResult diff)
     {
         ArgumentNullException.ThrowIfNull(diff);
@@ -320,30 +293,37 @@ public static class ResearchDiff
                 retainCallSiteComparisons);
 
             var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
-            foreach (var row in BodySignalDiff.CompareUnsafe(oldIndex, newIndex).Rows)
+            foreach (var change in UnsafetyFindingDiff.Compare(
+                oldIndex,
+                newIndex,
+                BodySignalMethodKey))
             {
-                if (!methods.TryGetValue(row.Member, out var subject))
+                if (!methods.TryGetValue(change.MemberKey, out var subject))
                     continue;
                 if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
                     continue;
                 if (!MatchesMemberTargets(subject, memberTargetIdentities))
                     continue;
-                var kind = row.Kind == BodySignalDiffKind.Added
+                var kind = change.Kind == UnsafetyFindingChangeKind.Added
                     ? ResearchChangeKind.Added
                     : ResearchChangeKind.Removed;
                 var suffix = kind == ResearchChangeKind.Added ? "added" : "removed";
-                string descriptorId = $"unsafe.{NormalizeChangePart(row.Signal)}.{suffix}";
+                string descriptorId =
+                    $"unsafe.{NormalizeChangePart(change.Signal)}.{suffix}";
                 builder.Add(new ResearchChange(
                     subject,
                     ResearchChangeMechanism.BodySignals,
-                    Descriptor(descriptorId, row.Signal),
+                    Descriptor(descriptorId, change.Signal),
                     kind,
-                    oldIlOffset: kind == ResearchChangeKind.Removed ? row.ILOffset : null,
-                    newIlOffset: kind == ResearchChangeKind.Added ? row.ILOffset : null,
-                    detail: $"{row.Operation}: {row.Evidence}",
+                    oldIlOffset: kind == ResearchChangeKind.Removed
+                        ? change.ILOffset
+                        : null,
+                    newIlOffset: kind == ResearchChangeKind.Added
+                        ? change.ILOffset
+                        : null,
+                    detail: $"{change.Operation}: {change.Evidence}",
                     category: ResearchChangeCategory.BodySignal,
-                    signal: row.Signal,
-                    bodySignalRow: row));
+                    signal: change.Signal));
             }
         }
 
@@ -1062,7 +1042,7 @@ public static class ResearchDiff
     static ResearchSubjectKey UnknownMemberSubject(string key)
         => new(ResearchSubjectKind.Member, $"member:{key}", key);
 
-    static string BodySignalMethodKey(MethodIdentity method)
+    internal static string BodySignalMethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
     static string MethodMatchKey(MethodIdentity method)
