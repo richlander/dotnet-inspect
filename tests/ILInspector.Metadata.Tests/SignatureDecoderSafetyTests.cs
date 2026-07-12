@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -21,6 +22,10 @@ public class SignatureDecoderSafetyTests
     [Fact]
     public void DeepMethodSignatureGateway_IsContainedInChildProcess()
         => RunWorker(nameof(DeepMethodSignatureGatewayWorker));
+
+    [Fact(Skip = "Known TypeNodeProvider crash tracked by #2575.")]
+    public void CyclicTypeSpec_ThroughApiSurfaceExtractor_IsContainedInChildProcess()
+        => RunWorker(nameof(CyclicTypeSpecThroughApiSurfaceExtractorWorker));
 
     [Fact]
     public void SignatureBlobGuard_OldAssemblyIdentity_IsForwarded()
@@ -109,6 +114,17 @@ public class SignatureDecoderSafetyTests
         Assert.Equal("object", decoded);
     }
 
+    [Fact]
+    public void CyclicTypeSpecThroughApiSurfaceExtractorWorker()
+    {
+        if (!IsSelectedWorker(nameof(CyclicTypeSpecThroughApiSurfaceExtractorWorker)))
+            return;
+
+        var image = BuildApiSurfaceTypeSpecCycle();
+        using var peReader = new PEReader(new MemoryStream(image));
+        _ = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
+
     static bool IsSelectedWorker(string methodName)
         => Environment.GetEnvironmentVariable(WorkerVariable) == methodName;
 
@@ -141,6 +157,63 @@ public class SignatureDecoderSafetyTests
         var signature = new BlobBuilder();
         writeSignature(signature);
         return BuildAssembly(metadata => metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature)));
+    }
+
+    static byte[] BuildApiSurfaceTypeSpecCycle()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var cyclicTypeSpec = new BlobBuilder();
+        cyclicTypeSpec.WriteByte(0x1f); // CMOD_REQD
+        cyclicTypeSpec.WriteByte(0x06); // TypeDefOrRefOrSpec: TypeSpec row 1
+        cyclicTypeSpec.WriteByte(0x08); // I4
+        metadata.AddTypeSpecification(metadata.GetOrAddBlob(cyclicTypeSpec));
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // field signature
+        fieldSignature.WriteByte(0x1f); // CMOD_REQD
+        fieldSignature.WriteByte(0x06); // TypeDefOrRefOrSpec: TypeSpec row 1
+        fieldSignature.WriteByte(0x08); // I4
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.Static,
+            metadata.GetOrAddString("F"),
+            metadata.GetOrAddBlob(fieldSignature));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static MetadataReader BuildAssembly(Action<MetadataBuilder> addRows)
