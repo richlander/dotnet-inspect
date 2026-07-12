@@ -60,6 +60,24 @@ moves work into a state object rather than eliminating it, often once per
 call/enumeration/subscription. Treat amortized rows as context, and confirm a
 real per-item cost with a profiler before optimizing.
 
+## Confirm when an allocation appeared
+
+The version vector and point probes locate a candidate old/new boundary; they do
+not establish onset. Confirm one method's adjacent pair with Analysis's native
+allocation Findings:
+
+```bash
+dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \
+  -t MyType -m HotPath \
+  --finding analysis.allocation
+```
+
+The method target must resolve at one or both endpoints. `PairFinding.Added`
+confirms an allocation occurrence was introduced, while `Present`, `Removed`,
+and `Changed` identify a wrong boundary, disappearance, or changed allocation
+facets. The command does not traverse versions; the caller owns the search
+policy and bound.
+
 ## Drill a candidate
 
 `Call Graph` is a bounded outbound tree; `Caller Graph` is a bounded reverse

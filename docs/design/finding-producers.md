@@ -166,10 +166,13 @@ Before approving a producer, answer:
 - Does comparison reuse the shared matcher and fold?
 - Which bespoke producer, adapter, or comparison path will this replace?
 
-The first end-to-end Analysis proof uses one allocation census for both
-single-version audit and old/new comparison. Research retains the typed
-allocation comparison and derives its compatibility count/hotness projection
-from it; there is no separate count-only allocation diff path.
+The first end-to-end Analysis proof uses one allocation census for
+single-version audit, old/new comparison, and member-scoped Finding transitions.
+Research can retain typed allocation comparisons, including exact comparisons,
+when a consumer requests them, and derives its compatibility count/hotness
+projection from the same comparison path; there is no separate count-only
+allocation diff path. The CLI selects and retains the native comparison with
+`diff --finding analysis.allocation`.
 
 The remaining Analysis body observations preserve their native families:
 

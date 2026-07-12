@@ -81,6 +81,20 @@ dotnet-inspect diff \
   -S "Finding Transitions"
 ```
 
+The same final-pair contract applies to member-scoped allocation onset. Select
+the Analysis producer explicitly; the command compares only the supplied
+endpoints and reports each native allocation occurrence pair:
+
+```bash
+dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.allocation
+```
+
+`PairFinding.Added` is the confirmed allocation introduction. `Present`,
+`Removed`, and `Changed` distinguish a wrong boundary, disappearance, or
+allocation-facet change without inferring those states from aggregate counts.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |

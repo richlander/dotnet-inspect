@@ -28,6 +28,16 @@ public class DiffCommand
             return 1;
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
+        if (options.Finding is not null && options.IncludeSections is null)
+        {
+            options = options with
+            {
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.FindingTransitions.Name,
+                }
+            };
+        }
 
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
@@ -67,15 +77,45 @@ public class DiffCommand
 
         if (SelectsFindingTransitions(options))
         {
-            if (options.IncludeSections?.Count > 1)
+            if (options.IncludeSections is { Count: > 0 } sections
+                && (sections.Count != 1
+                    || !sections.Contains(DiffSections.FindingTransitions.Name)))
             {
                 Console.Error.WriteLine(
                     "Error: Finding Transitions must be selected by itself because it is a focused endpoint-confirmation lens; select comparison sections explicitly instead of using @All.");
                 return 1;
             }
-            if (options.TypeFilter.Count == 0 && options.MemberFilter.Count == 0)
+            if (options.Finding is null
+                && options.TypeFilter.Count == 0
+                && options.MemberFilter.Count == 0)
             {
                 Console.Error.WriteLine("Error: Finding Transitions requires --type or a type-qualified --member target.");
+                return 1;
+            }
+            if (!TryResolveFindingDescriptor(options, out var findingDescriptor, out var findingError))
+            {
+                Console.Error.WriteLine($"Error: {findingError}");
+                return 1;
+            }
+            if (findingDescriptor == AnalysisFindings.AllocationDescriptor.Id)
+            {
+                if (options.MemberFilter.Count != 1)
+                {
+                    Console.Error.WriteLine("Error: --finding analysis.allocation requires exactly one --member target.");
+                    return 1;
+                }
+            }
+            else if (findingDescriptor == MetadataFindings.TypeDescriptor.Id)
+            {
+                if (options.TypeFilter.Count == 0 || options.MemberFilter.Count > 0)
+                {
+                    Console.Error.WriteLine("Error: --finding api.type requires --type and cannot be combined with --member.");
+                    return 1;
+                }
+            }
+            else if (options.MemberFilter.Count == 0)
+            {
+                Console.Error.WriteLine("Error: --finding api.member requires --member.");
                 return 1;
             }
             if (options.Breaking || options.Additive || options.ChangedOnly
@@ -135,12 +175,7 @@ public class DiffCommand
 
                 if (SelectsFindingTransitions(options))
                 {
-                    var rows = BuildFindingTransitions(
-                        inputs.FromSurface,
-                        inputs.ToSurface,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        options);
+                    var rows = BuildSelectedFindingTransitions(inputs, options);
                     var view = DiffOutputFormatter.BuildFindingTransitionsView(
                         inputs.Name,
                         rows,
@@ -450,7 +485,68 @@ public class DiffCommand
             || options.IncludeSections?.Contains(DiffSections.AnalysisDiff.Name) == true;
 
     private static bool SelectsFindingTransitions(DiffOptions options)
-        => options.IncludeSections?.Contains(DiffSections.FindingTransitions.Name) == true;
+        => options.Finding is not null
+            || options.IncludeSections?.Contains(DiffSections.FindingTransitions.Name) == true;
+
+    private static bool TryResolveFindingDescriptor(
+        DiffOptions options,
+        out string descriptor,
+        out string? error)
+    {
+        descriptor = options.Finding
+            ?? (options.MemberFilter.Count > 0
+                ? MetadataFindings.MemberDescriptor.Id
+                : MetadataFindings.TypeDescriptor.Id);
+        if (string.Equals(descriptor, MetadataFindings.TypeDescriptor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            descriptor = MetadataFindings.TypeDescriptor.Id;
+            error = null;
+            return true;
+        }
+        if (string.Equals(descriptor, MetadataFindings.MemberDescriptor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            descriptor = MetadataFindings.MemberDescriptor.Id;
+            error = null;
+            return true;
+        }
+        if (string.Equals(descriptor, AnalysisFindings.AllocationDescriptor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            descriptor = AnalysisFindings.AllocationDescriptor.Id;
+            error = null;
+            return true;
+        }
+
+        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, analysis.allocation.";
+        return false;
+    }
+
+    private static string ResolveFindingDescriptor(DiffOptions options)
+    {
+        if (TryResolveFindingDescriptor(options, out var descriptor, out var error))
+            return descriptor;
+
+        throw new InvalidOperationException(
+            error ?? "Finding descriptor resolution failed.");
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildSelectedFindingTransitions(
+        DiffInputs inputs,
+        DiffOptions options)
+        => ResolveFindingDescriptor(options) == AnalysisFindings.AllocationDescriptor.Id
+            ? BuildAllocationFindingTransitions(
+                inputs.FromPaths,
+                inputs.ToPaths,
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.FromVersion,
+                inputs.ToVersion,
+                options)
+            : BuildFindingTransitions(
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.FromVersion,
+                inputs.ToVersion,
+                options);
 
     private static bool SelectsImplementationDiff(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ImplementationDiff.Name) == true;
@@ -516,12 +612,7 @@ public class DiffCommand
         FindingTransitionsView? findingTransitionsView = null;
         if (selected.Contains(DiffSections.FindingTransitions.Name))
         {
-            var rows = BuildFindingTransitions(
-                inputs.FromSurface,
-                inputs.ToSurface,
-                inputs.FromVersion,
-                inputs.ToVersion,
-                options);
+            var rows = BuildSelectedFindingTransitions(inputs, options);
             findingTransitionsView = DiffOutputFormatter.BuildFindingTransitionsView(
                 inputs.Name,
                 rows,
@@ -864,12 +955,54 @@ public class DiffCommand
             .ToList();
     }
 
+    internal static IReadOnlyList<FindingTransitionRow> BuildAllocationFindingTransitions(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+    {
+        if (options.MemberFilter.Count != 1)
+            throw new InvalidOperationException("--finding analysis.allocation requires exactly one --member target.");
+
+        var targets = ResolveMemberTargetIdentities(
+            fromSurface,
+            toSurface,
+            options.MemberFilter,
+            options.TypeFilter,
+            requireBodyTargets: true,
+            bodySectionName: "Finding Transitions");
+        var research = ResearchDiff.Compare(
+            ResearchDiffInput.FromAssemblies(fromPaths),
+            ResearchDiffInput.FromAssemblies(toPaths),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.BodySignals,
+                TypeFilters: options.TypeFilter,
+                MemberTargetIdentities: targets.MemberIdentities)
+            {
+                RetainAllocationComparisons = true,
+            });
+
+        return research.AllocationComparisons
+            .SelectMany(comparison => CompletePairs(comparison.Comparison)
+                .Select(pair => ToAllocationTransitionRow(
+                    comparison.Subject,
+                    pair,
+                    fromVersion,
+                    toVersion)))
+            .OrderBy(row => row.Target, StringComparer.Ordinal)
+            .ThenBy(row => row.Transition, StringComparer.Ordinal)
+            .ToList();
+    }
+
     static IReadOnlyList<PairFinding<T>> CompletePairs<T>(FindingComparison<T> comparison)
         where T : notnull
         => comparison switch
         {
             FindingComparison<T>.Complete complete => complete.Pairs,
-            FindingComparison<T>.Failed => throw new InvalidOperationException("API Finding comparison did not complete."),
+            FindingComparison<T>.Failed => throw new InvalidOperationException("Finding comparison did not complete."),
         };
 
     static bool MatchesMemberPair(
@@ -912,6 +1045,37 @@ public class DiffCommand
             OldSide(pair) is null ? "absent" : "present",
             NewSide(pair) is null ? "absent" : "present",
             pair.Detail);
+
+    static FindingTransitionRow ToAllocationTransitionRow(
+        ResearchSubjectKey subject,
+        PairFinding<AllocationOccurrence> pair,
+        string fromVersion,
+        string toVersion)
+    {
+        var oldFinding = OldSide(pair);
+        var newFinding = NewSide(pair);
+        return new FindingTransitionRow(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            AllocationTarget(subject, newFinding ?? oldFinding!),
+            fromVersion,
+            toVersion,
+            oldFinding is null ? "absent" : "present",
+            newFinding is null ? "absent" : "present",
+            pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
+    }
+
+    static string AllocationTarget(
+        ResearchSubjectKey subject,
+        Finding<AllocationOccurrence> finding)
+    {
+        var occurrence = finding.Payload;
+        var allocatedType = occurrence.AllocatedType?.ToQualifiedDisplayString()
+            ?? occurrence.RuntimeAllocationType
+            ?? occurrence.Detail
+            ?? "?";
+        return $"{subject.Display} :: {occurrence.Source}/{occurrence.Kind} {allocatedType}";
+    }
 
     static string TypeTarget(PairFinding<ApiTypeHandle> pair)
         => (NewSide(pair) ?? OldSide(pair))!.Payload.TypeFullName;
@@ -1244,6 +1408,7 @@ public record DiffOptions
     public bool Additive { get; init; }
     public bool ChangedOnly { get; init; }
     public bool AllocRegressionsOnly { get; init; }
+    public string? Finding { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }

@@ -36,7 +36,7 @@ public static class DiffSections
     public sealed class FindingTransitions : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Finding Transitions";
-        public static bool IsExpensive => false;
+        public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(DiffDiscoveryModel model) => true;

@@ -15,6 +15,25 @@ namespace ILInspector.Research.Tests;
 public class ResearchDiffTests
 {
     [Fact]
+    public void FindingRetention_PreservesExistingPublicConstructorSignatures()
+    {
+        Assert.NotNull(typeof(ResearchComparison).GetConstructor(
+        [
+            typeof(ImmutableArray<ResearchChange>),
+            typeof(ApiDiff),
+            typeof(ApiFindingComparison),
+        ]));
+        Assert.NotNull(typeof(ResearchDiffOptions).GetConstructor(
+        [
+            typeof(ResearchChangeMechanism),
+            typeof(bool),
+            typeof(ApiDiffScope),
+            typeof(IReadOnlySet<string>),
+            typeof(IReadOnlySet<string>),
+        ]));
+    }
+
+    [Fact]
     public void ResearchComparison_StoresChangesOnceAndComputesSubjectGroups()
     {
         var subject = new ResearchSubjectKey(
@@ -724,6 +743,61 @@ public class ResearchDiffTests
         Assert.Contains(comparison.Pairs, pair => pair is PairFinding<AllocationOccurrence>.Added);
         Assert.DoesNotContain(diff.Changes, change =>
             change.Descriptor.Id == "analysis.signal.allocations");
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_RetainsExactAllocationComparison()
+    {
+        var oldMethod = Method(
+            "Asm",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            0x06000001);
+        var newMethod = Method(
+            "Asm",
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            0x06000002);
+        var oldOccurrence = AllocationOccurrence(
+            oldMethod,
+            4,
+            AllocationKind.Object,
+            TypeRef.CoreLib("System", "Object"));
+        var newOccurrence = AllocationOccurrence(
+            newMethod,
+            8,
+            AllocationKind.Object,
+            TypeRef.CoreLib("System", "Object"));
+        var oldIndex = LibraryBodyIndex.FromEvidence(
+            [oldMethod],
+            [],
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [oldMethod.MetadataToken] = [oldOccurrence],
+            });
+        var newIndex = LibraryBodyIndex.FromEvidence(
+            [newMethod],
+            [],
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [newMethod.MetadataToken] = [newOccurrence],
+            });
+
+        var diff = ResearchDiff.Compare(
+            ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
+            ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals)
+            {
+                RetainAllocationComparisons = true,
+            });
+
+        Assert.DoesNotContain(diff.Changes, change =>
+            change.Descriptor == AnalysisFindings.AllocationDescriptor);
+        var retained = Assert.Single(diff.AllocationComparisons);
+        var comparison = retained.Comparison switch
+        {
+            FindingComparison<AllocationOccurrence>.Complete complete => complete,
+            _ => throw new InvalidOperationException("Expected a complete allocation comparison."),
+        };
+        Assert.Equal(PairKind.Present, Assert.Single(comparison.Pairs).Kind);
     }
 
     [Fact]

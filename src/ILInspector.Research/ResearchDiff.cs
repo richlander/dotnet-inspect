@@ -16,7 +16,10 @@ public sealed record ResearchDiffOptions(
     bool IncludeAllApi = false,
     ApiDiffScope ApiScope = ApiDiffScope.Signature,
     IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    IReadOnlySet<string>? MemberTargetIdentities = null)
+{
+    public bool RetainAllocationComparisons { get; init; }
+}
 
 public sealed record ResearchDiffInput(
     IReadOnlyList<string> AssemblyPaths,
@@ -211,7 +214,11 @@ public static class ResearchDiff
         return new ResearchComparison(
             [.. results.SelectMany(result => result.Changes)],
             apiDiff,
-            apiComparison);
+            apiComparison,
+            [.. results.SelectMany(result =>
+                result.AllocationComparisons.IsDefault
+                    ? []
+                    : result.AllocationComparisons)]);
     }
 
     public static ResearchComparison CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
@@ -233,7 +240,15 @@ public static class ResearchDiff
             AddApiDiff(builder, oldInput, newInput, options.IncludeAllApi, options.ApiScope);
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.BodySignals))
-            AddBodySignalDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
+        {
+            AddBodySignalDiff(
+                builder,
+                oldInput,
+                newInput,
+                options.TypeFilters,
+                options.MemberTargetIdentities,
+                options.RetainAllocationComparisons);
+        }
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.IlBody))
             AddIlBodyDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
@@ -283,11 +298,18 @@ public static class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities)
+        IReadOnlySet<string>? memberTargetIdentities,
+        bool retainAllocationComparisons)
     {
         foreach (var (oldIndex, newIndex) in PairedBodyIndexes(oldInput, newInput))
         {
-            AddAnalysisSignalDiff(builder, oldIndex, newIndex, typeFilters, memberTargetIdentities);
+            AddAnalysisSignalDiff(
+                builder,
+                oldIndex,
+                newIndex,
+                typeFilters,
+                memberTargetIdentities,
+                retainAllocationComparisons);
 
             var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
             foreach (var row in BodySignalDiff.CompareUnsafe(oldIndex, newIndex).Rows)
@@ -322,7 +344,8 @@ public static class ResearchDiff
             LibraryBodyIndex oldIndex,
             LibraryBodyIndex newIndex,
             IReadOnlySet<string>? typeFilters,
-            IReadOnlySet<string>? memberTargetIdentities)
+            IReadOnlySet<string>? memberTargetIdentities,
+            bool retainAllocationComparisons)
         {
             var oldSnapshot = BuildAnalysisSnapshot(oldIndex, typeFilters, memberTargetIdentities);
             var newSnapshot = BuildAnalysisSnapshot(newIndex, typeFilters, memberTargetIdentities);
@@ -338,7 +361,8 @@ public static class ResearchDiff
                     inBoth,
                     oldMethod?.Allocations ?? [],
                     newMethod?.Allocations ?? [],
-                    Evidence(oldMethod?.Signals, newMethod?.Signals));
+                    Evidence(oldMethod?.Signals, newMethod?.Signals),
+                    retainAllocationComparisons);
                 AddCountRows(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
                 AddExceptionRow(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
                 AddOptimizationRows(builder, subject, inBoth, oldMethod?.Opportunities, newMethod?.Opportunities);
@@ -422,12 +446,15 @@ public static class ResearchDiff
             bool inBoth,
             ImmutableArray<AllocationOccurrence> oldOccurrences,
             ImmutableArray<AllocationOccurrence> newOccurrences,
-            string? evidence)
+            string? evidence,
+            bool retainComparison)
         {
             var comparison = AnalysisFindings.CompareAllocations(
                 oldOccurrences,
                 newOccurrences,
                 new FindingSubject(subject.Id, subject.Display));
+            if (retainComparison)
+                builder.Add(new AllocationFindingComparison(subject, comparison));
             var complete = comparison switch
             {
                 FindingComparison<AllocationOccurrence>.Complete value => value,
@@ -1116,13 +1143,21 @@ public static class ResearchDiff
     sealed class ResultBuilder
     {
         readonly List<ResearchChange> _changes = [];
+        readonly List<AllocationFindingComparison> _allocationComparisons = [];
 
         public ApiFindingComparison? ApiComparison { get; set; }
 
         public void Add(ResearchChange change) => _changes.Add(change);
 
+        public void Add(AllocationFindingComparison comparison)
+            => _allocationComparisons.Add(comparison);
+
         public ResearchComparison ToResult()
-            => new([.. _changes], apiComparison: ApiComparison);
+            => new(
+                [.. _changes],
+                apiDiff: null,
+                apiComparison: ApiComparison,
+                allocationComparisons: [.. _allocationComparisons]);
     }
 
     sealed class MethodBodyLookup : IDisposable

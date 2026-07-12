@@ -33,6 +33,7 @@ public static class DiffOptionsParser
         Option<bool> AdditiveOption,
         Option<bool> ChangedOption,
         Option<bool> AllocRegressionsOption,
+        Option<string?> FindingOption,
         Option<bool> LegendOption);
 
     /// <summary>
@@ -127,6 +128,7 @@ public static class DiffOptionsParser
             Additive = parseResult.GetValue(args.AdditiveOption),
             ChangedOnly = parseResult.GetValue(args.ChangedOption),
             AllocRegressionsOnly = parseResult.GetValue(args.AllocRegressionsOption),
+            Finding = parseResult.GetValue(args.FindingOption),
             Legend = parseResult.GetValue(args.LegendOption),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             Discover = opts.ParseDiscover(parseResult),

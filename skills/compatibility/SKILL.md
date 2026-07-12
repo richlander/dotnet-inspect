@@ -44,6 +44,20 @@ dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 -S "Analysis Diff"
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" --changed
 ```
 
+Use `Analysis Diff` for aggregate regression triage. To confirm whether one
+allocation occurrence was introduced at a caller-selected boundary, resolve one
+method and request the native Analysis Finding pairs:
+
+```bash
+dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.allocation
+```
+
+`PairFinding.Added` with `Old=absent` and `New=present` confirms allocation
+onset. `Present`, `Removed`, and `Changed` remain distinct; do not infer onset
+from an aggregate allocation-count delta.
+
 ## Did the implementation change? (C# + IL)
 
 `-S "Implementation Diff"` selects Research-composed body evidence instead of
@@ -104,4 +118,5 @@ dnx dotnet-inspect -y -- diff \
 An introduction boundary is a row with `PairFinding.Added`, `Old=absent`, and
 `New=present`. `PairFinding.Present` means the target exists at both endpoints;
 for a type target, no row means it exists at neither. Use `-m Type.Member:1` for
-a member boundary.
+an API member boundary. Use `--finding analysis.allocation` with exactly one
+method target for an allocation boundary.

@@ -1303,6 +1303,58 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_FindingTransitions_ConfirmsAllocationIntroduction()
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", "DiffFixtureSample.DiffSample",
+            "-m", "RegressesAllocInLoop",
+            "--finding", "analysis.allocation",
+            "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("PairFinding.Added", output);
+        Assert.Contains("analysis.allocation", output);
+        Assert.Contains("RegressesAllocInLoop", output);
+        Assert.Contains("absent", output);
+        Assert.Contains("present", output);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_AllocationRequiresOneMemberBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "--finding", "analysis.allocation",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires exactly one --member", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_RejectsUnknownDescriptorBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "--finding", "analysis.unknown",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Unsupported Finding descriptor 'analysis.unknown'", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Diff_FindingTransitions_RequiresFocusedTargetBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1338,6 +1390,23 @@ public class CommandExecutionTests
             "-S", "Finding Transitions",
             "-S", "Implementation Diff",
             "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Finding Transitions must be selected by itself", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_ImpliedSelectionRejectsCompositionBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "-m", "HotPath",
+            "--finding", "analysis.allocation",
+            "-S", "Analysis Diff",
+            "--json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

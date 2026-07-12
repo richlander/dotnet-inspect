@@ -315,6 +315,10 @@ public sealed record ResearchSubjectChanges
         => Changes.Any(change => change.Category == category);
 }
 
+public sealed record AllocationFindingComparison(
+    ResearchSubjectKey Subject,
+    FindingComparison<AllocationOccurrence> Comparison);
+
 /// <summary>
 /// Outcome of one Research diff operation. Changes are stored once; subject grouping is a
 /// projection so flat and grouped consumers cannot observe divergent state.
@@ -325,11 +329,27 @@ public sealed record ResearchComparison
         ImmutableArray<ResearchChange> changes,
         ApiDiff? apiDiff = null,
         ApiFindingComparison? apiComparison = null)
+        : this(changes, apiDiff, apiComparison, [])
+    {
+    }
+
+    public ResearchComparison(
+        ImmutableArray<ResearchChange> changes,
+        ApiDiff? apiDiff,
+        ApiFindingComparison? apiComparison,
+        ImmutableArray<AllocationFindingComparison> allocationComparisons)
     {
         if (changes.IsDefault)
             throw new ArgumentException("Changes must be initialized.", nameof(changes));
         if (changes.Any(change => change is null))
             throw new ArgumentException("Changes cannot contain null entries.", nameof(changes));
+        if (!allocationComparisons.IsDefault
+            && allocationComparisons.Any(comparison => comparison is null))
+        {
+            throw new ArgumentException(
+                "Allocation comparisons cannot contain null entries.",
+                nameof(allocationComparisons));
+        }
         if (apiDiff is not null
             && apiComparison is not null
             && !ReferenceEquals(apiDiff, apiComparison.ApiDiff))
@@ -341,11 +361,13 @@ public sealed record ResearchComparison
         Changes = changes;
         ApiComparison = apiComparison;
         ApiDiff = apiComparison?.ApiDiff ?? apiDiff;
+        AllocationComparisons = allocationComparisons.IsDefault ? [] : allocationComparisons;
     }
 
     public ImmutableArray<ResearchChange> Changes { get; }
     public ApiDiff? ApiDiff { get; }
     public ApiFindingComparison? ApiComparison { get; }
+    public ImmutableArray<AllocationFindingComparison> AllocationComparisons { get; }
     public bool IsEmpty => Changes.IsEmpty;
 
     public IReadOnlyList<ResearchSubjectChanges> BySubject()
