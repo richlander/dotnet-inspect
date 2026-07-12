@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Text;
+using System.Text.Json;
 using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
@@ -15,7 +16,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v9";
+    internal const string Category = "pkg-index-v10";
 
     static PackageIndexCache()
     {
@@ -95,11 +96,11 @@ internal static class PackageIndexCache
                 result.BuiltDate = builtDate;
             }
 
-            // Dependency groups stored as compact strings: "tfm|name@ver,name@ver"
+            // Dependency groups are stored as JSON objects within the field array.
             var depGroupsRaw = doc.GetArrayList("dependencyGroups");
             if (depGroupsRaw != null)
             {
-                result.DependencyGroups = depGroupsRaw.Select(ParseDependencyGroup).ToList();
+                result.DependencyGroups = depGroupsRaw.Select(DeserializeDependencyGroup).ToList();
             }
 
             var ridPackagesRaw = doc.GetArrayList("runtimeIdentifierPackages");
@@ -180,10 +181,10 @@ internal static class PackageIndexCache
             WriteArray(buf, "runtimeIdentifierPackages"u8,
                 result.RuntimeIdentifierPackages.Select(FormatRidPackageReference).ToList());
 
-        // Dependency groups stored as compact strings: "tfm|name@ver,name@ver"
+        // Each dependency group is one structured JSON value in the field array.
         if (result.DependencyGroups is { Count: > 0 })
         {
-            var groupStrings = result.DependencyGroups.Select(FormatDependencyGroup).ToList();
+            var groupStrings = result.DependencyGroups.Select(SerializeDependencyGroup).ToList();
             WriteArray(buf, "dependencyGroups"u8, groupStrings);
         }
 
@@ -247,31 +248,46 @@ internal static class PackageIndexCache
 
     // ── Dependency group serialization ──
 
-    private static string FormatDependencyGroup(DependencyGroup group)
+    internal static string SerializeDependencyGroup(DependencyGroup group)
     {
-        var deps = group.Dependencies?.Select(d =>
-            d.Version.Length > 0 ? $"{d.Id}@{d.Version}" : d.Id) ?? [];
-        return $"{group.TargetFramework ?? "any"}|{string.Join(",", deps)}";
+        var buffer = new ArrayBufferWriter<byte>();
+        using var writer = new Utf8JsonWriter(buffer);
+        writer.WriteStartObject();
+        writer.WriteString("targetFramework", group.TargetFramework);
+        writer.WritePropertyName("dependencies");
+        writer.WriteStartArray();
+        foreach (var dependency in group.Dependencies ?? [])
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", dependency.Id);
+            writer.WriteString("version", dependency.Version);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        writer.Flush();
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
-    private static DependencyGroup ParseDependencyGroup(string raw)
+    internal static DependencyGroup DeserializeDependencyGroup(string raw)
     {
-        var parts = raw.Split('|', 2);
-        var tfm = parts[0] == "any" ? null : parts[0];
-        List<PackageDependency>? deps = null;
-
-        if (parts.Length > 1 && parts[1].Length > 0)
+        using var document = JsonDocument.Parse(raw);
+        var root = document.RootElement;
+        var dependencies = new List<PackageDependency>();
+        foreach (var dependency in root.GetProperty("dependencies").EnumerateArray())
         {
-            deps = parts[1].Split(',').Select(d =>
+            dependencies.Add(new PackageDependency
             {
-                var at = d.IndexOf('@');
-                return at > 0
-                    ? new PackageDependency { Id = d[..at], Version = d[(at + 1)..] }
-                    : new PackageDependency { Id = d };
-            }).ToList();
+                Id = dependency.GetProperty("id").GetString() ?? "",
+                Version = dependency.GetProperty("version").GetString() ?? ""
+            });
         }
 
-        return new DependencyGroup { TargetFramework = tfm ?? "", Dependencies = deps ?? [] };
+        return new DependencyGroup
+        {
+            TargetFramework = root.GetProperty("targetFramework").GetString() ?? "",
+            Dependencies = dependencies
+        };
     }
 
     private static string FormatRidPackageReference(RidPackageReference reference)
