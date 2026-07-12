@@ -81,6 +81,9 @@ public static class SectionNames
     /// <summary>Section for the decompiled C# method body.</summary>
     public const string DecompiledSource = "Decompiled Source";
 
+    /// <summary>Section for typed causes that prevent Full decompiler fidelity.</summary>
+    public const string FidelityCauses = "Fidelity Causes";
+
     /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>
     public const string AnnotatedSource = "Annotated Source";
 

@@ -68,7 +68,7 @@ public static class ResearchViews
             if (request.AnnotatedSource)
             {
                 annotatedSource = WithTrace(
-                    Run(() => RenderMixedCore(
+                    RunProjection(() => RenderMixedCore(
                         request.Source,
                         request.Type,
                         request.Method,
@@ -77,7 +77,7 @@ public static class ResearchViews
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly),
-                        emptyOutputIsFailure: true),
+                        emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -91,7 +91,7 @@ public static class ResearchViews
                     .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                     .ToList();
                 var body = WithTrace(
-                    Run(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: true),
+                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: false),
                     request.Source);
                 costOverlay = new CostOverlayResult(body, costHeaderFacts);
             }
@@ -103,7 +103,7 @@ public static class ResearchViews
                     .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
                     .ToList();
                 semanticsOverlay = WithTrace(
-                    Run(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: true),
+                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -209,16 +209,19 @@ public static class ResearchViews
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
     {
-        return Run(() =>
+        return RunProjection(() =>
         {
             var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
             var annotations = CollectFacts(source, imported, registry);
             var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
             if (result.Output is null || annotations.Count == 0)
-                return result.Output ?? "";
-            return AddTrailingComments(imported, result.Output, statementLines, annotations);
-        }, emptyOutputIsFailure: true);
+                return result;
+            return result with
+            {
+                Output = AddTrailingComments(imported, result.Output, statementLines, annotations)
+            };
+        }, emptyOutputIsFailure: false);
     }
 
     public static DecompilerResult RenderMixed(
@@ -238,17 +241,17 @@ public static class ResearchViews
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
     {
-        return Run(() =>
+        return RunProjection(() =>
         {
             var annotations = CollectFacts(source, type, method, overloadIndex, publicOnly, registry);
             var result = IlProjection.Project(source, type, method, IlProjectionDepth.Annotated, overloadIndex, publicOnly);
             if (result.Output is null)
-                return "";
-            return AddFactsToAnnotatedIl(result.Output, annotations);
+                return result;
+            return result with { Output = AddFactsToAnnotatedIl(result.Output, annotations) };
         }, emptyOutputIsFailure: true);
     }
 
-    static string RenderMixedCore(
+    static DecompilerResult RenderMixedCore(
         MetadataSource source, string type, string method, AnnotationStage stage, int overloadIndex, bool publicOnly,
         ResearchFactRegistry? registry)
     {
@@ -258,7 +261,7 @@ public static class ResearchViews
         return RenderMixedCore(source, type, method, imported, annotations, stage, overloadIndex, publicOnly);
     }
 
-    static string RenderMixedCore(
+    static DecompilerResult RenderMixedCore(
         MetadataSource source,
         string type,
         string method,
@@ -274,7 +277,7 @@ public static class ResearchViews
             ? CSharpPrinter.PrintLowered(imported, out var statementLines, importMethodBody: ImportMethodBody)
             : CSharpPrinter.PrintRaised(imported, out statementLines, importMethodBody: ImportMethodBody);
         if (csResult.Output is not { } csText)
-            return "";
+            return csResult;
 
         var spans = AnnotationAnchor.ComputeSpans(imported);
         var commentByLine = new Dictionary<int, string>();
@@ -321,19 +324,18 @@ public static class ResearchViews
         }
 
         var body = sb.ToString().TrimEnd();
-        if (csResult.ConstructorChain is { } chain)
-            return body.Length == 0 ? $": {chain}" : $": {chain}{Environment.NewLine}{body}";
-        return body;
+        return csResult with { Output = body };
     }
 
-    static string RenderRaisedOverlay(IrFunction imported, IReadOnlyList<Annotation> annotations)
+    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<Annotation> annotations)
     {
         var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
         if (result.Output is not { } output)
-            return "";
-        return annotations.Count == 0
+            return result;
+        var projected = annotations.Count == 0
             ? output
             : AddTrailingComments(imported, output, statementLines, annotations);
+        return result with { Output = projected };
     }
 
     static IReadOnlyList<FactRow> BuildFactRows(
@@ -466,19 +468,25 @@ public static class ResearchViews
         return line[..i];
     }
 
-    static DecompilerResult Run(Func<string> pipeline, bool emptyOutputIsFailure)
+    internal static DecompilerResult RunProjection(
+        Func<DecompilerResult> pipeline,
+        bool emptyOutputIsFailure)
     {
-        string output;
+        DecompilerResult result;
         try
         {
-            output = pipeline();
+            result = pipeline();
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return emptyOutputIsFailure && string.IsNullOrWhiteSpace(output)
+        if (!result.Succeeded)
+            return result;
+        return emptyOutputIsFailure
+            && string.IsNullOrWhiteSpace(result.Output)
+            && result.ConstructorChain is null
             ? DecompilerResult.Failure(DiagnosticIds.EmptyOutput, "projection produced no output for a method with a body")
-            : DecompilerResult.Success(output);
+            : result;
     }
 }

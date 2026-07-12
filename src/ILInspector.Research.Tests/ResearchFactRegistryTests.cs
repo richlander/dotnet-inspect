@@ -1,3 +1,4 @@
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 
@@ -13,6 +14,61 @@ public class ResearchFactRegistryTests
             new TestProducer("source"));
 
         Assert.Equal(["source", "consumer"], registry.ProducerNames);
+    }
+
+    [Fact]
+    public void MemberProjection_PreservesConstructorChainMetadata()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchConstructorFixture).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchConstructorFixture).FullName!,
+            ".ctor",
+            AnnotatedSource: true,
+            CostOverlay: true,
+            SemanticsOverlay: true));
+
+        var results = new[]
+        {
+            Assert.IsType<DecompilerResult>(projection.AnnotatedSource),
+            Assert.IsType<DecompilerResult>(projection.CostOverlay?.Body),
+            Assert.IsType<DecompilerResult>(projection.SemanticsOverlay)
+        };
+        Assert.All(results, result =>
+        {
+            Assert.True(result.Succeeded, string.Join(Environment.NewLine, result.Diagnostics));
+            Assert.StartsWith("this(", result.ConstructorChain);
+            Assert.DoesNotContain(": this(", result.Output);
+        });
+    }
+
+    [Fact]
+    public void RunProjection_PreservesFailureDiagnostics()
+    {
+        var failure = DecompilerResult.Failure(
+            DiagnosticIds.ContextUnavailable,
+            "overlay context unavailable");
+
+        var result = ResearchViews.RunProjection(
+            () => failure,
+            emptyOutputIsFailure: true);
+
+        Assert.Same(failure, result);
+        Assert.Equal(DiagnosticIds.ContextUnavailable, Assert.Single(result.Diagnostics).Id);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.EmptyOutput);
+    }
+
+    [Fact]
+    public void RunProjection_AllowsEmptyBodyOnlyCSharp()
+    {
+        var result = ResearchViews.RunProjection(
+            () => DecompilerResult.Success(""),
+            emptyOutputIsFailure: false);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("", result.Output);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
@@ -397,4 +453,17 @@ public static class ResearchFixture
     public static int LoopCaller18(int count) { int total = 18; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
     public static int LoopCaller19(int count) { int total = 19; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
     public static int LoopCaller20(int count) { int total = 20; for (int i = 0; i < count; i++) total += HighLoopLeverageCallee(i); return total; }
+}
+
+public sealed class ResearchConstructorFixture
+{
+    public ResearchConstructorFixture()
+        : this(42)
+    {
+    }
+
+    public ResearchConstructorFixture(int value)
+    {
+        GC.KeepAlive(value);
+    }
 }

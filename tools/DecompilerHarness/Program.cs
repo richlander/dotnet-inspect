@@ -110,6 +110,7 @@ static class Program
         bool qualityDiffCard = false;
         bool qualityCardRisky = false;
         var corpusFidelityCaps = new List<int>();
+        var corpusFidelityOracle = CorpusFidelityOracle.CompileBack;
         int corpusMethodCap = int.MaxValue;
         bool json = false;
         int topPatterns = 10;
@@ -177,6 +178,7 @@ static class Program
                     case "--return-to-sender-ab": returnToSenderAb = true; break;
                     case "--return-to-sender-markout": returnToSenderMarkout = true; break;
                     case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
+                    case "--source-correspondence-census": returnToSenderSourceProbe = true; break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
                         returnToSenderCatalog = true;
@@ -231,6 +233,9 @@ static class Program
                             corpusFidelityCaps.Add(int.Parse(token));
                         }
                         break;
+                    case "--corpus-fidelity-oracle":
+                        corpusFidelityOracle = ParseCorpusFidelityOracle(NextArg(args, ref i, flag));
+                        break;
                     case "--corpus-method-cap": corpusMethodCap = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--json": json = true; break;
                     case "--top-patterns": topPatterns = int.Parse(NextArg(args, ref i, flag)); break;
@@ -255,6 +260,10 @@ static class Program
         catch (MissingArgumentException ex)
         {
             return Fail($"{ex.Flag} requires a value.");
+        }
+        catch (ArgumentException ex)
+        {
+            return Fail(ex.Message);
         }
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
@@ -286,7 +295,7 @@ static class Program
         if (returnToSenderFixtureGroup is not null
             && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe))
         {
-            return Fail("--return-to-sender-fixtures requires --return-to-sender, --return-to-sender-ab, or --return-to-sender-source-probe.");
+            return Fail("--return-to-sender-fixtures requires --return-to-sender, --return-to-sender-ab, --return-to-sender-source-probe, or --source-correspondence-census.");
         }
 
         using var packageInputs = ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly);
@@ -389,7 +398,7 @@ static class Program
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential);
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle);
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
@@ -1519,6 +1528,15 @@ static class Program
             ? int.MaxValue
             : int.Parse(value);
 
+    static CorpusFidelityOracle ParseCorpusFidelityOracle(string value)
+        => value.ToLowerInvariant() switch
+        {
+            "compile-back" => CorpusFidelityOracle.CompileBack,
+            "rts-parity" or "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
+            _ => throw new ArgumentException(
+                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back or rts-parity."),
+        };
+
     static void PrintUsage() => Console.WriteLine("""
         usage: decompiler-harness [assembly-or-directory ...] [options]
 
@@ -1673,6 +1691,10 @@ static class Program
                                 reports valid_match, valid_different, invalid,
                                 source_unavailable, and unsupported_target buckets.
                                 Use --json for machine-readable row output.
+          --source-correspondence-census
+                                alias for --return-to-sender-source-probe that
+                                emphasizes the Finding-style source-correspondence
+                                projection emitted in --json output.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for
@@ -1776,6 +1798,11 @@ static class Program
                                         (repeat or use comma-separated values to compare multiple caps)
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).
+          --corpus-fidelity-oracle <name>
+                                with corpus baseline modes: select compile-back
+                                (default) or rts-parity (aliases: return-to-sender,
+                                rts). RTS evaluates the same compile-back-selected
+                                target population without applying the compile-back floor.
           --corpus-method-cap <n>        with corpus baseline modes: cap the
                                 completeness/structuring scan to a deterministic
                                 hash-ranked sample of n methods per assembly.

@@ -180,6 +180,12 @@ IL-ordered `Finding<DirectCall>` census. Research retains the complete native
 comparison only when requested, so `Present` remains observable without
 increasing the ordinary Body Signals result.
 
+Decompiler fidelity uses the same retention rule in the single-version product
+path. The member command's opt-in `Fidelity Causes` section keeps the complete
+`FindingInspection<DecompilerFidelityCause>` through member acquisition and
+projects it only when rendering. A complete empty census, absent method body,
+and failed inspection therefore remain distinct product outcomes.
+
 The remaining Analysis body observations preserve their native families:
 
 - definite unsafe IL operations use an IL-ordered
@@ -190,6 +196,7 @@ The remaining Analysis body observations preserve their native families:
 
 Safety presentation may suppress broader evidence already covered by a definite
 operation at the same IL offset. That is consumer projection policy, not a reason
-for either producer to return an incomplete census. `BodySignalDiff` composes the
-two comparisons and retains only its compatibility count and offset-attribution
-projection; it does not own another matcher.
+for either producer to return an incomplete census. The CLI consumes both
+censuses directly for safety sections. Research composes their native
+comparisons and retains only its compatibility count and offset-attribution
+projection; neither consumer owns another matcher.

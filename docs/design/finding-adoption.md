@@ -86,10 +86,11 @@ its preferred evidence projection is unavailable.
 
 **Models.**
 
-- [PR #2643](https://github.com/richlander/dotnet-inspect/pull/2643) makes
-  `BodySignalDiff.AddComparisonRows` throw on `FindingComparison<T>.Failed` and
-  records why its total Analysis inputs make that case unreachable. See
-  [`BodySignalDiff`](../../src/ILInspector.Analysis/BodySignalDiff.cs).
+- [PR #2643](https://github.com/richlander/dotnet-inspect/pull/2643) established
+  that consumers of total Analysis censuses throw on
+  `FindingComparison<T>.Failed` and record why that case is unreachable. The
+  adopted consumer keeps that invariant in
+  [`UnsafetyFindingDiff`](../../src/ILInspector.Research/UnsafetyFindingDiff.cs).
 - [PR #2641](https://github.com/richlander/dotnet-inspect/pull/2641) emits a
   fallback `ImplementationDiffRow` from the change detail or descriptor when a
   known change has no unified evidence lines, rather than rendering it as

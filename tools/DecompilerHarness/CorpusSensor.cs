@@ -2,12 +2,22 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
 
 namespace ILInspector.DecompilerHarness;
+
+internal enum CorpusFidelityOracle
+{
+    [JsonStringEnumMemberName("compile-back")]
+    CompileBack,
+
+    [JsonStringEnumMemberName("rts-parity")]
+    ReturnToSender,
+}
 
 internal static class CorpusSensor
 {
@@ -32,7 +42,8 @@ internal static class CorpusSensor
         bool qualityCardRisky = false,
         int methodCap = int.MaxValue,
         int? workers = null,
-        bool sequential = false)
+        bool sequential = false,
+        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack)
     {
         if (assemblies.Count == 0)
         {
@@ -57,7 +68,15 @@ internal static class CorpusSensor
             return 1;
         }
 
-        var (current, fidelityReports) = Capture(assemblies, validityCompileCap, fidelityCompileCaps, maxExamples, methodCap, workers, sequential);
+        var (current, fidelityReports) = Capture(
+            assemblies,
+            validityCompileCap,
+            fidelityCompileCaps,
+            maxExamples,
+            methodCap,
+            workers,
+            sequential,
+            fidelityOracle);
         if (!qualityDiffCard)
             PrintSummary(current, fidelityReports);
 
@@ -119,7 +138,8 @@ internal static class CorpusSensor
         int maxExamples,
         int methodCap,
         int? workers,
-        bool sequential)
+        bool sequential,
+        CorpusFidelityOracle fidelityOracle)
     {
         var completeness = AnalyzeCompleteness(assemblies, maxExamples, methodCap, workers, sequential);
         var methods = completeness.Methods.ToDictionary(MethodKey, StringComparer.Ordinal);
@@ -131,7 +151,14 @@ internal static class CorpusSensor
         var forwardMergeContainers = ForwardMergeStopReasons.Sum(reason => structuring.StopReasons.GetValueOrDefault(reason));
         var requestedCaps = fidelityCompileCaps.Where(cap => cap > 0).Distinct().ToArray();
         var primaryFidelityCap = requestedCaps.FirstOrDefault();
-        var fidelityReports = AnalyzeFidelity(assemblies, fidelityCompileCaps, methods, primaryFidelityCap, workers, sequential);
+        var fidelityReports = AnalyzeFidelity(
+            assemblies,
+            fidelityCompileCaps,
+            methods,
+            primaryFidelityCap,
+            workers,
+            sequential,
+            fidelityOracle);
         var selectedFidelity = fidelityReports.FirstOrDefault(report => report.Cap == primaryFidelityCap)?.Metrics
             ?? fidelityReports.LastOrDefault()?.Metrics
             ?? new FidelitySensorMetrics(0, 0, 0, 0, 0, 0);
@@ -162,7 +189,8 @@ internal static class CorpusSensor
             Tolerances: CorpusSensorTolerances.Default,
             Assemblies: completeness.Assemblies,
             Methods: methods.Values.OrderBy(MethodKey, StringComparer.Ordinal).ToImmutableArray(),
-            Metrics: metrics);
+            Metrics: metrics,
+            FidelityOracle: fidelityOracle);
 
         return (snapshot, fidelityReports);
     }
@@ -342,28 +370,62 @@ internal static class CorpusSensor
         Dictionary<string, CorpusMethodSnapshot> methods,
         int primaryCap,
         int? workers,
-        bool sequential)
+        bool sequential,
+        CorpusFidelityOracle fidelityOracle)
     {
         var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
             var usefulResults = new List<FidelityCheck.CompileBackResult>();
             var allResults = new List<FidelityCheck.CompileBackResult>();
+            int parityRescued = 0, paritySame = 0, parityWorse = 0;
             foreach (var assembly in assemblies)
             {
                 var portablePath = PortablePath(assembly);
-                var assemblyUsefulResults = FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: false, workers, sequential);
+                FidelityOracleEvaluation evaluation;
+                try
+                {
+                    evaluation = fidelityOracle == CorpusFidelityOracle.CompileBack
+                        ? new FidelityOracleEvaluation(
+                            FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: false, workers, sequential))
+                        : EvaluateReturnToSender(assembly, cap, workers, sequential);
+                }
+                catch (Exception ex) when (
+                    fidelityOracle == CorpusFidelityOracle.ReturnToSender
+                    && ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+                {
+                    HarnessLog.Status($"RTS parity skipped {portablePath}: {ex.Message}");
+                    continue;
+                }
+                var assemblyUsefulResults = evaluation.Results;
                 usefulResults.AddRange(assemblyUsefulResults);
+                if (evaluation.Parity is { } parity)
+                {
+                    parityRescued += parity.RescuedMethods;
+                    paritySame += parity.SameMethods;
+                    parityWorse += parity.WorseMethods;
+                }
                 if (cap == primaryCap)
                 {
                     foreach (var result in assemblyUsefulResults)
                     {
                         string key = MethodKey(portablePath, result.Type, result.Method, result.Signature);
                         if (methods.TryGetValue(key, out var methodSnapshot))
-                            methods[key] = methodSnapshot with { FidelityCheck = result.Status.ToString() };
+                        {
+                            methods[key] = methodSnapshot with
+                            {
+                                FidelityCheck = result.Status.ToString(),
+                                FidelityCapture = fidelityOracle == CorpusFidelityOracle.ReturnToSender
+                                    ? result.CaptureDetail ?? result.Capture.ToString()
+                                    : methodSnapshot.FidelityCapture,
+                                FidelityReference = ReferenceStatus(evaluation, result),
+                            };
+                        }
                     }
                 }
-                allResults.AddRange(FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: true, workers, sequential));
+                allResults.AddRange(fidelityOracle == CorpusFidelityOracle.CompileBack
+                    ? FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: true, workers, sequential)
+                    : assemblyUsefulResults);
             }
             var metrics = new FidelitySensorMetrics(
                 usefulResults.Count,
@@ -371,7 +433,10 @@ internal static class CorpusSensor
                 usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff),
                 usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.RecompileFail),
                 usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.ContextFail),
-                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull));
+                usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull),
+                fidelityOracle == CorpusFidelityOracle.ReturnToSender
+                    ? new ReturnToSenderParityMetrics(parityRescued, paritySame, parityWorse)
+                    : null);
             var contextBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.ContextFail);
             var recompileBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.RecompileFail);
             reports.Add(new FidelityCapReport(cap, metrics, contextBuckets, recompileBuckets));
@@ -381,6 +446,145 @@ internal static class CorpusSensor
             reports.Add(new FidelityCapReport(0, new FidelitySensorMetrics(0, 0, 0, 0, 0, 0), ImmutableDictionary<string, FidelityCheck.FailureBucketSummary>.Empty, ImmutableDictionary<string, FidelityCheck.FailureBucketSummary>.Empty));
         return reports.ToImmutable();
     }
+
+    internal static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateReturnToSenderForTesting(
+        string assemblyPath,
+        int cap)
+        => EvaluateReturnToSender(assemblyPath, cap, workers: 1, sequential: true).Results;
+
+    internal static ReturnToSenderParityMetrics SummarizeReturnToSenderParityForTesting(
+        IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
+        IReadOnlyList<FidelityCheck.CompileBackResult> currentResults)
+        => SummarizeReturnToSenderParity(referenceResults, currentResults);
+
+    static FidelityOracleEvaluation EvaluateReturnToSender(
+        string assemblyPath,
+        int cap,
+        int? workers,
+        bool sequential)
+    {
+        var targetSample = FidelityCheck.Evaluate(
+            [assemblyPath],
+            cap,
+            lowered: false,
+            includeAllResults: false,
+            workers,
+            sequential);
+        if (targetSample.Count == 0)
+            return new FidelityOracleEvaluation([]);
+
+        var requestedTargets = targetSample
+            .Select(result => new ReturnToSender.RequestedTarget(
+                result.Type,
+                result.Method,
+                result.Overload,
+                result.Signature))
+            .ToArray();
+        var returnToSenderResults = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                requestedTargets,
+                applyCompileBackFloor: false)
+            .ToArray();
+        var alignedResults = AlignReturnToSenderResults(targetSample, returnToSenderResults);
+        return new FidelityOracleEvaluation(
+            alignedResults,
+            targetSample.ToDictionary(
+                FidelityResultKey,
+                result => result.Status,
+                StringComparer.Ordinal),
+            SummarizeReturnToSenderParity(targetSample, alignedResults));
+    }
+
+    internal static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResultsForTesting(
+        IReadOnlyList<FidelityCheck.CompileBackResult> targetSample,
+        IReadOnlyList<ReturnToSender.Result> returnToSenderResults)
+        => AlignReturnToSenderResults(targetSample, returnToSenderResults);
+
+    static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResults(
+        IReadOnlyList<FidelityCheck.CompileBackResult> targetSample,
+        IReadOnlyList<ReturnToSender.Result> returnToSenderResults)
+    {
+        var resultsByTarget = returnToSenderResults
+            .GroupBy(ReturnToSenderKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var results = new FidelityCheck.CompileBackResult[targetSample.Count];
+        for (int i = 0; i < targetSample.Count; i++)
+        {
+            var target = targetSample[i];
+            if (!resultsByTarget.TryGetValue(FidelityResultKey(target), out var result))
+            {
+                results[i] = target with
+                {
+                    Status = FidelityCheck.CompileBackStatus.ContextFail,
+                    OriginalOpcodes = "",
+                    RecompiledOpcodes = "",
+                    Detail = "return-to-sender-target-unavailable",
+                    Capture = FidelityCheck.CaptureMode.WholeModule,
+                    CaptureDetail = "return-to-sender",
+                };
+                continue;
+            }
+
+            results[i] = new FidelityCheck.CompileBackResult(
+                result.Plan.TargetMethod.Type,
+                result.Plan.TargetMethod.Method,
+                result.Plan.TargetMethod.Overload,
+                result.Plan.TargetMethod.Signature,
+                result.Status,
+                result.OriginalOpcodes,
+                result.RecompiledOpcodes,
+                result.Detail,
+                result.CompileBackFloor?.Capture ?? FidelityCheck.CaptureMode.WholeModule,
+                result.UsedCompileBackFloor
+                    ? "return-to-sender; compile-back-floor"
+                    : "return-to-sender");
+        }
+        return results;
+    }
+
+    static ReturnToSenderParityMetrics SummarizeReturnToSenderParity(
+        IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
+        IReadOnlyList<FidelityCheck.CompileBackResult> currentResults)
+    {
+        var currentByTarget = currentResults.ToDictionary(FidelityResultKey, StringComparer.Ordinal);
+        int rescued = 0, same = 0, worse = 0;
+        foreach (var reference in referenceResults)
+        {
+            if (!currentByTarget.TryGetValue(FidelityResultKey(reference), out var current))
+            {
+                worse++;
+                continue;
+            }
+
+            if (reference.Status == current.Status)
+                same++;
+            else if (reference.Status == FidelityCheck.CompileBackStatus.OpcodeDiff
+                     && current.Status == FidelityCheck.CompileBackStatus.Exact)
+                rescued++;
+            else
+                worse++;
+        }
+        return new ReturnToSenderParityMetrics(rescued, same, worse);
+    }
+
+    static string? ReferenceStatus(
+        FidelityOracleEvaluation evaluation,
+        FidelityCheck.CompileBackResult result)
+        => evaluation.ReferenceStatuses is { } references
+           && references.TryGetValue(FidelityResultKey(result), out var status)
+            ? status.ToString()
+            : null;
+
+    static string FidelityResultKey(FidelityCheck.CompileBackResult result)
+        => $"{result.Type}::{result.Method}::{result.Overload}::{result.Signature}";
+
+    static string ReturnToSenderKey(ReturnToSender.Result result)
+        => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}::{result.Plan.TargetMethod.Signature}";
+
+    sealed record FidelityOracleEvaluation(
+        IReadOnlyList<FidelityCheck.CompileBackResult> Results,
+        IReadOnlyDictionary<string, FidelityCheck.CompileBackStatus>? ReferenceStatuses = null,
+        ReturnToSenderParityMetrics? Parity = null);
 
     static string MethodKey(CorpusMethodSnapshot method)
         => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Signature);
@@ -431,16 +635,23 @@ internal static class CorpusSensor
             ?? fidelityReports.LastOrDefault();
         var currentFidelityMetrics = matchedFidelityReport?.Metrics ?? current.Metrics.Fidelity;
         var currentFidelityCap = matchedFidelityReport?.Cap ?? current.FidelityCompileCap;
+        bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
 
         if (current.ValidityCompileCap < baseline.ValidityCompileCap)
             failures.Add($"validity cap lower than baseline (baseline {baseline.ValidityCompileCap}, current {current.ValidityCompileCap})");
         if (currentFidelityCap < baseline.FidelityCompileCap)
             failures.Add($"fidelity cap lower than baseline (baseline {baseline.FidelityCompileCap}, current {currentFidelityCap})");
+        if (!sameFidelityOracle && (baseline.FidelityCompileCap > 0 || current.FidelityCompileCap > 0))
+        {
+            failures.Add(
+                $"fidelity oracle differs (baseline {FidelityOracleName(baseline.FidelityOracle)}, "
+                + $"current {FidelityOracleName(current.FidelityOracle)})");
+        }
         if (current.MethodCap != baseline.MethodCap)
             failures.Add($"method cap differs from baseline (baseline {CapText(baseline.MethodCap)}, current {CapText(current.MethodCap)})");
         if (current.Metrics.SemanticCheckedMethods < baseline.Metrics.SemanticCheckedMethods)
             failures.Add($"semantic checked methods lower than baseline (baseline {baseline.Metrics.SemanticCheckedMethods}, current {current.Metrics.SemanticCheckedMethods})");
-        if (currentFidelityMetrics.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
+        if (sameFidelityOracle && currentFidelityMetrics.CheckedMethods < baseline.Metrics.Fidelity.CheckedMethods)
             failures.Add($"fidelity checked methods lower than baseline (baseline {baseline.Metrics.Fidelity.CheckedMethods}, current {currentFidelityMetrics.CheckedMethods})");
 
         if (gateAggregateRates || baselinePinned is null || currentPinned is null)
@@ -494,6 +705,7 @@ internal static class CorpusSensor
             // samples when the corpus changes, so gate only when the exact checked-method
             // populations match. Otherwise rely on changed-method fidelity.
             if (basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
+                && sameFidelityOracle
                 && current.FidelityCompileCap == baseline.FidelityCompileCap
                 && HaveSameMethodSample(
                     baseline.Methods,
@@ -510,12 +722,28 @@ internal static class CorpusSensor
         {
             AddCountRegression(failures, "Full malformed methods", baseline.Metrics.FullMalformedMethods, current.Metrics.FullMalformedMethods, tolerance.FullMalformedIncrease);
             AddCountRegression(failures, "semantic defect methods", baseline.Metrics.SemanticDefectMethods, current.Metrics.SemanticDefectMethods, tolerance.SemanticDefectIncrease);
-            if (baseline.Metrics.Fidelity.CheckedMethods > 0)
+            if (sameFidelityOracle && baseline.Metrics.Fidelity.CheckedMethods > 0)
             {
                 AddCountRegression(failures, "fidelity opcode diffs", baseline.Metrics.Fidelity.OpcodeDiffMethods, currentFidelityMetrics.OpcodeDiffMethods, tolerance.FidelityOpcodeDiffIncrease);
                 AddCountRegression(failures, "fidelity recompile failures", baseline.Metrics.Fidelity.RecompileFailMethods, currentFidelityMetrics.RecompileFailMethods, tolerance.FidelityRecompileFailIncrease);
                 AddCountRegression(failures, "fidelity context failures", baseline.Metrics.Fidelity.ContextFailMethods, currentFidelityMetrics.ContextFailMethods, tolerance.FidelityContextFailIncrease);
             }
+        }
+
+        if (sameFidelityOracle
+            && baseline.Metrics.Fidelity.ReturnToSenderParity is { } baselineParity
+            && currentFidelityMetrics.ReturnToSenderParity is { } currentParity
+            && HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.FidelityCheck != "not-sampled"))
+        {
+            AddCountRegression(
+                failures,
+                "RTS parity worse methods",
+                baselineParity.WorseMethods,
+                currentParity.WorseMethods,
+                tolerance: 0);
         }
 
         AddCountRegression(failures, "pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, tolerance.PassBugIncrease);
@@ -638,6 +866,8 @@ internal static class CorpusSensor
         Add("residual", before.Residual, after.Residual);
         Add("validity", before.Validity, after.Validity);
         Add("fidelityCheck", before.FidelityCheck, after.FidelityCheck);
+        Add("fidelityCapture", before.FidelityCapture, after.FidelityCapture);
+        Add("fidelityReference", before.FidelityReference, after.FidelityReference);
         Add("passBug", before.PassBug, after.PassBug);
         return deltas.ToImmutable();
 
@@ -668,6 +898,7 @@ internal static class CorpusSensor
     static void PrintSummary(CorpusSensorSnapshot snapshot, ImmutableArray<FidelityCapReport> fidelityReports)
     {
         var metrics = snapshot.Metrics;
+        string fidelityOracle = FidelityOracleName(snapshot.FidelityOracle);
         Console.WriteLine("# Decompiler corpus sensor");
         Console.WriteLine();
         Console.WriteLine($"Assemblies: {snapshot.Assemblies.Count}");
@@ -693,18 +924,30 @@ internal static class CorpusSensor
         else if (fidelityReports.Length == 1)
         {
             var report = fidelityReports[0];
-            Console.WriteLine($"Fidelity (cap {report.Cap}): {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+            Console.WriteLine($"Fidelity ({fidelityOracle}, cap {report.Cap}): {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+            PrintReturnToSenderParity(report.Metrics, "");
             PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "  ");
         }
         else
         {
-            Console.WriteLine("Fidelity coverage by cap:");
+            Console.WriteLine($"Fidelity coverage by cap ({fidelityOracle}):");
             foreach (var report in fidelityReports)
             {
                 Console.WriteLine($"  cap {report.Cap}: {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+                PrintReturnToSenderParity(report.Metrics, "  ");
                 PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "    ");
             }
         }
+    }
+
+    static void PrintReturnToSenderParity(FidelitySensorMetrics metrics, string indent)
+    {
+        if (metrics.ReturnToSenderParity is not { } parity)
+            return;
+
+        Console.WriteLine(
+            $"{indent}RTS parity: {parity.RescuedMethods} rescued, {parity.SameMethods} same, "
+            + $"{parity.WorseMethods} worse over {parity.ComparedMethods} compile-back targets");
     }
 
     static void PrintFailureBuckets(
@@ -806,7 +1049,8 @@ internal static class CorpusSensor
             static method => IsPinnedAssembly(method.AssemblyPath)
                 && (method.Validity == "valid"
                     || method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal)));
-        bool comparableFidelitySamples = basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
+        bool comparableFidelitySamples = baseline.FidelityOracle == current.FidelityOracle
+            && basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
             && current.FidelityCompileCap == baseline.FidelityCompileCap
             && HaveSameMethodSample(
                 baseline.Methods,
@@ -816,7 +1060,9 @@ internal static class CorpusSensor
         var fidelity = comparableFidelitySamples
             ? $"opcode diffs {Number(basePinned.OpcodeDiff)} -> {Number(curPinned.OpcodeDiff)} "
                 + $"({Delta(curPinned.OpcodeDiff - basePinned.OpcodeDiff)})"
-            : "fidelity ungated (sampling differs; rely on changed-method fidelity)";
+            : baseline.FidelityOracle != current.FidelityOracle
+                ? "fidelity ungated (oracle differs)"
+                : "fidelity ungated (sampling differs; rely on changed-method fidelity)";
         var fullMalformed = current.ValidityCompileCap > 0
             ? comparableMalformedSamples
                 ? $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
@@ -989,14 +1235,16 @@ internal static class CorpusSensor
 
         if (current.FidelityCompileCap > 0)
         {
-            bool comparableFidelitySamples = HaveSameMethodSample(
+            bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
+            bool comparableFidelitySamples = sameFidelityOracle && HaveSameMethodSample(
                 baseline.Methods,
                 current.Methods,
                 static method => method.FidelityCheck != "not-sampled");
+            string fidelityDifference = sameFidelityOracle ? "sampling differs" : "oracle differs";
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity opcode diffs"
-                    : "Fidelity opcode diffs (sampling differs)",
+                    : $"Fidelity opcode diffs ({fidelityDifference})",
                 baseline.Metrics.Fidelity.OpcodeDiffMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.OpcodeDiffMethods,
@@ -1006,7 +1254,7 @@ internal static class CorpusSensor
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity exact"
-                    : "Fidelity exact (sampling differs)",
+                    : $"Fidelity exact ({fidelityDifference})",
                 baseline.Metrics.Fidelity.ExactMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.ExactMethods,
@@ -1016,7 +1264,7 @@ internal static class CorpusSensor
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity recompile failures"
-                    : "Fidelity recompile failures (sampling differs)",
+                    : $"Fidelity recompile failures ({fidelityDifference})",
                 baseline.Metrics.Fidelity.RecompileFailMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.RecompileFailMethods,
@@ -1026,13 +1274,29 @@ internal static class CorpusSensor
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity context failures"
-                    : "Fidelity context failures (sampling differs)",
+                    : $"Fidelity context failures ({fidelityDifference})",
                 baseline.Metrics.Fidelity.ContextFailMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.ContextFailMethods,
                 current.Metrics.Fidelity.CheckedMethods,
                 comparableFidelitySamples ? Goal.Lower : Goal.Context,
                 countDeltaKnown: comparableFidelitySamples));
+            if (current.Metrics.Fidelity.ReturnToSenderParity is { } currentParity)
+            {
+                var baselineParity = baseline.Metrics.Fidelity.ReturnToSenderParity;
+                bool comparableParity = comparableFidelitySamples && baselineParity is not null;
+                string parityDifference = baselineParity is null && comparableFidelitySamples
+                    ? "baseline unavailable"
+                    : fidelityDifference;
+                rows.Add(CountChangeRow(
+                    comparableParity
+                        ? "RTS parity worse"
+                        : $"RTS parity worse ({parityDifference})",
+                    baselineParity?.WorseMethods ?? 0,
+                    currentParity.WorseMethods,
+                    comparableParity ? Goal.Lower : Goal.Context,
+                    countDeltaKnown: comparableParity));
+            }
             rows.Add(ShareChangeRow(
                 "Fidelity check coverage",
                 baseline.Metrics.Fidelity.CheckedMethods,
@@ -1112,9 +1376,23 @@ internal static class CorpusSensor
                 + ValidityCompileCapNote(snapshot.ValidityCompileCap);
         var fidelity = snapshot.FidelityCompileCap <= 0
             ? "fidelity not run"
-            : $"fidelity sampled {Coverage(snapshot.Metrics.Fidelity.CheckedMethods, snapshot.Metrics.TotalMethods)}";
+            : $"fidelity ({FidelityOracleName(snapshot.FidelityOracle)}) sampled "
+                + Coverage(snapshot.Metrics.Fidelity.CheckedMethods, snapshot.Metrics.TotalMethods);
+        if (snapshot.Metrics.Fidelity.ReturnToSenderParity is { } parity)
+        {
+            fidelity += $", RTS parity {Number(parity.WorseMethods)} worse / "
+                + $"{Number(parity.ComparedMethods)} compared";
+        }
         return $"{validity}; {fidelity}";
     }
+
+    static string FidelityOracleName(CorpusFidelityOracle oracle)
+        => oracle switch
+        {
+            CorpusFidelityOracle.CompileBack => "compile-back",
+            CorpusFidelityOracle.ReturnToSender => "rts-parity",
+            _ => throw new ArgumentOutOfRangeException(nameof(oracle)),
+        };
 
     static void PrintRiskyCoverageGuidance(CorpusSensorSnapshot snapshot)
     {
@@ -1217,7 +1495,9 @@ internal sealed record CorpusSensorSnapshot(
     CorpusSensorTolerances? Tolerances,
     IReadOnlyList<CorpusAssemblySnapshot> Assemblies,
     IReadOnlyList<CorpusMethodSnapshot>? Methods,
-    CorpusSensorMetrics Metrics);
+    CorpusSensorMetrics Metrics,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusFidelityOracle>))]
+    CorpusFidelityOracle FidelityOracle = CorpusFidelityOracle.CompileBack);
 
 internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
 
@@ -1276,7 +1556,17 @@ internal sealed record FidelitySensorMetrics(
     int OpcodeDiffMethods,
     int RecompileFailMethods,
     int ContextFailMethods,
-    int NotFullMethods);
+    int NotFullMethods,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ReturnToSenderParityMetrics? ReturnToSenderParity = null);
+
+internal sealed record ReturnToSenderParityMetrics(
+    int RescuedMethods,
+    int SameMethods,
+    int WorseMethods)
+{
+    public int ComparedMethods => RescuedMethods + SameMethods + WorseMethods;
+}
 
 internal sealed record FidelityCapReport(
     int Cap,

@@ -427,6 +427,7 @@ public sealed class CSharpTypePrinter
             Namespace = type.Namespace,
             Name = type.Name,
             MetadataName = type.MetadataName,
+            Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = attributes?.ToList()!,
             EnumUnderlyingType = type.EnumUnderlyingType,

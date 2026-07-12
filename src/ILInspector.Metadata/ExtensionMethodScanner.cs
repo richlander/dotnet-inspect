@@ -125,7 +125,7 @@ public static class ExtensionMethodScanner
                 // Decode signature to get first parameter type
                 {
                     var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                    var signature = GuardedSignatureText.MethodText(reader, method, context);
                     if (signature.ParameterTypes.Length == 0) continue;
 
                     var extendedType = signature.ParameterTypes[0];
@@ -222,7 +222,7 @@ public static class ExtensionMethodScanner
 
                 {
                     var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+                    var signature = GuardedSignatureText.MethodText(reader, method, context);
                     if (signature.ParameterTypes.Length == 0) continue;
 
                     var extendedType = signature.ParameterTypes[0];
@@ -331,7 +331,7 @@ public static class ExtensionMethodScanner
 
                     try
                     {
-                        var sig = prop.DecodeSignature(SignatureDecoder.Instance, context);
+                        var sig = GuardedSignatureText.PropertyText(reader, prop, context);
                         var propType = UnwrapAsyncType(sig.ReturnType);
 
                         if (!string.IsNullOrEmpty(propType) && !IsPrimitiveType(propType) && visited.Add(propType))
@@ -360,7 +360,7 @@ public static class ExtensionMethodScanner
                     try
                     {
                         var methodContext = GenericContext.ForMethod(reader, typeDef, method);
-                        var sig = method.DecodeSignature(SignatureDecoder.Instance, methodContext);
+                        var sig = GuardedSignatureText.MethodText(reader, method, methodContext);
                         var retType = UnwrapAsyncType(sig.ReturnType);
 
                         if (!string.IsNullOrEmpty(retType) && retType != "void" &&
@@ -487,15 +487,17 @@ public static class ExtensionMethodScanner
                     continue;
 
                 var displayContext = GenericContext.ForType(reader, markerType);
-                var markerSignature = markerMethod.DecodeSignature(
-                    SignatureDecoder.Instance,
+                var markerSignature = GuardedSignatureText.MethodText(
+                    reader,
+                    markerMethod,
                     displayContext);
                 if (markerSignature.ParameterTypes.Length != 1)
                     throw new BadImageFormatException(
                         "An extension marker must have exactly one receiver parameter.");
 
-                var propertySignature = property.DecodeSignature(
-                    SignatureDecoder.Instance,
+                var propertySignature = GuardedSignatureText.PropertyText(
+                    reader,
+                    property,
                     displayContext);
                 string propertyName = reader.GetString(property.Name);
                 string parameterText = propertySignature.ParameterTypes.Length == 0
@@ -563,7 +565,7 @@ public static class ExtensionMethodScanner
         GenericContext? context)
     {
         string name = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+        var signature = GuardedSignatureText.MethodText(reader, method, context);
 
         // First parameter is the extension receiver, rendered with a 'this ' prefix.
         return SignatureRenderer.RenderDecodedSignature(reader, method, name, signature, extensionThis: true);

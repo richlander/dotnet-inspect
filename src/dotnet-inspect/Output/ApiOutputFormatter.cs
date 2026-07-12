@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.CSharp;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
@@ -1116,7 +1117,7 @@ public static class ApiOutputFormatter
                     return ConstructorCallFromDeclaration(declaration);
             }
 
-            return signature.ParameterDeclarationsSummary;
+            return CSharpFormatter.FormatParameterList(signature.Parameters);
         }
 
         // Compatibility-only fallback for legacy signatures without complete
@@ -1129,7 +1130,7 @@ public static class ApiOutputFormatter
         return type.TypeParameters
             .Concat(signature.TypeParameters)
             .Select(parameter => parameter.Name)
-            .Any(name => CSharpDeclarationWriter.EscapeIdentifier(name) != name);
+            .Any(name => CSharpFormatter.EscapeIdentifier(name) != name);
     }
 
     private static string ConstructorCallFromDeclaration(string declaration)
@@ -1153,6 +1154,7 @@ public static class ApiOutputFormatter
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
             Facts: requestedSections.Contains(SectionNames.Facts),
+            FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm);
 
@@ -1365,11 +1367,9 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var evidenceByMember = IndexSession().BodyIndex.GetUnsafeEvidenceByMember();
-            var unsafeEvidence = evidenceByMember.TryGetValue(unsafeToken, out var methodEvidence)
-                ? methodEvidence
-                : ImmutableArray<Analysis.UnsafeEvidence>.Empty;
-            var evidence = unsafeEvidence
+            var evidence = InspectSafetyFindings(IndexSession().BodyIndex, unsafeToken)
+                .Evidence
+                .Select(static finding => finding.Payload)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
                 .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
                 .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
@@ -1427,10 +1427,10 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
+                var safety = InspectSafetyFindings(bodySession.BodyIndex, semanticToken);
                 var rows = Analysis.SemanticFactProjection.SafetyFacts(
-                        bodySession.BodyIndex.GetUnsafeEvidenceByMember(),
-                        bodySession.BodyIndex.GetUnsafetyOccurrences(),
-                        semanticToken)
+                        safety.Evidence,
+                        safety.Operations)
                     .Select(fact => ToSafetyFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.SafetyFacts))
@@ -1455,7 +1455,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false))
@@ -1467,102 +1467,11 @@ public static class ApiOutputFormatter
                     .ToList();
             }
 
-            if (code.LoweredBody is { } lowered)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(
-                        type,
-                        member,
-                        code.MethodGenericParameters,
-                        lowered,
-                        code.RequiresAsyncDeclaration,
-                        preferExpressionBodied: true);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.LoweredDiagnostic is { } loweredDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.DecompiledSourceCode = new CodeSection("csharp", loweredDiagnostic);
-                hasCode = true;
-            }
+            hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
-            if (code.AnnotatedBody is { } annotated)
+            if (code.FidelityCauses is not null)
             {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, annotated);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.AnnotatedSourceCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.AnnotatedDiagnostic is { } annotatedDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.AnnotatedSourceCode = new CodeSection("csharp", annotatedDiagnostic);
-                hasCode = true;
-            }
-
-            if (code.CostOverlayBody is { } costOverlay)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(
-                        type,
-                        member,
-                        code.MethodGenericParameters,
-                        costOverlay,
-                        leadingBodyComments: code.CostOverlayHeaderComments);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.CostOverlayCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.CostOverlayDiagnostic is { } costDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.CostOverlayCode = new CodeSection("csharp", costDiagnostic);
-                hasCode = true;
-            }
-
-            if (code.SemanticsOverlayBody is { } semanticsOverlay)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, semanticsOverlay);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.SemanticsOverlayCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.SemanticsOverlayDiagnostic is { } semanticsDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.SemanticsOverlayCode = new CodeSection("csharp", semanticsDiagnostic);
+                memberCode.FidelityCauseRows = BuildFidelityCauseRows(code.FidelityCauses);
                 hasCode = true;
             }
 
@@ -1597,6 +1506,129 @@ public static class ApiOutputFormatter
         if (hasCode)
             view.MemberCode = memberCode;
     }
+
+    internal static bool PopulateCSharpSections(
+        MemberCodeView memberCode,
+        ApiType type,
+        ApiMember member,
+        MemberCodeProvider.Item code)
+    {
+        bool hasCode = false;
+
+        if (code.DecompiledResult is { } decompiledResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
+            memberCode.DecompiledSourceCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                decompiledResult,
+                preferExpressionBodied: true);
+            hasCode = true;
+        }
+
+        if (code.AnnotatedResult is { } annotatedResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, annotatedResult.Trace);
+            memberCode.AnnotatedSourceCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                annotatedResult);
+            hasCode = true;
+        }
+
+        if (code.CostOverlayResult is { } costOverlayResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, costOverlayResult.Trace);
+            memberCode.CostOverlayCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                costOverlayResult,
+                leadingBodyComments: code.CostOverlayHeaderComments);
+            hasCode = true;
+        }
+
+        if (code.SemanticsOverlayResult is { } semanticsOverlayResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, semanticsOverlayResult.Trace);
+            memberCode.SemanticsOverlayCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                semanticsOverlayResult);
+            hasCode = true;
+        }
+
+        return hasCode;
+    }
+
+    internal static List<FidelityCauseRow> BuildFidelityCauseRows(
+        FindingInspection<Decompiler.DecompilerFidelityCause> inspection)
+        => inspection switch
+        {
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Complete complete
+                when complete.Findings.IsEmpty =>
+            [
+                new(
+                    "Complete",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "No fidelity causes; decompiler fidelity is Full.")
+            ],
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Complete complete =>
+            [
+                .. complete.Findings.Select(static finding =>
+                {
+                    var cause = finding.Payload;
+                    return new FidelityCauseRow(
+                        "Complete",
+                        cause.Code,
+                        FormatFidelityLocation(cause.Location),
+                        cause.NodeKind,
+                        cause.Node,
+                        cause.Discriminator,
+                        cause.Reason);
+                })
+            ],
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Absent absent =>
+            [
+                new(
+                    "Absent",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    absent.Detail ?? "Method has no decompiler IR body.")
+            ],
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Failed failed =>
+            [
+                new(
+                    "Failed",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    failed.Error.Reason)
+            ],
+        };
+
+    static string FormatFidelityLocation(Decompiler.DecompilerFidelityLocation location)
+        => location.Kind switch
+        {
+            Decompiler.DecompilerFidelityLocationKind.Signature => "signature",
+            Decompiler.DecompilerFidelityLocationKind.IlOffset
+                when location.ILOffset is { } offset => MarkoutInline.Code($"IL_{offset:X4}"),
+            Decompiler.DecompilerFidelityLocationKind.Local
+                when location.LocalIndex is { } local => MarkoutInline.Code($"V_{local}"),
+            _ => "unknown",
+        };
 
     static void AddOrReplaceSummaryField(TypeView view, string name, string value)
     {
@@ -1651,6 +1683,32 @@ public static class ApiOutputFormatter
 
     static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
         => evidence is { Reason: "Unsafe API member", Kind: "api" };
+
+    static SafetyFindingCensus InspectSafetyFindings(
+        Analysis.LibraryBodyIndex index,
+        int methodToken)
+    {
+        index.GetUnsafeEvidenceByMember().TryGetValue(methodToken, out var evidence);
+        index.GetUnsafetyOccurrences().TryGetValue(methodToken, out var operations);
+        evidence = evidence.IsDefault ? [] : evidence;
+        operations = operations.IsDefault ? [] : operations;
+
+        var method = index.Methods.FirstOrDefault(candidate => candidate.MetadataToken == methodToken)
+            ?? operations.FirstOrDefault()?.Method
+            ?? evidence.FirstOrDefault()?.Member;
+        if (method is null)
+            return new([], []);
+
+        var subject = FindingSubject(method);
+        return new(
+            Analysis.AnalysisFindings.InspectUnsafeEvidence(evidence, subject),
+            Analysis.AnalysisFindings.InspectUnsafety(operations, subject));
+    }
+
+    static FindingSubject FindingSubject(Analysis.MethodIdentity method)
+        => new(
+            $"{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
+            FormatMethod(method));
 
     static string FormatCallee(Analysis.MemberRef member)
     {
@@ -1794,6 +1852,15 @@ public static class ApiOutputFormatter
         var rows = index
             .UnsafeEvidence
             .Where(evidence => SameType(evidence.Member.DeclaringType, type))
+            .GroupBy(evidence => evidence.Member.MetadataToken)
+            .SelectMany(group =>
+            {
+                var method = group.First().Member;
+                return Analysis.AnalysisFindings.InspectUnsafeEvidence(
+                    group,
+                    FindingSubject(method));
+            })
+            .Select(static finding => finding.Payload)
             .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
             .ThenBy(evidence => evidence.ILOffset ?? -1)
             .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
@@ -1878,13 +1945,14 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
-            var unsafeEvidenceByMember = index.GetUnsafeEvidenceByMember();
-            var unsafetyOccurrences = index.GetUnsafetyOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.SafetyFacts(
-                    unsafeEvidenceByMember,
-                    unsafetyOccurrences,
-                    token))
+                .SelectMany(token =>
+                {
+                    var safety = InspectSafetyFindings(index, token);
+                    return Analysis.SemanticFactProjection.SafetyFacts(
+                        safety.Evidence,
+                        safety.Operations);
+                })
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.SafetyFacts))
@@ -2080,6 +2148,10 @@ public static class ApiOutputFormatter
     static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
 
+    readonly record struct SafetyFindingCensus(
+        ImmutableArray<Finding<Analysis.UnsafeEvidence>> Evidence,
+        ImmutableArray<Finding<Analysis.UnsafetyOccurrence>> Operations);
+
     static CallerSiteRow CreateCallerRow(string source, Analysis.DirectCall call)
         => new(
             source,
@@ -2148,35 +2220,62 @@ public static class ApiOutputFormatter
         RequestTelemetry.Breadcrumb(stage, detail);
     }
 
-    private static string FormatSourceWithDeclaration(
+    private static string DiagnosticComment(Decompiler.DecompilerResult result)
+        => string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
+
+    private static CodeSection FormatCSharpResult(
         ApiType type,
         ApiMember member,
         IReadOnlyList<string>? methodGenericParameters,
-        string lowered,
-        bool requiresAsyncDeclaration = false,
+        Decompiler.DecompilerResult result,
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null)
     {
+        if (!result.Succeeded)
+            return new CodeSection("csharp", DiagnosticComment(result));
+
+        try
+        {
+            return new CodeSection(
+                "csharp",
+                FormatSourceWithDeclaration(
+                    type,
+                    member,
+                    methodGenericParameters,
+                    result,
+                    preferExpressionBodied,
+                    leadingBodyComments));
+        }
+        catch (Exception ex)
+        {
+            return new CodeSection(
+                "csharp",
+                $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    internal static string FormatSourceWithDeclaration(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodGenericParameters,
+        Decompiler.DecompilerResult result,
+        bool preferExpressionBodied = false,
+        IReadOnlyList<string>? leadingBodyComments = null)
+    {
+        var lowered = result.Output
+            ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
         var declaration = FormatMemberDeclaration(
             type,
             member,
             abbreviate: false,
             methodGenericParameters,
-            forceAsync: requiresAsyncDeclaration);
-        var body = lowered.TrimEnd();
-
-        // A constructor's base/this initializer is surfaced by the renderer as a
-        // leading `: base(...)` / `: this(...)` line (it is invalid as a body
-        // statement). Lift it onto the declaration line so the output is valid C#.
-        var bodyLines = body.ReplaceLineEndings("\n").Split('\n');
-        if (bodyLines.Length > 0 && bodyLines[0].TrimStart() is { } first
-            && (first.StartsWith(": base(", StringComparison.Ordinal)
-                || first.StartsWith(": this(", StringComparison.Ordinal)))
+            forceAsync: result.ContainsAwaitExpression || result.RequiresAsyncBodyModifier);
+        if (result.ConstructorChain is { } constructorChain
+            && !string.IsNullOrWhiteSpace(declaration))
         {
-            if (!string.IsNullOrWhiteSpace(declaration))
-                declaration = $"{declaration} {first.TrimEnd()}";
-            body = string.Join("\n", bodyLines.Skip(1)).TrimEnd();
+            declaration = $"{declaration} : {constructorChain}";
         }
+        var body = lowered.TrimEnd();
 
         if (string.IsNullOrWhiteSpace(declaration))
             return body;

@@ -114,7 +114,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`) | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and degrades honestly with `DEC####` fidelity diagnostics rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -226,13 +226,16 @@ honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
 `IlOnly` → `Failed`) instead of emitting plausible-but-wrong source, with a
 stable `DEC####` diagnostic on every degradation. If output looks wrong,
-capture all four sections; maintainers diagnose pipeline state with
+capture all four sections; select `Fidelity Causes` for the typed cause census
+behind the grade. That section distinguishes Full fidelity, an absent method
+body, and inspection failure. Maintainers diagnose pipeline state with
 DecompilerHarness.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Fidelity Causes"
 dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 ```
 

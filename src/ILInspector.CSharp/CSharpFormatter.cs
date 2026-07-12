@@ -41,7 +41,7 @@ public sealed record CSharpFormattedDeclaration(
 /// </summary>
 public sealed class CSharpFormatter
 {
-    readonly CSharpDeclarationOptions _metadataOptions;
+    readonly CSharpDeclarationOptions _declarationOptions;
 
     public CSharpFormatter(CSharpFormatOptions? options = null)
     {
@@ -52,7 +52,7 @@ public sealed class CSharpFormatter
             throw new ArgumentOutOfRangeException(nameof(options), options.NamespacePolicy, "C# namespace policy must be defined.");
         var usings = options.Usings?.ToArray()
             ?? throw new ArgumentException("C# formatter usings cannot be null.", nameof(options));
-        _metadataOptions = ToMetadataOptions(options, usings);
+        _declarationOptions = ToDeclarationOptions(options, usings);
     }
 
     public string FormatMember(
@@ -65,7 +65,7 @@ public sealed class CSharpFormatter
         return CSharpDeclarationWriter.RenderMemberDeclaration(
             type,
             member,
-            _metadataOptions,
+            _declarationOptions,
             methodParameters);
     }
 
@@ -79,7 +79,7 @@ public sealed class CSharpFormatter
         return ToFormattedDeclaration(CSharpDeclarationWriter.RenderMemberUnit(
             type,
             member,
-            _metadataOptions,
+            _declarationOptions,
             methodParameters));
     }
 
@@ -88,13 +88,13 @@ public sealed class CSharpFormatter
         IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type, _metadataOptions);
+        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type, _declarationOptions);
         if (primaryConstructorParameters is not { Count: > 0 })
             return declaration;
 
         string declarationWithoutAttributes = CSharpDeclarationWriter.RenderTypeDeclaration(
             type,
-            _metadataOptions with { IncludeCustomAttributes = false });
+            _declarationOptions with { IncludeCustomAttributes = false });
         if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
@@ -120,13 +120,13 @@ public sealed class CSharpFormatter
                 $"Delegate '{type.FullName}' requires a structured Invoke signature.");
         }
 
-        string attributes = _metadataOptions.IncludeCustomAttributes && type.Attributes.Count > 0
+        string attributes = _declarationOptions.IncludeCustomAttributes && type.Attributes.Count > 0
             ? $"[{string.Join(", ", type.Attributes)}] "
             : "";
         string unsafeText = invoke.IsUnsafe ? " unsafe" : "";
-        string parameters = string.Join(", ", signature.Parameters.Select(parameter => parameter.Declaration));
+        string parameters = FormatParameterList(signature.Parameters);
         string declaration =
-            $"{attributes}public{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type, includeVariance: true)}({parameters})";
+            $"{attributes}{CSharpDeclarationWriter.TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type, includeVariance: true)}{parameters}";
         foreach (var typeParameter in type.TypeParameters)
         {
             if (typeParameter.ConstraintsSummary is { } constraints)
@@ -150,7 +150,7 @@ public sealed class CSharpFormatter
         return ToFormattedDeclaration(CSharpDeclarationWriter.RenderTypeUnit(
             type,
             members,
-            _metadataOptions));
+            _declarationOptions));
     }
 
     public static string EscapeIdentifier(string identifier)
@@ -161,6 +161,22 @@ public sealed class CSharpFormatter
 
     public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
         => CSharpDeclarationWriter.EscapeKnownIdentifiers(text, rawNames);
+
+    public static string FormatParameter(ApiParameter parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        return CSharpDeclarationWriter.EscapeQualifiedKeywordSegments(
+            CSharpDeclarationWriter.FormatParameter(parameter));
+    }
+
+    public static string FormatParameterList(IEnumerable<ApiParameter> parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        var values = parameters.ToArray();
+        if (values.Any(parameter => parameter is null))
+            throw new ArgumentException("C# parameter lists cannot contain null entries.", nameof(parameters));
+        return $"({string.Join(", ", values.Select(FormatParameter))})";
+    }
 
     public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {
@@ -207,7 +223,7 @@ public sealed class CSharpFormatter
         return $": {target}({string.Join(", ", initializer.Arguments)})";
     }
 
-    static CSharpDeclarationOptions ToMetadataOptions(
+    static CSharpDeclarationOptions ToDeclarationOptions(
         CSharpFormatOptions options,
         IReadOnlyCollection<string> usings)
         => new()
@@ -249,13 +265,13 @@ public sealed class CSharpFormatter
         string declaration,
         IReadOnlyList<ApiParameter> parameters)
     {
-        string parameterList = string.Join(", ", parameters.Select(parameter => parameter.Declaration));
+        string parameterList = FormatParameterList(parameters);
         int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
         string head = constraints >= 0 ? declaration[..constraints] : declaration;
         string tail = constraints >= 0 ? declaration[constraints..] : "";
         int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
         return inheritance >= 0
-            ? head[..inheritance] + $"({parameterList})" + head[inheritance..] + tail
-            : $"{head}({parameterList}){tail}";
+            ? head[..inheritance] + parameterList + head[inheritance..] + tail
+            : $"{head}{parameterList}{tail}";
     }
 }

@@ -184,15 +184,12 @@ internal static class LibraryReport
 
                 var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
                 var semanticModel = compilation.GetSemanticModel(tree);
-                var defects = compilation.GetDiagnostics()
-                    .Where(ValidityCheck.IsError)
-                    .Where(d => !ValidityCheck.BindingNoise.Contains(d.Id))
-                    .Where(d => !ValidityCheck.IsShellArtifact(d, tree, semanticModel))
-                    .Where(d => !ValidityCheck.IsGenericArityCollisionNoise(d, tree, function))
-                    .Where(d => !ValidityCheck.IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
-                    .Where(d => !ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
-                    .ToList();
-                if (defects.Count == 0)
+                var defects = ValidityCheck.ClassifySemanticDiagnostics(
+                    compilation.GetDiagnostics(),
+                    tree,
+                    function,
+                    semanticModel);
+                if (defects.Length == 0)
                 {
                     continue;
                 }

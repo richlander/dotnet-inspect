@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Findings;
 
 namespace ILInspector.Analysis;
 
@@ -84,32 +85,12 @@ public static class SemanticFactProjection
                 occurrence.ChurnedType))];
 
     public static ImmutableArray<SafetyFact> SafetyFacts(
-        IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> unsafeEvidence,
-        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> occurrences,
-        int methodToken,
+        IEnumerable<Finding<UnsafeEvidence>> unsafeEvidence,
+        IEnumerable<Finding<UnsafetyOccurrence>> occurrences,
         int? ilOffset = null)
-        => SafetyFacts(
-            unsafeEvidence.TryGetValue(methodToken, out var methodEvidence) ? methodEvidence : [],
-            occurrences.TryGetValue(methodToken, out var methodOccurrences) ? methodOccurrences : [],
-            ilOffset);
-
-    public static ImmutableArray<SafetyFact> SafetyFacts(
-        ImmutableArray<UnsafeEvidence> unsafeEvidence,
-        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> occurrences,
-        Func<MethodIdentity, bool>? methodScope = null,
-        int? ilOffset = null)
-        => SafetyFacts(
-            unsafeEvidence.Where(evidence => methodScope is null || methodScope(evidence.Member)),
-            occurrences.Values.SelectMany(group => group)
-                .Where(occurrence => methodScope is null || methodScope(occurrence.Method)),
-            ilOffset);
-
-    static ImmutableArray<SafetyFact> SafetyFacts(
-        IEnumerable<UnsafeEvidence> unsafeEvidence,
-        IEnumerable<UnsafetyOccurrence> occurrences,
-        int? ilOffset)
     {
         var operationRows = occurrences
+            .Select(static finding => finding.Payload)
             .Where(occurrence => ilOffset is null || occurrence.ILOffset == ilOffset)
             .Select(ToSafetyFact);
 
@@ -119,6 +100,7 @@ public static class SemanticFactProjection
             .ToHashSet();
 
         var unsafeCallRows = unsafeEvidence
+            .Select(static finding => finding.Payload)
             .Where(evidence => ilOffset is null || evidence.ILOffset == ilOffset)
             .Where(evidence => evidence.ILOffset is null
                 || !coveredOperations.Contains((evidence.Member.MetadataToken, evidence.ILOffset.Value)))

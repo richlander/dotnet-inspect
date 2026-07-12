@@ -2068,6 +2068,7 @@ internal sealed record GeneratedFixtureReturnToSenderResult(
     IlDiffDisplayResult? IlDiffDiagnostic,
     IlMemberDiffResult? IlDiff,
     MemberAnchor? MemberAnchor,
+    ReturnToSender.FaultIsolationResult? FaultIsolation,
     ReturnToSenderClosureEvidence? ClosureEvidence,
     bool IsFrontier,
     string? Note)
@@ -2154,7 +2155,10 @@ internal static class GeneratedFixtureRunner
                 .Select(target => new ReturnToSender.RequestedTarget(target.Type, target.Method, target.Overload))
                 .Distinct()
                 .ToArray();
-            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets)
+            var sourcePaths = Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets, sourcePaths)
                 .ToDictionary(result => Key(
                     result.Plan.TargetMethod.Type,
                     result.Plan.TargetMethod.Method,
@@ -2204,6 +2208,7 @@ internal static class GeneratedFixtureRunner
                         actual.IlDiffDiagnostic,
                         actual.IlDiff,
                         actual.MemberAnchor,
+                        actual.FaultIsolation,
                         ReturnToSenderClosureEvidenceBuilder.FromPlan(actual.Plan),
                         target.IsFrontier,
                         target.Note));
@@ -2241,18 +2246,33 @@ internal static class GeneratedFixtureRunner
             IlDiffDiagnostic: null,
             IlDiff: null,
             MemberAnchor: null,
+            FaultIsolation: null,
             ClosureEvidence: null,
             target.IsFrontier,
             target.Note);
 
-    static string FailureReason(ReturnToSender.Result result)
-        => result.Status switch
+    internal static string FailureReason(ReturnToSender.Result result)
+    {
+        var baseReason = result.Status switch
         {
             FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
             FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
             FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
             _ => result.Status.ToString(),
         };
+
+        return result.FaultIsolation?.Kind switch
+        {
+            ReturnToSender.FaultIsolationKind.BodyDefect => ComposeFaultIsolationReason("body-defect", baseReason),
+            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect => ComposeFaultIsolationReason("shell-or-closure-defect", baseReason),
+            _ => baseReason,
+        };
+    }
+
+    static string ComposeFaultIsolationReason(string isolationReason, string baseReason)
+        => string.IsNullOrWhiteSpace(baseReason) || string.Equals(isolationReason, baseReason, StringComparison.Ordinal)
+            ? isolationReason
+            : $"{isolationReason} ({baseReason})";
 
     internal static T RunWithMaterializedFixtures<T>(
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
@@ -2369,11 +2389,22 @@ internal static class GeneratedFixtureRunner
             IlDiffDiagnostic = SerializableIlDiffDisplayResult(result.IlDiffDiagnostic),
             IlDiff = SerializableIlMemberDiff(result.IlDiff),
             result.MemberAnchor,
+            FaultIsolation = SerializableFaultIsolation(result.FaultIsolation),
             result.ClosureEvidence,
             result.IsFrontier,
             result.Note,
             result.DisplayMember,
         };
+
+    static object? SerializableFaultIsolation(ReturnToSender.FaultIsolationResult? result)
+        => result is null
+            ? null
+            : new
+            {
+                result.Kind,
+                SourcePath = ReturnToSenderSourceProbe.SourceFileName(result.SourcePath),
+                result.Detail,
+            };
 
     static object? SerializableIlDiffDisplayResult(IlDiffDisplayResult? result)
         => result is null

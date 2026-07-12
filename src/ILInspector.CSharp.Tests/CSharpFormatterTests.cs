@@ -79,6 +79,82 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
+    {
+        var parameters = new ApiParameter[]
+        {
+            new()
+            {
+                Attributes = ["System.Runtime.InteropServices.Optional"],
+                Type = "System.event.MyClass",
+                Name = "event",
+                HasDefault = true,
+                DefaultValueText = "default"
+            },
+            new() { Type = "class", Name = "value" },
+            new() { Type = "System.Collections.Generic.List<class>", Name = "items" },
+            new() { Type = "delegate", Name = "delegateValue" },
+            new() { Type = "readonly", Name = "readonlyValue" },
+            new() { Type = "scoped", Name = "scopedValue" },
+            new() { Type = "delegate*<ref int, void>", Name = "callback" }
+        };
+
+        Assert.Equal(
+            "([System.Runtime.InteropServices.Optional] System.@event.MyClass @event = default, @class value, System.Collections.Generic.List<@class> items, @delegate delegateValue, @readonly readonlyValue, @scoped scopedValue, delegate*<ref int, void> callback)",
+            CSharpFormatter.FormatParameterList(parameters));
+    }
+
+    [Theory]
+    [InlineData("await")]
+    [InlineData("file")]
+    [InlineData("init")]
+    [InlineData("record")]
+    [InlineData("required")]
+    [InlineData("scoped")]
+    public void EscapesConservativeContextualKeywordSet(string identifier)
+        => Assert.Equal($"@{identifier}", CSharpFormatter.EscapeIdentifier(identifier));
+
+    [Fact]
+    public void FormatsDelegateWithStructuredAccessibility()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Callback",
+            Kind = "delegate",
+            Accessibility = "private",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Invoke",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = "Invoke"
+                    }
+                }
+            ]
+        };
+
+        Assert.Equal(
+            "private delegate void Callback();",
+            new CSharpFormatter().FormatDelegate(type, type.Members.Single()));
+    }
+
+    [Fact]
+    public void KnownIdentifierEscapingIsIdempotent()
+    {
+        Assert.Equal(
+            "System.Action<@event>",
+            CSharpFormatter.EscapeKnownIdentifiers("System.Action<@event>", ["event"]));
+        Assert.Equal(
+            "System.Action<@event>",
+            CSharpFormatter.EscapeKnownIdentifiers("System.Action<event>", ["event"]));
+    }
+
+    [Fact]
     public void RejectsUndefinedPolicies()
     {
         Assert.Throws<ArgumentOutOfRangeException>(

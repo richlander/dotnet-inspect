@@ -1,6 +1,6 @@
 using ILInspector.Metadata;
 
-namespace ILInspector.Metadata.Tests;
+namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpDeclarationWriterTests
 {

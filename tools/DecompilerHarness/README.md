@@ -190,6 +190,16 @@ frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
 type shell, so metadata scaffolding cannot satisfy a target-body assertion.
+`--source-correspondence-census` is an alias for the source probe when the task
+is source-fidelity triage rather than RTS compile-back triage. Its `--json`
+payload includes `source_correspondence_findings`: stable Finding-style rows
+keyed by member stable selector when available. Each row carries a descriptor ID
+such as `source.correspondence.valid_different.known_taste`, a coarse category
+(`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
+`semantic-opcode-diff`, `invalid`, or `unclassified`), the source file name, and
+whether opcode-diff evidence is attached. The finding projection intentionally
+uses source file names rather than absolute source paths so the census can be
+shared without leaking local checkout paths.
 
 The generated fixture ladder is intentionally staged:
 
@@ -226,6 +236,24 @@ fidelity coverage series with the same per-bucket failure breakdown for each cap
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
+Use `--corpus-fidelity-oracle rts-parity` (`return-to-sender` and `rts` remain
+aliases) to run the fidelity sample through RTS instead of the default
+compile-back oracle. The transition mode first selects the same bounded target
+population as compile-back, including getters, setters, constructors, and
+ordinary methods, then records native RTS outcomes under the existing method
+identity and fidelity-status contract. Snapshots name this mode `rts-parity`;
+diffing snapshots from different modes is rejected rather than presenting
+incomparable fidelity movement.
+
+The RTS cap is therefore a parity population: methods the default oracle checked
+as `Exact` or `OpcodeDiff`, re-evaluated through RTS. The report classifies each
+target as rescued, same, or worse and records the compile-back reference status
+beside the native RTS result. Corpus parity deliberately disables RTS's
+compile-back floor so compile-back evidence cannot rewrite the RTS verdict.
+Because compile-back selects this population before RTS runs, `NotFullMethods`
+is structurally zero and failure buckets describe only the selected parity
+population; this mode measures parity, not independent RTS coverage.
+
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode diffs include canonical opcode streams, while
 recompile and context failures include the method and diagnostic detail. Use
@@ -243,6 +271,17 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
+  --max-examples 3
+```
+
+To capture an RTS snapshot without comparing it to the compile-back baseline:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --emit-corpus-snapshot /tmp/rts-corpus-snapshot.json \
+  --compile-cap 0 \
+  --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-parity \
   --max-examples 3
 ```
 
@@ -511,6 +550,23 @@ LangVersion** (an older TFM, which cascades classic async + old switch/iterator
 lowerings at once).
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass; `--compile-cap all` runs an exhaustive binding sweep. Capped reports print how many eligible `Full` methods were actually compiled and label semantic findings as per-sample, not corpus-wide.
+
+Shell-noise classification uses diagnostic IDs, source spans, syntax, and
+semantic symbols rather than localized diagnostic prose. If a supported
+diagnostic lacks the source evidence needed to classify it, the original error
+stays reported and the method also receives `VLD0001`; evidence gaps therefore
+remain visible instead of silently joining an ordinary validity bucket.
+Diagnostics outside the enumerated shell-noise set, such as `CS0039`, stay
+reported as ordinary defects without `VLD0001` until they are explicitly
+modeled; surfacing an unknown code is preferred to blanket suppression.
+This intentionally stops suppressing method-level `CS0161` merely because its
+message names `__Shell.__M`; the current Release decompiler assembly consequently
+exposes ten previously hidden missing-return defects, while Debug IL exposes one.
+Both configuration-specific populations are pinned by
+`ValidityCoverageReportingTests.DecompilerAssembly_MissingReturnPopulationIsPinned`.
+The separate type-binding report still extracts a `CS0104` ambiguous simple
+name from invariant-culture message text for display; that reporting-only value
+does not control filtering or classification.
 
 **Validity predicate scan** (`--validity-predicate-scan`): the cheap exhaustive
 coverage lane for known validity-risk classes. It does **not** compile or replace

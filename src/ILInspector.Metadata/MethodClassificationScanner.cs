@@ -165,7 +165,7 @@ public static class MethodClassificationScanner
                 try
                 {
                     var context = GenericContext.ForMethod(reader, typeDef, method);
-                    var sig = method.DecodeSignature(SignatureDecoder.Instance, context);
+                    var sig = GuardedSignatureText.MethodText(reader, method, context);
                     if (HasPointerType(sig))
                     {
                         var signature = SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
@@ -255,7 +255,7 @@ public static class MethodClassificationScanner
         try
         {
             var context = GenericContext.ForMethod(reader, typeDef, method);
-            var sig = method.DecodeSignature(SignatureDecoder.Instance, context);
+            var sig = GuardedSignatureText.MethodText(reader, method, context);
             string methodName = reader.GetString(method.Name);
             return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, sig);
         }

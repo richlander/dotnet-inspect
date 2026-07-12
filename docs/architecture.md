@@ -49,6 +49,13 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 └─────────────────────────────────────────────────────────────┘
 ```
 
+The command surface has independent source, focus, operation, lens, traversal,
+and rendering axes. Noun-first commands (`package`, `type`, `member`) select a
+structural focus for unary inspection; operation-first commands (`diff`, and a
+future `timeline`) change arity while retaining source/focus selectors. See
+[Command Transition Model](design/command-transition-model.md) for the decision
+rules and version-range cardinality contract.
+
 ### package
 
 Inspects NuGet package metadata without extracting libraries:
@@ -80,7 +87,9 @@ Inspects .NET library files (PE/COFF format):
 Extract public API surface using metadata:
 
 - `type` renders type shape, summaries, members, and `--shape` declarations
-- `member` renders member tables, docs, `Member Index` selectors, decompiled/lowered C#, SourceLink-backed original source, and IL
+- `member` renders member tables, docs, `Member Index` selectors,
+  decompiled/lowered C#, typed decompiler fidelity causes, SourceLink-backed
+  original source, and IL
 - Both support package/platform/library sources and section/field projection
 
 ### diff
@@ -160,9 +169,13 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
   Allocation changes retain Analysis's
   `FindingComparison<AllocationOccurrence>` on their Research projection;
   count, hot/cold, and ranking fields are derived from that comparison rather
-  than from a separate count-only diff. Focused endpoint-confirmation consumers
-  can also request complete allocation or direct-call comparisons, including
-  exact pairs that have no `ResearchChange` row.
+  than from a separate count-only diff. Unsafety changes consume Analysis's
+  `FindingComparison<UnsafetyOccurrence>` and
+  `FindingComparison<UnsafeEvidence>` directly, with count and offset
+  attribution projected in Research instead of an Analysis-owned intermediate
+  diff. Focused endpoint-confirmation consumers can also request complete
+  allocation or direct-call comparisons, including exact pairs that have no
+  `ResearchChange` row.
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact

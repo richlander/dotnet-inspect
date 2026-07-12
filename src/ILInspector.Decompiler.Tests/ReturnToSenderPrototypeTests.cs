@@ -115,6 +115,52 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public abstract class BaseMarkerAttribute : Attribute
+            {
+            }
+
+            [AttributeUsage(AttributeTargets.Class)]
+            public sealed class MarkerAttribute : BaseMarkerAttribute
+            {
+                public bool Flag => true;
+            }
+            """);
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("MarkerAttribute", "get_Flag", 0);
+            var floored = Assert.Single(ReturnToSender.CompileBackTargets(assemblyPath, [target]));
+            Assert.True(floored.UsedCompileBackFloor, floored.Detail);
+            var reference = Assert.IsType<FidelityCheck.CompileBackResult>(floored.CompileBackFloor);
+
+            var native = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target],
+                applyCompileBackFloor: false));
+            Assert.False(native.UsedCompileBackFloor);
+            Assert.True(
+                native.Status is FidelityCheck.CompileBackStatus.RecompileFail
+                    or FidelityCheck.CompileBackStatus.ContextFail,
+                $"{native.Status}: {native.Detail}");
+
+            var aligned = CorpusSensor.AlignReturnToSenderResultsForTesting([reference], [native]);
+            var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting([reference], aligned);
+
+            Assert.Equal(0, parity.RescuedMethods);
+            Assert.Equal(0, parity.SameMethods);
+            Assert.Equal(1, parity.WorseMethods);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
@@ -191,6 +237,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CorpusFidelity_EvaluatesCompileBackSelectedTargetsThroughReturnToSender()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value => 42;
+                public int Transform(int value) => value + 1;
+                public int Transform(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            var results = CorpusSensor.EvaluateReturnToSenderForTesting(assemblyPath, cap: 10);
+            var getter = Assert.Single(results, result => result.Method == "get_Value");
+            var overloads = results
+                .Where(result => result.Method == "Transform")
+                .OrderBy(result => result.Overload)
+                .ToArray();
+
+            Assert.Equal("Class1", getter.Type);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, getter.Status);
+            Assert.StartsWith("return-to-sender", getter.CaptureDetail);
+            Assert.Equal(2, overloads.Length);
+            Assert.Equal(new[] { 0, 1 }, overloads.Select(result => result.Overload));
+            Assert.Equal(2, overloads.Select(result => result.Signature).Distinct().Count());
+            Assert.All(overloads, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackPropertyGetters_AddsSameAssemblyReturnTypeClosureRoot()
     {
         var assemblyPath = CompileFixture("""
@@ -215,7 +295,7 @@ public class ReturnToSenderPrototypeTests
                     Assert.Equal("get_SameAssemblyType", first.Plan.TargetMethod.Method);
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, first.Status);
                     Assert.Contains(first.Plan.Types, type => type.Name == "Helper");
-                    Assert.Contains(first.Plan.TypeRequirements, requirement =>
+                    Assert.Contains(first.Plan.Types, requirement =>
                         requirement.Type.DisplayName == "Helper"
                         && requirement.SourceFacts.Any(fact => fact.Id == "body-type"
                             && fact.Producer == "metadata"
@@ -1778,6 +1858,74 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void TryIsolateRecompileFailure_ClassifiesBodyDefectWhenAuthoredBodyCompiles()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("BodyDefect.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;");
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(sourcePath, result.SourcePath);
+            Assert.Contains("authored body compiled", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_ClassifiesShellOrClosureDefectWhenAuthoredBodyAlsoFails()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ShellOrClosureDefect.cs",
+            """
+            public class Class1
+            {
+                public int M() { return Missing.Symbol; }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return AlsoMissing.Symbol;");
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect, result.Kind);
+            Assert.Equal(sourcePath, result.SourcePath);
+            Assert.Contains("CS0103", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
     static string WriteTempSource(string fileName, string source, out string directory)
     {
         directory = Path.Combine(Path.GetTempPath(), $"rts-signature-{Guid.NewGuid():N}");
@@ -1796,6 +1944,70 @@ public class ReturnToSenderPrototypeTests
         catch (IOException)
         {
         }
+    }
+
+    static ReturnToSender.FaultIsolationResult? TryIsolateRecompileFailureForMethod(
+        string assemblyPath,
+        string sourcePath,
+        string rejectedTargetBody)
+    {
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var reader = pe.GetMetadataReader();
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+
+        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
+        var function = IrImporter.Import(source, "Class1", "M", 0)
+            ?? throw new InvalidOperationException("Could not import Class1::M.");
+        var request = new MethodArtifactRequest(
+            AssemblyPath: assemblyPath,
+            Reader: reader,
+            Function: function,
+            TargetType: typeHandle,
+            TargetMethod: methodHandle,
+            TargetBody: new ProductTargetBody(rejectedTargetBody, []),
+            FullType: "Class1",
+            MethodName: "M",
+            Overload: 0,
+            SignatureText: "",
+            ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
+            ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
+        var sourceIndex = ReturnToSenderSourceIndex.TryCreate([sourcePath]);
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var compileOptions = new CSharpCompilationOptions(
+            OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: OptimizationLevel.Release,
+            nullableContextOptions: NullableContextOptions.Disable,
+            allowUnsafe: true);
+
+        return ReturnToSender.TryIsolateRecompileFailure(
+            request,
+            sourceIndex,
+            parseOptions,
+            compileOptions,
+            RoslynTestReferences.TrustedPlatform.ToArray());
+    }
+
+    static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
+        MetadataReader reader,
+        string typeName,
+        string methodName)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            if (!string.Equals(reader.GetFullTypeName(type), typeName, StringComparison.Ordinal))
+                continue;
+
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal))
+                    return (typeHandle, methodHandle);
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find {typeName}::{methodName}.");
     }
 
     [Fact]

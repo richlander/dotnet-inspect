@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 
 using Decompiler = ILInspector.Decompiler;
 
@@ -17,30 +18,25 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
 
     /// <summary>
-    /// Code content for one member. Body and diagnostic are mutually
-    /// exclusive per section: a body renders (with declaration formatting
-    /// applied by the caller), a diagnostic renders verbatim as comments.
+    /// Code content for one member. C# sections retain the complete decompiler
+    /// result so declaration formatting consumes typed constructor and async
+    /// evidence instead of recovering it from rendered text.
     /// </summary>
     internal sealed record Item(
-        string? LoweredBody,
-        string? LoweredDiagnostic,
+        Decompiler.DecompilerResult? DecompiledResult,
         IReadOnlyList<string>? MethodGenericParameters,
-        string? AnnotatedBody,
-        string? AnnotatedDiagnostic,
-        string? CostOverlayBody,
+        Decompiler.DecompilerResult? AnnotatedResult,
+        Decompiler.DecompilerResult? CostOverlayResult,
         IReadOnlyList<string>? CostOverlayHeaderComments,
-        string? CostOverlayDiagnostic,
-        string? SemanticsOverlayBody,
-        string? SemanticsOverlayDiagnostic,
+        Decompiler.DecompilerResult? SemanticsOverlayResult,
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
-        Decompiler.DecompilerTrace? DecompileTrace = null,
-        bool RequiresAsyncDeclaration = false);
+        FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -110,18 +106,58 @@ internal static class MemberCodeProvider
             // shown, independent of which sections were requested.
             var methodGenericParameters = MethodGenericParameterNames(
                 reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+            var methodHasBody = SelectedMethodHasBody(
+                reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
-            string? loweredBody = null, loweredDiagnostic = null;
-            Decompiler.DecompilerTrace? decompileTrace = null;
-            if (request.DecompiledSource && pipelineSource is not null)
+            Decompiler.DecompilerResult? decompiledResult = null;
+            Decompiler.DecompilerResult? projectionResult = null;
+            IrFunction? raisedFunction = null;
+            if ((request.DecompiledSource || request.FidelityCauses) && pipelineSource is not null)
             {
-                var plainSourceResult = RenderPlainSource(pipelineSource, lookupType, method.Name, Decompiler.Annotations.AnnotationStage.Raised, lookupOverloadIndex, publicOnly);
-                decompileTrace = new Decompiler.DecompilerTrace(plainSourceResult.Fidelity, pipelineSource.Symbols, plainSourceResult.Diagnostics);
-                if (plainSourceResult.Output is { } plain)
-                    loweredBody = plain.TrimEnd();
+                projectionResult = TrimOutput(RenderDecompiledSource(
+                    pipelineSource,
+                    lookupType,
+                    method.Name,
+                    lookupOverloadIndex,
+                    publicOnly,
+                    out raisedFunction));
+                projectionResult = projectionResult with
+                {
+                    Trace = new Decompiler.DecompilerTrace(
+                        projectionResult.Fidelity,
+                        pipelineSource.Symbols,
+                        projectionResult.Diagnostics)
+                };
+            }
+
+            if (request.DecompiledSource)
+                decompiledResult = projectionResult;
+
+            FindingInspection<Decompiler.DecompilerFidelityCause>? fidelityCauses = null;
+            if (request.FidelityCauses)
+            {
+                var subject = new FindingSubject(
+                    method.MetadataToken is { } token
+                        ? $"{Path.GetFullPath(dllPath)}#0x{token:X8}"
+                        : $"{Path.GetFullPath(dllPath)}::{lookupType}.{method.Name}#{lookupOverloadIndex}",
+                    $"{lookupType}.{method.Name}");
+                if (pipelineSource is null)
+                {
+                    fidelityCauses = new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
+                        new InspectionError(
+                            subject,
+                            Decompiler.DecompilerFindings.FidelityInspectionDescriptor,
+                            "Decompiler metadata source could not be opened."));
+                }
                 else
-                    loweredDiagnostic = DiagnosticComment(plainSourceResult);
+                {
+                    fidelityCauses = BuildFidelityCauseInspection(
+                        methodHasBody,
+                        raisedFunction,
+                        projectionResult,
+                        subject);
+                }
             }
 
             ILInspector.Research.ResearchViews.MemberProjectionResult? researchProjection = null;
@@ -138,45 +174,33 @@ internal static class MemberCodeProvider
                         CostOverlay: request.CostOverlay,
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts));
-                decompileTrace = researchProjection.Trace ?? decompileTrace;
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
             // raw IL interleaved beneath each statement.
-            string? annotatedBody = null, annotatedDiagnostic = null;
-            if (request.AnnotatedSource && researchProjection?.AnnotatedSource is { } annotatedResult)
-            {
-                if (annotatedResult.Output is { } annotated)
-                    annotatedBody = annotated.TrimEnd();
-                else
-                    annotatedDiagnostic = DiagnosticComment(annotatedResult);
-            }
+            var annotatedResult = request.AnnotatedSource
+                && researchProjection?.AnnotatedSource is { } annotated
+                    ? TrimOutput(annotated)
+                    : null;
 
-            string? costOverlayBody = null, costOverlayDiagnostic = null;
+            Decompiler.DecompilerResult? costOverlayResult = null;
             IReadOnlyList<string>? costOverlayHeaderComments = null;
             if (request.CostOverlay && researchProjection?.CostOverlay is { } overlay)
             {
-                var costResult = overlay.Body;
-                if (costResult.Output is { } costOverlay)
+                costOverlayResult = TrimOutput(overlay.Body);
+                if (costOverlayResult.Output is not null)
                 {
-                    costOverlayBody = costOverlay.TrimEnd();
                     if (overlay.HeaderFacts.Count > 0)
                         costOverlayHeaderComments = overlay.HeaderFacts
                             .Select(fact => $"// {fact.Format()}")
                             .ToList();
                 }
-                else
-                    costOverlayDiagnostic = DiagnosticComment(costResult);
             }
 
-            string? semanticsOverlayBody = null, semanticsOverlayDiagnostic = null;
-            if (request.SemanticsOverlay && researchProjection?.SemanticsOverlay is { } semanticsResult)
-            {
-                if (semanticsResult.Output is { } semanticsOverlay)
-                    semanticsOverlayBody = semanticsOverlay.TrimEnd();
-                else
-                    semanticsOverlayDiagnostic = DiagnosticComment(semanticsResult);
-            }
+            var semanticsOverlayResult = request.SemanticsOverlay
+                && researchProjection?.SemanticsOverlay is { } semantics
+                    ? TrimOutput(semantics)
+                    : null;
 
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
@@ -201,52 +225,26 @@ internal static class MemberCodeProvider
                 facts = researchProjection.Facts;
 
             results.Add((method, new Item(
-                loweredBody,
-                loweredDiagnostic,
+                decompiledResult,
                 methodGenericParameters,
-                annotatedBody,
-                annotatedDiagnostic,
-                costOverlayBody,
+                annotatedResult,
+                costOverlayResult,
                 costOverlayHeaderComments,
-                costOverlayDiagnostic,
-                semanticsOverlayBody,
-                semanticsOverlayDiagnostic,
+                semanticsOverlayResult,
                 ilText,
                 ilDiagnostic,
                 attributes,
                 facts,
-                decompileTrace,
-                RequiresAsyncDeclaration: ContainsAwaitKeyword(loweredBody))));
+                fidelityCauses)));
         }
 
         return results;
     }
 
-    /// <summary>Renders a failed result as comment lines so sections degrade honestly instead of disappearing.</summary>
-    static string DiagnosticComment(Decompiler.DecompilerResult result)
-        => string.Join(Environment.NewLine, result.Diagnostics.Select(d => $"// {d}"));
-
-    static bool ContainsAwaitKeyword(string? text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return false;
-        const string keyword = "await";
-        var span = text.AsSpan();
-        var index = text.IndexOf(keyword, StringComparison.Ordinal);
-        while (index >= 0)
-        {
-            var before = index == 0 ? '\0' : span[index - 1];
-            var afterIndex = index + keyword.Length;
-            var after = afterIndex >= span.Length ? '\0' : span[afterIndex];
-            if (!IsIdentifierPart(before) && !IsIdentifierPart(after))
-                return true;
-            index = text.IndexOf(keyword, index + keyword.Length, StringComparison.Ordinal);
-        }
-        return false;
-    }
-
-    static bool IsIdentifierPart(char c)
-        => c == '_' || char.IsLetterOrDigit(c);
+    static Decompiler.DecompilerResult TrimOutput(Decompiler.DecompilerResult result)
+        => result.Output is { } output
+            ? result with { Output = output.TrimEnd() }
+            : result;
 
     /// <summary>
     /// Resolves the selected method overload's generic parameter names directly
@@ -279,6 +277,47 @@ internal static class MemberCodeProvider
         return null;
     }
 
+    static bool SelectedMethodHasBody(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        int matchCount = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+            if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask) != System.Reflection.MethodAttributes.Public)
+                continue;
+            if (matchCount++ != overloadIndex)
+                continue;
+            return method.RelativeVirtualAddress != 0;
+        }
+        return false;
+    }
+
+    internal static FindingInspection<Decompiler.DecompilerFidelityCause> BuildFidelityCauseInspection(
+        bool methodHasBody,
+        IrFunction? raisedFunction,
+        Decompiler.DecompilerResult? projection,
+        FindingSubject subject)
+    {
+        if (!methodHasBody)
+            return Decompiler.DecompilerFindings.InspectFidelityCauses(null, subject);
+
+        if (raisedFunction is not null && projection?.Succeeded == true)
+            return Decompiler.DecompilerFindings.InspectFidelityCauses(raisedFunction, subject);
+
+        return new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
+            new InspectionError(
+                subject,
+                Decompiler.DecompilerFindings.FidelityInspectionDescriptor,
+                string.Join(
+                    "; ",
+                    projection?.Diagnostics.Select(static diagnostic => diagnostic.ToString())
+                        ?? ["Decompiler import or projection failed."])));
+    }
+
     /// <summary>
     /// Opens the decompiler's reader for the code sections that need it
     /// (decompiled source, annotated source, IR stages), or null when none are
@@ -290,7 +329,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses)
             return null;
         try
         {
@@ -310,23 +349,23 @@ internal static class MemberCodeProvider
         }
     }
 
-    static Decompiler.DecompilerResult RenderPlainSource(Decompiler.Pipeline.MetadataSource source, string type, string method, Decompiler.Annotations.AnnotationStage stage, int overloadIndex, bool publicOnly)
+    static Decompiler.DecompilerResult RenderDecompiledSource(
+        Decompiler.Pipeline.MetadataSource source,
+        string type,
+        string method,
+        int overloadIndex,
+        bool publicOnly,
+        out IrFunction? imported)
     {
+        imported = null;
         try
         {
-            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+            imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-            var result = stage == Decompiler.Annotations.AnnotationStage.Lowered
-                ? Decompiler.Pipeline.CSharpPrinter.PrintLowered(imported, target => IrImporter.Import(source, target))
-                : Decompiler.Pipeline.CSharpPrinter.PrintRaised(imported, target => IrImporter.Import(source, target));
-            if (result.Output is not { } output)
-                return result;
-            var body = result.ConstructorChain is { } chain
-                ? output.Length == 0 ? $": {chain}" : $": {chain}{Environment.NewLine}{output}"
-                : output;
-            return string.IsNullOrWhiteSpace(body)
-                ? Decompiler.DecompilerResult.Failure(Decompiler.DiagnosticIds.EmptyOutput, "projection produced no output for a method with a body")
-                : result with { Output = body };
+            var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
+                imported,
+                target => IrImporter.Import(source, target));
+            return result;
         }
         catch (Exception ex)
         {

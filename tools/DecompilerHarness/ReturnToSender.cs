@@ -24,6 +24,17 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class ReturnToSender
 {
+    public enum FaultIsolationKind
+    {
+        BodyDefect,
+        ShellOrClosureDefect,
+    }
+
+    public sealed record FaultIsolationResult(
+        FaultIsolationKind Kind,
+        string SourcePath,
+        string? Detail);
+
     public sealed record Result(
         CompileBackReconstructionPlan Plan,
         string Source,
@@ -36,7 +47,8 @@ static class ReturnToSender
         IlMemberDiffResult? IlDiff = null,
         MemberAnchor? MemberAnchor = null,
         IReadOnlyList<DecompilerDecision>? Decisions = null,
-        FidelityCheck.CompileBackResult? CompileBackFloor = null)
+        FidelityCheck.CompileBackResult? CompileBackFloor = null,
+        FaultIsolationResult? FaultIsolation = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
     }
@@ -364,6 +376,7 @@ static class ReturnToSender
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
 
         foreach (var typeHandle in reader.TypeDefinitions)
@@ -414,7 +427,8 @@ static class ReturnToSender
                     typeHandle,
                     propertyHandle,
                     accessors.Getter,
-                    MemberAnchorFor(memberAnchors, accessors.Getter)));
+                    MemberAnchorFor(memberAnchors, accessors.Getter),
+                    sourceIndex));
                 if (results.Count >= maxTargets)
                     return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
             }
@@ -426,6 +440,37 @@ static class ReturnToSender
     }
 
     public static IReadOnlyList<Result> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor: true);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        IReadOnlyList<string> sourcePaths)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(sourcePaths),
+            applyCompileBackFloor: true);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        bool applyCompileBackFloor)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor);
+
+    static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        ReturnToSenderSourceIndex? sourceIndex,
+        bool applyCompileBackFloor)
     {
         if (targets.Count == 0)
             return [];
@@ -469,7 +514,8 @@ static class ReturnToSender
                     typeHandle,
                     propertyTarget.Property,
                     propertyTarget.Getter,
-                    MemberAnchorFor(memberAnchors, propertyTarget.Getter)));
+                    MemberAnchorFor(memberAnchors, propertyTarget.Getter),
+                    sourceIndex));
                 continue;
             }
 
@@ -483,7 +529,8 @@ static class ReturnToSender
                     typeHandle,
                     setterTarget.Property,
                     setterTarget.Setter,
-                    MemberAnchorFor(memberAnchors, setterTarget.Setter)));
+                    MemberAnchorFor(memberAnchors, setterTarget.Setter),
+                    sourceIndex));
                 continue;
             }
 
@@ -496,11 +543,12 @@ static class ReturnToSender
                     source,
                     typeHandle,
                     methodHandle,
-                    MemberAnchorFor(memberAnchors, methodHandle)));
+                    MemberAnchorFor(memberAnchors, methodHandle),
+                    sourceIndex));
             }
         }
 
-        return ApplyCompileBackFloor(assemblyPath, results);
+        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
     }
 
     static IReadOnlyList<Result> ApplyCompileBackFloor(
@@ -707,11 +755,12 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
-        MemberAnchor? memberAnchor)
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor);
+            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -726,11 +775,12 @@ static class ReturnToSender
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
-        MemberAnchor? memberAnchor)
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor);
+            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -746,11 +796,12 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle setterHandle,
-        MemberAnchor? memberAnchor)
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor);
+            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -766,7 +817,8 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
-        MemberAnchor? memberAnchor)
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var getter = reader.GetMethodDefinition(getterHandle);
@@ -794,6 +846,7 @@ static class ReturnToSender
             overload,
             originalOps,
             memberAnchor,
+            sourceIndex,
             (closureRoots, closureFacts) => new PropertyGetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
@@ -817,7 +870,8 @@ static class ReturnToSender
         MetadataSource source,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
-        MemberAnchor? memberAnchor)
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
@@ -845,6 +899,7 @@ static class ReturnToSender
             overload,
             originalOps,
             memberAnchor,
+            sourceIndex,
             (closureRoots, closureFacts) => new MethodArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
@@ -868,7 +923,8 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle setterHandle,
-        MemberAnchor? memberAnchor)
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var setter = reader.GetMethodDefinition(setterHandle);
@@ -896,6 +952,7 @@ static class ReturnToSender
             overload,
             originalOps,
             memberAnchor,
+            sourceIndex,
             (closureRoots, closureFacts) => new PropertySetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
@@ -924,6 +981,7 @@ static class ReturnToSender
         int overload,
         string[] originalOps,
         MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex,
         Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -1034,6 +1092,7 @@ static class ReturnToSender
                         "closure-stalled",
                         growth.UnextractedDiagnosticIds);
                 var error = errors.FirstOrDefault() ?? firstError;
+                var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
                 return new Result(
                     plan,
                     unit,
@@ -1043,13 +1102,15 @@ static class ReturnToSender
                     $"{reason}: {FormatDiagnostic(error)}",
                     TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
+                    Decisions: targetBody.Decisions,
+                    FaultIsolation: faultIsolation);
             }
         }
 
         {
             var sourceResult = Compose();
             var plan = sourceResult.Plan;
+            var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
             return new Result(
                 plan,
                 sourceResult.Source,
@@ -1059,7 +1120,8 @@ static class ReturnToSender
                 $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
                 TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
-                Decisions: targetBody.Decisions);
+                Decisions: targetBody.Decisions,
+                FaultIsolation: faultIsolation);
         }
     }
 
@@ -1389,6 +1451,64 @@ static class ReturnToSender
             ? diagnostic.Id
             : $"{diagnostic.Id}: {message}";
     }
+
+    internal static FaultIsolationResult? TryIsolateRecompileFailure(
+        ArtifactRequest request,
+        ReturnToSenderSourceIndex? sourceIndex,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compileOptions,
+        IReadOnlyList<MetadataReference> references)
+    {
+        if (sourceIndex is null)
+            return null;
+
+        string? signature = string.IsNullOrWhiteSpace(request.SignatureText)
+            ? null
+            : request.SignatureText;
+        if (!sourceIndex.TryFind(
+                new RequestedTarget(request.FullType, request.MethodName, request.Overload, signature),
+                out var sourceMember)
+            || sourceMember.Body is not { } authoredBody)
+        {
+            return null;
+        }
+
+        var authoredTargetBody = new ProductTargetBody(authoredBody, []);
+        try
+        {
+            var authoredArtifact = CompileBackSourceComposer.Compose(WithTargetBody(request, authoredTargetBody));
+            var tree = CSharpSyntaxTree.ParseText(authoredArtifact.Source, parseOptions);
+            var compilation = CSharpCompilation.Create("return-to-sender-source-oracle", [tree], references, compileOptions);
+            using var ms = new MemoryStream();
+            var emit = compilation.Emit(ms);
+            if (emit.Success)
+            {
+                return new FaultIsolationResult(
+                    FaultIsolationKind.BodyDefect,
+                    sourceMember.SourcePath,
+                    "authored body compiled in the same RTS shell");
+            }
+
+            var error = emit.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+            return new FaultIsolationResult(
+                FaultIsolationKind.ShellOrClosureDefect,
+                sourceMember.SourcePath,
+                FormatDiagnostic(error));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    static ArtifactRequest WithTargetBody(ArtifactRequest request, ProductTargetBody targetBody)
+        => request switch
+        {
+            MethodArtifactRequest method => method with { TargetBody = targetBody },
+            PropertyGetterArtifactRequest getter => getter with { TargetBody = targetBody },
+            PropertySetterArtifactRequest setter => setter with { TargetBody = targetBody },
+            _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
+        };
 
     static int EffectiveClosureRootCount(ProductArtifact artifact, IReadOnlySet<TypeDefinitionHandle> oracleClosureRoots)
     {

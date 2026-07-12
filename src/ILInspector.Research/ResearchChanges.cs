@@ -101,7 +101,6 @@ public sealed record ResearchChange
         ApiChange? apiChange = null,
         IlDiffRow? ilRow = null,
         IlDiffFailureRow? ilFailureRow = null,
-        BodySignalDiffRow? bodySignalRow = null,
         CSharpDiffRow? cSharpRow = null,
         CSharpDiffFailureRow? cSharpFailureRow = null,
         ImmutableArray<IlDiffDisplayRow> ilDisplayRows = default,
@@ -142,11 +141,6 @@ public sealed record ResearchChange
             mechanism,
             ResearchChangeMechanism.IlBody,
             nameof(ilFailureRow));
-        ValidatePayloadMechanism(
-            bodySignalRow is not null,
-            mechanism,
-            ResearchChangeMechanism.BodySignals,
-            nameof(bodySignalRow));
         ValidatePayloadMechanism(
             cSharpRow is not null,
             mechanism,
@@ -207,7 +201,6 @@ public sealed record ResearchChange
         ApiChange = apiChange;
         IlRow = ilRow;
         IlFailureRow = ilFailureRow;
-        BodySignalRow = bodySignalRow;
         CSharpRow = cSharpRow;
         CSharpFailureRow = cSharpFailureRow;
         IlDisplayRows = ilDisplayRows.IsDefault ? [] : ilDisplayRows;
@@ -252,7 +245,6 @@ public sealed record ResearchChange
     public ApiChange? ApiChange { get; }
     public IlDiffRow? IlRow { get; }
     public IlDiffFailureRow? IlFailureRow { get; }
-    public BodySignalDiffRow? BodySignalRow { get; }
     public CSharpDiffRow? CSharpRow { get; }
     public CSharpDiffFailureRow? CSharpFailureRow { get; }
     public ImmutableArray<IlDiffDisplayRow> IlDisplayRows { get; }

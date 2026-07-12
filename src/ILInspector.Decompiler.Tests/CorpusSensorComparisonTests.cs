@@ -114,6 +114,115 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void Compare_RejectsFidelityOracleMismatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression == "fidelity oracle differs (baseline compile-back, current rts-parity)");
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        Assert.Contains("Fidelity exact (oracle differs)", report);
+    }
+
+    [Fact]
+    public void AlignReturnToSenderResults_ReportsUnavailableTarget()
+    {
+        var target = new FidelityCheck.CompileBackResult(
+            "Fixture",
+            "Method",
+            1,
+            "(corelib:System.Int32) -> corelib:System.Int32",
+            FidelityCheck.CompileBackStatus.Exact,
+            "ldarg.1 ret",
+            "ldarg.1 ret",
+            Detail: null);
+
+        var result = Assert.Single(
+            CorpusSensor.AlignReturnToSenderResultsForTesting(
+                [target],
+                Array.Empty<ReturnToSender.Result>()));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+        Assert.Equal("return-to-sender-target-unavailable", result.Detail);
+        Assert.Equal("return-to-sender", result.CaptureDetail);
+        var buckets = FidelityCheck.SummarizeFailures(
+            [result],
+            FidelityCheck.CompileBackStatus.ContextFail);
+        Assert.Equal(1, buckets["return-to-sender target unavailable"].Count);
+    }
+
+    [Fact]
+    public void SummarizeReturnToSenderParity_ClassifiesRescuedSameAndWorse()
+    {
+        var exact = CompileBackResult("Exact", FidelityCheck.CompileBackStatus.Exact);
+        var rescued = CompileBackResult("Rescued", FidelityCheck.CompileBackStatus.OpcodeDiff);
+        var worse = CompileBackResult("Worse", FidelityCheck.CompileBackStatus.Exact);
+
+        var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting(
+            [exact, rescued, worse],
+            [
+                exact,
+                rescued with { Status = FidelityCheck.CompileBackStatus.Exact },
+                worse with { Status = FidelityCheck.CompileBackStatus.OpcodeDiff },
+            ]);
+
+        Assert.Equal(1, parity.RescuedMethods);
+        Assert.Equal(1, parity.SameMethods);
+        Assert.Equal(1, parity.WorseMethods);
+        Assert.Equal(3, parity.ComparedMethods);
+    }
+
+    [Fact]
+    public void Compare_GatesReturnToSenderParityWhenSampleMatches()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender,
+            returnToSenderParity: new ReturnToSenderParityMetrics(0, 1, 0));
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "OpcodeDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOpcodeDiffMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender,
+            returnToSenderParity: new ReturnToSenderParityMetrics(0, 0, 1));
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.StartsWith("RTS parity worse methods increased", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Compare_DoesNotGateSemanticCountsWhenPinnedSamplesDiffer()
     {
         var baseline = Snapshot(
@@ -340,7 +449,9 @@ public class CorpusSensorComparisonTests
         int fidelityCompileCap = 0,
         int fidelityCheckedMethods = 0,
         int fidelityExactMethods = 0,
-        int fidelityOpcodeDiffMethods = 0)
+        int fidelityOpcodeDiffMethods = 0,
+        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
+        ReturnToSenderParityMetrics? returnToSenderParity = null)
     {
         return new CorpusSensorSnapshot(
             SchemaVersion: 1,
@@ -372,8 +483,23 @@ public class CorpusSensorComparisonTests
                     fidelityOpcodeDiffMethods,
                     RecompileFailMethods: 0,
                     ContextFailMethods: 0,
-                    NotFullMethods: 0)));
+                    NotFullMethods: 0,
+                    ReturnToSenderParity: returnToSenderParity)),
+            FidelityOracle: fidelityOracle);
     }
+
+    static FidelityCheck.CompileBackResult CompileBackResult(
+        string method,
+        FidelityCheck.CompileBackStatus status)
+        => new(
+            "Fixture",
+            method,
+            0,
+            "() -> corelib:System.Int32",
+            status,
+            "ldc.i4.0 ret",
+            "ldc.i4.0 ret",
+            Detail: null);
 
     static IReadOnlyList<CorpusMethodSnapshot> PinnedMethods(int fullyRaised, int conditional)
     {

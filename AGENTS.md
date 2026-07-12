@@ -14,35 +14,38 @@ Read this file first, then use the docs it points to:
 
 Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENTS.md`.
 
-## Current priorities
+## Product constraints
 
-For decompiler raise, scorecard, ledger, adversarial fixture, or predicate work:
+Keep the product path SRM-only, NativeAOT-friendly, Roslyn-free, and free of
+inspected-assembly loading. This applies to every command, not just the
+decompiler.
 
-- Start with `docs/decompiler-quality.md` and
-  `docs/decompiler-correctness-pipeline.md`; use the latter to name the
-  highest relevant proof "boss" and evidence.
-- Follow `docs/decompiler-raise-discipline.md` for raise/typing/emission
-  changes — evidence, typing, scoping, and annotation rules distilled from
-  the value-typed-emission adversarial rounds. Non-negotiable there:
-  render-text A/B against an explicit merge-base ref; no claimed win before
-  the A/B lands; sibling-rule grep after every rule fix.
-- Read `docs/design/decompiler-substrate.md` before adding or changing shared
+## Decompiler and analysis work
+
+dotnet-inspect is a general assembly and package inspection tool; the decompiler
+and analysis paths are one workstream among several, not the whole repo. That
+work does carry its own deep discipline — when doing decompiler raise,
+adversarial-fixture, or predicate work, start with these docs and follow them
+over any summary here:
+
+- `docs/decompiler-quality.md` and `docs/decompiler-correctness-pipeline.md` —
+  overall quality workflow and the correctness-pipeline stages/evidence (use the
+  latter to name the highest relevant proof "boss").
+- `docs/decompiler-raise-discipline.md` — evidence, typing, scoping, and
+  annotation rules for raise/typing/emission changes. Non-negotiable there:
+  render-text A/B against an explicit merge-base ref, no claimed win before the
+  A/B lands, and a sibling-rule grep after every rule fix.
+- `docs/design/decompiler-substrate.md` — read before adding or changing shared
   rewrite-gate predicates. Use **decompiler substrate** for shared pass-evidence
   layers and **identity predicates** for exact gates; avoid **fact substrate**.
-- Keep the product path SRM-only, NativeAOT-friendly, Roslyn-free, and free of
-  inspected-assembly loading.
-- Prefer high-value hardening: measured correctness/validity bugs, adversarial
-  passes over recent or broad raises, and sharper `Partial` ledger rows. Do not
-  inflate the scorecard with easy rows just for motion.
-- Use `docs/burndown-curator.md` and `agents/` role files for burndown queue
-  hygiene. Claimed burndown rows are hot-start work: drive one row to a PR,
-  explicit blocker, or pivot issue.
-- Use PR-intent-informed adversarial reviews for recent or broad raises:
-  reconstruct the raise claim, then falsify the discriminator with near-miss
-  negative fixtures.
-- Use stepper semantic audits for ECMA/pipeline-contract concerns:
-  `--dump --steps --diff --cfg --facts --remarks` should identify the first
-  illegal intermediate rewrite.
+
+Prefer high-value hardening (measured correctness/validity bugs, adversarial
+passes over recent or broad raises) over easy changes made just for motion. Use
+PR-intent-informed adversarial reviews for recent or broad raises: reconstruct
+the raise claim, then falsify the discriminator with near-miss negative fixtures.
+For ECMA/pipeline-contract concerns, run a stepper semantic audit
+(`--dump --steps --diff --cfg --facts --remarks`) to find the first illegal
+intermediate rewrite.
 
 ## File-Based Apps
 
@@ -65,9 +68,10 @@ Console.WriteLine($"Found {items.Count} items");
 
 ## Building and Testing
 
-Repository development tracks .NET 11 daily SDKs so decompiler work can follow
-compiler-produced shapes before monthly previews. Published tool users are not
-affected by this repo-development requirement.
+Repository development tracks .NET 11 daily SDKs so the repo can follow
+compiler-produced shapes (which matters most for decompiler work) before monthly
+previews. Published tool users are not affected by this repo-development
+requirement.
 
 Before installing an SDK or changing PATH, inspect the current `dotnet`:
 
@@ -182,8 +186,8 @@ For decompiler-affecting PRs, follow this evidence and review contract:
 - Use `docs/templates/decompiler-pr.md` for general decompiler PR bodies,
   `docs/templates/decompiler-compile-back-harness-pr.md` for DecompilerHarness /
   ReturnToSender / compile-back coverage PRs, and
-  `docs/templates/decompiler-burndown-fix-pr.md` for focused invalid-`Full` /
-  burndown row fixes. Keep the human summary terse and conclusion-first.
+  `docs/templates/decompiler-burndown-fix-pr.md` for focused invalid-`Full`
+  fixes. Keep the human summary terse and conclusion-first.
 - Include the tool-generated quality-diff card; do not hand-construct or re-key
   metric tables. Use the matching corpus script/baseline pair documented in
   `tools/DecompilerHarness/README.md`. If a card has capped changed rows, link
@@ -267,9 +271,11 @@ Create feature branches with descriptive names, e.g.:
 
 ## Adversarial Review
 
-Complicated PRs — including **all decompiler and analysis PRs**, and any PR with
-non-trivial behavior changes, new heuristics/shapes, or subtle correctness risk
-— must request adversarial review from **two** different models, chosen from:
+Adversarial review is a **general requirement across the repo**, not a
+decompiler-only one. Any PR with non-trivial behavior changes — new
+heuristics or shapes, or subtle correctness, security, or compatibility risk, in
+the decompiler, analysis, or any other area — must request adversarial review
+from **two** different models, chosen from:
 
 - Claude Opus 4.8
 - GPT-5.5
@@ -309,6 +315,11 @@ Rules:
   no resolution commit applies. Do not merely summarize reviews back to the
   requester — they must be visible on the PR.
 - Simple/docs-only PRs do not need this; state that the change is low-risk.
+- If the work is very targeted (e.g. a one-line fix, a small localized
+  refactor, or a mechanical change with an obvious, contained blast radius), it
+  is fine to say so and ask whether the two-reviewer requirement really applies
+  before spending it. The answer is usually yes, so default to running it unless
+  a maintainer waives it.
 
 ## PR Strategy and CI Cost
 

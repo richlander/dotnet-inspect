@@ -49,6 +49,7 @@ public static class ApiSurfaceExtractor
                 Namespace = typeNamespace,
                 Name = typeName,
                 MetadataName = GetMetadataName(reader, typeDef),
+                Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
                 Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
@@ -1455,7 +1456,7 @@ public static class ApiSurfaceExtractor
     private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+        var signature = GuardedSignatureText.MethodText(reader, method, context);
         return signature.ParameterTypes.Length > 0 ? signature.ParameterTypes[0] : null;
     }
 
