@@ -512,6 +512,15 @@ lowerings at once).
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass; `--compile-cap all` runs an exhaustive binding sweep. Capped reports print how many eligible `Full` methods were actually compiled and label semantic findings as per-sample, not corpus-wide.
 
+Shell-noise classification uses diagnostic IDs, source spans, syntax, and
+semantic symbols rather than localized diagnostic prose. If a supported
+diagnostic lacks the source evidence needed to classify it, the original error
+stays reported and the method also receives `VLD0001`; evidence gaps therefore
+remain visible instead of silently joining an ordinary validity bucket.
+This intentionally stops suppressing method-level `CS0161` merely because its
+message names `__Shell.__M`; the current decompiler fixture assembly consequently
+exposes ten previously hidden missing-return defects.
+
 **Validity predicate scan** (`--validity-predicate-scan`): the cheap exhaustive
 coverage lane for known validity-risk classes. It does **not** compile or replace
 `--validity-check`; instead it runs the decompiler pipeline over every input
