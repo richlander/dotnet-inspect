@@ -69,7 +69,7 @@ public static class UnionTypeScanner
             MethodSignature<string> signature;
             try
             {
-                signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+                signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             }
             catch
             {

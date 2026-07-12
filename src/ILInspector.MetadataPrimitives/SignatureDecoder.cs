@@ -9,6 +9,8 @@ namespace ILInspector.Metadata;
 /// </summary>
 public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
+    const string Unresolved = "object";
+
     /// <summary>
     /// Shared instance for common use cases.
     /// </summary>
@@ -45,8 +47,16 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        var typeSpec = reader.GetTypeSpecification(handle);
-        return typeSpec.DecodeSignature(this, context);
+        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+            return Unresolved;
+        try
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        }
+        finally
+        {
+            TypeSpecGuard.Exit(blobLength);
+        }
     }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";

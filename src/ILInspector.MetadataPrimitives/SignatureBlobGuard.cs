@@ -3,7 +3,7 @@ using System.Reflection.Metadata;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Bounds the structural nesting depth of a metadata signature blob *before* it is handed to
+/// Bounds the structural nesting depth of a metadata signature blob before it is handed to
 /// <c>System.Reflection.Metadata</c>'s <c>SignatureDecoder</c>.
 ///
 /// SRM decodes a signature by recursing on the native stack once per nested structural element
