@@ -196,6 +196,14 @@ assembly that *defines* the selected member (via the type-lookup path), so a mem
 query over a package resolves to one reference, not many. Fan-out therefore happens only for
 assembly-level inspection without a selector.
 
+**Incremental acquisition bridge.** `AssemblySetResolver` is the current lower-layer primitive
+for that fan-out. It returns an owned `AssemblySet`: entries retain source, version, source kind,
+and selected TFM, while the set owns package-extraction directories until disposal.
+`AssemblySetSurfaceBuilder` composes an acquired set into one deterministic `ApiSurface` when a
+consumer, such as `diff`, needs package-level API comparison. The CLI still owns endpoint-range
+parsing, compatibility filtering, ranking, and rendering; it does not select package TFMs, merge
+assembly surfaces, or manage extraction directories.
+
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
