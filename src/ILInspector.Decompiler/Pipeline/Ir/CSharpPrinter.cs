@@ -471,6 +471,8 @@ public sealed partial class CSharpPrinter
 
     void AppendLabel(StringBuilder sb, string pad, int offset)
     {
+        // First printed occurrence owns the label; structured replacements stamp
+        // the enclosing statement so it must render before any same-offset child.
         if (_emittedLabels.Add(offset))
             sb.Append(pad).AppendLine($"IL_{offset:X4}:");
     }

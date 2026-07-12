@@ -470,19 +470,36 @@ internal static class CorpusSensor
         // per-method detail.
         if (baselinePinned is { } basePinned && currentPinned is { } curPinned)
         {
-            AddCountRegression(failures, "Full malformed methods (pinned)", basePinned.FullMalformed, curPinned.FullMalformed, tolerance.FullMalformedIncrease);
-            AddCountRegression(failures, "semantic defect methods (pinned)", basePinned.SemanticDefect, curPinned.SemanticDefect, tolerance.SemanticDefectIncrease);
+            if (HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => IsPinnedAssembly(method.AssemblyPath)
+                    && method.Validity != "not-sampled"))
+            {
+                AddCountRegression(failures, "Full malformed methods (pinned)", basePinned.FullMalformed, curPinned.FullMalformed, tolerance.FullMalformedIncrease);
+            }
+            if (HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => IsPinnedAssembly(method.AssemblyPath)
+                    && (method.Validity == "valid"
+                        || method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal))))
+            {
+                AddCountRegression(failures, "semantic defect methods (pinned)", basePinned.SemanticDefect, curPinned.SemanticDefect, tolerance.SemanticDefectIncrease);
+            }
 
             // Fidelity is sampled far more thinly than validity, and that small sample
             // currently lands almost entirely on repo assemblies, so the pinned subset
-            // often has zero fidelity-checked methods. Gate fidelity counts on the pinned
-            // subset only when it actually holds a fidelity sample and the caps match
-            // (per-method FidelityCheck is recorded at the primary cap); otherwise the
-            // aggregate fidelity count is drift-contaminated, so leave it ungated and rely
-            // on changed-method fidelity (the authoritative fidelity proof) instead of
-            // re-introducing a repo-growth false positive.
+            // often has zero fidelity-checked methods. Equal caps do not guarantee equal
+            // samples when the corpus changes, so gate only when the exact checked-method
+            // populations match. Otherwise rely on changed-method fidelity.
             if (basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
-                && current.FidelityCompileCap == baseline.FidelityCompileCap)
+                && current.FidelityCompileCap == baseline.FidelityCompileCap
+                && HaveSameMethodSample(
+                    baseline.Methods,
+                    current.Methods,
+                    static method => IsPinnedAssembly(method.AssemblyPath)
+                        && method.FidelityCheck != "not-sampled"))
             {
                 AddCountRegression(failures, "fidelity opcode diffs (pinned)", basePinned.OpcodeDiff, curPinned.OpcodeDiff, tolerance.FidelityOpcodeDiffIncrease);
                 AddCountRegression(failures, "fidelity recompile failures (pinned)", basePinned.RecompileFail, curPinned.RecompileFail, tolerance.FidelityRecompileFailIncrease);
@@ -760,26 +777,66 @@ internal static class CorpusSensor
     /// </summary>
     static void PrintPinnedGate(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
     {
-        if (PinnedCounts(baseline) is not { } basePinned || PinnedCounts(current) is not { } curPinned)
+        string? summary = PinnedGateSummary(baseline, current);
+        if (summary is null)
             return;
-        var fidelity = basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
+
+        Console.WriteLine();
+        Console.WriteLine(summary);
+    }
+
+    internal static string? PinnedGateSummaryForTesting(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+        => PinnedGateSummary(baseline, current);
+
+    static string? PinnedGateSummary(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    {
+        if (PinnedCounts(baseline) is not { } basePinned || PinnedCounts(current) is not { } curPinned)
+            return null;
+
+        bool comparableMalformedSamples = HaveSameMethodSample(
+            baseline.Methods,
+            current.Methods,
+            static method => IsPinnedAssembly(method.AssemblyPath)
+                && method.Validity != "not-sampled");
+        bool comparableSemanticSamples = HaveSameMethodSample(
+            baseline.Methods,
+            current.Methods,
+            static method => IsPinnedAssembly(method.AssemblyPath)
+                && (method.Validity == "valid"
+                    || method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal)));
+        bool comparableFidelitySamples = basePinned.FidelityChecked > 0 && curPinned.FidelityChecked > 0
             && current.FidelityCompileCap == baseline.FidelityCompileCap
+            && HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => IsPinnedAssembly(method.AssemblyPath)
+                    && method.FidelityCheck != "not-sampled");
+        var fidelity = comparableFidelitySamples
             ? $"opcode diffs {Number(basePinned.OpcodeDiff)} -> {Number(curPinned.OpcodeDiff)} "
                 + $"({Delta(curPinned.OpcodeDiff - basePinned.OpcodeDiff)})"
-            : "fidelity ungated (no pinned fidelity sample; rely on changed-method fidelity)";
+            : "fidelity ungated (sampling differs; rely on changed-method fidelity)";
         var fullMalformed = current.ValidityCompileCap > 0
-            ? $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
-                + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
+            ? comparableMalformedSamples
+                ? $"Full malformed {Number(basePinned.FullMalformed)} -> {Number(curPinned.FullMalformed)} "
+                    + $"({Delta(curPinned.FullMalformed - basePinned.FullMalformed)}); "
+                : "Full malformed ungated (sampling differs); "
             : "";
-        Console.WriteLine();
-        Console.WriteLine(
-            "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
+        var semanticDefects = current.ValidityCompileCap > 0
+            ? comparableSemanticSamples
+                ? $"semantic defects {Number(basePinned.SemanticDefect)} -> {Number(curPinned.SemanticDefect)} "
+                    + $"({Delta(curPinned.SemanticDefect - basePinned.SemanticDefect)}); "
+                : "semantic defects ungated (sampling differs); "
+            : "";
+        return "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
             + $"Fully raised {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)}); "
             + $"conditional residual {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)}); "
             + fullMalformed
-            + fidelity + ".");
+            + semanticDefects
+            + fidelity + ".";
     }
 
     static void PrintAdvisoryRateMovements(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
@@ -869,7 +926,10 @@ internal static class CorpusSensor
         return lines;
     }
 
-    static void PrintQualityMetricChanges(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    static void PrintQualityMetricChanges(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        TextWriter? output = null)
     {
         var rows = new List<MultiSourceRow>
         {
@@ -898,46 +958,81 @@ internal static class CorpusSensor
 
         if (current.ValidityCompileCap > 0)
         {
-            rows.Add(CountChangeRow("Full malformed", baseline.Metrics.FullMalformedMethods, current.Metrics.FullMalformedMethods, Goal.Lower));
+            bool comparableMalformedSamples = HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.Validity != "not-sampled");
+            bool comparableSemanticSamples = HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.Validity == "valid"
+                    || method.Validity.StartsWith("semantic-defect:", StringComparison.Ordinal));
+            rows.Add(CountChangeRow(
+                comparableMalformedSamples
+                    ? "Full malformed"
+                    : "Full malformed (sampling differs)",
+                baseline.Metrics.FullMalformedMethods,
+                current.Metrics.FullMalformedMethods,
+                comparableMalformedSamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableMalformedSamples));
             rows.Add(ShareChangeRow(
-                "Semantic defects",
+                comparableSemanticSamples
+                    ? "Semantic defects"
+                    : "Semantic defects (sampling differs)",
                 baseline.Metrics.SemanticDefectMethods,
                 baseline.Metrics.SemanticCheckedMethods,
                 current.Metrics.SemanticDefectMethods,
                 current.Metrics.SemanticCheckedMethods,
-                Goal.Lower));
+                comparableSemanticSamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableSemanticSamples));
         }
 
         if (current.FidelityCompileCap > 0)
         {
+            bool comparableFidelitySamples = HaveSameMethodSample(
+                baseline.Methods,
+                current.Methods,
+                static method => method.FidelityCheck != "not-sampled");
             rows.Add(ShareChangeRow(
-                "Fidelity opcode diffs",
+                comparableFidelitySamples
+                    ? "Fidelity opcode diffs"
+                    : "Fidelity opcode diffs (sampling differs)",
                 baseline.Metrics.Fidelity.OpcodeDiffMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.OpcodeDiffMethods,
                 current.Metrics.Fidelity.CheckedMethods,
-                Goal.Lower));
+                comparableFidelitySamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableFidelitySamples));
             rows.Add(ShareChangeRow(
-                "Fidelity exact",
+                comparableFidelitySamples
+                    ? "Fidelity exact"
+                    : "Fidelity exact (sampling differs)",
                 baseline.Metrics.Fidelity.ExactMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.ExactMethods,
                 current.Metrics.Fidelity.CheckedMethods,
-                Goal.Higher));
+                comparableFidelitySamples ? Goal.Higher : Goal.Context,
+                countDeltaKnown: comparableFidelitySamples));
             rows.Add(ShareChangeRow(
-                "Fidelity recompile failures",
+                comparableFidelitySamples
+                    ? "Fidelity recompile failures"
+                    : "Fidelity recompile failures (sampling differs)",
                 baseline.Metrics.Fidelity.RecompileFailMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.RecompileFailMethods,
                 current.Metrics.Fidelity.CheckedMethods,
-                Goal.Lower));
+                comparableFidelitySamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableFidelitySamples));
             rows.Add(ShareChangeRow(
-                "Fidelity context failures",
+                comparableFidelitySamples
+                    ? "Fidelity context failures"
+                    : "Fidelity context failures (sampling differs)",
                 baseline.Metrics.Fidelity.ContextFailMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.Fidelity.ContextFailMethods,
                 current.Metrics.Fidelity.CheckedMethods,
-                Goal.Lower));
+                comparableFidelitySamples ? Goal.Lower : Goal.Context,
+                countDeltaKnown: comparableFidelitySamples));
             rows.Add(ShareChangeRow(
                 "Fidelity check coverage",
                 baseline.Metrics.Fidelity.CheckedMethods,
@@ -949,21 +1044,57 @@ internal static class CorpusSensor
 
         rows.Add(CountChangeRow("Pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, Goal.Lower));
 
-        var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
+        var writer = new MarkoutWriter(output ?? Console.Out, new MarkdownFormatter());
         writer.WriteMultiSourceTable("Metric", rows);
     }
 
-    static MultiSourceRow CountChangeRow(string metric, int baseline, int current, Goal goal)
+    internal static string QualityMetricChangesForTesting(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+    {
+        using var writer = new StringWriter();
+        PrintQualityMetricChanges(baseline, current, writer);
+        return writer.ToString();
+    }
+
+    static MultiSourceRow CountChangeRow(
+        string metric,
+        int baseline,
+        int current,
+        Goal goal,
+        bool countDeltaKnown = true)
         => new(
             MetricLabel(metric, goal),
             new Source("Change", new Change<int>(baseline, current), new MarkoutCellFormat { Goal = goal }),
-            new Source("Count delta", new QualityText(Delta(current - baseline))));
+            new Source("Count delta", new QualityText(countDeltaKnown ? Delta(current - baseline) : "n/a")));
 
-    static MultiSourceRow ShareChangeRow(string metric, int baseline, int baselineTotal, int current, int currentTotal, Goal goal)
+    static MultiSourceRow ShareChangeRow(
+        string metric,
+        int baseline,
+        int baselineTotal,
+        int current,
+        int currentTotal,
+        Goal goal,
+        bool countDeltaKnown = true)
         => new(
             MetricLabel(metric, goal),
             new Source("Change", new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)), new MarkoutCellFormat { Goal = goal }),
-            new Source("Count delta", new QualityText(Delta(current - baseline))));
+            new Source("Count delta", new QualityText(countDeltaKnown ? Delta(current - baseline) : "n/a")));
+
+    static bool HaveSameMethodSample(
+        IReadOnlyList<CorpusMethodSnapshot>? baselineMethods,
+        IReadOnlyList<CorpusMethodSnapshot>? currentMethods,
+        Func<CorpusMethodSnapshot, bool> isChecked)
+    {
+        if (baselineMethods is null || currentMethods is null)
+            return false;
+
+        return baselineMethods
+            .Where(isChecked)
+            .Select(MethodKey)
+            .ToHashSet(StringComparer.Ordinal)
+            .SetEquals(currentMethods.Where(isChecked).Select(MethodKey));
+    }
 
     static string MetricLabel(string metric, Goal goal)
         => goal switch

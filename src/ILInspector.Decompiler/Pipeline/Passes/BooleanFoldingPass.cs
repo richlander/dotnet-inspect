@@ -57,7 +57,9 @@ public sealed class BooleanFoldingPass : IIrPass
                     if (value is Constant { Value: int intValue } && intValue is 0 or 1)
                         value = new Constant(intValue == 1, boolType);
                     stepper.StepOver("retype bool-array element store", store);
-                    store.ReplaceWith(new StoreElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1], value));
+                    var replacement = new StoreElement(boolType, (IrExpression)parts[0], (IrExpression)parts[1], value);
+                    replacement.InheritSourceOffset(store);
+                    store.ReplaceWith(replacement);
                     return true;
                 }
             }
@@ -237,9 +239,10 @@ public sealed class BooleanFoldingPass : IIrPass
                 continue;
             bool folded = node switch
             {
-                IfStatement statement => FoldNestedGuard(statement, stepper) || FoldGuardReturn(statement, stepper)
+                IfStatement statement => FoldNestedGuard(function, statement, stepper)
+                    || FoldGuardReturn(function, statement, stepper)
                     || FoldElseReturn(function, statement, stepper)
-                    || FoldTernaryReturn(statement, stepper)
+                    || FoldTernaryReturn(function, statement, stepper)
                     || FoldSlotDiamond(function, statement, stepper) || FoldCoalesce(function, statement, stepper),
                 Call call => FoldNullableGetValueOrDefault(call, stepper),
                 Comparison comparison => FoldBoolConstantComparison(comparison, stepper),
@@ -431,30 +434,36 @@ public sealed class BooleanFoldingPass : IIrPass
     };
 
     /// <summary>if (a) { if (b) { T } } → if (a &amp;&amp; b) { T }</summary>
-    static bool FoldNestedGuard(IfStatement outer, Stepper stepper)
+    static bool FoldNestedGuard(IrFunction function, IfStatement outer, Stepper stepper)
     {
         if (outer.HasElse || outer.Then.Children.Count != 1
             || outer.Then.Children[0] is not IfStatement { HasElse: false } inner)
         {
             return false;
         }
+        if (ConsumesBranchTarget(function, outer, inner))
+            return false;
+
         var outerCondition = outer.Condition;
         outerCondition.Detach();
         var innerParts = inner.DetachChildren();  // [condition, then]
         stepper.StepOver("fold nested if guards into &&", outer);
-        outer.ReplaceWith(new IfStatement(
+        var folded = new IfStatement(
             new LogicalBinary(LogicalKind.And, outerCondition, (IrExpression)innerParts[0]),
             (Block)innerParts[1],
-            null));
+            null);
+        folded.InheritSourceOffset(outer);
+        outer.ReplaceWith(folded);
         return true;
     }
 
     /// <summary>if (c) return A; return B; → short-circuit when either side is a bool constant.</summary>
-    static bool FoldGuardReturn(IfStatement guard, Stepper stepper)
+    static bool FoldGuardReturn(IrFunction function, IfStatement guard, Stepper stepper)
     {
         if (guard.HasElse || guard.Parent is not Block container)
             return false;
-        if (guard.Then.Children.Count != 1 || guard.Then.Children[0] is not Return { Value: { } thenValue })
+        if (guard.Then.Children.Count != 1
+            || guard.Then.Children[0] is not Return { Value: { } thenValue } thenReturn)
             return false;
         if (guard.ChildIndex + 1 >= container.Children.Count
             || container.Children[guard.ChildIndex + 1] is not Return { Value: { } tailValue } tailReturn)
@@ -466,6 +475,8 @@ public sealed class BooleanFoldingPass : IIrPass
         {
             return false;
         }
+        if (ConsumesBranchTarget(function, guard, thenReturn, tailReturn))
+            return false;
 
         // Decide the shape COMPLETELY before any detach: bailing after a
         // mutation leaves a mutilated IfStatement whose slots have shifted.
@@ -506,7 +517,9 @@ public sealed class BooleanFoldingPass : IIrPass
 
         tailReturn.Detach();
         stepper.StepOver("fold guarded return into short-circuit", guard);
-        guard.ReplaceWith(new Return(folded));
+        var foldedReturn = new Return(folded);
+        foldedReturn.InheritSourceOffset(guard);
+        guard.ReplaceWith(foldedReturn);
         return true;
     }
 
@@ -543,13 +556,14 @@ public sealed class BooleanFoldingPass : IIrPass
     /// top-level relational value arms. The polarity swap recovers the source-like
     /// comparison shape csc lowered into the guard.
     /// </summary>
-    static bool FoldTernaryReturn(IfStatement guard, Stepper stepper)
+    static bool FoldTernaryReturn(IrFunction function, IfStatement guard, Stepper stepper)
     {
         if (guard.HasElse || guard.Parent is not Block container)
             return false;
         if (container.Parent is not BlockContainer { Parent: IrFunction } || container.Children.Count != 2)
             return false;
-        if (guard.Then.Children.Count != 1 || guard.Then.Children[0] is not Return { Value: { } thenValue })
+        if (guard.Then.Children.Count != 1
+            || guard.Then.Children[0] is not Return { Value: { } thenValue } thenReturn)
             return false;
         if (guard.ChildIndex + 1 >= container.Children.Count
             || container.Children[guard.ChildIndex + 1] is not Return { Value: { } tailValue } tailReturn)
@@ -562,6 +576,8 @@ public sealed class BooleanFoldingPass : IIrPass
             return false;
         }
         if (!IsTernaryComparison(guard.Condition) || !IsSimpleTernaryArm(thenValue) || !IsSimpleTernaryArm(tailValue))
+            return false;
+        if (ConsumesBranchTarget(function, guard, thenReturn, tailReturn))
             return false;
 
         TypeRef? mergedType = null;
@@ -579,8 +595,10 @@ public sealed class BooleanFoldingPass : IIrPass
         tailReturn.Detach();
 
         stepper.StepOver("fold guarded return into ternary", guard);
-        guard.ReplaceWith(new Return(
-            new Conditional(Conditions.Negate(condition), tailValue, thenValue) { MergedType = mergedType }));
+        var foldedReturn = new Return(
+            new Conditional(Conditions.Negate(condition), tailValue, thenValue) { MergedType = mergedType });
+        foldedReturn.InheritSourceOffset(guard);
+        guard.ReplaceWith(foldedReturn);
         return true;
     }
 
@@ -643,6 +661,8 @@ public sealed class BooleanFoldingPass : IIrPass
         };
         if (!match)
             return false;
+        if (ConsumesBranchTarget(function, guard, guard, inner))
+            return false;
 
         var first = previous.DetachChildren()[0];
         var fallback = inner.DetachChildren()[0];
@@ -652,11 +672,19 @@ public sealed class BooleanFoldingPass : IIrPass
         switch (previous)
         {
             case StoreStackSlot slot:
-                previous.ReplaceWith(new StoreStackSlot(slot.Slot, coalesce));
+            {
+                var replacement = new StoreStackSlot(slot.Slot, coalesce);
+                replacement.InheritSourceOffset(previous);
+                previous.ReplaceWith(replacement);
                 break;
+            }
             case StoreLocal local:
-                previous.ReplaceWith(new StoreLocal(local.Index, local.Type, coalesce));
+            {
+                var replacement = new StoreLocal(local.Index, local.Type, coalesce);
+                replacement.InheritSourceOffset(previous);
+                previous.ReplaceWith(replacement);
                 break;
+            }
         }
         return true;
     }
@@ -678,6 +706,9 @@ public sealed class BooleanFoldingPass : IIrPass
         {
             return false;
         }
+        if (ConsumesBranchTarget(function, diamond, thenStore, elseStore))
+            return false;
+
         // The importer merged this slot to the genuine common supertype at the
         // join this diamond feeds. Slot numbers are stack-depth positions and can
         // be reused by earlier live ranges, so look after the whole diamond, not
@@ -693,8 +724,60 @@ public sealed class BooleanFoldingPass : IIrPass
         var whenTrue = (IrExpression)thenStore.DetachChildren()[0];
         var whenFalse = (IrExpression)elseStore.DetachChildren()[0];
         stepper.StepOver("fold store diamond into ternary", diamond);
-        diamond.ReplaceWith(new StoreStackSlot(thenStore.Slot, new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType }));
+        var foldedStore = new StoreStackSlot(
+            thenStore.Slot,
+            new Conditional(condition, whenTrue, whenFalse) { MergedType = mergedType });
+        foldedStore.InheritSourceOffset(diamond);
+        diamond.ReplaceWith(foldedStore);
         return true;
+    }
+
+    static bool ConsumesBranchTarget(
+        IrFunction function,
+        IrNode anchor,
+        IrNode firstConsumed,
+        IrNode? secondConsumed = null)
+    {
+        var targets = new HashSet<int>();
+        CollectBranchTargets(EnclosingBodyScope(function, anchor), targets);
+        return IsTarget(firstConsumed) || secondConsumed is not null && IsTarget(secondConsumed);
+
+        bool IsTarget(IrNode node)
+            => node.SourceOffset >= 0 && targets.Contains(node.SourceOffset);
+    }
+
+    static IrNode EnclosingBodyScope(IrFunction function, IrNode node)
+    {
+        for (var current = node.Parent; current is not null && !ReferenceEquals(current, function); current = current.Parent)
+            if (current is Lambda or LocalFunctionStatement)
+                return current;
+        return function;
+    }
+
+    static void CollectBranchTargets(IrNode scope, HashSet<int> targets)
+    {
+        foreach (var child in scope.Children)
+        {
+            switch (child)
+            {
+                case Branch branch:
+                    targets.Add(branch.TargetOffset);
+                    break;
+                case ConditionalBranch conditional:
+                    targets.Add(conditional.TargetOffset);
+                    break;
+                case Leave leave:
+                    targets.Add(leave.TargetOffset);
+                    break;
+                case SwitchBranch @switch:
+                    foreach (int target in @switch.TargetOffsets)
+                        targets.Add(target);
+                    break;
+            }
+
+            if (child is not (Lambda or LocalFunctionStatement))
+                CollectBranchTargets(child, targets);
+        }
     }
 
     static bool HasNullArmForNonNullableValue(IrExpression whenTrue, IrExpression whenFalse, TypeRef? mergedType, IrFunction function)
