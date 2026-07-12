@@ -197,6 +197,7 @@ internal static class CorpusSensor
                 Interlocked.Increment(ref methods);
                 string? residual = null;
                 string? passBug = null;
+                FidelityCauseBuckets.Census? fidelityCensus = null;
                 try
                 {
                     IrPasses.Run(function);
@@ -210,10 +211,19 @@ internal static class CorpusSensor
                 if (passBug is null)
                 {
                     string id = $"{typeName}::{methodName}{overload}";
-                    residual = Completeness.Residual(function)
-                        ?? (function.Fidelity != DecompilationFidelity.Full
-                            ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(function, id)}"
+                    fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
+                    if (!fidelityCensus.Value.Succeeded)
+                    {
+                        Interlocked.Increment(ref passBugs);
+                        passBug = fidelityCensus.Value.ErrorCode;
+                    }
+                    else
+                    {
+                        residual = Completeness.Residual(function)
+                            ?? (!fidelityCensus.Value.Causes.IsEmpty
+                            ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(fidelityCensus.Value)}"
                             : null);
+                    }
                 }
                 if (passBug is null && residual is null)
                 {
@@ -230,7 +240,9 @@ internal static class CorpusSensor
                     methodName,
                     overload,
                     CorpusMethodIdentity.SignatureText(function.Signature),
-                    function.Fidelity.ToString(),
+                    fidelityCensus.HasValue && fidelityCensus.Value.Succeeded
+                        ? (fidelityCensus.Value.Causes.IsEmpty ? "Full" : "Partial")
+                        : "Unavailable",
                     residual is null && passBug is null,
                     residual,
                     passBug,

@@ -103,7 +103,15 @@ internal static class LibraryReport
                     continue;
                 }
 
-                bool full = function.Fidelity == DecompilationFidelity.Full;
+                var fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
+                if (!fidelityCensus.Succeeded)
+                {
+                    report.PassBugs++;
+                    Record(buckets, $"pass-bug: {fidelityCensus.ErrorCode}", id, maxExamples);
+                    continue;
+                }
+
+                bool full = fidelityCensus.Causes.IsEmpty;
                 if (full)
                 {
                     report.FullMethods++;
@@ -114,7 +122,7 @@ internal static class LibraryReport
                 }
 
                 string? residual = Completeness.Residual(function)
-                    ?? (!full ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(function, id)}" : null);
+                    ?? (!full ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(fidelityCensus)}" : null);
                 if (residual is null)
                 {
                     report.FullyRaisedMethods++;
@@ -179,7 +187,7 @@ internal static class LibraryReport
                 var defects = compilation.GetDiagnostics()
                     .Where(ValidityCheck.IsError)
                     .Where(d => !ValidityCheck.BindingNoise.Contains(d.Id))
-                    .Where(d => !ValidityCheck.IsShellArtifact(d))
+                    .Where(d => !ValidityCheck.IsShellArtifact(d, tree, semanticModel))
                     .Where(d => !ValidityCheck.IsGenericArityCollisionNoise(d, tree, function))
                     .Where(d => !ValidityCheck.IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
                     .Where(d => !ValidityCheck.IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))

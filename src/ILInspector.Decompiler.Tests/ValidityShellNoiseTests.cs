@@ -57,6 +57,74 @@ public class ValidityShellNoiseTests
         Assert.DoesNotContain(diagnostics, d => d.Severity == DiagnosticSeverity.Error);
     }
 
+    [Fact]
+    public void ShellThisConversionDiagnostic_IsFilteredFromStructuredEvidence()
+    {
+        var (diagnostic, tree, semanticModel) = DiagnosticFor("""
+            class __Shell
+            {
+                static void TakeInt(int value) { }
+                void __M() => TakeInt(this);
+            }
+            """, "CS1503");
+
+        Assert.True(ValidityCheck.IsShellArtifact(diagnostic, tree, semanticModel));
+    }
+
+    [Fact]
+    public void OtherReceiverConversionDiagnostic_StaysReported()
+    {
+        var (diagnostic, tree, semanticModel) = DiagnosticFor("""
+            class Other { }
+            class __Shell
+            {
+                static void TakeInt(int value) { }
+                void __M() => TakeInt(new Other());
+            }
+            """, "CS1503");
+
+        Assert.False(ValidityCheck.IsShellArtifact(diagnostic, tree, semanticModel));
+    }
+
+    [Fact]
+    public void NonSourceDiagnostic_StaysReported()
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            "class __Shell { }",
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CreateCompilation(tree);
+        var diagnostic = Diagnostic.Create(
+            new DiagnosticDescriptor(
+                "TEST001",
+                "test",
+                "mentions __Shell",
+                "test",
+                DiagnosticSeverity.Error,
+                isEnabledByDefault: true),
+            Location.None);
+
+        Assert.False(ValidityCheck.IsShellArtifact(
+            diagnostic,
+            tree,
+            compilation.GetSemanticModel(tree)));
+    }
+
+    static (Diagnostic Diagnostic, SyntaxTree Tree, SemanticModel SemanticModel) DiagnosticFor(
+        string source,
+        string diagnosticId)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CreateCompilation(tree);
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            d => d.Id == diagnosticId);
+        return (diagnostic, tree, compilation.GetSemanticModel(tree));
+    }
+
     static (Diagnostic Diagnostic, SyntaxTree Tree, SemanticModel SemanticModel) ReadOnlyInstanceDiagnostic()
     {
         var tree = CSharpSyntaxTree.ParseText("""

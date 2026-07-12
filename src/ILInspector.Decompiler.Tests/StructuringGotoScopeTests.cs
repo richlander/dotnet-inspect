@@ -184,5 +184,8 @@ public class StructuringGotoScopeTests
 
         Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 64);
         Assert.Empty(function.Descendants.OfType<Break>());
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.DoesNotContain("goto IL_0018;", output);
+        Assert.DoesNotContain("IL_0018:", output);
     }
 }

@@ -7,7 +7,8 @@ namespace ILInspector.DecompilerHarness;
 internal sealed record ClosureDiagnosticReference(
     string Name,
     string? ContainingType = null,
-    string? ContainingNamespace = null);
+    string? ContainingNamespace = null,
+    IReadOnlyList<string>? CompatibleReceiverTypes = null);
 
 internal static class ClosureDiagnosticEvidence
 {
@@ -68,10 +69,14 @@ internal static class ClosureDiagnosticEvidence
             "CS0234" => new ClosureDiagnosticReference(
                 name,
                 ContainingNamespace: ContainingNamespace(simpleName)),
-            "CS1061" or "CS0117" => new ClosureDiagnosticReference(
+            "CS1061" => ReceiverReference(
                 name,
-                ContainingType: ReceiverType(simpleName, semanticModel)
+                ReceiverType(simpleName, semanticModel)
                     ?? InitializerType(simpleName, semanticModel)),
+            "CS0117" => new ClosureDiagnosticReference(
+                name,
+                ContainingType: TypeNameOrNull(ReceiverType(simpleName, semanticModel))
+                    ?? TypeNameOrNull(InitializerType(simpleName, semanticModel))),
             "CS0122" => InaccessibleReference(simpleName, semanticModel)
                 ?? new ClosureDiagnosticReference(name),
             "CS0246" or "CS0103" => new ClosureDiagnosticReference(name),
@@ -129,7 +134,7 @@ internal static class ClosureDiagnosticEvidence
         return memberAccess is null ? null : IdentifierPath(memberAccess.Expression);
     }
 
-    static string? ReceiverType(SimpleNameSyntax simpleName, SemanticModel semanticModel)
+    static ITypeSymbol? ReceiverType(SimpleNameSyntax simpleName, SemanticModel semanticModel)
     {
         var memberAccess = simpleName.AncestorsAndSelf()
             .OfType<MemberAccessExpressionSyntax>()
@@ -146,9 +151,8 @@ internal static class ClosureDiagnosticEvidence
         if (receiver is null)
             return null;
 
-        var type = semanticModel.GetTypeInfo(receiver).Type
+        return semanticModel.GetTypeInfo(receiver).Type
             ?? semanticModel.GetSymbolInfo(receiver).Symbol as ITypeSymbol;
-        return type is null ? null : TypeName(type);
     }
 
     static ClosureDiagnosticReference? ImplicitMemberReference(
@@ -186,22 +190,22 @@ internal static class ClosureDiagnosticEvidence
         if (missingAwaiter
             && (!missingAdd || collectionIndex < 0 || awaitIndex < collectionIndex))
         {
-            return TypeName(awaitExpression!.Expression, semanticModel) is { } awaiterType
-                ? new ClosureDiagnosticReference("GetAwaiter", awaiterType)
+            return TypeSymbol(awaitExpression!.Expression, semanticModel) is { } awaiterType
+                ? ReceiverReference("GetAwaiter", awaiterType)
                 : null;
         }
 
         if (missingAdd)
         {
             return InitializerType(collectionInitializer!, semanticModel) is { } collectionType
-                ? new ClosureDiagnosticReference("Add", collectionType)
+                ? ReceiverReference("Add", collectionType)
                 : null;
         }
 
         return null;
     }
 
-    static string? InitializerType(SyntaxNode node, SemanticModel semanticModel)
+    static ITypeSymbol? InitializerType(SyntaxNode node, SemanticModel semanticModel)
     {
         var initializer = node as InitializerExpressionSyntax
             ?? node.Ancestors()
@@ -215,22 +219,51 @@ internal static class ClosureDiagnosticEvidence
         {
             return semanticModel.GetSymbolInfo(assignment.Left).Symbol switch
             {
-                IPropertySymbol property => TypeName(property.Type),
-                IFieldSymbol field => TypeName(field.Type),
+                IPropertySymbol property => property.Type,
+                IFieldSymbol field => field.Type,
                 _ => null,
             };
         }
 
         return initializer.Parent is ExpressionSyntax expression
-            ? TypeName(expression, semanticModel)
+            ? TypeSymbol(expression, semanticModel)
             : null;
     }
 
-    static string? TypeName(ExpressionSyntax expression, SemanticModel semanticModel)
+    static string? TypeNameOrNull(ITypeSymbol? type)
+        => type is null ? null : TypeName(type);
+
+    static ITypeSymbol? TypeSymbol(ExpressionSyntax expression, SemanticModel semanticModel)
     {
-        var type = semanticModel.GetTypeInfo(expression).Type
+        return semanticModel.GetTypeInfo(expression).Type
             ?? semanticModel.GetSymbolInfo(expression).Symbol as ITypeSymbol;
-        return type is null ? null : TypeName(type);
+    }
+
+    static ClosureDiagnosticReference ReceiverReference(string name, ITypeSymbol? receiver)
+        => receiver is null
+            ? new ClosureDiagnosticReference(name)
+            : new ClosureDiagnosticReference(
+                name,
+                TypeName(receiver),
+                CompatibleReceiverTypes: CompatibleReceiverTypes(receiver));
+
+    static IReadOnlyList<string> CompatibleReceiverTypes(ITypeSymbol receiver)
+    {
+        var types = new List<string> { TypeName(receiver) };
+        if (receiver is INamedTypeSymbol named)
+        {
+            for (var current = named.BaseType; current is not null; current = current.BaseType)
+                types.Add(TypeName(current));
+            foreach (var @interface in named.AllInterfaces)
+                types.Add(TypeName(@interface));
+        }
+        else if (receiver is ITypeParameterSymbol parameter)
+        {
+            foreach (var constraint in parameter.ConstraintTypes)
+                types.Add(TypeName(constraint));
+        }
+
+        return types.Distinct(StringComparer.Ordinal).ToArray();
     }
 
     static ClosureDiagnosticReference? InaccessibleReference(

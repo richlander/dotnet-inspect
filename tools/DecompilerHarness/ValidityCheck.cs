@@ -309,7 +309,7 @@ static class ValidityCheck
         var defects = compilation.GetDiagnostics()
             .Where(IsError)
             .Where(d => !BindingNoise.Contains(d.Id))
-            .Where(d => !IsShellArtifact(d))
+            .Where(d => !IsShellArtifact(d, tree, semanticModel))
             .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
             .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
             .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
@@ -662,28 +662,38 @@ static class ValidityCheck
 
     /// <summary>
     /// The body is wrapped in an instance method on a synthetic <c>__Shell</c>
-    /// class, so the only <c>__Shell</c>-typed expression in scope is <c>this</c>
-    /// — which in the real method is the declaring type. A diagnostic that names
-    /// <c>__Shell</c> is therefore the shell mistyping <c>this</c> (the original
-    /// source compiled, so the declaring-type form is valid), not a defect in the
-    /// decompiled output. Filtered like the binding-visibility codes.
+    /// class, so a diagnostic located on its <c>this</c> expression may reflect
+    /// the shell's substituted declaring type rather than a defect in the
+    /// decompiled output. The decision uses source and semantic evidence; Roslyn
+    /// message text remains display-only.
     /// </summary>
-    internal static bool IsShellArtifact(Diagnostic diagnostic)
-        => diagnostic.GetMessage().Contains("__Shell") || IsThisRefShellArtifact(diagnostic);
-
-    static bool IsThisRefShellArtifact(Diagnostic diagnostic)
+    internal static bool IsShellArtifact(
+        Diagnostic diagnostic,
+        SyntaxTree tree,
+        SemanticModel semanticModel)
     {
-        // `out this` / `ref this` is valid inside a struct instance method, but
-        // the validity shell wraps every body in a reference-type __Shell method.
-        // Roslyn therefore reports CS1605 against `this` even when the original
-        // declaring type accepts the spelling.
-        if (diagnostic.Id != "CS1605" || diagnostic.Location.SourceTree is not { } tree)
+        if (!diagnostic.Location.IsInSource
+            || diagnostic.Location.SourceTree != tree)
+        {
             return false;
-        var lineSpan = diagnostic.Location.GetLineSpan();
-        if (lineSpan.StartLinePosition.Line < 0)
+        }
+
+        var span = diagnostic.Location.SourceSpan;
+        var node = tree.GetRoot().FindNode(span, getInnermostNodeForTie: true);
+        var thisExpression = node.AncestorsAndSelf()
+            .OfType<ThisExpressionSyntax>()
+            .FirstOrDefault()
+            ?? node.DescendantNodesAndSelf()
+                .OfType<ThisExpressionSyntax>()
+                .FirstOrDefault(candidate => candidate.Span.IntersectsWith(span));
+        if (thisExpression is null)
             return false;
-        var line = tree.GetText().Lines[lineSpan.StartLinePosition.Line].ToString();
-        return line.Contains("this", StringComparison.Ordinal);
+
+        return semanticModel.GetTypeInfo(thisExpression).Type is INamedTypeSymbol
+        {
+            Name: "__Shell",
+            ContainingNamespace.IsGlobalNamespace: true
+        };
     }
 
     /// <summary>
@@ -737,8 +747,7 @@ static class ValidityCheck
         if (diagnostic.Location.SourceTree != tree)
             return false;
 
-        string? simpleName = SimpleNameAtDiagnosticLocation(diagnostic, tree)
-            ?? SimpleNameFromDiagnosticMessage(diagnostic);
+        string? simpleName = SimpleNameAtDiagnosticLocation(diagnostic, tree);
         if (simpleName is null)
             return false;
 
@@ -831,21 +840,6 @@ static class ValidityCheck
         if (node.FirstAncestorOrSelf<ObjectCreationExpressionSyntax>() is { Type: IdentifierNameSyntax objectType })
             return objectType.Identifier.ValueText;
         return null;
-    }
-
-    static string? SimpleNameFromDiagnosticMessage(Diagnostic diagnostic)
-    {
-        var message = diagnostic.GetMessage();
-        int start = message.IndexOf('\'');
-        if (start < 0)
-            return null;
-        int end = message.IndexOf('\'', start + 1);
-        if (end <= start + 1)
-            return null;
-        var quoted = message[(start + 1)..end];
-        if (quoted.Any(c => !(char.IsLetterOrDigit(c) || c is '_' or '.' or '+')))
-            return null;
-        return ShellNoise.SimpleName(quoted);
     }
 
     internal static ImmutableArray<MetadataReference> RuntimeReferences()

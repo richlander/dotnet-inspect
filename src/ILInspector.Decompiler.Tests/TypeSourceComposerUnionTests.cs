@@ -1552,7 +1552,7 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
-        Assert.Equal("return pet is not null && pet is not Cat;",
+        Assert.Equal("return pet is not Cat;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat"));
         Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotCat"));
         var classValueNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotNamedCat");
@@ -1611,6 +1611,7 @@ public class TypeSourceComposerUnionTests
                 public static class Matcher
                 {
                     public static bool IsCat(PetLike pet) => pet.Value is Cat;
+                    public static bool IsNotCat(PetLike pet) => pet.Value is not Cat;
                     public static bool IsCatOrDog(PetLike pet) => pet.Value is Cat or Dog;
                     public static bool IsNull(PetLike pet) => pet.Value is null;
                     public static bool HasCat(PetLike pet)
@@ -1643,6 +1644,7 @@ public class TypeSourceComposerUnionTests
             """);
 
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat"));
         var nonUnionOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog");
         Assert.Contains("pet.Value", nonUnionOr);
         Assert.DoesNotContain("return pet is Cat || pet is Dog", nonUnionOr);

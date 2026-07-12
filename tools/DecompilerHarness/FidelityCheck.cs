@@ -1195,13 +1195,13 @@ static class FidelityCheck
         // worse than whole-module.
         if (clusterMode == ClusterMode.ForceAll)
         {
-            var (typeIndex, methodIndex, namespaceIndex) = ClusterIndexes(reader);
+            var (typeIndex, methodIndex, namespaceIndex, receiverTypes) = ClusterIndexes(reader);
             var forced = new List<CompileBackResult>(entries.Count);
             foreach (var e in entries)
             {
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, timings, out var captureDetail);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, receiverTypes, timings, out var captureDetail);
                 forced.Add(captured is not null
-                    ? captured with { Capture = CaptureMode.Cluster }
+                    ? captured with { Capture = CaptureMode.Cluster, CaptureDetail = captureDetail }
                     : CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings) with
                     {
                         Capture = CaptureMode.ClusterBailed,
@@ -1230,14 +1230,14 @@ static class FidelityCheck
         // A row that fails both is ClusterBailed — the not-safely-capturable band.
         if (clusterMode == ClusterMode.Escalate)
         {
-            var (typeIndex, methodIndex, namespaceIndex) = ClusterIndexes(reader);
+            var (typeIndex, methodIndex, namespaceIndex, receiverTypes) = ClusterIndexes(reader);
             for (int i = 0; i < results.Count && i < entries.Count; i++)
             {
                 if (results[i].Status is not (CompileBackStatus.RecompileFail or CompileBackStatus.ContextFail))
                     continue;
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, timings, out var captureDetail);
+                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, receiverTypes, timings, out var captureDetail);
                 results[i] = captured is not null
-                    ? captured with { Capture = CaptureMode.Cluster }
+                    ? captured with { Capture = CaptureMode.Cluster, CaptureDetail = captureDetail }
                     : results[i] with
                     {
                         Capture = CaptureMode.ClusterBailed,
@@ -1354,26 +1354,43 @@ static class FidelityCheck
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MetadataReader, ClusterIndex> s_clusterIndexCache = new();
 
+    sealed record ExtensionMethodRoot(
+        TypeDefinitionHandle Root,
+        string? ReceiverType,
+        bool UniversalReceiver);
+
+    readonly record struct ExtensionRootSelection(
+        IReadOnlyList<TypeDefinitionHandle> Roots,
+        bool UsedFallback,
+        string? FallbackReason);
+
     sealed record ClusterIndex(
         Dictionary<string, List<TypeDefinitionHandle>> Types,
-        Dictionary<string, List<TypeDefinitionHandle>> Methods,
-        Dictionary<string, List<TypeDefinitionHandle>> Namespaces);
+        Dictionary<string, List<ExtensionMethodRoot>> Methods,
+        Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
+        Dictionary<string, TypeDefinitionHandle> ReceiverTypes);
 
     /// <summary>
-    /// Three name -> top-level-root maps for the compile-driven cluster: type leaf
+    /// Name -> top-level-root maps for the compile-driven cluster: type leaf
     /// names (to resolve a missing type), method names (to resolve a missing
     /// extension method to the static class that declares it), and namespace names
     /// (to resolve a missing namespace segment — a `CS0234` whose body reference
-    /// lives in a sub-namespace the leaf-name index cannot name). Cached per reader.
+    /// lives in a sub-namespace the leaf-name index cannot name), plus full type
+    /// names for receiver hierarchy traversal. Cached per reader.
     /// </summary>
-    static (Dictionary<string, List<TypeDefinitionHandle>> Types, Dictionary<string, List<TypeDefinitionHandle>> Methods, Dictionary<string, List<TypeDefinitionHandle>> Namespaces) ClusterIndexes(MetadataReader reader)
+    static (
+        Dictionary<string, List<TypeDefinitionHandle>> Types,
+        Dictionary<string, List<ExtensionMethodRoot>> Methods,
+        Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
+        Dictionary<string, TypeDefinitionHandle> ReceiverTypes) ClusterIndexes(MetadataReader reader)
     {
         if (s_clusterIndexCache.TryGetValue(reader, out var cached))
-            return (cached.Types, cached.Methods, cached.Namespaces);
+            return (cached.Types, cached.Methods, cached.Namespaces, cached.ReceiverTypes);
 
         var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
-        var methods = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var methods = new Dictionary<string, List<ExtensionMethodRoot>>(StringComparer.Ordinal);
         var namespaces = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
+        var receiverTypes = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
         static void Add(Dictionary<string, List<TypeDefinitionHandle>> index, string key, TypeDefinitionHandle root)
         {
             if (key.Length == 0)
@@ -1389,19 +1406,218 @@ static class FidelityCheck
             var typeDef = reader.GetTypeDefinition(handle);
             var root = TopLevelRootOf(reader, handle);
             Add(types, NormalizeTypeName(reader.GetString(typeDef.Name)), root);
+            receiverTypes.TryAdd(
+                NormalizeReceiverTypeName(reader.GetFullTypeName(typeDef)),
+                handle);
             // A top-level type's namespace maps to its own root, so a missing
             // namespace segment can pull in every root declared directly in it.
             if (typeDef.GetDeclaringType().IsNil)
                 Add(namespaces, reader.GetString(typeDef.Namespace), handle);
-            // Static-class methods are the extension-method candidates a CS1061
-            // "no accessible extension method 'M'" must resolve to.
+            // A method-level ExtensionAttribute is the precise signal; ordinary
+            // same-name static methods cannot satisfy CS1061.
             if ((typeDef.Attributes & (TypeAttributes.Abstract | TypeAttributes.Sealed)) == (TypeAttributes.Abstract | TypeAttributes.Sealed))
+            {
                 foreach (var mh in typeDef.GetMethods())
-                    Add(methods, reader.GetString(reader.GetMethodDefinition(mh).Name), root);
+                {
+                    var method = reader.GetMethodDefinition(mh);
+                    if (!AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
+                        continue;
+
+                    string methodName = reader.GetString(method.Name);
+                    if (!methods.TryGetValue(methodName, out var candidates))
+                        methods[methodName] = candidates = [];
+                    candidates.Add(CreateExtensionMethodRoot(reader, root, typeDef, method));
+                }
+            }
         }
 
-        s_clusterIndexCache.Add(reader, new ClusterIndex(types, methods, namespaces));
-        return (types, methods, namespaces);
+        s_clusterIndexCache.Add(reader, new ClusterIndex(types, methods, namespaces, receiverTypes));
+        return (types, methods, namespaces, receiverTypes);
+    }
+
+    static ExtensionMethodRoot CreateExtensionMethodRoot(
+        MetadataReader reader,
+        TypeDefinitionHandle root,
+        TypeDefinition declaringType,
+        MethodDefinition method)
+    {
+        try
+        {
+            var context = GenericContext.ForMethod(reader, declaringType, method);
+            var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+            if (signature.ParameterTypes.Length == 0)
+                return new ExtensionMethodRoot(root, null, false);
+
+            string receiver = signature.ParameterTypes[0];
+            bool universal = context.MethodParameters.Contains(receiver, StringComparer.Ordinal);
+            return new ExtensionMethodRoot(
+                root,
+                universal ? null : NormalizeReceiverTypeName(receiver),
+                universal);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return new ExtensionMethodRoot(root, null, false);
+        }
+    }
+
+    static ExtensionRootSelection SelectExtensionRoots(
+        MetadataReader reader,
+        IReadOnlyDictionary<string, List<ExtensionMethodRoot>> methodIndex,
+        IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
+        string methodName,
+        string? receiverType,
+        IReadOnlyList<string>? compatibleReceiverTypes)
+    {
+        if (!methodIndex.TryGetValue(methodName, out var candidates))
+            return new ExtensionRootSelection([], false, null);
+
+        string? receiver = receiverType is null ? null : NormalizeReceiverTypeName(receiverType);
+        HashSet<string>? semanticClosure = compatibleReceiverTypes?
+            .Select(NormalizeReceiverTypeName)
+            .ToHashSet(StringComparer.Ordinal);
+        bool closureComplete = false;
+        HashSet<string>? receiverClosure = semanticClosure is { Count: > 0 }
+            ? semanticClosure
+            : receiver is null
+                ? null
+                : BuildReceiverClosure(reader, receiverTypes, receiver, out closureComplete);
+        bool complete = semanticClosure is { Count: > 0 }
+            || (receiverClosure is not null && closureComplete);
+        var compatible = new List<TypeDefinitionHandle>();
+        var unknown = new List<TypeDefinitionHandle>();
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.UniversalReceiver
+                || (candidate.ReceiverType is not null
+                    && candidate.ReceiverType == receiver)
+                || (candidate.ReceiverType is not null
+                    && receiverClosure?.Contains(candidate.ReceiverType) == true))
+            {
+                AddDistinct(compatible, candidate.Root);
+                continue;
+            }
+
+            if (receiverClosure is null
+                || candidate.ReceiverType is null
+                || (!complete && !receiverTypes.ContainsKey(candidate.ReceiverType)))
+            {
+                AddDistinct(unknown, candidate.Root);
+            }
+        }
+
+        if (compatible.Count > 0)
+            return new ExtensionRootSelection(compatible, false, null);
+        if (unknown.Count == 0)
+            return new ExtensionRootSelection([], false, null);
+
+        string reason = receiver is null
+            ? "receiver type unavailable"
+            : receiverClosure is null
+                ? $"receiver metadata unavailable for {receiver}"
+                : $"receiver hierarchy incomplete for {receiver}";
+        return new ExtensionRootSelection(unknown, true, reason);
+    }
+
+    static HashSet<string>? BuildReceiverClosure(
+        MetadataReader reader,
+        IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
+        string receiver,
+        out bool complete)
+    {
+        complete = false;
+        if (!receiverTypes.TryGetValue(receiver, out var receiverHandle))
+            return null;
+
+        bool hierarchyComplete = true;
+        var closure = new HashSet<string>(StringComparer.Ordinal) { receiver };
+        var pending = new Queue<TypeDefinitionHandle>();
+        var visited = new HashSet<TypeDefinitionHandle>();
+        pending.Enqueue(receiverHandle);
+        while (pending.TryDequeue(out var handle))
+        {
+            if (!visited.Add(handle))
+                continue;
+
+            var typeDef = reader.GetTypeDefinition(handle);
+            AddBase(typeDef.BaseType, GenericContext.ForType(reader, typeDef));
+            foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
+            {
+                var implementation = reader.GetInterfaceImplementation(interfaceHandle);
+                AddBase(implementation.Interface, GenericContext.ForType(reader, typeDef));
+            }
+        }
+
+        complete = hierarchyComplete;
+        return closure;
+
+        void AddBase(EntityHandle handle, GenericContext context)
+        {
+            if (handle.IsNil)
+                return;
+
+            string? name;
+            try
+            {
+                name = handle.Kind switch
+                {
+                    HandleKind.TypeDefinition => reader.GetFullTypeName(
+                        reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
+                    HandleKind.TypeReference => reader.GetFullTypeName(
+                        reader.GetTypeReference((TypeReferenceHandle)handle)),
+                    HandleKind.TypeSpecification => reader.GetTypeSpecification(
+                        (TypeSpecificationHandle)handle).DecodeSignature(SignatureDecoder.Instance, context),
+                    _ => null,
+                };
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                name = null;
+            }
+
+            if (name is null)
+            {
+                hierarchyComplete = false;
+                return;
+            }
+
+            string normalized = NormalizeReceiverTypeName(name);
+            closure.Add(normalized);
+            if (receiverTypes.TryGetValue(normalized, out var localHandle))
+                pending.Enqueue(localHandle);
+            else if (normalized != "System.Object")
+                hierarchyComplete = false;
+        }
+    }
+
+    static void AddDistinct(List<TypeDefinitionHandle> roots, TypeDefinitionHandle root)
+    {
+        if (!roots.Contains(root))
+            roots.Add(root);
+    }
+
+    internal static (IReadOnlyList<string> Roots, bool UsedFallback, string? FallbackReason)
+        SelectExtensionRootsForTest(string assemblyPath, string methodName, string? receiverType)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var (_, methodIndex, _, receiverTypes) = ClusterIndexes(reader);
+        var selection = SelectExtensionRoots(
+            reader,
+            methodIndex,
+            receiverTypes,
+            methodName,
+            receiverType,
+            compatibleReceiverTypes: null);
+        return (
+            selection.Roots
+                .Select(handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)))
+                .OrderBy(static name => name, StringComparer.Ordinal)
+                .ToArray(),
+            selection.UsedFallback,
+            selection.FallbackReason);
     }
 
     /// <summary>
@@ -1419,8 +1635,9 @@ static class FidelityCheck
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, Entry e,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
-        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> methodIndex,
+        IReadOnlyDictionary<string, List<ExtensionMethodRoot>> methodIndex,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> namespaceIndex,
+        IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
         FidelityPhaseTimings? timings,
         out string? captureDetail)
     {
@@ -1431,6 +1648,7 @@ static class FidelityCheck
         {
             TopLevelRootOf(reader, reader.GetMethodDefinition(e.Handle).GetDeclaringType()),
         };
+        var extensionFallbacks = new HashSet<string>(StringComparer.Ordinal);
         Diagnostic? firstError = null;
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
@@ -1466,6 +1684,9 @@ static class FidelityCheck
                     captureDetail = "cluster-method-not-found";
                     return null;
                 }
+                captureDetail = extensionFallbacks.Count == 0
+                    ? null
+                    : string.Join("; ", extensionFallbacks.OrderBy(static value => value, StringComparer.Ordinal));
                 return Classify(fullType, e, rOps);
             }
 
@@ -1507,13 +1728,24 @@ static class FidelityCheck
                             grew |= include.Add(root);
                 }
                 // CS1061: a missing member — most often an extension method whose
-                // static declaring class is not yet in the closure. Add the roots
-                // declaring a (static) method of that name.
+                // static declaring class is not yet in the closure. Add only
+                // actual extension roots with a receiver-compatible shape.
                 else if (diagnostic.Id is "CS1061")
                 {
-                    if (methodIndex.TryGetValue(NormalizeTypeName(reference.Name), out var roots))
-                        foreach (var root in roots)
-                            grew |= include.Add(root);
+                    var selection = SelectExtensionRoots(
+                        reader,
+                        methodIndex,
+                        receiverTypes,
+                        NormalizeTypeName(reference.Name),
+                        reference.ContainingType,
+                        reference.CompatibleReceiverTypes);
+                    foreach (var root in selection.Roots)
+                        grew |= include.Add(root);
+                    if (selection.UsedFallback)
+                    {
+                        extensionFallbacks.Add(
+                            $"extension receiver fallback for {reference.Name}: {selection.FallbackReason}");
+                    }
                 }
                 else if (diagnostic.Id is "CS0117"
                          && reference.ContainingType is { } containingType
@@ -1582,6 +1814,64 @@ static class FidelityCheck
     /// <summary>A type name with its trailing generic arguments and arity stripped to the leaf simple name.</summary>
     static string NormalizeTypeName(string name)
         => ClosureDiagnosticEvidence.NormalizeTypeName(name);
+
+    static string NormalizeReceiverTypeName(string name)
+    {
+        string value = name.Trim();
+        if (value.StartsWith("global::", StringComparison.Ordinal))
+            value = value[8..];
+        if (value.StartsWith("ref ", StringComparison.Ordinal))
+            value = value[4..];
+
+        var normalized = new StringBuilder(value.Length);
+        int genericDepth = 0;
+        for (int i = 0; i < value.Length; i++)
+        {
+            char ch = value[i];
+            if (ch == '<')
+            {
+                genericDepth++;
+                continue;
+            }
+            if (ch == '>')
+            {
+                genericDepth--;
+                continue;
+            }
+            if (genericDepth > 0)
+                continue;
+            if (ch == '`')
+            {
+                while (i + 1 < value.Length && char.IsAsciiDigit(value[i + 1]))
+                    i++;
+                continue;
+            }
+            if (ch is '@' or ' ')
+                continue;
+            normalized.Append(ch == '+' ? '.' : ch);
+        }
+
+        return normalized.ToString() switch
+        {
+            "bool" => "System.Boolean",
+            "byte" => "System.Byte",
+            "sbyte" => "System.SByte",
+            "short" => "System.Int16",
+            "ushort" => "System.UInt16",
+            "int" => "System.Int32",
+            "uint" => "System.UInt32",
+            "long" => "System.Int64",
+            "ulong" => "System.UInt64",
+            "char" => "System.Char",
+            "float" => "System.Single",
+            "double" => "System.Double",
+            "string" => "System.String",
+            "object" => "System.Object",
+            "nint" => "System.IntPtr",
+            "nuint" => "System.UIntPtr",
+            var result => result,
+        };
+    }
 
     static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
         new(fullType, e.Name, e.Overload, e.Signature,

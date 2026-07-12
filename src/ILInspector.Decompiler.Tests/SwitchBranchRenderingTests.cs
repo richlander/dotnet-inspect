@@ -185,6 +185,140 @@ public class SwitchBranchRenderingTests
     }
 
     [Fact]
+    public void Structuring_PreservesLabelOutsideTargetedConditionalLoop()
+    {
+        var entry = new Block(0);
+        entry.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [0x20]));
+
+        var loopEntry = new Block(0x04);
+        loopEntry.Add(new Branch(0x20));
+
+        var body = new Block(0x10);
+        body.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+
+        var condition = new Block(0x20);
+        condition.Add(new ConditionalBranch(new LoadArgument(1, "flag", Boolean), 0x10));
+
+        var exit = new Block(0x24);
+        exit.Add(new Return(null));
+
+        var container = new BlockContainer();
+        foreach (var block in (Block[])[entry, loopEntry, body, condition, exit])
+            container.Add(block);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Sample"),
+            new MethodSignature(
+                Void,
+                [new Parameter("x", Int32), new Parameter("flag", Boolean)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0020;", output);
+        Assert.Contains("while (flag)", output);
+        Assert.True(
+            output.IndexOf("IL_0020:", StringComparison.Ordinal)
+                < output.IndexOf("while (flag)", StringComparison.Ordinal),
+            output);
+        AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
+    public void Structuring_ConsumedConditionalLoopEdgeDoesNotEmitLabel()
+    {
+        var entry = new Block(0);
+        entry.Add(new Branch(0x20));
+
+        var body = new Block(0x10);
+        body.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+
+        var condition = new Block(0x20);
+        condition.Add(new ConditionalBranch(new LoadArgument(0, "flag", Boolean), 0x10));
+
+        var exit = new Block(0x24);
+        exit.Add(new Return(null));
+
+        var container = new BlockContainer();
+        foreach (var block in (Block[])[entry, body, condition, exit])
+            container.Add(block);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Sample"),
+            new MethodSignature(
+                Void,
+                [new Parameter("flag", Boolean)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("while (flag)", output);
+        Assert.DoesNotContain("goto IL_0020;", output);
+        Assert.DoesNotContain("IL_0020:", output);
+    }
+
+    [Fact]
+    public void Structuring_ExternallyTargetedSecondCompoundLatchStaysFlat()
+    {
+        var entry = new Block(0);
+        entry.Add(new SwitchBranch(new LoadArgument(0, "x", Int32), [0x24]));
+
+        var loopEntry = new Block(0x04);
+        loopEntry.Add(new Branch(0x20));
+
+        var body = new Block(0x10);
+        body.Add(new StoreLocal(0, Int32, new Constant(1, Int32)));
+
+        var firstCondition = new Block(0x20);
+        firstCondition.Add(new ConditionalBranch(new LoadArgument(1, "first", Boolean), 0x28));
+
+        var secondCondition = new Block(0x24);
+        secondCondition.Add(new ConditionalBranch(new LoadArgument(2, "second", Boolean), 0x10));
+
+        var exit = new Block(0x28);
+        exit.Add(new Return(null));
+
+        var container = new BlockContainer();
+        foreach (var block in (Block[])[entry, loopEntry, body, firstCondition, secondCondition, exit])
+            container.Add(block);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Sample"),
+            new MethodSignature(
+                Void,
+                [
+                    new Parameter("x", Int32),
+                    new Parameter("first", Boolean),
+                    new Parameter("second", Boolean)
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains("goto IL_0024;", output);
+        AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
     public void BooleanFolding_PreservesLabelWhenSwitchTargetBecomesGuardReturn()
     {
         var entry = new Block(0);

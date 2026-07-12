@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Findings;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -13,7 +14,9 @@ public class FidelityCauseBucketsTests
         var function = Function(
             new Return(new UnsupportedNode(0x05, "calli", "unsupported call site")));
 
-        Assert.Equal("calli", FidelityCauseBuckets.PrimaryBucket(function, "M"));
+        var census = FidelityCauseBuckets.Inspect(function, "M");
+
+        Assert.Equal("calli", FidelityCauseBuckets.PrimaryBucket(census));
     }
 
     [Fact]
@@ -21,9 +24,9 @@ public class FidelityCauseBucketsTests
     {
         var function = Function(new Continue());
 
-        Assert.Equal(
-            DiagnosticIds.UnverifiedContinue,
-            FidelityCauseBuckets.PrimaryBucket(function, "M"));
+        var census = FidelityCauseBuckets.Inspect(function, "M");
+
+        Assert.Equal(DiagnosticIds.UnverifiedContinue, FidelityCauseBuckets.PrimaryBucket(census));
     }
 
     [Fact]
@@ -37,8 +40,32 @@ public class FidelityCauseBucketsTests
         var census = FidelityCauseBuckets.Inspect(function, "M");
 
         Assert.False(census.Succeeded);
-        Assert.Contains(DiagnosticIds.InternalError, census.Failure);
+        Assert.Equal(FidelityCauseBuckets.CensusState.Failed, census.State);
+        Assert.Equal("fidelity-inspection-failed", census.ErrorCode);
+        Assert.Contains(DiagnosticIds.InternalError, census.Detail);
         Assert.Empty(census.Causes);
+    }
+
+    [Fact]
+    public void FromInspection_Absent_RemainsDistinctFromFailure()
+    {
+        var census = FidelityCauseBuckets.FromInspection(
+            new FindingInspection<DecompilerFidelityCause>.Absent("no method body"));
+
+        Assert.False(census.Succeeded);
+        Assert.Equal(FidelityCauseBuckets.CensusState.Absent, census.State);
+        Assert.Equal("fidelity-inspection-absent", census.ErrorCode);
+        Assert.Equal("no method body", census.Detail);
+        Assert.Empty(census.Causes);
+    }
+
+    [Fact]
+    public void PrimaryBucket_RejectsNonCompleteInspection()
+    {
+        var census = FidelityCauseBuckets.FromInspection(
+            new FindingInspection<DecompilerFidelityCause>.Absent());
+
+        Assert.Throws<InvalidOperationException>(() => FidelityCauseBuckets.PrimaryBucket(census));
     }
 
     static IrFunction Function(IrNode statement)

@@ -510,7 +510,8 @@ public sealed class StructuringPass : IIrPass
         if (secondBlock.Children.Count != 1
             || secondBlock.Children[0] is not ConditionalBranch backBranch
             || !offsetToIndex.TryGetValue(backBranch.TargetOffset, out bodyStart)
-            || bodyStart != i + 1)
+            || bodyStart != i + 1
+            || ctx.BranchTargets.Contains(secondBlock.StartOffset))
         {
             return null;
         }
@@ -1260,7 +1261,10 @@ public sealed class StructuringPass : IIrPass
                         if (loopRegionExitBreakTarget is not null && ctx.RegionExitLeaveTarget is { } regionExitTarget)
                             ReplaceRetryLeavesWithBreaks(body, regionExitTarget);
                         var condition = BuildWhileCondition(loop);
-                        result.Add(new WhileLoop(condition, body));
+                        var whileLoop = new WhileLoop(condition, body);
+                        if (ctx.BranchTargets.Contains(blocks[branchTarget].StartOffset))
+                            whileLoop.SetSourceOffset(blocks[branchTarget].StartOffset);
+                        result.Add(whileLoop);
                         i = loop.ContinueAt;
                         break;
                     }

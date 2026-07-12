@@ -97,6 +97,43 @@ public class ClosureDiagnosticEvidenceTests
     }
 
     [Fact]
+    public void Extract_ReportsReceiverBaseAndGenericInterfaceCompatibility()
+    {
+        const string source = """
+            namespace ReceiverEvidence;
+            interface IReceiver<T> { }
+            class Base { }
+            class Derived : Base, IReceiver<int> { }
+            class C { void M(Derived value) { value.Missing(); } }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(candidate => candidate.Id == "CS1061"));
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Equal(
+            [
+                "ReceiverEvidence.Derived",
+                "ReceiverEvidence.Base",
+                "System.Object",
+                "ReceiverEvidence.IReceiver",
+            ],
+            reference.CompatibleReceiverTypes);
+    }
+
+    [Fact]
     public void FailureReason_ReportsSortedUnextractedDiagnosticIds()
         => Assert.Equal(
             "closure-stalled-unextracted[CS0117,CS1061]",

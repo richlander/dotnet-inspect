@@ -106,6 +106,27 @@ public class AnalysisFindingsTests
     }
 
     [Fact]
+    public void AllocationIdentity_LengthPrefixesDelimiterBearingTypeEvidence()
+    {
+        var occurrence = Occurrence(
+            4,
+            AllocationKind.Object,
+            TypeRef.CoreLib("System", "Object")) with
+        {
+            AllocatedType = null,
+            RuntimeAllocationType = "Fixture:Nested:Type",
+        };
+
+        string key = AnalysisFindings.GetAllocationIdentityKey(occurrence);
+
+        Assert.Equal("1:01:219:Fixture:Nested:Type", key);
+        Assert.NotEqual(
+            key,
+            AnalysisFindings.GetAllocationIdentityKey(
+                occurrence with { RuntimeAllocationType = "Fixture:Nested", Detail = "Type" }));
+    }
+
+    [Fact]
     public void InspectCallSites_ProducesCompleteIlOrderedCensus()
     {
         var later = Call(12, "Later");
