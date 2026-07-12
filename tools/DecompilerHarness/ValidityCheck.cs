@@ -178,7 +178,7 @@ static class ValidityCheck
                 // constrained generic calls the runtime accepts (no phantom CS0314).
                 var constraints = ShellConstraints.Build(source);
                 
-                var candidates = new List<(string TypeName, string MethodName, IrFunction Function, string? ProductParameterList)>();
+                var candidates = new List<ValidityCandidate>();
                 foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
                 {
                     // Compiler-generated types/members (anonymous types, closures,
@@ -194,14 +194,18 @@ static class ValidityCheck
                         ? productSignatureParameters
                         : null;
 
-                    candidates.Add((typeName, methodName, function, productParameterList));
+                    candidates.Add(new ValidityCandidate(typeName, methodName, function, productParameterList));
                 }
 
                 var evaluationTargets = candidates;
+                var semanticEligible = new ConcurrentBag<ValidityCandidate>();
 
                 Parallel.ForEach(evaluationTargets, options, item =>
                 {
-                    var (typeName, methodName, function, productParameterList) = item;
+                    var typeName = item.TypeName;
+                    var methodName = item.MethodName;
+                    var function = item.Function;
+                    var productParameterList = item.ProductParameterList;
 
                     Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
                         ? method => IrImporter.Import(source, method)
@@ -233,15 +237,53 @@ static class ValidityCheck
 
                     // Bind only Full, syntactically-valid methods (the set that
                     // claims to be good) up to the cap — binding is the slow part.
-                    // To maintain deterministic sets while processing in parallel, we allow early evaluation
-                    // threads to consume the cap. This is an accepted heuristic over exact sequential metadata order
-                    // for the validity subset.
-                    if (!full || Interlocked.Increment(ref semChecked) > cap)
+                    // Syntax is evaluated for the whole sample first, then the
+                    // semantic subset is chosen by a hash-stable key. That keeps
+                    // tolerance-0 corpus gates comparable across parallel runs and
+                    // unrelated metadata-order changes.
+                    if (!full)
                     {
-                        if (full) Interlocked.Decrement(ref semChecked);
                         results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: false, []));
                         return; // parallel return
                     }
+
+                    semanticEligible.Add(item);
+                });
+
+                var semanticSample = semanticEligible
+                    .OrderBy(StableValidityHash)
+                    .ThenBy(candidate => StableValidityKey(candidate), StringComparer.Ordinal)
+                    .Take(cap)
+                    .ToHashSet();
+
+                foreach (var item in semanticEligible.Except(semanticSample))
+                {
+                    results.Add(new MethodResult(
+                        item.TypeName,
+                        item.MethodName,
+                        CorpusMethodIdentity.SignatureText(item.Function.Signature),
+                        true,
+                        [],
+                        false,
+                        []));
+                }
+
+                Parallel.ForEach(semanticSample, options, item =>
+                {
+                    var typeName = item.TypeName;
+                    var methodName = item.MethodName;
+                    var function = item.Function;
+                    var productParameterList = item.ProductParameterList;
+                    Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
+                        ? method => IrImporter.Import(source, method)
+                        : null;
+                    var rendered = (lowered
+                        ? CSharpPrinter.PrintLowered(function, importMethodBody)
+                        : CSharpPrinter.PrintRaised(function, importMethodBody)).Output;
+                    if (rendered is null)
+                        return;
+
+                    Interlocked.Increment(ref semChecked);
                     var semantic = EvaluateRenderedBody(
                         function,
                         rendered,
@@ -253,7 +295,7 @@ static class ValidityCheck
                         parseOptions,
                         compileOptions,
                         bindSemantics: true);
-                    results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), full, [], SemanticChecked: true, semantic.SemanticDiagnostics));
+                    results.Add(new MethodResult(typeName, methodName, CorpusMethodIdentity.SignatureText(function.Signature), true, [], true, semantic.SemanticDiagnostics));
                 });
             }
         }
@@ -261,6 +303,33 @@ static class ValidityCheck
             .ThenBy(r => r.MethodName, StringComparer.Ordinal)
             .ThenBy(r => r.Signature, StringComparer.Ordinal)
             .ToList();
+    }
+
+    sealed record ValidityCandidate(
+        string TypeName,
+        string MethodName,
+        IrFunction Function,
+        string? ProductParameterList);
+
+    static string StableValidityKey(ValidityCandidate candidate)
+        => $"{candidate.TypeName}|{candidate.MethodName}|{CorpusMethodIdentity.SignatureText(candidate.Function.Signature)}";
+
+    static ulong StableValidityHash(ValidityCandidate candidate)
+        => StableHash(StableValidityKey(candidate));
+
+    static ulong StableHash(string text)
+    {
+        const ulong offset = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        ulong hash = offset;
+        foreach (char ch in text)
+        {
+            hash ^= (byte)ch;
+            hash *= prime;
+            hash ^= (byte)(ch >> 8);
+            hash *= prime;
+        }
+        return hash;
     }
 
     internal static CSharpParseOptions ParseOptions()
