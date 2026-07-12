@@ -269,8 +269,13 @@ internal static class ClosureDiagnosticEvidence
         }
         else if (receiver is ITypeParameterSymbol parameter)
         {
+            complete = false;
             foreach (var constraint in parameter.ConstraintTypes)
                 Add(constraint);
+        }
+        else
+        {
+            complete = false;
         }
 
         return (types.Distinct(StringComparer.Ordinal).ToArray(), complete);
@@ -319,6 +324,8 @@ internal static class ClosureDiagnosticEvidence
 
     static string TypeName(ITypeSymbol type)
     {
+        if (type is IArrayTypeSymbol array)
+            return $"{TypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]";
         if (type is not INamedTypeSymbol named)
             return type.Name;
 

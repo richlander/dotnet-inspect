@@ -162,6 +162,34 @@ public class ClosureDiagnosticEvidenceTests
         Assert.False(reference.CompatibleReceiverTypesComplete);
     }
 
+    [Theory]
+    [InlineData("class C { void M<T>(T value) { value.Missing(); } }", "T")]
+    [InlineData("class C { void M(int[] value) { value.Missing(); } }", "System.Int32[]")]
+    public void Extract_MarksNonNamedReceiverCompatibilityIncomplete(
+        string source,
+        string receiverType)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-non-named-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            candidate => candidate.Id == "CS1061");
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Contains(receiverType, reference.CompatibleReceiverTypes!);
+        Assert.False(reference.CompatibleReceiverTypesComplete);
+    }
+
     [Fact]
     public void FailureReason_ReportsSortedUnextractedDiagnosticIds()
         => Assert.Equal(
