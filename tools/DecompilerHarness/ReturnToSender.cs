@@ -1478,10 +1478,7 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return new FaultIsolationResult(
-                FaultIsolationKind.ShellOrClosureDefect,
-                sourceMember.SourcePath,
-                $"{ex.GetType().Name}: {ex.Message}");
+            return null;
         }
     }
 

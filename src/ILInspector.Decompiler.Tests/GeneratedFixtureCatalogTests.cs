@@ -1320,7 +1320,7 @@ public class GeneratedFixtureCatalogTests
                     Overload: 0,
                     GeneratedFixtureReturnToSenderStatus.Fail,
                     FidelityCheck.CompileBackStatus.RecompileFail,
-                    "body-defect",
+                    "body-defect (CS0103)",
                     Detail: "CS0103: missing symbol",
                     IlDiffDiagnostic: null,
                     IlDiff: null,
@@ -1345,11 +1345,41 @@ public class GeneratedFixtureCatalogTests
         Assert.DoesNotContain(Path.GetDirectoryName(sourcePath)!, json);
         using var document = JsonDocument.Parse(json);
         var result = Assert.Single(document.RootElement.GetProperty("Results").EnumerateArray());
+        Assert.Equal("RecompileFail", result.GetProperty("ActualStatus").GetString());
+        Assert.Equal("body-defect (CS0103)", result.GetProperty("Reason").GetString());
         var faultIsolation = result.GetProperty("FaultIsolation");
         Assert.Equal("BodyDefect", faultIsolation.GetProperty("Kind").GetString());
         Assert.Equal("Authored.cs", faultIsolation.GetProperty("SourcePath").GetString());
         Assert.Equal("authored body compiled in the same RTS shell", faultIsolation.GetProperty("Detail").GetString());
     }
+
+    [Fact]
+    public void ReturnToSenderCatalogFailureReason_ComposesFaultIsolationWithDiagnosticBucket()
+    {
+        var result = new ReturnToSender.Result(
+            MinimalReturnToSenderPlan(),
+            Source: "",
+            Status: FidelityCheck.CompileBackStatus.RecompileFail,
+            OriginalOpcodes: "",
+            RecompiledOpcodes: "",
+            Detail: "CS0103: The name 'Missing' does not exist in the current context",
+            FaultIsolation: new ReturnToSender.FaultIsolationResult(
+                ReturnToSender.FaultIsolationKind.BodyDefect,
+                "Authored.cs",
+                "authored body compiled in the same RTS shell"));
+
+        Assert.Equal("body-defect (CS0103)", GeneratedFixtureRunner.FailureReason(result));
+        Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+    }
+
+    static CompileBackReconstructionPlan MinimalReturnToSenderPlan()
+        => new(
+            AssemblyPath: "",
+            TargetMethod: new CompileBackMethodIdentity("TestType", "Method1", 0, ""),
+            Module: new CompileBackModuleRequirement(Usings: [], AssemblyAttributes: [], ModuleAttributes: []),
+            Types: [],
+            PrintRequests: [],
+            Diagnostics: []);
 
     [Fact]
     public void ReturnToSenderRecordCatalog_CoversGeneratedRecordHelpers()

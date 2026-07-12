@@ -738,7 +738,11 @@ body compiles, the `RecompileFail` is isolated to a product/decompiler body
 defect. If the authored body also fails, the failure is isolated to the RTS
 shell, closure, reference, or standalone source-consumption context. The original
 status remains `RecompileFail`; the sidecar reason may refine reporting as
-`body-defect` or `shell-or-closure-defect`.
+`body-defect` or `shell-or-closure-defect`, composed with the original compiler
+diagnostic bucket. On closure root or iteration budget exits, `body-defect`
+means the authored body fit inside the final RTS shell while the decompiled body
+did not; it may still point at a harness closure budget limit rather than a
+semantic product-body bug.
 
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
 `ContextFail`. ReturnToSender planning reasons should be structured details

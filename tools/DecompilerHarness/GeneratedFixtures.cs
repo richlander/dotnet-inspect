@@ -2251,19 +2251,28 @@ internal static class GeneratedFixtureRunner
             target.IsFrontier,
             target.Note);
 
-    static string FailureReason(ReturnToSender.Result result)
-        => result.FaultIsolation?.Kind switch
+    internal static string FailureReason(ReturnToSender.Result result)
+    {
+        var baseReason = result.Status switch
         {
-            ReturnToSender.FaultIsolationKind.BodyDefect => "body-defect",
-            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect => "shell-or-closure-defect",
-            _ => result.Status switch
-            {
-                FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
-                FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
-                FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
-                _ => result.Status.ToString(),
-            }
+            FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
+            FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
+            FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
+            _ => result.Status.ToString(),
         };
+
+        return result.FaultIsolation?.Kind switch
+        {
+            ReturnToSender.FaultIsolationKind.BodyDefect => ComposeFaultIsolationReason("body-defect", baseReason),
+            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect => ComposeFaultIsolationReason("shell-or-closure-defect", baseReason),
+            _ => baseReason,
+        };
+    }
+
+    static string ComposeFaultIsolationReason(string isolationReason, string baseReason)
+        => string.IsNullOrWhiteSpace(baseReason) || string.Equals(isolationReason, baseReason, StringComparison.Ordinal)
+            ? isolationReason
+            : $"{isolationReason} ({baseReason})";
 
     internal static T RunWithMaterializedFixtures<T>(
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
