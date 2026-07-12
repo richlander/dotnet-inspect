@@ -16,6 +16,14 @@ The governing rule is:
 > or operation arity changes; use options and sections for context, lenses, and
 > projection.
 
+Related docs:
+
+- [Output Shapes](output-shapes.md) defines the
+  Document → Table → Vector → Scalar ladder.
+- [Output Composition](output-composition.md) separates data selection,
+  filtering, and rendering.
+- [Rendering Model](rendering-model.md) defines verbosity and alternate lenses.
+
 ## Independent axes
 
 | Axis | Question | Examples | CLI shape |
@@ -23,9 +31,9 @@ The governing rule is:
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
 | Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member, member coordinate | Noun-first inspection command or an explicit focus selector on an operation-first command |
 | Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Top-level operation when the acquisition lifecycle and outcome shape change |
-| Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, Findings | `-S`, descriptor selectors, or focused mode options |
+| Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, Findings, versions | `-S`, descriptor selectors, or focused mode options |
 | Traversal policy | Which addresses are evaluated, and in what order? | `--at`, endpoints, caller-directed probes, next-probe recommendation | Operation-owned options; never implicit payload acquisition |
-| Projection / rendering | How is the same result shaped for output? | fields, columns, rows, table, Markdown, JSON | Query and writer options |
+| Projection / rendering | How is the same result shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
 
 Source context is not focus. In:
 
@@ -121,14 +129,58 @@ selectors such as `#N`, `first`, and `last` are `--at` selectors over a resolved
 vector; they are not valid replacements for the literal `A` or `B` in the range
 syntax.
 
-The operation supplies the cardinality contract:
+The selected lens or operation supplies the payload-acquisition contract:
 
-| Operation | Evaluated payload cells | Current or intended behavior |
+| Address-space use | Evaluated payload cells | Current or intended behavior |
 | --- | ---: | --- |
-| Enumerate | 0 | `package Package@A..B --versions` resolves and renders range metadata without acquiring package payloads. |
+| Select version Vector | 0 | `package Package@A..B --versions` resolves and renders range metadata without acquiring package payloads. |
 | Inspect | 1 | `type` and `member` require one explicit `--at <version\|#N\|first\|last>` and acquire only that exact package. |
 | Compare | 2 | `diff --package Package@A..B` acquires and compares the two endpoints. |
 | Correlate | N explicit cells | A future `timeline` resolves the full address space but acquires only caller-selected probe cells. |
+
+The first row is a package lens and output-shape selection. It is not an
+operation peer of `diff` and `timeline`.
+
+### Acquisition cardinality versus output shape
+
+Operation arity controls how many source addresses may be evaluated and how
+many primary subject payloads may be acquired. Output shape controls how
+already-selected data is projected or reduced. These cardinalities are
+independent.
+
+`--versions` selects a version **Vector** while retaining package focus. For a
+range, resolving that Vector uses registry/cache metadata and acquires zero
+package payloads. Once selected, the normal output-shape rules apply:
+
+| Gesture | Shape effect | Acquisition effect |
+| --- | --- | --- |
+| `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
+| `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
+| `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
+| `--print` | Resolve a printable payload already referenced by one selected row. | May fetch that declared payload at the same evaluated address; must not add or evaluate another source address. |
+
+Shape reducers do not revise operation arity. In particular:
+
+- `package Package@A..B --versions --count` means "how many addresses are in
+  this bounded Vector?", not "inspect these packages and count successful
+  payloads";
+- `--urls` may expose registry URLs if version rows gain such a field, but it
+  must not download package contents to manufacture them;
+- a plain version string has no printable document. `--print` must report that
+  the selected shape is not printable rather than silently transition from a
+  version-address row to package artifact inspection. The explicit transition
+  remains `package Package@version`.
+
+The same rule applies to a future timeline. `--count` can reduce an already
+assembled Timeline table; it cannot probe additional cells. `--print` can print
+only a payload already carried or explicitly referenced by an evaluated row; it
+cannot turn an unevaluated row into an implicit acquisition.
+
+The current package `--versions` path is implemented as a specialized early-exit
+list writer, so some shared reducers and projectors are not yet honored
+uniformly. That is an implementation gap against the output-shape model, not a
+precedent for treating `--versions` as a separate operation or bespoke rendering
+island.
 
 `library --package` does not currently accept a package range, and an IL offset
 has no independent package-range contract. If retained range navigation becomes
