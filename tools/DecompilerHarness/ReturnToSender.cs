@@ -777,9 +777,7 @@ static class ReturnToSender
 
         var function = IrImporter.Import(source, fullType, methodName, overload)
             ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
-        if (printed.Output is null)
-            throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
 
         var original = ILInstructionPrinter.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -812,7 +810,7 @@ static class ReturnToSender
                 TargetType: typeHandle,
                 TargetMethod: getterHandle,
                 TargetProperty: propertyHandle,
-                TargetBody: printed.Output,
+                TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: overload,
@@ -830,9 +828,9 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     "",
                     $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
 
             string unit = sourceResult.Source;
@@ -861,9 +859,9 @@ static class ReturnToSender
                         string.Join(" ", originalOps),
                         "",
                         "method-not-found",
-                        TargetBody: printed.Output,
+                        TargetBody: targetBody.Source,
                         MemberAnchor: memberAnchor,
-                        Decisions: printed.Decisions);
+                        Decisions: targetBody.Decisions);
                 }
 
                 return new Result(
@@ -875,11 +873,11 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
                     null,
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -908,9 +906,9 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     "",
                     $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
         }
 
@@ -922,7 +920,7 @@ static class ReturnToSender
                 TargetType: typeHandle,
                 TargetMethod: getterHandle,
                 TargetProperty: propertyHandle,
-                TargetBody: printed.Output,
+                TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: overload,
@@ -937,9 +935,9 @@ static class ReturnToSender
                 string.Join(" ", originalOps),
                 "",
                 $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
-                TargetBody: printed.Output,
+                TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
-                Decisions: printed.Decisions);
+                Decisions: targetBody.Decisions);
         }
     }
 
@@ -960,9 +958,7 @@ static class ReturnToSender
 
         var function = IrImporter.Import(source, fullType, methodName, overload)
             ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
-        if (printed.Output is null)
-            throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
 
         var original = ILInstructionPrinter.Disassemble(pe, reader, method)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -994,7 +990,7 @@ static class ReturnToSender
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: methodHandle,
-                TargetBody: printed.Output,
+                TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: overload,
@@ -1012,9 +1008,9 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     "",
                     $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
 
             string unit = sourceResult.Source;
@@ -1043,9 +1039,9 @@ static class ReturnToSender
                         string.Join(" ", originalOps),
                         "",
                         "method-not-found",
-                        TargetBody: printed.Output,
+                        TargetBody: targetBody.Source,
                         MemberAnchor: memberAnchor,
-                        Decisions: printed.Decisions);
+                        Decisions: targetBody.Decisions);
                 }
 
                 return new Result(
@@ -1057,11 +1053,11 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
                     null,
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -1090,9 +1086,9 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     "",
                     $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
         }
 
@@ -1103,7 +1099,7 @@ static class ReturnToSender
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: methodHandle,
-                TargetBody: printed.Output,
+                TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: overload,
@@ -1118,9 +1114,9 @@ static class ReturnToSender
                 string.Join(" ", originalOps),
                 "",
                 $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
-                TargetBody: printed.Output,
+                TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
-                Decisions: printed.Decisions);
+                Decisions: targetBody.Decisions);
         }
     }
 
@@ -1142,9 +1138,7 @@ static class ReturnToSender
 
         var function = IrImporter.Import(source, fullType, methodName, overload)
             ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
-        if (printed.Output is null)
-            throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
 
         var original = ILInstructionPrinter.Disassemble(pe, reader, setter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1177,7 +1171,7 @@ static class ReturnToSender
                 TargetType: typeHandle,
                 TargetMethod: setterHandle,
                 TargetProperty: propertyHandle,
-                TargetBody: printed.Output,
+                TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: overload,
@@ -1195,9 +1189,9 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     "",
                     $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
 
             string unit = sourceResult.Source;
@@ -1226,9 +1220,9 @@ static class ReturnToSender
                         string.Join(" ", originalOps),
                         "",
                         "method-not-found",
-                        TargetBody: printed.Output,
+                        TargetBody: targetBody.Source,
                         MemberAnchor: memberAnchor,
-                        Decisions: printed.Decisions);
+                        Decisions: targetBody.Decisions);
                 }
 
                 return new Result(
@@ -1240,11 +1234,11 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     string.Join(" ", recompiledOps),
                     null,
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -1273,9 +1267,9 @@ static class ReturnToSender
                     string.Join(" ", originalOps),
                     "",
                     $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: printed.Output,
+                    TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: printed.Decisions);
+                    Decisions: targetBody.Decisions);
             }
         }
 
@@ -1287,7 +1281,7 @@ static class ReturnToSender
                 TargetType: typeHandle,
                 TargetMethod: setterHandle,
                 TargetProperty: propertyHandle,
-                TargetBody: printed.Output,
+                TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: overload,
@@ -1302,9 +1296,9 @@ static class ReturnToSender
                 string.Join(" ", originalOps),
                 "",
                 $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
-                TargetBody: printed.Output,
+                TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
-                Decisions: printed.Decisions);
+                Decisions: targetBody.Decisions);
         }
     }
 

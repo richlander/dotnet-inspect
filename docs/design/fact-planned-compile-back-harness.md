@@ -266,6 +266,9 @@ Initial typed closure derivation belongs with artifact production: the provider
 can derive same-assembly roots, source facts, and member requirements from the
 raised `IrFunction`. RTS remains responsible for Roslyn oracle growth and passes
 only the target/oracle closure roots and facts discovered by compile feedback.
+Target-body rendering is also provider-owned: RTS selects the target and carries
+the provider-produced body/provenance, but should not call the C# output printer
+directly.
 
 The product/shared side should own truthful declaration facts that are useful
 beyond ReturnToSender: namespaces, type/member signatures, base/interface

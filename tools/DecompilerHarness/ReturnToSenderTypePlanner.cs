@@ -175,7 +175,7 @@ internal abstract record ArtifactRequest(
     IrFunction Function,
     TypeDefinitionHandle TargetType,
     MethodDefinitionHandle TargetMethod,
-    string TargetBody,
+    ProductTargetBody TargetBody,
     string FullType,
     string MethodName,
     int Overload,
@@ -189,7 +189,7 @@ internal sealed record MethodArtifactRequest(
     IrFunction Function,
     TypeDefinitionHandle TargetType,
     MethodDefinitionHandle TargetMethod,
-    string TargetBody,
+    ProductTargetBody TargetBody,
     string FullType,
     string MethodName,
     int Overload,
@@ -217,7 +217,7 @@ internal abstract record PropertyAccessorArtifactRequest(
     TypeDefinitionHandle TargetType,
     MethodDefinitionHandle TargetMethod,
     PropertyDefinitionHandle TargetProperty,
-    string TargetBody,
+    ProductTargetBody TargetBody,
     string FullType,
     string MethodName,
     int Overload,
@@ -245,7 +245,7 @@ internal sealed record PropertyGetterArtifactRequest(
     TypeDefinitionHandle TargetType,
     MethodDefinitionHandle TargetMethod,
     PropertyDefinitionHandle TargetProperty,
-    string TargetBody,
+    ProductTargetBody TargetBody,
     string FullType,
     string MethodName,
     int Overload,
@@ -274,7 +274,7 @@ internal sealed record PropertySetterArtifactRequest(
     TypeDefinitionHandle TargetType,
     MethodDefinitionHandle TargetMethod,
     PropertyDefinitionHandle TargetProperty,
-    string TargetBody,
+    ProductTargetBody TargetBody,
     string FullType,
     string MethodName,
     int Overload,
@@ -298,6 +298,7 @@ internal sealed record PropertySetterArtifactRequest(
 
 internal sealed record ProductArtifact(
     ArtifactRequest Request,
+    ProductTargetBody TargetBody,
     string Source,
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics,
@@ -310,6 +311,7 @@ internal sealed record ProductArtifact(
         IReadOnlySet<TypeDefinitionHandle> closureRoots)
         => new(
             request,
+            request.TargetBody,
             result.Source,
             result.Plan.Types
                 .SelectMany(type => type.SourceFacts
@@ -486,8 +488,22 @@ public sealed record CompileBackMemberRequirement(
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
+internal sealed record ProductTargetBody(string Source, IReadOnlyList<DecompilerDecision> Decisions);
+
 public static class CompileBackSourceComposer
 {
+    internal static ProductTargetBody CreateTargetBody(
+        MetadataSource source,
+        IrFunction function,
+        string fullType,
+        string methodName)
+    {
+        var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+        if (printed.Output is null)
+            throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
+        return new ProductTargetBody(printed.Output, printed.Decisions);
+    }
+
     internal static ProductArtifact Compose(ArtifactRequest request)
     {
         var closure = CreateClosureInputs(request);
@@ -500,7 +516,7 @@ public static class CompileBackSourceComposer
                 request.TargetType,
                 getter.TargetProperty,
                 request.TargetMethod,
-                request.TargetBody,
+                request.TargetBody.Source,
                 request.FullType,
                 request.MethodName,
                 request.Overload,
@@ -515,7 +531,7 @@ public static class CompileBackSourceComposer
                 request.TargetType,
                 setter.TargetProperty,
                 request.TargetMethod,
-                request.TargetBody,
+                request.TargetBody.Source,
                 request.FullType,
                 request.MethodName,
                 request.Overload,
@@ -529,7 +545,7 @@ public static class CompileBackSourceComposer
                 request.Function,
                 request.TargetType,
                 request.TargetMethod,
-                request.TargetBody,
+                request.TargetBody.Source,
                 request.FullType,
                 request.MethodName,
                 request.Overload,
