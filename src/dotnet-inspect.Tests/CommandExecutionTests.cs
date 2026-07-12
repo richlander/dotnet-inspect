@@ -3117,6 +3117,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_EmptyBodyIsComplete()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FidelityCauseFixture.EmptyBody),
+            "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Complete", output);
+        Assert.Contains("decompiler fidelity is Full", output);
+        Assert.DoesNotContain("Failed", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFidelityCauses_ReportsAbsentBody()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -9352,6 +9367,10 @@ public static class CostOverlayFixture
 
 public static class FidelityCauseFixture
 {
+    public static void EmptyBody()
+    {
+    }
+
     public static Type TypedReferenceType(ref int value)
     {
         TypedReference reference = __makeref(value);

@@ -305,8 +305,14 @@ internal static class MemberCodeProvider
         if (!methodHasBody)
             return Decompiler.DecompilerFindings.InspectFidelityCauses(null, subject);
 
-        if (raisedFunction is not null && projection?.Succeeded == true)
+        if (raisedFunction is not null
+            && projection is not null
+            && (projection.Succeeded
+                || projection.Diagnostics.All(
+                    static diagnostic => diagnostic.Id == Decompiler.DiagnosticIds.EmptyOutput)))
+        {
             return Decompiler.DecompilerFindings.InspectFidelityCauses(raisedFunction, subject);
+        }
 
         return new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
             new InspectionError(
