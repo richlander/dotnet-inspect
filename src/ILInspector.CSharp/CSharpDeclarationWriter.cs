@@ -1,21 +1,22 @@
 using System.Text;
+using ILInspector.Metadata;
 
-namespace ILInspector.Metadata;
+namespace ILInspector.CSharp;
 
-public enum CSharpTypeNameMode
+internal enum CSharpTypeNameMode
 {
     Qualified,
     ShortWithUsings,
     ContextualShort
 }
 
-public enum CSharpNamespaceMode
+internal enum CSharpNamespaceMode
 {
     Omit,
     FileScoped
 }
 
-public sealed record CSharpDeclarationOptions
+internal sealed record CSharpDeclarationOptions
 {
     public CSharpTypeNameMode TypeNameMode { get; init; } = CSharpTypeNameMode.Qualified;
     public string? ContainingNamespace { get; init; }
@@ -31,7 +32,7 @@ public sealed record CSharpDeclarationOptions
     public bool OmitPropertyAccessors { get; init; }
 }
 
-public sealed record CSharpRenderedDeclaration(
+internal sealed record CSharpRenderedDeclaration(
     string Source,
     IReadOnlyList<string> Usings,
     IReadOnlyList<string> Diagnostics);
@@ -40,7 +41,7 @@ public sealed record CSharpRenderedDeclaration(
 /// Cheap C# declaration and signature composition over the API metadata model.
 /// It never imports method bodies, opens inspected assemblies, or depends on the decompiler.
 /// </summary>
-public static class CSharpDeclarationWriter
+internal static class CSharpDeclarationWriter
 {
     public static CSharpRenderedDeclaration RenderMemberUnit(
         ApiType type,
@@ -138,7 +139,7 @@ public static class CSharpDeclarationWriter
 
     static string RenderTypeDeclarationCore(ApiType type, CSharpDeclarationOptions options)
     {
-        var parts = new List<string> { "public" };
+        var parts = new List<string> { TypeAccessibility(type) };
         if (type.Kind is "class" or "record")
         {
             if (type.IsStatic)
@@ -555,7 +556,7 @@ public static class CSharpDeclarationWriter
             return false;
         }
 
-        var parameters = string.Join(", ", model.Parameters.Select(ParameterDeclaration));
+        var parameters = string.Join(", ", model.Parameters.Select(FormatParameter));
         if (member.Name == ".cctor")
         {
             signature = $"{FormatConstructorTypeName(type.Name)}()";
@@ -635,9 +636,12 @@ public static class CSharpDeclarationWriter
                || !name.Contains('.', StringComparison.Ordinal);
     }
 
-    static string ParameterDeclaration(ApiParameter parameter)
+    internal static string FormatParameter(ApiParameter parameter)
     {
-        var head = parameter.TypeWithModifier;
+        string type = EscapeTypeKeywords(parameter.Type);
+        string head = string.IsNullOrEmpty(parameter.Modifier)
+            ? type
+            : $"{parameter.Modifier} {type}";
         var declaration = string.IsNullOrWhiteSpace(parameter.Name)
             ? head
             : $"{head} {EscapeIdentifier(parameter.Name)}";
@@ -647,6 +651,59 @@ public static class CSharpDeclarationWriter
         return parameter.Attributes.Count == 0
             ? declaration
             : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
+    }
+
+    static string EscapeTypeKeywords(string type)
+    {
+        var builder = new StringBuilder(type.Length);
+        for (int index = 0; index < type.Length;)
+        {
+            if (!IsIdentifierStart(type[index]))
+            {
+                builder.Append(type[index++]);
+                continue;
+            }
+
+            int end = index + 1;
+            while (end < type.Length && IsIdentifierPart(type[end]))
+                end++;
+
+            string identifier = type[index..end];
+            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(type, identifier, index, end);
+            if ((index == 0 || type[index - 1] != '@')
+                && EscapeIdentifier(identifier) != identifier
+                && !isTypeSyntaxKeyword)
+            {
+                builder.Append('@');
+            }
+            builder.Append(identifier);
+            index = end;
+        }
+        return builder.ToString();
+    }
+
+    static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
+    {
+        if (identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "object" or "short" or "ushort" or "string" or "void")
+        {
+            return end == type.Length || type[end] != '.';
+        }
+
+        if (identifier == "delegate")
+            return end < type.Length && type[end] == '*';
+
+        if (type.StartsWith("delegate*", StringComparison.Ordinal)
+            && identifier is "ref" or "in" or "out" or "readonly" or "unmanaged")
+        {
+            return true;
+        }
+
+        return start == 0
+            && end < type.Length
+            && char.IsWhiteSpace(type[end])
+            && identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped";
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
@@ -882,7 +939,8 @@ public static class CSharpDeclarationWriter
                 while (i < text.Length && IsIdentifierPart(text[i]))
                     i++;
                 string token = text[start..i];
-                sb.Append(names.Contains(token) ? EscapeIdentifier(token) : token);
+                bool alreadyEscaped = start > 0 && text[start - 1] == '@';
+                sb.Append(!alreadyEscaped && names.Contains(token) ? EscapeIdentifier(token) : token);
                 continue;
             }
             sb.Append(text[i++]);
@@ -897,7 +955,7 @@ public static class CSharpDeclarationWriter
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
     public static string EscapeIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
+        => s_csharpReservedKeywords.Contains(name) ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -930,6 +988,9 @@ public static class CSharpDeclarationWriter
                 ".",
                 name.Split('.').Select(segment =>
                     segment.StartsWith('@') ? segment : EscapeIdentifier(segment)));
+
+    internal static string TypeAccessibility(ApiType type)
+        => type.Accessibility ?? "public";
 
     static string AddExtensionThisModifier(string signature)
     {
@@ -1238,6 +1299,7 @@ public static class CSharpDeclarationWriter
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];
 
+    // Keep synchronized with MetadataDeclarationQuery's legacy compatibility escaper.
     static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
@@ -1248,6 +1310,6 @@ public static class CSharpDeclarationWriter
         "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
         "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
         "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
+        "void", "volatile", "while", "await", "record", "required", "init", "file", "scoped",
     };
 }

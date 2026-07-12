@@ -63,6 +63,7 @@ public static class MetadataDeclarationQuery
         {
             Namespace = ns,
             Name = name,
+            Accessibility = TypeAccessibility(typeDef),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
             Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
@@ -428,6 +429,18 @@ public static class MetadataDeclarationQuery
     public static string AccessibilityKeyword(MethodDefinition method)
         => AccessibilityKeyword(method.Attributes & MethodAttributes.MemberAccessMask);
 
+    internal static string? TypeAccessibility(TypeDefinition type)
+        => (type.Attributes & TypeAttributes.VisibilityMask) switch
+        {
+            TypeAttributes.NotPublic => "internal",
+            TypeAttributes.NestedPrivate => "private",
+            TypeAttributes.NestedFamily => "protected",
+            TypeAttributes.NestedAssembly => "internal",
+            TypeAttributes.NestedFamANDAssem => "private protected",
+            TypeAttributes.NestedFamORAssem => "protected internal",
+            _ => null,
+        };
+
     static IReadOnlyList<ApiParameter> MethodParameters(
         MetadataReader reader,
         MethodDefinition method,
@@ -726,7 +739,7 @@ public static class MetadataDeclarationQuery
 
     static string MethodSignatureText(MetadataMethodDeclaration declaration)
     {
-        var parameters = declaration.Signature.ParameterDeclarationsSummary;
+        var parameters = $"({string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))})";
         var returnType = declaration.Signature.ReturnType ?? "void";
         return $"{returnType} {declaration.Signature.MemberName ?? declaration.MetadataName}{parameters}";
     }
@@ -739,7 +752,148 @@ public static class MetadataDeclarationQuery
             : "{ " + string.Join(" ", declaration.Signature.Accessors.Select(AccessorText)) + " }";
         return declaration.Signature.Parameters.Count == 0
             ? $"{returnType} {declaration.CSharpName} {accessors}"
-            : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(parameter => parameter.Declaration))}] {accessors}";
+            : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))}] {accessors}";
+    }
+
+    static string ParameterDeclaration(ApiParameter parameter)
+    {
+        var attributes = parameter.Attributes.Count == 0
+            ? ""
+            : $"[{string.Join(", ", parameter.Attributes)}] ";
+        string type = EscapeCompatibilityTypeKeywords(parameter.Type);
+        string typeWithModifier = string.IsNullOrEmpty(parameter.Modifier)
+            ? type
+            : $"{parameter.Modifier} {type}";
+        var head = string.IsNullOrWhiteSpace(parameter.Name)
+            ? typeWithModifier
+            : $"{typeWithModifier} {EscapeIdentifier(parameter.Name)}";
+        var declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
+            ? $"{head} = {parameter.DefaultValueText}"
+            : head;
+        return EscapeCompatibilityQualifiedKeywordSegments(attributes + declaration);
+    }
+
+    internal static string EscapeCompatibilityTypeKeywords(string type)
+    {
+        var builder = new StringBuilder(type.Length);
+        for (int index = 0; index < type.Length;)
+        {
+            if (!(char.IsLetter(type[index]) || type[index] == '_'))
+            {
+                builder.Append(type[index++]);
+                continue;
+            }
+
+            int end = index + 1;
+            while (end < type.Length
+                   && (char.IsLetterOrDigit(type[end]) || type[end] == '_'))
+            {
+                end++;
+            }
+
+            string identifier = type[index..end];
+            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(type, identifier, index, end);
+            if ((index == 0 || type[index - 1] != '@')
+                && EscapeIdentifier(identifier) != identifier
+                && !isTypeSyntaxKeyword)
+            {
+                builder.Append('@');
+            }
+            builder.Append(identifier);
+            index = end;
+        }
+        return builder.ToString();
+    }
+
+    static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
+    {
+        if (identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "object" or "short" or "ushort" or "string" or "void")
+        {
+            return end == type.Length || type[end] != '.';
+        }
+
+        if (identifier == "delegate")
+            return end < type.Length && type[end] == '*';
+
+        if (type.StartsWith("delegate*", StringComparison.Ordinal)
+            && identifier is "ref" or "in" or "out" or "readonly" or "unmanaged")
+        {
+            return true;
+        }
+
+        return start == 0
+            && end < type.Length
+            && char.IsWhiteSpace(type[end])
+            && identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped";
+    }
+
+    // ApiMember.Signature is a legacy compatibility string. Keep its qualified
+    // keyword escaping local rather than restoring declaration ownership to Metadata.
+    static string EscapeCompatibilityQualifiedKeywordSegments(string signature)
+    {
+        var builder = new StringBuilder(signature.Length);
+        bool inString = false;
+        bool inChar = false;
+        bool escapedCharacter = false;
+        for (int index = 0; index < signature.Length; index++)
+        {
+            char character = signature[index];
+            builder.Append(character);
+            if (inString || inChar)
+            {
+                if (escapedCharacter)
+                {
+                    escapedCharacter = false;
+                    continue;
+                }
+                if (character == '\\')
+                {
+                    escapedCharacter = true;
+                    continue;
+                }
+                if (inString && character == '"')
+                    inString = false;
+                else if (inChar && character == '\'')
+                    inChar = false;
+                continue;
+            }
+            if (character == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (character == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+            if (character != '.'
+                || index + 1 >= signature.Length
+                || signature[index + 1] == '@'
+                || !(char.IsLetter(signature[index + 1]) || signature[index + 1] == '_'))
+            {
+                continue;
+            }
+
+            int start = index + 1;
+            int end = start + 1;
+            while (end < signature.Length
+                   && (char.IsLetterOrDigit(signature[end]) || signature[end] == '_'))
+            {
+                end++;
+            }
+
+            string segment = signature[start..end];
+            string escaped = EscapeIdentifier(segment);
+            if (escaped != segment)
+            {
+                builder.Append(escaped);
+                index = end - 1;
+            }
+        }
+        return builder.ToString();
     }
 
     static string AccessorText(ApiAccessor accessor)
@@ -927,7 +1081,8 @@ public static class MetadataDeclarationQuery
                 continue;
             }
 
-            return $"({parameterType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+            string escapedType = EscapeCompatibilityTypeKeywords(parameterType);
+            return $"({escapedType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
         }
 
         return "";
@@ -994,7 +1149,7 @@ public static class MetadataDeclarationQuery
         var sb = new StringBuilder(value.Length + 2);
         sb.Append('"');
         foreach (char ch in value)
-            sb.Append(EscapeCharLiteral(ch));
+            sb.Append(ch == '"' ? "\\\"" : EscapeCharLiteral(ch));
         sb.Append('"');
         return sb.ToString();
     }
@@ -1054,6 +1209,7 @@ public static class MetadataDeclarationQuery
     static string EscapeIdentifier(string name)
         => ReservedKeywords.Contains(name) ? "@" + name : name;
 
+    // Keep synchronized with CSharpDeclarationWriter's owning spelling policy.
     static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
@@ -1064,6 +1220,6 @@ public static class MetadataDeclarationQuery
         "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
         "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
         "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while", "record", "required", "init", "file", "scoped",
+        "void", "volatile", "while", "await", "record", "required", "init", "file", "scoped",
     };
 }

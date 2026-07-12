@@ -23,7 +23,7 @@ internal static class ReturnToSenderClosureEvidenceBuilder
     {
         ArgumentNullException.ThrowIfNull(plan);
 
-        var requirements = plan.TypeRequirements.Select(Requirement).ToArray();
+        var requirements = plan.Types.Select(Requirement).ToArray();
         var fallbacks = requirements
             .SelectMany(requirement => requirement.Facts)
             .Select(ParseRoslynFallback)
@@ -34,8 +34,8 @@ internal static class ReturnToSenderClosureEvidenceBuilder
             .ThenBy(fallback => fallback.Recovery, StringComparer.Ordinal)
             .ToArray();
         return new ReturnToSenderClosureEvidence(
-            plan.TypeRequirements.Count,
-            plan.TypeRequirements.Sum(requirement => requirement.RequiredMembers.Count),
+            plan.Types.Count,
+            plan.Types.Sum(requirement => requirement.RequiredMembers.Count),
             requirements.Count(requirement => requirement.RoslynRecovered),
             requirements.Count(requirement => requirement.RoslynRecoveredMemberSurface),
             fallbacks,

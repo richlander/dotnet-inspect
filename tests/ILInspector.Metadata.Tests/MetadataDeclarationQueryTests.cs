@@ -122,6 +122,47 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_EscapesQualifiedKeywordParameterTypesInCompatibilitySignatures()
+    {
+        var surface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+
+        var method = Assert.Single(surface.Members, member => member.Name == "QualifiedKeyword");
+
+        Assert.Contains(
+            "MetadataDeclarationQueryFixtures.@namespace @class",
+            method.Signature,
+            StringComparison.Ordinal);
+        Assert.Contains("\".namespace\"", method.Signature, StringComparison.Ordinal);
+
+        var globalKeyword = Assert.Single(
+            surface.Members,
+            member => member.Name == "GlobalKeyword");
+        Assert.Contains(
+            "GlobalType(typeof(@class), (@event)1)",
+            globalKeyword.SignatureModel!.Parameters[0].Attributes);
+        Assert.Equal(
+            "(@event)1",
+            globalKeyword.SignatureModel.Parameters[2].DefaultValueText);
+        Assert.Contains("@class value", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains("List<@class> values = null", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains("@event mode = (@event)1", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains(
+            "GlobalType(typeof(@class), (@event)1)",
+            globalKeyword.Signature,
+            StringComparison.Ordinal);
+        Assert.Contains("\"a\\\"b.class\"", globalKeyword.Signature, StringComparison.Ordinal);
+
+        var syntaxKeywords = Assert.Single(
+            surface.Members,
+            member => member.Name == "SyntaxKeywordTypes");
+        Assert.Contains("@delegate delegateValue", syntaxKeywords.Signature, StringComparison.Ordinal);
+        Assert.Contains("@readonly readonlyValue", syntaxKeywords.Signature, StringComparison.Ordinal);
+        Assert.Contains("@scoped scopedValue", syntaxKeywords.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SelfTypeSignature_IncludesDeclaringGenericParameters()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.Container<>.Row<>));
@@ -271,6 +312,23 @@ public class MetadataDeclarationQueryFixtures
 
     public int @event = 1;
 
+    public void QualifiedKeyword(@namespace @class, string text = ".namespace") { }
+
+    public void GlobalKeyword(
+        [global::GlobalType(typeof(global::@class), (global::@event)1)] global::@class value,
+        List<global::@class>? values = null,
+        global::@event mode = (global::@event)1,
+        string text = "a\"b.class")
+    {
+    }
+
+    public void SyntaxKeywordTypes(
+        global::@delegate delegateValue,
+        global::@readonly readonlyValue,
+        global::@scoped scopedValue)
+    {
+    }
+
     public volatile int VolatileField;
 
     public int PlainField;
@@ -289,5 +347,9 @@ public class MetadataDeclarationQueryFixtures
         public class Row<U>
         {
         }
+    }
+
+    public class @namespace
+    {
     }
 }

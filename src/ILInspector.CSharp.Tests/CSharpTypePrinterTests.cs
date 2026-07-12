@@ -791,6 +791,7 @@ public sealed class CSharpTypePrinterTests
             Namespace = "Samples",
             Name = "Converter`1",
             MetadataName = "Converter`1",
+            Accessibility = "internal",
             Kind = "delegate",
             TypeParameters =
             [
@@ -820,7 +821,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("public enum Choice\n{\n    One = 1\n}", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains(
-            "public delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
+            "internal delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }

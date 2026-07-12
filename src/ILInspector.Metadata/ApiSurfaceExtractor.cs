@@ -49,6 +49,7 @@ public static class ApiSurfaceExtractor
                 Namespace = typeNamespace,
                 Name = typeName,
                 MetadataName = GetMetadataName(reader, typeDef),
+                Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
                 Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
