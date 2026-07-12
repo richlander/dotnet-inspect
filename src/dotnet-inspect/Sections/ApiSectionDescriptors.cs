@@ -510,6 +510,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleMethodLikeMember)
+            .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleMethodLikeMember)
@@ -562,6 +563,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Signature>()
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
+            .Add<FidelityCauses>()
             .Add<AnnotatedSource>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
@@ -634,6 +636,17 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class FidelityCauses : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.FidelityCauses;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);

@@ -50,6 +50,14 @@ If decompiled output looks wrong, capture `Decompiled Source`, `Annotated
 Source`, `Original Source` (via the `sourcelink` skill), and `IL` together;
 maintainers diagnose pipeline state with DecompilerHarness.
 
+Select `Fidelity Causes` for the typed `DEC####` cause census behind that
+fidelity grade. It distinguishes a Full method (complete, no causes), a method
+without a body (absent), and a failed inspection.
+
+```bash
+dnx dotnet-inspect -y -- member MyType MyMethod:1 --library MyLib.dll -S "Fidelity Causes"
+```
+
 ## Locate code by IL offset
 
 ```bash

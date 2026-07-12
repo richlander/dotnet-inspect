@@ -3104,6 +3104,61 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_ReportsCompleteEmptyCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Complete", output);
+        Assert.Contains("decompiler fidelity is Full", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_ReportsAbsentBody()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!, "--library", TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId), "--all",
+            "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Absent", output);
+        Assert.Contains("no decompiler IR body", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_RendersTypedCause()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FidelityCauseFixture.TypedReferenceType),
+            "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Complete", output);
+        Assert.Contains("DEC0004", output);
+        Assert.Contains("IL_0001", output);
+        Assert.Contains("mkrefany", output);
+    }
+
+    [Fact]
+    public async Task Member_FidelityCauses_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Fidelity Causes", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFacts_IncludesResearchHeaderFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -9292,5 +9347,14 @@ public static class CostOverlayFixture
         Span<int> values = stackalloc int[1];
         values[0] = value;
         return values[0];
+    }
+}
+
+public static class FidelityCauseFixture
+{
+    public static Type TypedReferenceType(ref int value)
+    {
+        TypedReference reference = __makeref(value);
+        return __reftype(reference);
     }
 }
