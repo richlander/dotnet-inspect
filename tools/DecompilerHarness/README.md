@@ -226,20 +226,23 @@ fidelity coverage series with the same per-bucket failure breakdown for each cap
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
-Use `--corpus-fidelity-oracle return-to-sender` (or `rts`) to run the fidelity
-sample through RTS instead of the default compile-back oracle. The transition
-mode first selects the same bounded target population as compile-back, including
-getters, setters, constructors, and ordinary methods, then records RTS outcomes
-under the existing method identity and fidelity-status contract. Snapshots name
-their oracle; diffing snapshots from different oracles is rejected rather than
-presenting incomparable fidelity movement.
+Use `--corpus-fidelity-oracle rts-parity` (`return-to-sender` and `rts` remain
+aliases) to run the fidelity sample through RTS instead of the default
+compile-back oracle. The transition mode first selects the same bounded target
+population as compile-back, including getters, setters, constructors, and
+ordinary methods, then records native RTS outcomes under the existing method
+identity and fidelity-status contract. Snapshots name this mode `rts-parity`;
+diffing snapshots from different modes is rejected rather than presenting
+incomparable fidelity movement.
 
 The RTS cap is therefore a parity population: methods the default oracle checked
 as `Exact` or `OpcodeDiff`, re-evaluated through RTS. The report classifies each
 target as rescued, same, or worse and records the compile-back reference status
-beside the RTS result. Rows rescued by RTS's monotonic compile-back floor retain
-`return-to-sender; compile-back-floor` capture provenance in the per-method
-snapshot instead of being presented as native RTS reconstruction.
+beside the native RTS result. Corpus parity deliberately disables RTS's
+compile-back floor so compile-back evidence cannot rewrite the RTS verdict.
+Because compile-back selects this population before RTS runs, `NotFullMethods`
+is structurally zero and failure buckets describe only the selected parity
+population; this mode measures parity, not independent RTS coverage.
 
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode diffs include canonical opcode streams, while
@@ -268,7 +271,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --emit-corpus-snapshot /tmp/rts-corpus-snapshot.json \
   --compile-cap 0 \
   --corpus-fidelity-cap 3 \
-  --corpus-fidelity-oracle return-to-sender \
+  --corpus-fidelity-oracle rts-parity \
   --max-examples 3
 ```
 

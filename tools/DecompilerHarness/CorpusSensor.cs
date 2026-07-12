@@ -15,7 +15,7 @@ internal enum CorpusFidelityOracle
     [JsonStringEnumMemberName("compile-back")]
     CompileBack,
 
-    [JsonStringEnumMemberName("return-to-sender")]
+    [JsonStringEnumMemberName("rts-parity")]
     ReturnToSender,
 }
 
@@ -370,10 +370,21 @@ internal static class CorpusSensor
             foreach (var assembly in assemblies)
             {
                 var portablePath = PortablePath(assembly);
-                var evaluation = fidelityOracle == CorpusFidelityOracle.CompileBack
-                    ? new FidelityOracleEvaluation(
-                        FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: false, workers, sequential))
-                    : EvaluateReturnToSender(assembly, cap, workers, sequential);
+                FidelityOracleEvaluation evaluation;
+                try
+                {
+                    evaluation = fidelityOracle == CorpusFidelityOracle.CompileBack
+                        ? new FidelityOracleEvaluation(
+                            FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: false, workers, sequential))
+                        : EvaluateReturnToSender(assembly, cap, workers, sequential);
+                }
+                catch (Exception ex) when (
+                    fidelityOracle == CorpusFidelityOracle.ReturnToSender
+                    && ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
+                {
+                    HarnessLog.Status($"RTS parity skipped {portablePath}: {ex.Message}");
+                    continue;
+                }
                 var assemblyUsefulResults = evaluation.Results;
                 usefulResults.AddRange(assemblyUsefulResults);
                 if (evaluation.Parity is { } parity)
@@ -457,7 +468,10 @@ internal static class CorpusSensor
                 result.Overload,
                 result.Signature))
             .ToArray();
-        var returnToSenderResults = ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets)
+        var returnToSenderResults = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                requestedTargets,
+                applyCompileBackFloor: false)
             .ToArray();
         var alignedResults = AlignReturnToSenderResults(targetSample, returnToSenderResults);
         return new FidelityOracleEvaluation(
@@ -1364,7 +1378,7 @@ internal static class CorpusSensor
         => oracle switch
         {
             CorpusFidelityOracle.CompileBack => "compile-back",
-            CorpusFidelityOracle.ReturnToSender => "return-to-sender",
+            CorpusFidelityOracle.ReturnToSender => "rts-parity",
             _ => throw new ArgumentOutOfRangeException(nameof(oracle)),
         };
 

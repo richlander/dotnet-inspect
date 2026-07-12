@@ -138,7 +138,7 @@ public class CorpusSensorComparisonTests
 
         Assert.Contains(
             regressions,
-            regression => regression == "fidelity oracle differs (baseline compile-back, current return-to-sender)");
+            regression => regression == "fidelity oracle differs (baseline compile-back, current rts-parity)");
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
         Assert.Contains("Fidelity exact (oracle differs)", report);
     }

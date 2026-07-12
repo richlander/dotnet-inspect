@@ -1523,9 +1523,9 @@ static class Program
         => value.ToLowerInvariant() switch
         {
             "compile-back" => CorpusFidelityOracle.CompileBack,
-            "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
+            "rts-parity" or "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
             _ => throw new ArgumentException(
-                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back, return-to-sender, or rts."),
+                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back or rts-parity."),
         };
 
     static void PrintUsage() => Console.WriteLine("""
@@ -1787,8 +1787,9 @@ static class Program
                                 fidelity oracle (default 0, not run).
           --corpus-fidelity-oracle <name>
                                 with corpus baseline modes: select compile-back
-                                (default) or return-to-sender/rts. RTS evaluates
-                                the same compile-back-selected target population.
+                                (default) or rts-parity (aliases: return-to-sender,
+                                rts). RTS evaluates the same compile-back-selected
+                                target population without applying the compile-back floor.
           --corpus-method-cap <n>        with corpus baseline modes: cap the
                                 completeness/structuring scan to a deterministic
                                 hash-ranked sample of n methods per assembly.
