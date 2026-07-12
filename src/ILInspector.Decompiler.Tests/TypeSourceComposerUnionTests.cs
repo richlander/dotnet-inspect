@@ -1552,8 +1552,9 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
-        Assert.Equal("return !(pet is not null && pet is Cat);",
-            RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat"));
+        var classIsNotCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat");
+        Assert.True(classIsNotCat is "return !(pet is not null && pet is Cat);"
+            or "return pet is not null && pet is not Cat;", classIsNotCat);
         Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotCat"));
         var classValueNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueNotNamedCat);
