@@ -1467,104 +1467,7 @@ public static class ApiOutputFormatter
                     .ToList();
             }
 
-            if (code.LoweredBody is { } lowered)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(
-                        type,
-                        member,
-                        code.MethodGenericParameters,
-                        lowered,
-                        code.RequiresAsyncDeclaration,
-                        preferExpressionBodied: true);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.DecompiledSourceCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.LoweredDiagnostic is { } loweredDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.DecompiledSourceCode = new CodeSection("csharp", loweredDiagnostic);
-                hasCode = true;
-            }
-
-            if (code.AnnotatedBody is { } annotated)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, annotated);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.AnnotatedSourceCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.AnnotatedDiagnostic is { } annotatedDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.AnnotatedSourceCode = new CodeSection("csharp", annotatedDiagnostic);
-                hasCode = true;
-            }
-
-            if (code.CostOverlayBody is { } costOverlay)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(
-                        type,
-                        member,
-                        code.MethodGenericParameters,
-                        costOverlay,
-                        leadingBodyComments: code.CostOverlayHeaderComments);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.CostOverlayCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.CostOverlayDiagnostic is { } costDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.CostOverlayCode = new CodeSection("csharp", costDiagnostic);
-                hasCode = true;
-            }
-
-            if (code.SemanticsOverlayBody is { } semanticsOverlay)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                string source;
-                try
-                {
-                    source = FormatSourceWithDeclaration(type, member, code.MethodGenericParameters, semanticsOverlay);
-                }
-                catch (Exception ex)
-                {
-                    source = $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}";
-                }
-                memberCode.SemanticsOverlayCode = new CodeSection("csharp", source);
-                hasCode = true;
-            }
-            else if (code.SemanticsOverlayDiagnostic is { } semanticsDiagnostic)
-            {
-                EmitDecompileBreadcrumb(member.Name, code.DecompileTrace);
-                memberCode.SemanticsOverlayCode = new CodeSection("csharp", semanticsDiagnostic);
-                hasCode = true;
-            }
+            hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
             if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
@@ -1596,6 +1499,63 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    internal static bool PopulateCSharpSections(
+        MemberCodeView memberCode,
+        ApiType type,
+        ApiMember member,
+        MemberCodeProvider.Item code)
+    {
+        bool hasCode = false;
+
+        if (code.DecompiledResult is { } decompiledResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
+            memberCode.DecompiledSourceCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                decompiledResult,
+                preferExpressionBodied: true);
+            hasCode = true;
+        }
+
+        if (code.AnnotatedResult is { } annotatedResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, annotatedResult.Trace);
+            memberCode.AnnotatedSourceCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                annotatedResult);
+            hasCode = true;
+        }
+
+        if (code.CostOverlayResult is { } costOverlayResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, costOverlayResult.Trace);
+            memberCode.CostOverlayCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                costOverlayResult,
+                leadingBodyComments: code.CostOverlayHeaderComments);
+            hasCode = true;
+        }
+
+        if (code.SemanticsOverlayResult is { } semanticsOverlayResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, semanticsOverlayResult.Trace);
+            memberCode.SemanticsOverlayCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                semanticsOverlayResult);
+            hasCode = true;
+        }
+
+        return hasCode;
     }
 
     static void AddOrReplaceSummaryField(TypeView view, string name, string value)
@@ -2148,35 +2108,62 @@ public static class ApiOutputFormatter
         RequestTelemetry.Breadcrumb(stage, detail);
     }
 
-    private static string FormatSourceWithDeclaration(
+    private static string DiagnosticComment(Decompiler.DecompilerResult result)
+        => string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
+
+    private static CodeSection FormatCSharpResult(
         ApiType type,
         ApiMember member,
         IReadOnlyList<string>? methodGenericParameters,
-        string lowered,
-        bool requiresAsyncDeclaration = false,
+        Decompiler.DecompilerResult result,
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null)
     {
+        if (!result.Succeeded)
+            return new CodeSection("csharp", DiagnosticComment(result));
+
+        try
+        {
+            return new CodeSection(
+                "csharp",
+                FormatSourceWithDeclaration(
+                    type,
+                    member,
+                    methodGenericParameters,
+                    result,
+                    preferExpressionBodied,
+                    leadingBodyComments));
+        }
+        catch (Exception ex)
+        {
+            return new CodeSection(
+                "csharp",
+                $"// {Decompiler.DiagnosticIds.InternalError}: declaration formatting failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    internal static string FormatSourceWithDeclaration(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodGenericParameters,
+        Decompiler.DecompilerResult result,
+        bool preferExpressionBodied = false,
+        IReadOnlyList<string>? leadingBodyComments = null)
+    {
+        var lowered = result.Output
+            ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
         var declaration = FormatMemberDeclaration(
             type,
             member,
             abbreviate: false,
             methodGenericParameters,
-            forceAsync: requiresAsyncDeclaration);
-        var body = lowered.TrimEnd();
-
-        // A constructor's base/this initializer is surfaced by the renderer as a
-        // leading `: base(...)` / `: this(...)` line (it is invalid as a body
-        // statement). Lift it onto the declaration line so the output is valid C#.
-        var bodyLines = body.ReplaceLineEndings("\n").Split('\n');
-        if (bodyLines.Length > 0 && bodyLines[0].TrimStart() is { } first
-            && (first.StartsWith(": base(", StringComparison.Ordinal)
-                || first.StartsWith(": this(", StringComparison.Ordinal)))
+            forceAsync: result.ContainsAwaitExpression || result.RequiresAsyncBodyModifier);
+        if (result.ConstructorChain is { } constructorChain
+            && !string.IsNullOrWhiteSpace(declaration))
         {
-            if (!string.IsNullOrWhiteSpace(declaration))
-                declaration = $"{declaration} {first.TrimEnd()}";
-            body = string.Join("\n", bodyLines.Skip(1)).TrimEnd();
+            declaration = $"{declaration} : {constructorChain}";
         }
+        var body = lowered.TrimEnd();
 
         if (string.IsNullOrWhiteSpace(declaration))
             return body;

@@ -3,9 +3,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using Xunit;
 
@@ -91,6 +94,160 @@ public class ApiOutputFormatterTests
 
         Assert.False(ApiOutputFormatter.SameType(typeRef, apiType));
     }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_UsesTypedConstructorChain()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        var result = DecompilerResult.Success("return;") with
+        {
+            ConstructorChain = "base(42)"
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+
+        Assert.Contains("Widget() : base(42)", source.ReplaceLineEndings("\n").Split('\n')[0]);
+        Assert.DoesNotContain("    : base(42)", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_DoesNotParseConstructorChainFromBodyText()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        var result = DecompilerResult.Success(": base(42)\nreturn;");
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+        var lines = source.ReplaceLineEndings("\n").Split('\n');
+
+        Assert.DoesNotContain(": base(42)", lines[0]);
+        Assert.Contains("    : base(42)", lines);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    public void FormatSourceWithDeclaration_UsesTypedAsyncEvidence(
+        bool containsAwaitExpression,
+        bool requiresAsyncBodyModifier,
+        bool expectedAsync)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Run",
+                ReturnType = "System.Threading.Tasks.Task"
+            }
+        };
+        var result = DecompilerResult.Success("Console.WriteLine(\"await\");") with
+        {
+            ContainsAwaitExpression = containsAwaitExpression,
+            RequiresAsyncBodyModifier = requiresAsyncBodyModifier
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result);
+        var declaration = source.ReplaceLineEndings("\n").Split('\n')[0];
+
+        Assert.Equal(expectedAsync, declaration.Contains(" async ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PopulateCSharpSections_PreservesOverlayFailureDiagnostics()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = Method("Run");
+        var code = new MemberCodeProvider.Item(
+            DecompiledResult: null,
+            MethodGenericParameters: null,
+            AnnotatedResult: DecompilerResult.Failure(DiagnosticIds.ContextUnavailable, "annotated failure"),
+            CostOverlayResult: DecompilerResult.Failure(DiagnosticIds.UnsupportedConstruct, "cost failure"),
+            CostOverlayHeaderComments: null,
+            SemanticsOverlayResult: DecompilerResult.Failure(DiagnosticIds.UnsupportedType, "semantics failure"),
+            ILText: null,
+            ILDiagnostic: null,
+            Attributes: null);
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, code));
+        Assert.Equal("// DEC0002: annotated failure", sections.AnnotatedSourceCode.Content);
+        Assert.Equal("// DEC0004: cost failure", sections.CostOverlayCode.Content);
+        Assert.Equal("// DEC0005: semantics failure", sections.SemanticsOverlayCode.Content);
+    }
+
+    [Fact]
+    public void PopulateCSharpSections_AppliesTypedAsyncEvidenceToAllOverlays()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = Method("Run");
+        var containsAwait = DecompilerResult.Success("await Task.Yield();") with
+        {
+            ContainsAwaitExpression = true
+        };
+        var requiresAsync = DecompilerResult.Success("await Task.Yield();") with
+        {
+            RequiresAsyncBodyModifier = true
+        };
+        var code = new MemberCodeProvider.Item(
+            DecompiledResult: null,
+            MethodGenericParameters: null,
+            AnnotatedResult: containsAwait,
+            CostOverlayResult: containsAwait,
+            CostOverlayHeaderComments: ["// cost evidence"],
+            SemanticsOverlayResult: requiresAsync,
+            ILText: null,
+            ILDiagnostic: null,
+            Attributes: null);
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, code));
+        Assert.Contains(" async ", Declaration(sections.AnnotatedSourceCode.Content));
+        Assert.Contains(" async ", Declaration(sections.CostOverlayCode.Content));
+        Assert.Contains("// cost evidence", sections.CostOverlayCode.Content);
+        Assert.Contains(" async ", Declaration(sections.SemanticsOverlayCode.Content));
+    }
+
+    static ApiMember Method(string name)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = "System.Threading.Tasks.Task"
+            }
+        };
+
+    static string Declaration(string source)
+        => source.ReplaceLineEndings("\n").Split('\n')[0];
 
     // --- Extraction: MetadataName reconstruction from real metadata (no ilasm) ---
 
