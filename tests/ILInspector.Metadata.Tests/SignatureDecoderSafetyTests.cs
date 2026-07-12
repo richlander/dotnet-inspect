@@ -23,9 +23,29 @@ public class SignatureDecoderSafetyTests
     public void DeepMethodSignatureGateway_IsContainedInChildProcess()
         => RunWorker(nameof(DeepMethodSignatureGatewayWorker));
 
-    [Fact(Skip = "Known TypeNodeProvider crash tracked by #2575.")]
+    [Fact]
     public void CyclicTypeSpec_ThroughApiSurfaceExtractor_IsContainedInChildProcess()
         => RunWorker(nameof(CyclicTypeSpecThroughApiSurfaceExtractorWorker));
+
+    [Fact]
+    public void DeepFieldSignature_ThroughApiSurfaceExtractor_IsContainedInChildProcess()
+        => RunWorker(nameof(DeepFieldSignatureThroughApiSurfaceExtractorWorker));
+
+    [Fact]
+    public void DeepTypeSpec_ThroughCanonicalIl_IsContainedInChildProcess()
+        => RunWorker(nameof(DeepTypeSpecThroughCanonicalIlWorker));
+
+    [Fact]
+    public void DeepMethodSignature_ThroughPointerDetector_IsContainedInChildProcess()
+        => RunWorker(nameof(DeepMethodSignatureThroughPointerDetectorWorker));
+
+    [Fact]
+    public void DeepMethodSignature_ThroughAnchorProvider_IsContainedInChildProcess()
+        => RunWorker(nameof(DeepMethodSignatureThroughAnchorProviderWorker));
+
+    [Fact]
+    public void DeepMethodSignature_ThroughSpellability_IsContainedInChildProcess()
+        => RunWorker(nameof(DeepMethodSignatureThroughSpellabilityWorker));
 
     [Fact]
     public void SignatureBlobGuard_OldAssemblyIdentity_IsForwarded()
@@ -125,6 +145,76 @@ public class SignatureDecoderSafetyTests
         _ = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
 
+    [Fact]
+    public void DeepFieldSignatureThroughApiSurfaceExtractorWorker()
+    {
+        if (!IsSelectedWorker(nameof(DeepFieldSignatureThroughApiSurfaceExtractorWorker)))
+            return;
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // field signature
+        for (int i = 0; i < 100_000; i++)
+            fieldSignature.WriteByte(0x1d); // SZARRAY
+        fieldSignature.WriteByte(0x08);     // I4
+
+        var image = BuildSurfacePe(fieldSignature: fieldSignature, methodSignature: null);
+        using var peReader = new PEReader(new MemoryStream(image));
+        _ = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
+
+    [Fact]
+    public void DeepTypeSpecThroughCanonicalIlWorker()
+    {
+        if (!IsSelectedWorker(nameof(DeepTypeSpecThroughCanonicalIlWorker)))
+            return;
+
+        var reader = BuildTypeSpec(signature =>
+        {
+            for (int i = 0; i < 100_000; i++)
+                signature.WriteByte(0x1d); // SZARRAY
+            signature.WriteByte(0x08);     // I4
+        });
+
+        Assert.Equal(
+            "object",
+            CanonicalIL.ResolveTypeHandle(reader, MetadataTokens.TypeSpecificationHandle(1)));
+    }
+
+    [Fact]
+    public void DeepMethodSignatureThroughPointerDetectorWorker()
+    {
+        if (!IsSelectedWorker(nameof(DeepMethodSignatureThroughPointerDetectorWorker)))
+            return;
+
+        var image = BuildSurfacePe(fieldSignature: null, methodSignature: DeepMethodSignature());
+        using var peReader = new PEReader(new MemoryStream(image));
+        _ = AssemblyDetailScanner.ScanPresenceFlags(peReader);
+    }
+
+    [Fact]
+    public void DeepMethodSignatureThroughAnchorProviderWorker()
+    {
+        if (!IsSelectedWorker(nameof(DeepMethodSignatureThroughAnchorProviderWorker)))
+            return;
+
+        var (reader, typeHandle, methodHandle) = BuildTypeWithMethod(DeepMethodSignature());
+        _ = ApiMemberIdentity.CreateMethodAnchorInfo(
+            reader, typeHandle, reader.GetMethodDefinition(methodHandle));
+    }
+
+    [Fact]
+    public void DeepMethodSignatureThroughSpellabilityWorker()
+    {
+        if (!IsSelectedWorker(nameof(DeepMethodSignatureThroughSpellabilityWorker)))
+            return;
+
+        var (reader, typeHandle, methodHandle) = BuildTypeWithMethod(DeepMethodSignature());
+        var method = reader.GetMethodDefinition(methodHandle);
+        var spellability = new SignatureSpellability(new NullReferenceResolver());
+        _ = spellability.CanSpellMethod(
+            reader, method, GenericContext.ForMethod(reader, reader.GetTypeDefinition(typeHandle), method));
+    }
+
     static bool IsSelectedWorker(string methodName)
         => Environment.GetEnvironmentVariable(WorkerVariable) == methodName;
 
@@ -157,6 +247,114 @@ public class SignatureDecoderSafetyTests
         var signature = new BlobBuilder();
         writeSignature(signature);
         return BuildAssembly(metadata => metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature)));
+    }
+
+    static BlobBuilder DeepMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteByte(0x00); // zero parameters
+        for (int i = 0; i < 100_000; i++)
+            signature.WriteByte(0x1d); // SZARRAY return type
+        signature.WriteByte(0x08);     // I4
+        return signature;
+    }
+
+    static (MetadataReader Reader, TypeDefinitionHandle TypeHandle, MethodDefinitionHandle MethodHandle)
+        BuildTypeWithMethod(BlobBuilder methodSignature)
+    {
+        MethodDefinitionHandle methodHandle = default;
+        TypeDefinitionHandle typeHandle = default;
+        var reader = BuildAssembly(metadata =>
+        {
+            methodHandle = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(methodSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                methodHandle);
+        });
+        return (reader, typeHandle, methodHandle);
+    }
+
+    /// <summary>
+    /// Builds a minimal PE image exposing a public type <c>N.C</c> with a single
+    /// static field and/or method carrying the supplied signature blob, so
+    /// PE-level scanners (ApiSurfaceExtractor, AssemblyDetailScanner) reach the
+    /// crafted signature through their real entry points.
+    /// </summary>
+    static byte[] BuildSurfacePe(BlobBuilder? fieldSignature, BlobBuilder? methodSignature)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        if (fieldSignature is not null)
+        {
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public | FieldAttributes.Static,
+                metadata.GetOrAddString("F"),
+                metadata.GetOrAddBlob(fieldSignature));
+        }
+
+        if (methodSignature is not null)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(methodSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    sealed class NullReferenceResolver : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => null;
     }
 
     static byte[] BuildApiSurfaceTypeSpecCycle()

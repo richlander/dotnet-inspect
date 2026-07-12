@@ -351,8 +351,8 @@ public static class MetadataDeclarationQuery
     /// evidence (<see cref="TypeNode.HasRequiredModifier"/>) that the API surface uses for
     /// <c>in</c>/<c>ref readonly</c>, so callers do not re-decode the signature to spot the modifier.
     /// </summary>
-    public static bool IsVolatileField(FieldDefinition field, GenericContext context)
-        => field.DecodeSignature(TypeNodeProvider.Instance, context)
+    public static bool IsVolatileField(MetadataReader reader, FieldDefinition field, GenericContext context)
+        => GuardedProviderDecode.Field(reader, field, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true))
             .HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile");
 
     /// <summary>

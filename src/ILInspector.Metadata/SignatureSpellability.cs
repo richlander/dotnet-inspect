@@ -23,7 +23,7 @@ public sealed class SignatureSpellability
 
     public bool CanSpellField(MetadataReader reader, FieldDefinition field, GenericContext context)
     {
-        try { return !field.DecodeSignature(new InaccessibleTypeDetector(this), context); }
+        try { return !GuardedProviderDecode.Field(reader, field, new InaccessibleTypeDetector(this), context, false); }
         catch (Exception ex) when (IsDecodeException(ex)) { return true; }
     }
 
@@ -31,7 +31,7 @@ public sealed class SignatureSpellability
     {
         try
         {
-            var signature = property.DecodeSignature(new InaccessibleTypeDetector(this), context);
+            var signature = GuardedProviderDecode.Property(reader, property, new InaccessibleTypeDetector(this), context, false);
             return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
         }
         catch (Exception ex) when (IsDecodeException(ex)) { return true; }
@@ -41,7 +41,7 @@ public sealed class SignatureSpellability
     {
         try
         {
-            var signature = method.DecodeSignature(new InaccessibleTypeDetector(this), context);
+            var signature = GuardedProviderDecode.Method(reader, method, new InaccessibleTypeDetector(this), context, false);
             return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
         }
         catch (Exception ex) when (IsDecodeException(ex)) { return true; }
@@ -153,7 +153,18 @@ public sealed class SignatureSpellability
         public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
             => spellability.IsInaccessible(reader, handle);
         public bool GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-            => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+                return false;
+            try
+            {
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            }
+            finally
+            {
+                TypeSpecGuard.Exit(blobLength);
+            }
+        }
         public bool GetSZArrayType(bool elementType) => elementType;
         public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
         public bool GetByReferenceType(bool elementType) => elementType;

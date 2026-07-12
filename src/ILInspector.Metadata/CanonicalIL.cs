@@ -46,7 +46,18 @@ public sealed class ILSignatureTypeProvider : ISignatureTypeProvider<string, Gen
         => Prefix(rawTypeKind) + CanonicalIL.QualifiedName(reader, handle);
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+    {
+        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+            return "object";
+        try
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        }
+        finally
+        {
+            TypeSpecGuard.Exit(blobLength);
+        }
+    }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
     public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
@@ -110,8 +121,8 @@ public static class CanonicalIL
     {
         HandleKind.TypeDefinition => QualifiedName(reader, (TypeDefinitionHandle)handle),
         HandleKind.TypeReference => QualifiedName(reader, (TypeReferenceHandle)handle),
-        HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle)
-            .DecodeSignature(ILSignatureTypeProvider.Instance, null),
+        HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+            reader, (TypeSpecificationHandle)handle, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object"),
         _ => $"0x{MetadataTokens.GetToken(handle):X8}"
     };
 
@@ -269,7 +280,7 @@ public static class CanonicalIL
         var method = reader.GetMethodDefinition(handle);
         string name = reader.GetString(method.Name);
         string parent = QualifiedName(reader, method.GetDeclaringType());
-        var sig = method.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+        var sig = GuardedProviderDecode.Method(reader, method, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object");
         return FormatCall(sig, parent, name, genericArgs: null);
     }
 
@@ -278,14 +289,14 @@ public static class CanonicalIL
         var memberRef = reader.GetMemberReference(handle);
         string name = reader.GetString(memberRef.Name);
         string parent = FormatMemberRefParent(reader, memberRef.Parent);
-        var sig = memberRef.DecodeMethodSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+        var sig = GuardedProviderDecode.MemberRefMethod(reader, memberRef, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object");
         return FormatCall(sig, parent, name, genericArgs: null);
     }
 
     static string FormatMethodSpec(MetadataReader reader, MethodSpecificationHandle handle)
     {
         var spec = reader.GetMethodSpecification(handle);
-        var typeArgs = spec.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+        var typeArgs = GuardedProviderDecode.MethodSpec(reader, spec, ILSignatureTypeProvider.Instance, (GenericContext?)null);
         string genericArgs = $"<{string.Join(", ", typeArgs)}>";
 
         switch (spec.Method.Kind)
@@ -293,13 +304,13 @@ public static class CanonicalIL
             case HandleKind.MethodDefinition:
             {
                 var method = reader.GetMethodDefinition((MethodDefinitionHandle)spec.Method);
-                var sig = method.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+                var sig = GuardedProviderDecode.Method(reader, method, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object");
                 return FormatCall(sig, QualifiedName(reader, method.GetDeclaringType()), reader.GetString(method.Name), genericArgs);
             }
             case HandleKind.MemberReference:
             {
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)spec.Method);
-                var sig = memberRef.DecodeMethodSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+                var sig = GuardedProviderDecode.MemberRefMethod(reader, memberRef, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object");
                 return FormatCall(sig, FormatMemberRefParent(reader, memberRef.Parent), reader.GetString(memberRef.Name), genericArgs);
             }
             default:
@@ -319,14 +330,14 @@ public static class CanonicalIL
     static string FormatFieldDef(MetadataReader reader, FieldDefinitionHandle handle)
     {
         var field = reader.GetFieldDefinition(handle);
-        string fieldType = field.DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+        string fieldType = GuardedProviderDecode.Field(reader, field, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object");
         return $"{fieldType} {QualifiedName(reader, field.GetDeclaringType())}::{QuoteName(reader.GetString(field.Name))}";
     }
 
     static string FormatFieldMemberRef(MetadataReader reader, MemberReferenceHandle handle)
     {
         var memberRef = reader.GetMemberReference(handle);
-        string fieldType = memberRef.DecodeFieldSignature(ILSignatureTypeProvider.Instance, genericContext: null);
+        string fieldType = GuardedProviderDecode.MemberRefField(reader, memberRef, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object");
         return $"{fieldType} {FormatMemberRefParent(reader, memberRef.Parent)}::{QuoteName(reader.GetString(memberRef.Name))}";
     }
 
@@ -339,8 +350,8 @@ public static class CanonicalIL
     {
         HandleKind.TypeDefinition => QualifiedName(reader, (TypeDefinitionHandle)parent),
         HandleKind.TypeReference => QualifiedName(reader, (TypeReferenceHandle)parent),
-        HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)parent)
-            .DecodeSignature(ILSignatureTypeProvider.Instance, null),
+        HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+            reader, (TypeSpecificationHandle)parent, ILSignatureTypeProvider.Instance, (GenericContext?)null, "object"),
         HandleKind.MethodDefinition => "?", // varargs call-site refs — not produced by Roslyn
         _ => $"0x{MetadataTokens.GetToken(parent):X8}"
     };
