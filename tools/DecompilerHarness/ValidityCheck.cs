@@ -728,7 +728,11 @@ static class ValidityCheck
             diagnostic.Location.SourceSpan,
             getInnermostNodeForTie: true);
         if (diagnostic.Id != "CS1540")
-            return ClassifySyntheticShellThis(diagnostic.Id, node, semanticModel);
+            return ClassifySyntheticShellThis(
+                diagnostic.Id,
+                node,
+                function.DeclaringType,
+                semanticModel);
 
         var memberAccess = node.FirstAncestorOrSelf<MemberAccessExpressionSyntax>()
             ?? node.DescendantNodesAndSelf()
@@ -754,11 +758,18 @@ static class ValidityCheck
     static EvidenceDisposition ClassifySyntheticShellThis(
         string diagnosticId,
         SyntaxNode node,
+        TypeRef declaringType,
         SemanticModel semanticModel)
     {
+        if (diagnosticId == "CS0019")
+        {
+            return IsSyntheticShellBinaryArtifact(node, declaringType, semanticModel)
+                ? EvidenceDisposition.Filter
+                : EvidenceDisposition.Keep;
+        }
+
         ExpressionSyntax? subject = diagnosticId switch
         {
-            "CS0019" => ShellTypedBinaryOperand(node, semanticModel),
             "CS0023" => node.FirstAncestorOrSelf<PrefixUnaryExpressionSyntax>()?.Operand,
             "CS0030" => node.FirstAncestorOrSelf<CastExpressionSyntax>()?.Expression,
             "CS8121" => node.FirstAncestorOrSelf<IsPatternExpressionSyntax>()?.Expression,
@@ -769,23 +780,43 @@ static class ValidityCheck
         if (subject is null)
             return EvidenceDisposition.Keep;
 
-        return IsSyntheticShellValue(subject, semanticModel)
+        ITypeSymbol? targetType = diagnosticId switch
+        {
+            "CS0030" => node.FirstAncestorOrSelf<CastExpressionSyntax>() is { } cast
+                ? semanticModel.GetTypeInfo(cast.Type).Type
+                : null,
+            "CS0029" or "CS0266" => semanticModel.GetTypeInfo(subject).ConvertedType,
+            _ => null,
+        };
+        bool shellArtifact = targetType is null
+            ? IsDirectSyntheticShellValue(subject, semanticModel)
+            : IsSyntheticShellConversionArtifact(
+                subject,
+                targetType,
+                declaringType,
+                semanticModel);
+        return shellArtifact
             ? EvidenceDisposition.Filter
             : EvidenceDisposition.Keep;
     }
 
-    static ExpressionSyntax? ShellTypedBinaryOperand(
+    static bool IsSyntheticShellBinaryArtifact(
         SyntaxNode node,
+        TypeRef declaringType,
         SemanticModel semanticModel)
     {
         var binary = node.FirstAncestorOrSelf<BinaryExpressionSyntax>();
         if (binary is null)
-            return null;
-        if (IsSyntheticShellValue(binary.Left, semanticModel))
-            return binary.Left;
-        if (IsSyntheticShellValue(binary.Right, semanticModel))
-            return binary.Right;
-        return binary;
+            return false;
+
+        var leftType = semanticModel.GetTypeInfo(binary.Left).Type;
+        var rightType = semanticModel.GetTypeInfo(binary.Right).Type;
+        return IsSyntheticShellValue(binary.Left, semanticModel)
+                && (IsSyntheticShellType(leftType)
+                    || TypesEquivalentAfterShellReplacement(leftType, rightType, declaringType))
+            || IsSyntheticShellValue(binary.Right, semanticModel)
+                && (IsSyntheticShellType(rightType)
+                    || TypesEquivalentAfterShellReplacement(rightType, leftType, declaringType));
     }
 
     static ExpressionSyntax? ClosestExpression(SyntaxNode node)
@@ -801,8 +832,85 @@ static class ValidityCheck
         => expression.DescendantNodesAndSelf()
             .OfType<ThisExpressionSyntax>()
             .Any(candidate => IsSyntheticShellThis(candidate, semanticModel))
-        && semanticModel.GetTypeInfo(expression).Type is INamedTypeSymbol type
-        && IsSyntheticShellType(type);
+        && ContainsSyntheticShellType(semanticModel.GetTypeInfo(expression).Type);
+
+    static bool IsDirectSyntheticShellValue(
+        ExpressionSyntax expression,
+        SemanticModel semanticModel)
+        => expression.DescendantNodesAndSelf()
+            .OfType<ThisExpressionSyntax>()
+            .Any(candidate => IsSyntheticShellThis(candidate, semanticModel))
+        && IsSyntheticShellType(semanticModel.GetTypeInfo(expression).Type);
+
+    static bool IsSyntheticShellConversionArtifact(
+        ExpressionSyntax expression,
+        ITypeSymbol targetType,
+        TypeRef declaringType,
+        SemanticModel semanticModel)
+    {
+        if (!IsSyntheticShellValue(expression, semanticModel))
+            return false;
+
+        var sourceType = semanticModel.GetTypeInfo(expression).Type;
+        return IsSyntheticShellType(sourceType)
+            || TypesEquivalentAfterShellReplacement(sourceType, targetType, declaringType);
+    }
+
+    static bool ContainsSyntheticShellType(ITypeSymbol? type)
+        => type switch
+        {
+            INamedTypeSymbol namedType => IsSyntheticShellType(namedType)
+                || namedType.TypeArguments.Any(ContainsSyntheticShellType),
+            IArrayTypeSymbol arrayType => ContainsSyntheticShellType(arrayType.ElementType),
+            IPointerTypeSymbol pointerType => ContainsSyntheticShellType(pointerType.PointedAtType),
+            _ => false,
+        };
+
+    static bool TypesEquivalentAfterShellReplacement(
+        ITypeSymbol? left,
+        ITypeSymbol? right,
+        TypeRef declaringType)
+    {
+        if (left is null || right is null)
+            return false;
+        if (IsSyntheticShellType(left))
+            return right is INamedTypeSymbol rightNamed
+                && MetadataFullName(rightNamed) == MetadataFullName(declaringType);
+        if (IsSyntheticShellType(right))
+            return left is INamedTypeSymbol leftNamed
+                && MetadataFullName(leftNamed) == MetadataFullName(declaringType);
+        if (left is IArrayTypeSymbol leftArray && right is IArrayTypeSymbol rightArray)
+        {
+            return leftArray.Rank == rightArray.Rank
+                && TypesEquivalentAfterShellReplacement(
+                    leftArray.ElementType,
+                    rightArray.ElementType,
+                    declaringType);
+        }
+        if (left is IPointerTypeSymbol leftPointer && right is IPointerTypeSymbol rightPointer)
+        {
+            return TypesEquivalentAfterShellReplacement(
+                leftPointer.PointedAtType,
+                rightPointer.PointedAtType,
+                declaringType);
+        }
+        if (left is INamedTypeSymbol leftNamedType
+            && right is INamedTypeSymbol rightNamedType
+            && SymbolEqualityComparer.Default.Equals(
+                leftNamedType.OriginalDefinition,
+                rightNamedType.OriginalDefinition)
+            && leftNamedType.TypeArguments.Length == rightNamedType.TypeArguments.Length)
+        {
+            return leftNamedType.TypeArguments
+                .Zip(rightNamedType.TypeArguments)
+                .All(pair => TypesEquivalentAfterShellReplacement(
+                    pair.First,
+                    pair.Second,
+                    declaringType));
+        }
+
+        return SymbolEqualityComparer.Default.Equals(left, right);
+    }
 
     static bool IsSyntheticShellThis(
         ThisExpressionSyntax expression,
@@ -817,6 +925,9 @@ static class ValidityCheck
             ContainingType: null,
             ContainingNamespace.IsGlobalNamespace: true,
         };
+
+    static bool IsSyntheticShellType(ITypeSymbol? type)
+        => type is INamedTypeSymbol namedType && IsSyntheticShellType(namedType);
 
     static bool IsProtected(ISymbol? symbol)
         => symbol?.DeclaredAccessibility is

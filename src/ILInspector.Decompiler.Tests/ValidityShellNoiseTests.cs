@@ -17,7 +17,9 @@ public class ValidityShellNoiseTests
     [Theory]
     [InlineData("CS0029", "class Real {} sealed class __Shell { Real M() => this; }")]
     [InlineData("CS0019", "sealed class Real {} sealed class __Shell { bool M(Real value) => this == value; }")]
+    [InlineData("CS0019", "class Real {} sealed class __Shell { bool M((int, Real) value) => (1, this) == value; }")]
     [InlineData("CS0030", "sealed class Real {} sealed class __Shell { Real M() => (Real)this; }")]
+    [InlineData("CS0030", "class Real {} sealed class __Shell { Real[] M() => (Real[])new[] { this }; }")]
     [InlineData("CS0023", "sealed class __Shell { bool M() => !this; }")]
     [InlineData("CS8121", "class Real {} sealed class Derived : Real {} sealed class __Shell { bool M() => this is Derived; }")]
     public void SyntheticShellThisDiagnostics_AreFiltered(string diagnosticId, string source)
@@ -68,6 +70,22 @@ public class ValidityShellNoiseTests
             semanticModel);
 
         Assert.Equal([diagnosticId], defects.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void ShellThisInStructuralOperand_DoesNotHideOtherTypeMismatch()
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(
+            "class Real {} sealed class __Shell { bool M((string, Real) value) => (1, this) == value; }");
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics.Where(d => d.Id == "CS0019"),
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal(diagnostics.Count(d => d.Id == "CS0019"), defects.Length);
+        Assert.All(defects, defect => Assert.Equal("CS0019", defect.Id));
     }
 
     [Fact]
