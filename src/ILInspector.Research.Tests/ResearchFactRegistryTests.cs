@@ -44,6 +44,22 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void RunProjection_PreservesFailureDiagnostics()
+    {
+        var failure = DecompilerResult.Failure(
+            DiagnosticIds.ContextUnavailable,
+            "overlay context unavailable");
+
+        var result = ResearchViews.RunProjection(
+            () => failure,
+            emptyOutputIsFailure: true);
+
+        Assert.Same(failure, result);
+        Assert.Equal(DiagnosticIds.ContextUnavailable, Assert.Single(result.Diagnostics).Id);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.EmptyOutput);
+    }
+
+    [Fact]
     public void EmptyRegistry_ProducesNoOverlayFacts()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);

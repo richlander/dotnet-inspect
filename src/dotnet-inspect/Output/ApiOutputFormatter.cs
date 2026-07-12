@@ -1467,51 +1467,7 @@ public static class ApiOutputFormatter
                     .ToList();
             }
 
-            if (code.DecompiledResult is { } decompiledResult)
-            {
-                EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
-                memberCode.DecompiledSourceCode = FormatCSharpResult(
-                    type,
-                    member,
-                    code.MethodGenericParameters,
-                    decompiledResult,
-                    preferExpressionBodied: true);
-                hasCode = true;
-            }
-
-            if (code.AnnotatedResult is { } annotatedResult)
-            {
-                EmitDecompileBreadcrumb(member.Name, annotatedResult.Trace);
-                memberCode.AnnotatedSourceCode = FormatCSharpResult(
-                    type,
-                    member,
-                    code.MethodGenericParameters,
-                    annotatedResult);
-                hasCode = true;
-            }
-
-            if (code.CostOverlayResult is { } costOverlayResult)
-            {
-                EmitDecompileBreadcrumb(member.Name, costOverlayResult.Trace);
-                memberCode.CostOverlayCode = FormatCSharpResult(
-                    type,
-                    member,
-                    code.MethodGenericParameters,
-                    costOverlayResult,
-                    leadingBodyComments: code.CostOverlayHeaderComments);
-                hasCode = true;
-            }
-
-            if (code.SemanticsOverlayResult is { } semanticsOverlayResult)
-            {
-                EmitDecompileBreadcrumb(member.Name, semanticsOverlayResult.Trace);
-                memberCode.SemanticsOverlayCode = FormatCSharpResult(
-                    type,
-                    member,
-                    code.MethodGenericParameters,
-                    semanticsOverlayResult);
-                hasCode = true;
-            }
+            hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
             if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
@@ -1543,6 +1499,63 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    internal static bool PopulateCSharpSections(
+        MemberCodeView memberCode,
+        ApiType type,
+        ApiMember member,
+        MemberCodeProvider.Item code)
+    {
+        bool hasCode = false;
+
+        if (code.DecompiledResult is { } decompiledResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, decompiledResult.Trace);
+            memberCode.DecompiledSourceCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                decompiledResult,
+                preferExpressionBodied: true);
+            hasCode = true;
+        }
+
+        if (code.AnnotatedResult is { } annotatedResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, annotatedResult.Trace);
+            memberCode.AnnotatedSourceCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                annotatedResult);
+            hasCode = true;
+        }
+
+        if (code.CostOverlayResult is { } costOverlayResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, costOverlayResult.Trace);
+            memberCode.CostOverlayCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                costOverlayResult,
+                leadingBodyComments: code.CostOverlayHeaderComments);
+            hasCode = true;
+        }
+
+        if (code.SemanticsOverlayResult is { } semanticsOverlayResult)
+        {
+            EmitDecompileBreadcrumb(member.Name, semanticsOverlayResult.Trace);
+            memberCode.SemanticsOverlayCode = FormatCSharpResult(
+                type,
+                member,
+                code.MethodGenericParameters,
+                semanticsOverlayResult);
+            hasCode = true;
+        }
+
+        return hasCode;
     }
 
     static void AddOrReplaceSummaryField(TypeView view, string name, string value)

@@ -68,7 +68,7 @@ public static class ResearchViews
             if (request.AnnotatedSource)
             {
                 annotatedSource = WithTrace(
-                    Run(() => RenderMixedCore(
+                    RunProjection(() => RenderMixedCore(
                         request.Source,
                         request.Type,
                         request.Method,
@@ -91,7 +91,7 @@ public static class ResearchViews
                     .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                     .ToList();
                 var body = WithTrace(
-                    Run(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: true),
+                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: true),
                     request.Source);
                 costOverlay = new CostOverlayResult(body, costHeaderFacts);
             }
@@ -103,7 +103,7 @@ public static class ResearchViews
                     .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
                     .ToList();
                 semanticsOverlay = WithTrace(
-                    Run(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: true),
+                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: true),
                     request.Source);
             }
 
@@ -209,7 +209,7 @@ public static class ResearchViews
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
     {
-        return Run(() =>
+        return RunProjection(() =>
         {
             var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
@@ -241,7 +241,7 @@ public static class ResearchViews
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
     {
-        return Run(() =>
+        return RunProjection(() =>
         {
             var annotations = CollectFacts(source, type, method, overloadIndex, publicOnly, registry);
             var result = IlProjection.Project(source, type, method, IlProjectionDepth.Annotated, overloadIndex, publicOnly);
@@ -468,7 +468,9 @@ public static class ResearchViews
         return line[..i];
     }
 
-    static DecompilerResult Run(Func<DecompilerResult> pipeline, bool emptyOutputIsFailure)
+    internal static DecompilerResult RunProjection(
+        Func<DecompilerResult> pipeline,
+        bool emptyOutputIsFailure)
     {
         DecompilerResult result;
         try

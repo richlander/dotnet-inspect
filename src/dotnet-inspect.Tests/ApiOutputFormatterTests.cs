@@ -3,8 +3,10 @@ using System.IO;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
@@ -176,6 +178,76 @@ public class ApiOutputFormatterTests
 
         Assert.Equal(expectedAsync, declaration.Contains(" async ", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void PopulateCSharpSections_PreservesOverlayFailureDiagnostics()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = Method("Run");
+        var code = new MemberCodeProvider.Item(
+            DecompiledResult: null,
+            MethodGenericParameters: null,
+            AnnotatedResult: DecompilerResult.Failure(DiagnosticIds.ContextUnavailable, "annotated failure"),
+            CostOverlayResult: DecompilerResult.Failure(DiagnosticIds.UnsupportedConstruct, "cost failure"),
+            CostOverlayHeaderComments: null,
+            SemanticsOverlayResult: DecompilerResult.Failure(DiagnosticIds.UnsupportedType, "semantics failure"),
+            ILText: null,
+            ILDiagnostic: null,
+            Attributes: null);
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, code));
+        Assert.Equal("// DEC0002: annotated failure", sections.AnnotatedSourceCode.Content);
+        Assert.Equal("// DEC0004: cost failure", sections.CostOverlayCode.Content);
+        Assert.Equal("// DEC0005: semantics failure", sections.SemanticsOverlayCode.Content);
+    }
+
+    [Fact]
+    public void PopulateCSharpSections_AppliesTypedAsyncEvidenceToAllOverlays()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = Method("Run");
+        var containsAwait = DecompilerResult.Success("await Task.Yield();") with
+        {
+            ContainsAwaitExpression = true
+        };
+        var requiresAsync = DecompilerResult.Success("await Task.Yield();") with
+        {
+            RequiresAsyncBodyModifier = true
+        };
+        var code = new MemberCodeProvider.Item(
+            DecompiledResult: null,
+            MethodGenericParameters: null,
+            AnnotatedResult: containsAwait,
+            CostOverlayResult: containsAwait,
+            CostOverlayHeaderComments: ["// cost evidence"],
+            SemanticsOverlayResult: requiresAsync,
+            ILText: null,
+            ILDiagnostic: null,
+            Attributes: null);
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, code));
+        Assert.Contains(" async ", Declaration(sections.AnnotatedSourceCode.Content));
+        Assert.Contains(" async ", Declaration(sections.CostOverlayCode.Content));
+        Assert.Contains("// cost evidence", sections.CostOverlayCode.Content);
+        Assert.Contains(" async ", Declaration(sections.SemanticsOverlayCode.Content));
+    }
+
+    static ApiMember Method(string name)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = "System.Threading.Tasks.Task"
+            }
+        };
+
+    static string Declaration(string source)
+        => source.ReplaceLineEndings("\n").Split('\n')[0];
 
     // --- Extraction: MetadataName reconstruction from real metadata (no ilasm) ---
 
