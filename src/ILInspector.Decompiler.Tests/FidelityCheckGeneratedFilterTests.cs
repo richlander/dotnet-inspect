@@ -284,11 +284,15 @@ public class FidelityCheckGeneratedFilterTests
             var add = FidelityCheck.SelectExtensionRootsForTest(
                 assemblyPath,
                 "Add",
-                "ExtensionReceiverFixture.DerivedBag");
+                "ExtensionReceiverFixture.DerivedBag",
+                ["ExtensionReceiverFixture.DerivedBag"],
+                compatibleReceiverTypesComplete: false);
             var getAwaiter = FidelityCheck.SelectExtensionRootsForTest(
                 assemblyPath,
                 "GetAwaiter",
-                "ExtensionReceiverFixture.DerivedBag");
+                "ExtensionReceiverFixture.DerivedBag",
+                ["ExtensionReceiverFixture.DerivedBag"],
+                compatibleReceiverTypesComplete: false);
 
             Assert.Equal(["ExtensionReceiverFixture.RelevantExtensions"], add.Roots);
             Assert.False(add.UsedFallback, add.FallbackReason);
@@ -322,10 +326,16 @@ public class FidelityCheckGeneratedFilterTests
             """);
         try
         {
-            var selection = FidelityCheck.SelectExtensionRootsForTest(
+                var metadataOnlySelection = FidelityCheck.SelectExtensionRootsForTest(
                 assemblyPath,
                 "Add",
-                "External.MissingReceiver");
+                    "External.MissingReceiver");
+                var selection = FidelityCheck.SelectExtensionRootsForTest(
+                    assemblyPath,
+                    "Add",
+                "External.MissingReceiver",
+                ["External.MissingReceiver"],
+                compatibleReceiverTypesComplete: false);
 
             Assert.Equal(
                 [
@@ -333,9 +343,14 @@ public class FidelityCheckGeneratedFilterTests
                     "ExtensionReceiverFallbackFixture.SecondExtensions",
                 ],
                 selection.Roots);
-            Assert.True(selection.UsedFallback);
+            Assert.Equal(selection.Roots, metadataOnlySelection.Roots);
+            Assert.True(metadataOnlySelection.UsedFallback);
             Assert.Equal(
                 "receiver metadata unavailable for External.MissingReceiver",
+                metadataOnlySelection.FallbackReason);
+            Assert.True(selection.UsedFallback);
+            Assert.Equal(
+                "receiver hierarchy incomplete for External.MissingReceiver",
                 selection.FallbackReason);
         }
         finally

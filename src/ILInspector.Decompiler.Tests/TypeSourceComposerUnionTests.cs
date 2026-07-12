@@ -1553,7 +1553,7 @@ public class TypeSourceComposerUnionTests
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
         var isNotCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat");
-        // Preview SDKs have emitted both the guarded block and conditional-slot lowerings.
+        // .NET 11 preview.5 emits the guarded block; preview.7 emits the conditional-slot lowering.
         Assert.True(
             isNotCat is "return pet is not Cat;"
                 or "return pet is not null && pet is not Cat;",

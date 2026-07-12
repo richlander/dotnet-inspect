@@ -131,6 +131,35 @@ public class ClosureDiagnosticEvidenceTests
                 "ReceiverEvidence.IReceiver",
             ],
             reference.CompatibleReceiverTypes);
+        Assert.True(reference.CompatibleReceiverTypesComplete);
+    }
+
+    [Fact]
+    public void Extract_MarksReceiverCompatibilityIncompleteWhenBaseTypeIsUnresolved()
+    {
+        const string source = """
+            class Derived : MissingBase { }
+            class C { void M(Derived value) { value.Missing(); } }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-incomplete-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            candidate => candidate.Id == "CS1061");
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Contains("Derived", reference.CompatibleReceiverTypes!);
+        Assert.False(reference.CompatibleReceiverTypesComplete);
     }
 
     [Fact]

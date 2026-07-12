@@ -1195,7 +1195,7 @@ static class Program
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var census = FidelityCauseBuckets.Inspect(function, dumpMethod);
             if (!census.Succeeded)
-                return Fail($"Fidelity-cause inspection failed: {census.ErrorCode}");
+                return Fail($"Fidelity-cause inspection failed: {census.ErrorCode}: {census.Detail}");
             var remarks = census.Causes;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");

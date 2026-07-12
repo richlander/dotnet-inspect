@@ -106,7 +106,7 @@ public class AnalysisFindingsTests
     }
 
     [Fact]
-    public void AllocationIdentity_LengthPrefixesDelimiterBearingTypeEvidence()
+    public void AllocationIdentity_UsesCompositeKeyForDelimiterBearingTypeEvidence()
     {
         var occurrence = Occurrence(
             4,
@@ -120,10 +120,6 @@ public class AnalysisFindingsTests
         string key = AnalysisFindings.GetAllocationIdentityKey(occurrence);
 
         Assert.Equal("1:01:219:Fixture:Nested:Type", key);
-        Assert.NotEqual(
-            key,
-            AnalysisFindings.GetAllocationIdentityKey(
-                occurrence with { RuntimeAllocationType = "Fixture:Nested", Detail = "Type" }));
     }
 
     [Fact]

@@ -141,6 +141,36 @@ public class ValidityShellNoiseTests
             compilation.GetSemanticModel(tree)));
     }
 
+    [Fact]
+    public void BareStaticTypeCollisionWithModeledNonGenericType_IsFiltered()
+    {
+        var (diagnostic, tree, _) = DiagnosticFor("""
+            using System;
+            class __Shell
+            {
+                void __M(Convert value) { }
+            }
+            """, "CS0721");
+        var function = FunctionReferencing(TypeRef.Definition("fixture", "Fixture", "Convert"));
+
+        Assert.True(ValidityCheck.IsSimpleNameStaticTypeCollisionNoise(diagnostic, tree, function));
+    }
+
+    [Fact]
+    public void BareStaticTypeCollisionWithModeledGenericType_StaysReported()
+    {
+        var (diagnostic, tree, _) = DiagnosticFor("""
+            using System;
+            class __Shell
+            {
+                void __M(Convert value) { }
+            }
+            """, "CS0721");
+        var function = FunctionReferencing(TypeRef.Definition("fixture", "Fixture", "Convert`1"));
+
+        Assert.False(ValidityCheck.IsSimpleNameStaticTypeCollisionNoise(diagnostic, tree, function));
+    }
+
     static (Diagnostic Diagnostic, SyntaxTree Tree, SemanticModel SemanticModel) DiagnosticFor(
         string source,
         string diagnosticId)
@@ -204,4 +234,16 @@ public class ValidityShellNoiseTests
             [],
             body);
     }
+
+    static IrFunction FunctionReferencing(TypeRef type)
+        => new(
+            "M",
+            TypeRef.Definition("fixture", "Fixture", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("value", type)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            new BlockContainer());
 }

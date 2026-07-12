@@ -8,7 +8,8 @@ internal sealed record ClosureDiagnosticReference(
     string Name,
     string? ContainingType = null,
     string? ContainingNamespace = null,
-    IReadOnlyList<string>? CompatibleReceiverTypes = null);
+    IReadOnlyList<string>? CompatibleReceiverTypes = null,
+    bool CompatibleReceiverTypesComplete = false);
 
 internal static class ClosureDiagnosticEvidence
 {
@@ -240,31 +241,56 @@ internal static class ClosureDiagnosticEvidence
     }
 
     static ClosureDiagnosticReference ReceiverReference(string name, ITypeSymbol? receiver)
-        => receiver is null
-            ? new ClosureDiagnosticReference(name)
-            : new ClosureDiagnosticReference(
-                name,
-                TypeName(receiver),
-                CompatibleReceiverTypes: CompatibleReceiverTypes(receiver));
-
-    static IReadOnlyList<string> CompatibleReceiverTypes(ITypeSymbol receiver)
     {
-        var types = new List<string> { TypeName(receiver) };
+        if (receiver is null)
+            return new ClosureDiagnosticReference(name);
+
+        var (types, complete) = CompatibleReceiverTypes(receiver);
+        return new ClosureDiagnosticReference(
+            name,
+            TypeName(receiver),
+            CompatibleReceiverTypes: types,
+            CompatibleReceiverTypesComplete: complete);
+    }
+
+    static (IReadOnlyList<string> Types, bool Complete) CompatibleReceiverTypes(ITypeSymbol receiver)
+    {
+        var types = new List<string>();
+        bool complete = true;
+        Add(receiver);
         if (receiver is INamedTypeSymbol named)
         {
             for (var current = named.BaseType; current is not null; current = current.BaseType)
-                types.Add(TypeName(current));
+                Add(current);
+            foreach (var @interface in named.Interfaces)
+                complete &= !ContainsErrorType(@interface);
             foreach (var @interface in named.AllInterfaces)
-                types.Add(TypeName(@interface));
+                Add(@interface);
         }
         else if (receiver is ITypeParameterSymbol parameter)
         {
             foreach (var constraint in parameter.ConstraintTypes)
-                types.Add(TypeName(constraint));
+                Add(constraint);
         }
 
-        return types.Distinct(StringComparer.Ordinal).ToArray();
+        return (types.Distinct(StringComparer.Ordinal).ToArray(), complete);
+
+        void Add(ITypeSymbol type)
+        {
+            types.Add(TypeName(type));
+            complete &= !ContainsErrorType(type);
+        }
     }
+
+    static bool ContainsErrorType(ITypeSymbol type)
+        => type.TypeKind == TypeKind.Error
+            || type switch
+            {
+                INamedTypeSymbol named => named.TypeArguments.Any(ContainsErrorType),
+                IArrayTypeSymbol array => ContainsErrorType(array.ElementType),
+                IPointerTypeSymbol pointer => ContainsErrorType(pointer.PointedAtType),
+                _ => false,
+            };
 
     static ClosureDiagnosticReference? InaccessibleReference(
         SimpleNameSyntax simpleName,

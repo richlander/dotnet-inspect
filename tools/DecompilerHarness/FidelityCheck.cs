@@ -1467,7 +1467,8 @@ static class FidelityCheck
         IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
         string methodName,
         string? receiverType,
-        IReadOnlyList<string>? compatibleReceiverTypes)
+        IReadOnlyList<string>? compatibleReceiverTypes,
+        bool compatibleReceiverTypesComplete)
     {
         if (!methodIndex.TryGetValue(methodName, out var candidates))
             return new ExtensionRootSelection([], false, null);
@@ -1476,14 +1477,26 @@ static class FidelityCheck
         HashSet<string>? semanticClosure = compatibleReceiverTypes?
             .Select(NormalizeReceiverTypeName)
             .ToHashSet(StringComparer.Ordinal);
-        bool closureComplete = false;
         HashSet<string>? receiverClosure = semanticClosure is { Count: > 0 }
             ? semanticClosure
-            : receiver is null
-                ? null
-                : BuildReceiverClosure(reader, receiverTypes, receiver, out closureComplete);
-        bool complete = semanticClosure is { Count: > 0 }
-            || (receiverClosure is not null && closureComplete);
+            : null;
+        bool complete = receiverClosure is not null && compatibleReceiverTypesComplete;
+        bool metadataClosureAvailable = false;
+        if (!complete && receiver is not null)
+        {
+            var metadataClosure = BuildReceiverClosure(
+                reader,
+                receiverTypes,
+                receiver,
+                out bool metadataComplete);
+            if (metadataClosure is not null)
+            {
+                metadataClosureAvailable = true;
+                receiverClosure ??= [];
+                receiverClosure.UnionWith(metadataClosure);
+                complete = metadataComplete;
+            }
+        }
         var compatible = new List<TypeDefinitionHandle>();
         var unknown = new List<TypeDefinitionHandle>();
 
@@ -1501,7 +1514,9 @@ static class FidelityCheck
 
             if (receiverClosure is null
                 || candidate.ReceiverType is null
-                || (!complete && !receiverTypes.ContainsKey(candidate.ReceiverType)))
+                || (!complete
+                    && (!metadataClosureAvailable
+                        || !receiverTypes.ContainsKey(candidate.ReceiverType))))
             {
                 AddDistinct(unknown, candidate.Root);
             }
@@ -1598,7 +1613,12 @@ static class FidelityCheck
     }
 
     internal static (IReadOnlyList<string> Roots, bool UsedFallback, string? FallbackReason)
-        SelectExtensionRootsForTest(string assemblyPath, string methodName, string? receiverType)
+        SelectExtensionRootsForTest(
+            string assemblyPath,
+            string methodName,
+            string? receiverType,
+            IReadOnlyList<string>? compatibleReceiverTypes = null,
+            bool compatibleReceiverTypesComplete = false)
     {
         using var stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream);
@@ -1610,7 +1630,8 @@ static class FidelityCheck
             receiverTypes,
             methodName,
             receiverType,
-            compatibleReceiverTypes: null);
+            compatibleReceiverTypes,
+            compatibleReceiverTypesComplete);
         return (
             selection.Roots
                 .Select(handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)))
@@ -1738,7 +1759,8 @@ static class FidelityCheck
                         receiverTypes,
                         NormalizeTypeName(reference.Name),
                         reference.ContainingType,
-                        reference.CompatibleReceiverTypes);
+                        reference.CompatibleReceiverTypes,
+                        reference.CompatibleReceiverTypesComplete);
                     foreach (var root in selection.Roots)
                         grew |= include.Add(root);
                     if (selection.UsedFallback)
