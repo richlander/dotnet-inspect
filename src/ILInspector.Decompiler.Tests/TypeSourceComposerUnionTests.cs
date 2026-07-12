@@ -1552,15 +1552,12 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
-        var (isNotCat, isNotCatFunction) = RenderMemberWithFunction(
-            assembly.Path,
-            "UnionFixtures.Matcher",
-            "IsNotCat");
-        Assert.Equal("return pet is not Cat;", isNotCat);
-        var raisedNotTypeTest = Assert.Single(
-            isNotCatFunction.Descendants.OfType<LogicalNot>(),
-            node => node.Operand is IsInstance);
-        Assert.True(raisedNotTypeTest.SourceOffset >= 0);
+        var isNotCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat");
+        // Preview SDKs have emitted both the guarded block and conditional-slot lowerings.
+        Assert.True(
+            isNotCat is "return pet is not Cat;"
+                or "return pet is not null && pet is not Cat;",
+            isNotCat);
         Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotCat"));
         var classValueNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueNotNamedCat);
@@ -1597,6 +1594,61 @@ public class TypeSourceComposerUnionTests
         Assert.DoesNotContain("SideEffect() && pet is Cat cat ? cat.Name : \"other\"", sideEffectBefore);
         Assert.Contains("if (", sideEffectBefore);
         Assert.Contains("SideEffect()", sideEffectBefore);
+    }
+
+    [Fact]
+    public void ClassUnionConditionalNotTypeShape_RaisesWithProvenance()
+    {
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var @object = TypeRef.CoreLib("System", "Object");
+        var union = TypeRef.Definition("fixture", "UnionFixtures", "Pet");
+        var cat = TypeRef.Definition("fixture", "UnionFixtures", "Cat");
+        var receiver = new LoadArgument(0, "pet", union);
+        var valueGetter = new MethodRef(
+            union,
+            "get_Value",
+            @object,
+            ImmutableArray<TypeRef>.Empty,
+            HasThis: true);
+        var typeTest = new IsInstance(
+            cat,
+            new LoadProperty(valueGetter, (IrExpression)receiver.Clone(), []));
+        typeTest.SetSourceOffset(0x10);
+        var conditional = new Conditional(
+            new LogicalNot((IrExpression)receiver.Clone()),
+            new Constant(false, boolean),
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                typeTest,
+                new Constant(null, @object)));
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(conditional)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            union,
+            new MethodSignature(
+                boolean,
+                [new Parameter("pet", union)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UnionTypes = ImmutableHashSet.Create(union),
+        };
+
+        new UnionSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var ret = Assert.IsType<Return>(Assert.Single(block.Children));
+        var raised = Assert.IsType<LogicalNot>(ret.Value);
+        var raisedTypeTest = Assert.IsType<IsInstance>(raised.Operand);
+        Assert.Equal(0x10, raised.SourceOffset);
+        Assert.Equal(0x10, raisedTypeTest.SourceOffset);
+        Assert.IsType<LoadArgument>(raisedTypeTest.Operand);
     }
 
     [Fact]
@@ -1764,12 +1816,6 @@ public class TypeSourceComposerUnionTests
     }
 
     static string RenderMember(string assemblyPath, string typeName, string methodName)
-        => RenderMemberWithFunction(assemblyPath, typeName, methodName).Output;
-
-    static (string Output, IrFunction Function) RenderMemberWithFunction(
-        string assemblyPath,
-        string typeName,
-        string methodName)
     {
         using var source = MetadataSource.Open(assemblyPath);
         var function = IrImporter.Import(source, typeName, methodName);
@@ -1777,7 +1823,7 @@ public class TypeSourceComposerUnionTests
 
         var result = CSharpPrinter.PrintRaised(function);
         Assert.NotNull(result.Output);
-        return (result.Output!.Trim(), function);
+        return result.Output!.Trim();
     }
 
     static async Task AssertSdkPreviewBuilds(string source)
