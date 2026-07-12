@@ -2868,6 +2868,28 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectDecompiledSourceAndFacts_RequestTraceKeepsDecompileOutcome()
+    {
+        using var diagram = RequestMermaidDiagram.Start();
+
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Decompiled Source", "Facts" }
+        };
+
+        var (exit, _, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        var mermaid = diagram.ToMermaid();
+        Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFacts_RendersHiddenFactSection()
     {
         var options = new MemberOptions
