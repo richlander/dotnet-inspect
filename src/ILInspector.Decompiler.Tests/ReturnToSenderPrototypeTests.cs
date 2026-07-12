@@ -191,6 +191,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CorpusFidelity_EvaluatesCompileBackSelectedTargetsThroughReturnToSender()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value => 42;
+                public int Transform(int value) => value + 1;
+                public int Transform(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            var results = CorpusSensor.EvaluateReturnToSenderForTesting(assemblyPath, cap: 10);
+            var getter = Assert.Single(results, result => result.Method == "get_Value");
+            var overloads = results
+                .Where(result => result.Method == "Transform")
+                .OrderBy(result => result.Overload)
+                .ToArray();
+
+            Assert.Equal("Class1", getter.Type);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, getter.Status);
+            Assert.StartsWith("return-to-sender", getter.CaptureDetail);
+            Assert.Equal(2, overloads.Length);
+            Assert.Equal(new[] { 0, 1 }, overloads.Select(result => result.Overload));
+            Assert.Equal(2, overloads.Select(result => result.Signature).Distinct().Count());
+            Assert.All(overloads, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackPropertyGetters_AddsSameAssemblyReturnTypeClosureRoot()
     {
         var assemblyPath = CompileFixture("""

@@ -110,6 +110,7 @@ static class Program
         bool qualityDiffCard = false;
         bool qualityCardRisky = false;
         var corpusFidelityCaps = new List<int>();
+        var corpusFidelityOracle = CorpusFidelityOracle.CompileBack;
         int corpusMethodCap = int.MaxValue;
         bool json = false;
         int topPatterns = 10;
@@ -231,6 +232,9 @@ static class Program
                             corpusFidelityCaps.Add(int.Parse(token));
                         }
                         break;
+                    case "--corpus-fidelity-oracle":
+                        corpusFidelityOracle = ParseCorpusFidelityOracle(NextArg(args, ref i, flag));
+                        break;
                     case "--corpus-method-cap": corpusMethodCap = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--json": json = true; break;
                     case "--top-patterns": topPatterns = int.Parse(NextArg(args, ref i, flag)); break;
@@ -255,6 +259,10 @@ static class Program
         catch (MissingArgumentException ex)
         {
             return Fail($"{ex.Flag} requires a value.");
+        }
+        catch (ArgumentException ex)
+        {
+            return Fail(ex.Message);
         }
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
@@ -389,7 +397,7 @@ static class Program
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential);
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle);
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
@@ -1511,6 +1519,15 @@ static class Program
             ? int.MaxValue
             : int.Parse(value);
 
+    static CorpusFidelityOracle ParseCorpusFidelityOracle(string value)
+        => value.ToLowerInvariant() switch
+        {
+            "compile-back" => CorpusFidelityOracle.CompileBack,
+            "return-to-sender" or "rts" => CorpusFidelityOracle.ReturnToSender,
+            _ => throw new ArgumentException(
+                $"Unknown corpus fidelity oracle '{value}'. Expected compile-back, return-to-sender, or rts."),
+        };
+
     static void PrintUsage() => Console.WriteLine("""
         usage: decompiler-harness [assembly-or-directory ...] [options]
 
@@ -1768,6 +1785,10 @@ static class Program
                                         (repeat or use comma-separated values to compare multiple caps)
                                 checked per assembly by the expensive compile-back
                                 fidelity oracle (default 0, not run).
+          --corpus-fidelity-oracle <name>
+                                with corpus baseline modes: select compile-back
+                                (default) or return-to-sender/rts. RTS evaluates
+                                the same compile-back-selected target population.
           --corpus-method-cap <n>        with corpus baseline modes: cap the
                                 completeness/structuring scan to a deterministic
                                 hash-ranked sample of n methods per assembly.

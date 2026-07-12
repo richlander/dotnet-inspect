@@ -1780,6 +1780,8 @@ static class FidelityCheck
             return "generated/synthesized member (unsupported)";
         if (detail.Contains("target-method-not-found", StringComparison.OrdinalIgnoreCase))
             return "target method not found";
+        if (detail.Contains("return-to-sender-target-unavailable", StringComparison.OrdinalIgnoreCase))
+            return "return-to-sender target unavailable";
         if (detail.Contains("method", StringComparison.OrdinalIgnoreCase)
             && detail.Contains("not found", StringComparison.OrdinalIgnoreCase))
             return "target method not found";
