@@ -101,6 +101,23 @@ public class ValidityShellNoiseTests
     }
 
     [Fact]
+    public void ShellReceiverInsideConversionDiagnostic_StaysReported()
+    {
+        var (diagnostic, tree, semanticModel) = DiagnosticFor("""
+            class __Shell
+            {
+                int GetInt() => 1;
+                void __M()
+                {
+                    string value = this.GetInt();
+                }
+            }
+            """, "CS0029");
+
+        Assert.False(ValidityCheck.IsShellArtifact(diagnostic, tree, semanticModel));
+    }
+
+    [Fact]
     public void NonSourceDiagnostic_StaysReported()
     {
         var tree = CSharpSyntaxTree.ParseText(

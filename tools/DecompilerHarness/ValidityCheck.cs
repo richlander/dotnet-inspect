@@ -682,10 +682,7 @@ static class ValidityCheck
         var node = tree.GetRoot().FindNode(span, getInnermostNodeForTie: true);
         var thisExpression = node.AncestorsAndSelf()
             .OfType<ThisExpressionSyntax>()
-            .FirstOrDefault()
-            ?? node.DescendantNodesAndSelf()
-                .OfType<ThisExpressionSyntax>()
-                .FirstOrDefault(candidate => candidate.Span.IntersectsWith(span));
+            .FirstOrDefault();
         if (thisExpression is null)
             return false;
 
