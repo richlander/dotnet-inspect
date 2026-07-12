@@ -97,11 +97,13 @@ public class DiffCommand
                 Console.Error.WriteLine($"Error: {findingError}");
                 return 1;
             }
-            if (findingDescriptor == AnalysisFindings.AllocationDescriptor.Id)
+            if (findingDescriptor == AnalysisFindings.AllocationDescriptor.Id
+                || findingDescriptor == AnalysisFindings.CallSiteDescriptor.Id)
             {
                 if (options.MemberFilter.Count != 1)
                 {
-                    Console.Error.WriteLine("Error: --finding analysis.allocation requires exactly one --member target.");
+                    Console.Error.WriteLine(
+                        $"Error: --finding {findingDescriptor} requires exactly one --member target.");
                     return 1;
                 }
             }
@@ -515,8 +517,14 @@ public class DiffCommand
             error = null;
             return true;
         }
+        if (string.Equals(descriptor, AnalysisFindings.CallSiteDescriptor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            descriptor = AnalysisFindings.CallSiteDescriptor.Id;
+            error = null;
+            return true;
+        }
 
-        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, analysis.allocation.";
+        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, analysis.allocation, analysis.call-site.";
         return false;
     }
 
@@ -532,21 +540,33 @@ public class DiffCommand
     private static IReadOnlyList<FindingTransitionRow> BuildSelectedFindingTransitions(
         DiffInputs inputs,
         DiffOptions options)
-        => ResolveFindingDescriptor(options) == AnalysisFindings.AllocationDescriptor.Id
-            ? BuildAllocationFindingTransitions(
-                inputs.FromPaths,
-                inputs.ToPaths,
+        => ResolveFindingDescriptor(options) switch
+        {
+            var descriptor when descriptor == AnalysisFindings.AllocationDescriptor.Id =>
+                BuildAllocationFindingTransitions(
+                    inputs.FromPaths,
+                    inputs.ToPaths,
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    inputs.FromVersion,
+                    inputs.ToVersion,
+                    options),
+            var descriptor when descriptor == AnalysisFindings.CallSiteDescriptor.Id =>
+                BuildCallSiteFindingTransitions(
+                    inputs.FromPaths,
+                    inputs.ToPaths,
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    inputs.FromVersion,
+                    inputs.ToVersion,
+                    options),
+            _ => BuildFindingTransitions(
                 inputs.FromSurface,
                 inputs.ToSurface,
                 inputs.FromVersion,
                 inputs.ToVersion,
-                options)
-            : BuildFindingTransitions(
-                inputs.FromSurface,
-                inputs.ToSurface,
-                inputs.FromVersion,
-                inputs.ToVersion,
-                options);
+                options),
+        };
 
     private static bool SelectsImplementationDiff(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ImplementationDiff.Name) == true;
@@ -997,6 +1017,48 @@ public class DiffCommand
             .ToList();
     }
 
+    internal static IReadOnlyList<FindingTransitionRow> BuildCallSiteFindingTransitions(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+    {
+        if (options.MemberFilter.Count != 1)
+            throw new InvalidOperationException("--finding analysis.call-site requires exactly one --member target.");
+
+        var targets = ResolveMemberTargetIdentities(
+            fromSurface,
+            toSurface,
+            options.MemberFilter,
+            options.TypeFilter,
+            requireBodyTargets: true,
+            bodySectionName: "Finding Transitions");
+        var research = ResearchDiff.Compare(
+            ResearchDiffInput.FromAssemblies(fromPaths),
+            ResearchDiffInput.FromAssemblies(toPaths),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.BodySignals,
+                TypeFilters: options.TypeFilter,
+                MemberTargetIdentities: targets.MemberIdentities)
+            {
+                RetainCallSiteComparisons = true,
+            });
+
+        return research.CallSiteComparisons
+            .SelectMany(comparison => CompletePairs(comparison.Comparison)
+                .Select(pair => ToCallSiteTransitionRow(
+                    comparison.Subject,
+                    pair,
+                    fromVersion,
+                    toVersion)))
+            .OrderBy(row => row.Target, StringComparer.Ordinal)
+            .ThenBy(row => row.Transition, StringComparer.Ordinal)
+            .ToList();
+    }
+
     static IReadOnlyList<PairFinding<T>> CompletePairs<T>(FindingComparison<T> comparison)
         where T : notnull
         => comparison switch
@@ -1075,6 +1137,46 @@ public class DiffCommand
             ?? occurrence.Detail
             ?? "?";
         return $"{subject.Display} :: {occurrence.Source}/{occurrence.Kind} {allocatedType}";
+    }
+
+    static FindingTransitionRow ToCallSiteTransitionRow(
+        ResearchSubjectKey subject,
+        PairFinding<DirectCall> pair,
+        string fromVersion,
+        string toVersion)
+    {
+        var oldFinding = OldSide(pair);
+        var newFinding = NewSide(pair);
+        return new FindingTransitionRow(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            CallSiteTarget(subject, newFinding ?? oldFinding!),
+            fromVersion,
+            toVersion,
+            oldFinding is null ? "absent" : "present",
+            newFinding is null ? "absent" : "present",
+            pair.Detail);
+    }
+
+    static string CallSiteTarget(
+        ResearchSubjectKey subject,
+        Finding<DirectCall> finding)
+    {
+        var callee = finding.Payload.Callee;
+        if (callee.Kind == MemberKind.Unsupported)
+            return $"{subject.Display} :: {callee.DeclaringType.ToDisplayString()}";
+
+        var typeArguments = callee.TypeArguments.IsDefaultOrEmpty
+            ? ""
+            : $"<{string.Join(", ", callee.TypeArguments.Select(type => type.ToQualifiedDisplayString()))}>";
+        var parameters = string.Join(
+            ", ",
+            callee.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
+        var declaringType = callee.DeclaringType.ToQualifiedDisplayString();
+        var calleeDisplay = callee.Kind == MemberKind.Constructor
+            ? $"{declaringType}{typeArguments}({parameters})"
+            : $"{declaringType}.{callee.Name}{typeArguments}({parameters})";
+        return $"{subject.Display} :: {calleeDisplay}";
     }
 
     static string TypeTarget(PairFinding<ApiTypeHandle> pair)

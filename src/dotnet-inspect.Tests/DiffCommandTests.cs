@@ -307,6 +307,57 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildCallSiteFindingTransitions_AddedOccurrence_IsNativeAddedPair()
+    {
+        var rows = BuildCallSiteFindingTransitions("RegressesAllocInLoop");
+
+        var added = Assert.Single(rows, row =>
+            row.Transition == "PairFinding.Added"
+            && row.Target.Contains(".Add(", StringComparison.Ordinal));
+        Assert.Equal("analysis.call-site", added.Finding);
+        Assert.Contains("RegressesAllocInLoop", added.Target);
+        Assert.Equal("absent", added.Old);
+        Assert.Equal("present", added.New);
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Present"
+            && row.Target.Contains(".Add(", StringComparison.Ordinal));
+        Assert.DoesNotContain(rows, row =>
+            row.Target.Contains("..ctor", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildCallSiteFindingTransitions_ChangedCallee_IsRemovedAndAdded()
+    {
+        var rows = BuildCallSiteFindingTransitions("CallToken");
+
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Removed"
+            && row.Target.Contains("System.Math.Abs(", StringComparison.Ordinal));
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Added"
+            && row.Target.Contains("System.Math.Sign(", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildCallSiteFindingTransitions_LoopFacetChange_IsNativeChangedPair()
+    {
+        var changed = Assert.Single(
+            BuildCallSiteFindingTransitions("SameAllocationCountBecomesHot"),
+            row => row.Target.Contains(".Add(", StringComparison.Ordinal));
+
+        Assert.Equal("PairFinding.Changed", changed.Transition);
+        Assert.Contains("in loop: False -> True", changed.Detail);
+        Assert.Equal("present", changed.Old);
+        Assert.Equal("present", changed.New);
+    }
+
+    [Fact]
+    public void BuildCallSiteFindingTransitions_EmptyCensuses_HaveNoPair()
+    {
+        Assert.Empty(BuildCallSiteFindingTransitions("Stable"));
+    }
+
+    [Fact]
     public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
     {
         var view = DiffOutputFormatter.BuildFindingTransitionsView(
@@ -491,6 +542,28 @@ public class DiffCommandTests
             new DiffOptions
             {
                 Finding = AnalysisFindings.AllocationDescriptor.Id,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = [member],
+            });
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildCallSiteFindingTransitions(
+        string member)
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+        return DiffCommand.BuildCallSiteFindingTransitions(
+            [oldPath],
+            [newPath],
+            oldSurface,
+            newSurface,
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = AnalysisFindings.CallSiteDescriptor.Id,
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = [member],
             });
@@ -1256,6 +1329,38 @@ public class DiffCommandTests
         Assert.Contains(transitions, transition =>
             transition.GetProperty("transition").GetString() == "PairFinding.Added"
             && transition.GetProperty("finding").GetString() == "analysis.allocation");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CallSiteFindingTransitions_ComposesJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                JsonOutput = true,
+                Finding = AnalysisFindings.CallSiteDescriptor.Id,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = ["RegressesAllocInLoop"]
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("changes", out _));
+        var transitions = document.RootElement
+            .GetProperty("finding_transitions")
+            .EnumerateArray()
+            .ToList();
+        Assert.Contains(transitions, transition =>
+            transition.GetProperty("transition").GetString() == "PairFinding.Added"
+            && transition.GetProperty("finding").GetString() == "analysis.call-site"
+            && transition.GetProperty("target").GetString()!.Contains(
+                ".Add(",
+                StringComparison.Ordinal));
     }
 
     [Fact]

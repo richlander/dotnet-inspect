@@ -174,11 +174,14 @@ projection from the same comparison path; there is no separate count-only
 allocation diff path. The CLI selects and retains the native comparison with
 `diff --finding analysis.allocation`.
 
+Direct calls are the second end-to-end Analysis proof. Research's call-site
+fact producers and `diff --finding analysis.call-site` consume the same
+IL-ordered `Finding<DirectCall>` census. Research retains the complete native
+comparison only when requested, so `Present` remains observable without
+increasing the ordinary Body Signals result.
+
 The remaining Analysis body observations preserve their native families:
 
-- direct calls use an IL-ordered `Finding<DirectCall>` census keyed by exact
-  instantiated callee identity; dispatch, opcode, and loop context remain
-  transition facets, while IL offsets and metadata tokens remain provenance;
 - definite unsafe IL operations use an IL-ordered
   `Finding<UnsafetyOccurrence>` census;
 - declaration, signature, local, call, and opcode evidence use an identity

@@ -95,6 +95,20 @@ dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
 `Removed`, and `Changed` distinguish a wrong boundary, disappearance, or
 allocation-facet change without inferring those states from aggregate counts.
 
+After locating an allocation boundary, the same caller-selected endpoint pair
+can test whether a new direct call explains it:
+
+```bash
+dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.call-site
+```
+
+Here `PairFinding.Added` confirms a new call-site occurrence in `Parse`.
+`PairFinding.Changed` can instead show that an existing call moved into a loop
+or changed dispatch/opcode facets. The caller method is the target; the rows
+identify its callees.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |

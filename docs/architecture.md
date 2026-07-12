@@ -160,7 +160,9 @@ separate axes; see [Finding Coordinates](design/finding-coordinates.md).
   Allocation changes retain Analysis's
   `FindingComparison<AllocationOccurrence>` on their Research projection;
   count, hot/cold, and ranking fields are derived from that comparison rather
-  than from a separate count-only diff.
+  than from a separate count-only diff. Focused endpoint-confirmation consumers
+  can also request complete allocation or direct-call comparisons, including
+  exact pairs that have no `ResearchChange` row.
 
 `ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
 Producers implement `IResearchFactProducer` with a stable name, produced fact

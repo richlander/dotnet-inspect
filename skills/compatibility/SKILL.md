@@ -58,6 +58,18 @@ dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
 onset. `Present`, `Removed`, and `Changed` remain distinct; do not infer onset
 from an aggregate allocation-count delta.
 
+For a direct-call boundary in one caller method, select the call-site producer:
+
+```bash
+dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.call-site
+```
+
+Rows identify the callees. `PairFinding.Added` confirms a new direct-call
+occurrence; `Changed` reports retained-call facet changes such as moving into a
+loop.
+
 ## Did the implementation change? (C# + IL)
 
 `-S "Implementation Diff"` selects Research-composed body evidence instead of
@@ -118,5 +130,6 @@ dnx dotnet-inspect -y -- diff \
 An introduction boundary is a row with `PairFinding.Added`, `Old=absent`, and
 `New=present`. `PairFinding.Present` means the target exists at both endpoints;
 for a type target, no row means it exists at neither. Use `-m Type.Member:1` for
-an API member boundary. Use `--finding analysis.allocation` with exactly one
-method target for an allocation boundary.
+an API member boundary. Use `--finding analysis.allocation` or
+`--finding analysis.call-site` with exactly one method target for the
+corresponding Analysis boundary.
