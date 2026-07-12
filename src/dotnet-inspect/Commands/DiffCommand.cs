@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -350,18 +351,27 @@ public class DiffCommand
             logger);
         if (from.error is not null)
             return (null, $"Error resolving v{fromVersion}: {from.error}");
-        var to = await ResolveDiffEndpointAsync(
-            httpClient,
-            new AssemblySetRequest
-            {
-                Packages = [$"{packageName}@{toVersion}"],
-                Tfm = options.Tfm,
-                SourceOptions = options.SourceOptions,
-                TempDirPrefix = "inspect-diff",
-                IncludePackageRuntimeAssemblies = true,
-            },
-            options.IncludeAll,
-            logger);
+        (DiffEndpoint? endpoint, string? error, bool assembliesResolved) to;
+        try
+        {
+            to = await ResolveDiffEndpointAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Packages = [$"{packageName}@{toVersion}"],
+                    Tfm = options.Tfm,
+                    SourceOptions = options.SourceOptions,
+                    TempDirPrefix = "inspect-diff",
+                    IncludePackageRuntimeAssemblies = true,
+                },
+                options.IncludeAll,
+                logger);
+        }
+        catch
+        {
+            from.endpoint!.Dispose();
+            throw;
+        }
         if (to.error is not null)
         {
             from.endpoint!.Dispose();
@@ -397,24 +407,33 @@ public class DiffCommand
         if (from.error is not null)
             return (null, from.assembliesResolved
                 ? "Error: Failed to extract API surface from one or both versions."
-                : $"Error resolving v{fromVersion}: {from.error}");
+                : $"Error resolving v{fromVersion}: {AsEndpointError(from.error)}");
 
-        var to = await ResolveDiffEndpointAsync(
-            httpClient,
-            new AssemblySetRequest
-            {
-                PlatformAssemblies = [assemblyName],
-                PlatformAssemblyFrameworkHint = $"{framework}@{toVersion}",
-                TempDirPrefix = "inspect-diff",
-            },
-            options.IncludeAll,
-            logger);
+        (DiffEndpoint? endpoint, string? error, bool assembliesResolved) to;
+        try
+        {
+            to = await ResolveDiffEndpointAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    PlatformAssemblies = [assemblyName],
+                    PlatformAssemblyFrameworkHint = $"{framework}@{toVersion}",
+                    TempDirPrefix = "inspect-diff",
+                },
+                options.IncludeAll,
+                logger);
+        }
+        catch
+        {
+            from.endpoint!.Dispose();
+            throw;
+        }
         if (to.error is not null)
         {
             from.endpoint!.Dispose();
             return (null, to.assembliesResolved
                 ? "Error: Failed to extract API surface from one or both versions."
-                : $"Error resolving v{toVersion}: {to.error}");
+                : $"Error resolving v{toVersion}: {AsEndpointError(to.error)}");
         }
 
         return (new DiffInputs(
@@ -444,15 +463,24 @@ public class DiffCommand
                 ? "Error: Failed to extract API surface from one or both libraries."
                 : $"Error: File not found: {fromPath}");
 
-        var to = await ResolveDiffEndpointAsync(
-            httpClient,
-            new AssemblySetRequest
-            {
-                Assemblies = [toPath],
-                TempDirPrefix = "inspect-diff",
-            },
-            options.IncludeAll,
-            logger);
+        (DiffEndpoint? endpoint, string? error, bool assembliesResolved) to;
+        try
+        {
+            to = await ResolveDiffEndpointAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Assemblies = [toPath],
+                    TempDirPrefix = "inspect-diff",
+                },
+                options.IncludeAll,
+                logger);
+        }
+        catch
+        {
+            from.endpoint!.Dispose();
+            throw;
+        }
         if (to.error is not null)
         {
             from.endpoint!.Dispose();
@@ -476,22 +504,40 @@ public class DiffCommand
         var assemblySet = await AssemblySetResolver
             .CollectAsync(httpClient, request, logger.Log)
             .ConfigureAwait(false);
-        if (assemblySet.Assemblies.Count == 0)
+        try
         {
-            var error = assemblySet.Diagnostics.LastOrDefault()?.Message
-                ?? "No assemblies were resolved.";
-            assemblySet.Dispose();
-            return (null, error, false);
-        }
+            if (assemblySet.Assemblies.Count == 0)
+            {
+                var error = assemblySet.Diagnostics.Count > 0
+                    ? string.Join("; ", assemblySet.Diagnostics.Select(static diagnostic => diagnostic.Message))
+                    : "No assemblies were resolved.";
+                assemblySet.Dispose();
+                return (null, error, false);
+            }
 
-        var surface = AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log);
-        if (surface is null)
+            AssemblySetDiagnosticWriter.Write(assemblySet);
+            var surface = AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log);
+            if (surface is null)
+            {
+                assemblySet.Dispose();
+                return (null, "Failed to extract API surface.", true);
+            }
+
+            return (new DiffEndpoint(assemblySet, surface), null, true);
+        }
+        catch
         {
             assemblySet.Dispose();
-            return (null, "Failed to extract API surface.", true);
+            throw;
         }
+    }
 
-        return (new DiffEndpoint(assemblySet, surface), null, true);
+    internal static string AsEndpointError(string error)
+    {
+        const string SkippingSuffix = ", skipping.";
+        return error.EndsWith(SkippingSuffix, StringComparison.Ordinal)
+            ? error[..^SkippingSuffix.Length]
+            : error;
     }
 
     private static (string? fromPath, string? toPath) ParsePathRange(string input)

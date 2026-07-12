@@ -1232,6 +1232,15 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void AsEndpointError_RemovesCollectionSkippingSuffix()
+    {
+        Assert.Equal(
+            "'Microsoft.AspNetCore.App' is a framework, not a library.",
+            DiffCommand.AsEndpointError(
+                "'Microsoft.AspNetCore.App' is a framework, not a library., skipping."));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_FindingTransitions_ComposesJson()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();

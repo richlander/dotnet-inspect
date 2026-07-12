@@ -91,12 +91,16 @@ public sealed class AssemblySet : IDisposable
         if (_disposed)
             return;
 
-        foreach (var dir in _tempDirs)
+        DeleteOwnedTemporaryDirectories(_tempDirs);
+        _disposed = true;
+    }
+
+    internal static void DeleteOwnedTemporaryDirectories(IEnumerable<string> tempDirs)
+    {
+        foreach (var dir in tempDirs)
         {
             try { Directory.Delete(dir, recursive: true); } catch { }
         }
-
-        _disposed = true;
     }
 }
 
@@ -332,34 +336,42 @@ public static class AssemblySetResolver
                 sourceOrder.Add(sourceKind);
         }
 
-        foreach (var sourceKind in sourceOrder)
+        try
         {
-            switch (sourceKind)
+            foreach (var sourceKind in sourceOrder)
             {
-                case AssemblySetSourceKind.Package:
-                    await AddPackagesAsync();
-                    break;
-                case AssemblySetSourceKind.Assembly:
-                    AddAssemblies();
-                    break;
-                case AssemblySetSourceKind.PlatformAssembly:
-                    await AddPlatformAssembliesAsync();
-                    break;
-                case AssemblySetSourceKind.PlatformFramework:
-                    await AddPlatformFrameworksAsync();
-                    break;
-                case AssemblySetSourceKind.Project:
-                    AddProjects();
-                    break;
-                case AssemblySetSourceKind.Directory:
-                    AddDirectories();
-                    break;
-                default:
-                    Warn($"Unknown assembly source kind '{sourceKind}' ignored.");
-                    break;
+                switch (sourceKind)
+                {
+                    case AssemblySetSourceKind.Package:
+                        await AddPackagesAsync();
+                        break;
+                    case AssemblySetSourceKind.Assembly:
+                        AddAssemblies();
+                        break;
+                    case AssemblySetSourceKind.PlatformAssembly:
+                        await AddPlatformAssembliesAsync();
+                        break;
+                    case AssemblySetSourceKind.PlatformFramework:
+                        await AddPlatformFrameworksAsync();
+                        break;
+                    case AssemblySetSourceKind.Project:
+                        AddProjects();
+                        break;
+                    case AssemblySetSourceKind.Directory:
+                        AddDirectories();
+                        break;
+                    default:
+                        Warn($"Unknown assembly source kind '{sourceKind}' ignored.");
+                        break;
+                }
             }
-        }
 
-        return new AssemblySet(assemblies, diagnostics, tempDirs);
+            return new AssemblySet(assemblies, diagnostics, tempDirs);
+        }
+        catch
+        {
+            AssemblySet.DeleteOwnedTemporaryDirectories(tempDirs);
+            throw;
+        }
     }
 }

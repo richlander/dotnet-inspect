@@ -49,7 +49,7 @@ public class AssemblySetResolverTests
     }
 
     [Fact]
-    public async Task CollectAsync_PackageSelectsStableHighestTfmAssemblySet()
+    public async Task CollectAsync_PackageSelectsStableHighestTfmAssemblySetAndFiltersSatellites()
     {
         var packageDir = Directory.CreateTempSubdirectory("assembly-set-tfm-package-test").FullName;
         var packagePath = Path.Combine(packageDir, "MultiSurface.1.0.0.nupkg");
@@ -123,6 +123,48 @@ public class AssemblySetResolverTests
                 .Select(static entry => Path.GetFileName(entry.Path))
                 .ToArray());
             Assert.All(assemblySet.Assemblies, static entry => Assert.Null(entry.Tfm));
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_ExceptionAfterPackageExtractionCleansOwnedDirectory()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-exception-package-test").FullName;
+        var packagePath = Path.Combine(packageDir, "Cleanup.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+        var tempDirPrefix = $"assembly-set-exception-test-{Guid.NewGuid():N}";
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/Cleanup.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        Packages = [packagePath],
+                        Directories = [packageDir],
+                        TempDirPrefix = tempDirPrefix,
+                    },
+                    message =>
+                    {
+                        if (message.StartsWith("Scanning ", StringComparison.Ordinal))
+                            throw new InvalidOperationException("Injected directory scan failure.");
+                    }));
+
+            Assert.Empty(Directory.GetDirectories(
+                Path.GetTempPath(),
+                $"{tempDirPrefix}*",
+                SearchOption.TopDirectoryOnly));
         }
         finally
         {
