@@ -248,7 +248,7 @@ internal static class PackageIndexCache
 
     // ── Dependency group serialization ──
 
-    private static string SerializeDependencyGroup(DependencyGroup group)
+    internal static string SerializeDependencyGroup(DependencyGroup group)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using var writer = new Utf8JsonWriter(buffer);
@@ -269,7 +269,7 @@ internal static class PackageIndexCache
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
-    private static DependencyGroup DeserializeDependencyGroup(string raw)
+    internal static DependencyGroup DeserializeDependencyGroup(string raw)
     {
         using var document = JsonDocument.Parse(raw);
         var root = document.RootElement;
