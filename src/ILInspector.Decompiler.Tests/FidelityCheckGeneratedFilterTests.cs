@@ -360,6 +360,48 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void ExtensionRootSelection_IncludesUnknownRootsAlongsideCompatibleGenericRoot()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverMixedFixture;
+
+            public static class GenericExtensions
+            {
+                public static void Add<T>(this T receiver, string value) { }
+            }
+
+            public static class ArrayExtensions
+            {
+                public static void Add(this System.Array receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var selection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "System.Int32[]",
+                ["System.Int32[]"],
+                compatibleReceiverTypesComplete: false);
+
+            Assert.Equal(
+                [
+                    "ExtensionReceiverMixedFixture.ArrayExtensions",
+                    "ExtensionReceiverMixedFixture.GenericExtensions",
+                ],
+                selection.Roots);
+            Assert.True(selection.UsedFallback);
+            Assert.Equal(
+                "receiver hierarchy incomplete for System.Int32[]",
+                selection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""

@@ -1522,17 +1522,19 @@ static class FidelityCheck
             }
         }
 
-        if (compatible.Count > 0)
-            return new ExtensionRootSelection(compatible, false, null);
         if (unknown.Count == 0)
-            return new ExtensionRootSelection([], false, null);
+            return new ExtensionRootSelection(compatible, false, null);
 
         string reason = receiver is null
             ? "receiver type unavailable"
             : receiverClosure is null
                 ? $"receiver metadata unavailable for {receiver}"
-                : $"receiver hierarchy incomplete for {receiver}";
-        return new ExtensionRootSelection(unknown, true, reason);
+                : !complete
+                    ? $"receiver hierarchy incomplete for {receiver}"
+                    : $"extension receiver metadata unavailable for {methodName}";
+        foreach (var root in unknown)
+            AddDistinct(compatible, root);
+        return new ExtensionRootSelection(compatible, true, reason);
     }
 
     static HashSet<string>? BuildReceiverClosure(
