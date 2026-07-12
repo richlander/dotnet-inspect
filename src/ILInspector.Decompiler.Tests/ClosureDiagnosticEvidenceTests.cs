@@ -191,6 +191,35 @@ public class ClosureDiagnosticEvidenceTests
     }
 
     [Fact]
+    public void Extract_IncludesObjectForCompleteInterfaceReceiverCompatibility()
+    {
+        const string source = """
+            interface IReceiver { }
+            class C { void M(IReceiver value) { value.Missing(); } }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-interface-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            candidate => candidate.Id == "CS1061");
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Contains("IReceiver", reference.CompatibleReceiverTypes!);
+        Assert.Contains("System.Object", reference.CompatibleReceiverTypes!);
+        Assert.True(reference.CompatibleReceiverTypesComplete);
+    }
+
+    [Fact]
     public void FailureReason_ReportsSortedUnextractedDiagnosticIds()
         => Assert.Equal(
             "closure-stalled-unextracted[CS0117,CS1061]",

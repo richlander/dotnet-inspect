@@ -1558,6 +1558,8 @@ static class FidelityCheck
                 continue;
 
             var typeDef = reader.GetTypeDefinition(handle);
+            if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
+                closure.Add("System.Object");
             AddBase(typeDef.BaseType, GenericContext.ForType(reader, typeDef));
             foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
             {

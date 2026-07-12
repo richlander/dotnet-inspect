@@ -402,6 +402,49 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void ExtensionRootSelection_IncludesObjectExtensionForInterfaceReceiver()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverInterfaceFixture;
+
+            public interface IReceiver { }
+
+            public static class ObjectExtensions
+            {
+                public static void Add(this object receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var metadataSelection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverInterfaceFixture.IReceiver");
+            var semanticSelection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverInterfaceFixture.IReceiver",
+                [
+                    "ExtensionReceiverInterfaceFixture.IReceiver",
+                    "System.Object",
+                ],
+                compatibleReceiverTypesComplete: true);
+
+            Assert.Equal(
+                ["ExtensionReceiverInterfaceFixture.ObjectExtensions"],
+                metadataSelection.Roots);
+            Assert.False(metadataSelection.UsedFallback, metadataSelection.FallbackReason);
+            Assert.Equal(metadataSelection.Roots, semanticSelection.Roots);
+            Assert.False(semanticSelection.UsedFallback, semanticSelection.FallbackReason);
+            Assert.Equal(metadataSelection.FallbackReason, semanticSelection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""

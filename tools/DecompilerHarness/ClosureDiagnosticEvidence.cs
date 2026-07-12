@@ -262,6 +262,8 @@ internal static class ClosureDiagnosticEvidence
         {
             for (var current = named.BaseType; current is not null; current = current.BaseType)
                 Add(current);
+            if (named.TypeKind == TypeKind.Interface)
+                types.Add("System.Object");
             foreach (var @interface in named.Interfaces)
                 complete &= !ContainsErrorType(@interface);
             foreach (var @interface in named.AllInterfaces)
