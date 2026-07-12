@@ -189,7 +189,7 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         MethodDefinition method)
     {
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+        var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
         return GetMethod(reader, typeDef, method, signature);
     }
 
@@ -198,7 +198,7 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         MethodDefinition method)
     {
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method));
+        var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
         return FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters());
     }
 
@@ -252,7 +252,7 @@ public static class MetadataDeclarationQuery
         PropertyDefinition property)
     {
         var accessors = property.GetAccessors();
-        var signature = property.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef));
+        var signature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, typeDef));
         var getter = accessors.Getter.IsNil ? default : reader.GetMethodDefinition(accessors.Getter);
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
@@ -341,7 +341,7 @@ public static class MetadataDeclarationQuery
             (attributes & FieldAttributes.Static) != 0,
             (attributes & FieldAttributes.InitOnly) != 0,
             (attributes & FieldAttributes.Literal) != 0,
-            field.DecodeSignature(SignatureDecoder.Instance, GenericContext.ForType(reader, typeDef)),
+            GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef)),
             RenderMemberAttributes(reader, field.GetCustomAttributes()));
     }
 
@@ -657,7 +657,7 @@ public static class MetadataDeclarationQuery
         {
             HandleKind.TypeDefinition => TypeResolver.GetFullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
             HandleKind.TypeReference => TypeResolver.GetTypeNameFromReference(reader, (TypeReferenceHandle)handle),
-            HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(SignatureDecoder.Instance, context),
+            HandleKind.TypeSpecification => GuardedSignatureText.TypeSpecText(reader, (TypeSpecificationHandle)handle, context),
             _ => null,
         };
 

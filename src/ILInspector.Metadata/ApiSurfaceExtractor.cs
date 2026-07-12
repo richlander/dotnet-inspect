@@ -1456,7 +1456,7 @@ public static class ApiSurfaceExtractor
     private static string? GetFirstParameterType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+        var signature = GuardedSignatureText.MethodText(reader, method, context);
         return signature.ParameterTypes.Length > 0 ? signature.ParameterTypes[0] : null;
     }
 

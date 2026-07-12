@@ -603,7 +603,7 @@ public class PdbContext : IDisposable
         try
         {
             var context = GenericContext.ForMethod(reader, type, method);
-            var signature = method.DecodeSignature(SignatureDecoder.Instance, context);
+            var signature = GuardedSignatureText.MethodText(reader, method, context);
             return SignatureRenderer.RenderDecodedSignature(reader, method, methodName, signature);
         }
         catch
