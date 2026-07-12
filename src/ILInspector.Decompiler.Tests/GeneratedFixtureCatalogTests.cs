@@ -1305,6 +1305,53 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderCatalogJson_RedactsFaultIsolationSourcePath()
+    {
+        string sourcePath = Path.Combine(Path.GetTempPath(), "rts-source-path-redaction", Guid.NewGuid().ToString("N"), "Authored.cs");
+        var run = new GeneratedFixtureReturnToSenderRunResult(
+            ProjectDirectory: "",
+            AssemblyPath: "",
+            Results:
+            [
+                new GeneratedFixtureReturnToSenderResult(
+                    "test.fault-isolation",
+                    "TestType",
+                    "Method1",
+                    Overload: 0,
+                    GeneratedFixtureReturnToSenderStatus.Fail,
+                    FidelityCheck.CompileBackStatus.RecompileFail,
+                    "body-defect",
+                    Detail: "CS0103: missing symbol",
+                    IlDiffDiagnostic: null,
+                    IlDiff: null,
+                    MemberAnchor: new MemberAnchor(
+                        "Method1~abcdef1234",
+                        "M:TestType.Method1()",
+                        "abcdef1234",
+                        "TestType",
+                        "Method1"),
+                    FaultIsolation: new ReturnToSender.FaultIsolationResult(
+                        ReturnToSender.FaultIsolationKind.BodyDefect,
+                        sourcePath,
+                        "authored body compiled in the same RTS shell"),
+                    ClosureEvidence: null,
+                    IsFrontier: false,
+                    Note: null),
+            ]);
+
+        string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
+
+        Assert.DoesNotContain(sourcePath, json);
+        Assert.DoesNotContain(Path.GetDirectoryName(sourcePath)!, json);
+        using var document = JsonDocument.Parse(json);
+        var result = Assert.Single(document.RootElement.GetProperty("Results").EnumerateArray());
+        var faultIsolation = result.GetProperty("FaultIsolation");
+        Assert.Equal("BodyDefect", faultIsolation.GetProperty("Kind").GetString());
+        Assert.Equal("Authored.cs", faultIsolation.GetProperty("SourcePath").GetString());
+        Assert.Equal("authored body compiled in the same RTS shell", faultIsolation.GetProperty("Detail").GetString());
+    }
+
+    [Fact]
     public void ReturnToSenderRecordCatalog_CoversGeneratedRecordHelpers()
     {
         var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(

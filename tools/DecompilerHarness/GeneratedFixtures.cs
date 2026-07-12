@@ -2380,12 +2380,22 @@ internal static class GeneratedFixtureRunner
             IlDiffDiagnostic = SerializableIlDiffDisplayResult(result.IlDiffDiagnostic),
             IlDiff = SerializableIlMemberDiff(result.IlDiff),
             result.MemberAnchor,
-            result.FaultIsolation,
+            FaultIsolation = SerializableFaultIsolation(result.FaultIsolation),
             result.ClosureEvidence,
             result.IsFrontier,
             result.Note,
             result.DisplayMember,
         };
+
+    static object? SerializableFaultIsolation(ReturnToSender.FaultIsolationResult? result)
+        => result is null
+            ? null
+            : new
+            {
+                result.Kind,
+                SourcePath = Path.GetFileName(result.SourcePath),
+                result.Detail,
+            };
 
     static object? SerializableIlDiffDisplayResult(IlDiffDisplayResult? result)
         => result is null
