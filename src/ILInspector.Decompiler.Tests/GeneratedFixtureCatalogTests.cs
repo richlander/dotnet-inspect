@@ -1307,7 +1307,7 @@ public class GeneratedFixtureCatalogTests
     [Fact]
     public void ReturnToSenderCatalogJson_RedactsFaultIsolationSourcePath()
     {
-        string sourcePath = Path.Combine(Path.GetTempPath(), "rts-source-path-redaction", Guid.NewGuid().ToString("N"), "Authored.cs");
+        const string sourcePath = @"C:\Users\builder\repo\Authored.cs";
         var run = new GeneratedFixtureReturnToSenderRunResult(
             ProjectDirectory: "",
             AssemblyPath: "",
@@ -1342,7 +1342,8 @@ public class GeneratedFixtureCatalogTests
         string json = GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run);
 
         Assert.DoesNotContain(sourcePath, json);
-        Assert.DoesNotContain(Path.GetDirectoryName(sourcePath)!, json);
+        Assert.DoesNotContain("Users", json);
+        Assert.DoesNotContain("builder", json);
         using var document = JsonDocument.Parse(json);
         var result = Assert.Single(document.RootElement.GetProperty("Results").EnumerateArray());
         Assert.Equal("RecompileFail", result.GetProperty("ActualStatus").GetString());

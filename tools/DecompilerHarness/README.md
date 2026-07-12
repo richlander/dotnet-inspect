@@ -190,6 +190,16 @@ frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
 type shell, so metadata scaffolding cannot satisfy a target-body assertion.
+`--source-correspondence-census` is an alias for the source probe when the task
+is source-fidelity triage rather than RTS compile-back triage. Its `--json`
+payload includes `source_correspondence_findings`: stable Finding-style rows
+keyed by member stable selector when available. Each row carries a descriptor ID
+such as `source.correspondence.valid_different.known_taste`, a coarse category
+(`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
+`semantic-opcode-diff`, `invalid`, or `unclassified`), the source file name, and
+whether opcode-diff evidence is attached. The finding projection intentionally
+uses source file names rather than absolute source paths so the census can be
+shared without leaking local checkout paths.
 
 The generated fixture ladder is intentionally staged:
 

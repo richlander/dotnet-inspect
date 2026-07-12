@@ -109,6 +109,13 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Contains("System.Math", result.Detail);
         Assert.Equal("returnSystem.Math.Abs(value);", Normalize(result.ExpectedBody));
         Assert.Equal("returnMath.Abs(value);", Normalize(result.ActualBody));
+
+        var finding = Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
+        Assert.Equal("source.correspondence.valid_different.known_taste", finding.DescriptorId);
+        Assert.Equal("ignorable", finding.Category);
+        Assert.Equal(result.MemberAnchor!.StableSelector, finding.SubjectId);
+        Assert.Equal("DiffSample.cs", finding.SourceFile);
+        Assert.False(finding.HasOpcodeDiffEvidence);
     }
 
     [Fact]
@@ -139,6 +146,45 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("valid_different.semantic_opcode_diff.checked_context", reason);
         Assert.Contains("checked_context", detail);
         Assert.Contains("OpcodeDiff", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_BucketsResidualFrontiersAsStructuringResidue()
+    {
+        var result = new ReturnToSenderSourceProbeResult(
+            new ReturnToSender.RequestedTarget("T", "M", 0),
+            ReturnToSenderSourceOutcome.ValidDifferent,
+            FidelityCheck.CompileBackStatus.Exact,
+            "valid_different.source_shape_frontier.unsafe_residual.exact",
+            Detail: "synthetic residual frontier",
+            SourcePath: "/tmp/Fixture.cs",
+            ExpectedBody: "return 1;",
+            ActualBody: "/* residual */ return 1;");
+
+        var finding = Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
+
+        Assert.Equal("structuring-residue", finding.Category);
+        Assert.Equal("Fixture.cs", finding.SourceFile);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_RedactsWindowsSourcePathInFindings()
+    {
+        var result = new ReturnToSenderSourceProbeResult(
+            new ReturnToSender.RequestedTarget("T", "M", 0),
+            ReturnToSenderSourceOutcome.ValidDifferent,
+            FidelityCheck.CompileBackStatus.Exact,
+            "valid_different.known_taste",
+            Detail: "synthetic taste frontier",
+            SourcePath: @"C:\Users\builder\repo\Fixture.cs",
+            ExpectedBody: "return System.Math.Abs(value);",
+            ActualBody: "return Math.Abs(value);");
+
+        var finding = Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
+
+        Assert.Equal("Fixture.cs", finding.SourceFile);
+        Assert.DoesNotContain("Users", finding.SourceFile, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\", finding.SourceFile, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -445,6 +491,13 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.False(string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
         Assert.NotEmpty(result.IlDiffLines ?? []);
         Assert.Contains(result.IlDiffLines!, line => line.StartsWith("h", StringComparison.Ordinal));
+
+        var finding = Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
+        Assert.Equal("source.correspondence.valid_different.compiler_lowering.dynamic_callsite.opcode_diff", finding.DescriptorId);
+        Assert.Equal("not-yet-raised-sugar", finding.Category);
+        Assert.StartsWith("DynamicAdd~", finding.SubjectId, StringComparison.Ordinal);
+        Assert.Equal("LadderRung9.cs", finding.SourceFile);
+        Assert.True(finding.HasOpcodeDiffEvidence);
     }
 
     [Fact]

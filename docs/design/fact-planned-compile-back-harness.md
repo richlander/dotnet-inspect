@@ -744,6 +744,15 @@ means the authored body fit inside the final RTS shell while the decompiled body
 did not; it may still point at a harness closure budget limit rather than a
 semantic product-body bug.
 
+The same sidecar lane also produces a source-correspondence census for
+fixture-source coverage. The census projects source-probe rows into
+Finding-style evidence keyed by member stable selector when available, but it
+does not change the RTS status. Descriptor IDs remain the structural source
+reason (`source.correspondence.<reason>`), while a coarse category separates
+ignorable taste/options, not-yet-raised source sugar, structuring residue,
+semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
+uses source file names, not absolute local paths, in the finding projection.
+
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
 `ContextFail`. ReturnToSender planning reasons should be structured details
 underneath those statuses, not replacement top-level metrics.

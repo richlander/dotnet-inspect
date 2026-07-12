@@ -8,6 +8,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -35,13 +36,27 @@ sealed record ReturnToSenderSourceProbeResult(
     string? ActualBody,
     string? OriginalOpcodes = null,
     string? RecompiledOpcodes = null,
-    IReadOnlyList<string>? IlDiffLines = null)
+    IReadOnlyList<string>? IlDiffLines = null,
+    MemberAnchor? MemberAnchor = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
     public bool Failed => Outcome == ReturnToSenderSourceOutcome.Invalid;
     public bool Skipped => Outcome is ReturnToSenderSourceOutcome.SourceUnavailable or ReturnToSenderSourceOutcome.UnsupportedTarget;
 }
+
+sealed record SourceCorrespondenceFinding(
+    string FindingId,
+    string DescriptorId,
+    string Category,
+    string SubjectId,
+    string Display,
+    string Outcome,
+    string? CompileBackStatus,
+    string Reason,
+    string? Detail,
+    string? SourceFile,
+    bool HasOpcodeDiffEvidence);
 
 static partial class ReturnToSenderSourceProbe
 {
@@ -59,10 +74,11 @@ static partial class ReturnToSenderSourceProbe
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .ToArray();
+        var findings = BuildFindings(results);
 
         if (json)
         {
-            WriteJson(results, buckets, passed, different, failed, skipped);
+            WriteJson(results, buckets, findings, passed, different, failed, skipped);
             return failed == 0 ? 0 : 1;
         }
 
@@ -84,6 +100,18 @@ static partial class ReturnToSenderSourceProbe
             Console.WriteLine("Buckets:");
             foreach (var bucket in buckets)
                 Console.WriteLine($"  {bucket.Count()}: {bucket.Key}");
+        }
+        if (findings.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Source-correspondence findings:");
+            foreach (var bucket in findings
+                .GroupBy(finding => finding.Category, StringComparer.Ordinal)
+                .OrderByDescending(group => group.Count())
+                .ThenBy(group => group.Key, StringComparer.Ordinal))
+            {
+                Console.WriteLine($"  {bucket.Count()}: {bucket.Key}");
+            }
         }
         var examples = results
             .Where(result => result.Outcome != ReturnToSenderSourceOutcome.ValidMatch)
@@ -203,7 +231,8 @@ static partial class ReturnToSenderSourceProbe
                     result.Detail,
                     SourcePath: sourceMember?.SourcePath,
                     ExpectedBody: sourceMember?.Body,
-                    ActualBody: result.TargetBody));
+                    ActualBody: result.TargetBody,
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -217,7 +246,8 @@ static partial class ReturnToSenderSourceProbe
                     result.Detail,
                     SourcePath: null,
                     ExpectedBody: null,
-                    ActualBody: result.TargetBody));
+                    ActualBody: result.TargetBody,
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -231,7 +261,8 @@ static partial class ReturnToSenderSourceProbe
                     sourceUnavailableDetail,
                     SourcePath: null,
                     ExpectedBody: null,
-                    ActualBody: result.TargetBody));
+                    ActualBody: result.TargetBody,
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -252,7 +283,8 @@ static partial class ReturnToSenderSourceProbe
                     $"no source member matched {target.Type}::{target.Method}#{target.Overload}",
                     SourcePath: null,
                     ExpectedBody: null,
-                    ActualBody: result.TargetBody));
+                    ActualBody: result.TargetBody,
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -273,7 +305,8 @@ static partial class ReturnToSenderSourceProbe
                     Detail: null,
                     sourceMember.SourcePath,
                     expected,
-                    actual));
+                    actual,
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -295,11 +328,77 @@ static partial class ReturnToSenderSourceProbe
                 actual,
                 OriginalOpcodes: opcodeEvidence?.OriginalOpcodes,
                 RecompiledOpcodes: opcodeEvidence?.RecompiledOpcodes,
-                IlDiffLines: opcodeEvidence?.IlDiffLines));
+                IlDiffLines: opcodeEvidence?.IlDiffLines,
+                MemberAnchor: result.MemberAnchor));
         }
 
         return results;
     }
+
+    internal static IReadOnlyList<SourceCorrespondenceFinding> BuildFindings(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results)
+        => [.. results
+            .Where(result => result.Outcome is ReturnToSenderSourceOutcome.ValidDifferent or ReturnToSenderSourceOutcome.Invalid)
+            .Select(SourceCorrespondenceFindingFor)];
+
+    static SourceCorrespondenceFinding SourceCorrespondenceFindingFor(ReturnToSenderSourceProbeResult result)
+    {
+        string descriptorId = $"source.correspondence.{result.Reason}";
+        string subjectId = result.MemberAnchor?.StableSelector ?? TargetId(result.Target);
+        string display = result.MemberAnchor is { } anchor
+            ? $"{anchor.TypeFullName}.{anchor.MemberName}"
+            : TargetDisplay(result.Target);
+        return new SourceCorrespondenceFinding(
+            $"{descriptorId}|{subjectId}",
+            descriptorId,
+            SourceCorrespondenceCategory(result),
+            subjectId,
+            display,
+            OutcomeId(result.Outcome),
+            result.CompileBackStatus?.ToString(),
+            result.Reason,
+            result.Detail,
+            SourceFileName(result.SourcePath),
+            result.IlDiffLines is { Count: > 0 }
+                || !string.IsNullOrWhiteSpace(result.OriginalOpcodes)
+                || !string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
+    }
+
+    internal static string? SourceFileName(string? sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+            return null;
+
+        return Path.GetFileName(sourcePath.Replace('\\', '/'));
+    }
+
+    static string SourceCorrespondenceCategory(ReturnToSenderSourceProbeResult result)
+    {
+        if (result.Outcome == ReturnToSenderSourceOutcome.Invalid)
+            return "invalid";
+
+        string reason = result.Reason;
+        if (reason.StartsWith("valid_different.known_taste", StringComparison.Ordinal)
+            || reason.StartsWith("valid_different.known_compiler_option", StringComparison.Ordinal))
+            return "ignorable";
+        if (reason.StartsWith("valid_different.semantic_opcode_diff", StringComparison.Ordinal))
+            return "semantic-opcode-diff";
+        if (reason.Contains(".compiler_lowering.", StringComparison.Ordinal))
+            return "not-yet-raised-sugar";
+        if (reason.StartsWith("valid_different.source_shape_frontier", StringComparison.Ordinal)
+            && reason.Contains("residual", StringComparison.Ordinal))
+            return "structuring-residue";
+        if (reason.StartsWith("valid_different.source_shape_frontier", StringComparison.Ordinal))
+            return "not-yet-raised-sugar";
+
+        return "unclassified";
+    }
+
+    static string TargetId(ReturnToSender.RequestedTarget target)
+        => $"{target.Type}::{target.Method}#{target.Overload}";
+
+    static string TargetDisplay(ReturnToSender.RequestedTarget target)
+        => $"{target.Type}.{target.Method}#{target.Overload}";
 
     static OpcodeDiffEvidence? OpcodeEvidence(ReturnToSender.Result result)
     {
@@ -326,6 +425,7 @@ static partial class ReturnToSenderSourceProbe
     static void WriteJson(
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
         IReadOnlyList<IGrouping<string, ReturnToSenderSourceProbeResult>> buckets,
+        IReadOnlyList<SourceCorrespondenceFinding> findings,
         int passed,
         int different,
         int failed,
@@ -346,10 +446,37 @@ static partial class ReturnToSenderSourceProbe
                 failed,
                 skipped,
             },
+            source_correspondence = new
+            {
+                findings = findings.Count,
+                categories = findings
+                    .GroupBy(finding => finding.Category, StringComparer.Ordinal)
+                    .OrderByDescending(group => group.Count())
+                    .ThenBy(group => group.Key, StringComparer.Ordinal)
+                    .Select(group => new
+                    {
+                        category = group.Key,
+                        count = group.Count(),
+                    }),
+            },
             buckets = buckets.Select(bucket => new
             {
                 reason = bucket.Key,
                 count = bucket.Count(),
+            }),
+            source_correspondence_findings = findings.Select(finding => new
+            {
+                finding_id = finding.FindingId,
+                descriptor_id = finding.DescriptorId,
+                category = finding.Category,
+                subject_id = finding.SubjectId,
+                display = finding.Display,
+                outcome = finding.Outcome,
+                compile_back_status = finding.CompileBackStatus,
+                reason = finding.Reason,
+                detail = finding.Detail,
+                source_file = finding.SourceFile,
+                has_opcode_diff_evidence = finding.HasOpcodeDiffEvidence,
             }),
             results = results.Select(result => new
             {
@@ -389,7 +516,8 @@ static partial class ReturnToSenderSourceProbe
             $"source member matched {target.Type}::{target.Method}#{target.Overload}, but it has no explicit source body; compile-back status is {result.Status}",
             sourcePath,
             ExpectedBody: null,
-            ActualBody: result.TargetBody));
+            ActualBody: result.TargetBody,
+            MemberAnchor: result.MemberAnchor));
     }
 
 }
