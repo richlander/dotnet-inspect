@@ -212,13 +212,11 @@ internal static class ApiSourceResolver
                 if (frameworkShortName != null && !string.IsNullOrEmpty(typeName))
                 {
                     logger.Log($"'{options.PlatformAssembly}' is a framework name, searching for type '{typeName}' in {frameworkShortName}");
-                    List<string> lookupTempDirs = [];
                     var lookupResult = await TypeLookupService.FindTypeAsync(
                         typeName,
                         [frameworkShortName],
                         context.HttpClient,
-                        logger,
-                        lookupTempDirs);
+                        logger);
 
                     if (lookupResult != null)
                     {
@@ -249,8 +247,7 @@ internal static class ApiSourceResolver
                             typeName,
                             otherFrameworks,
                             context.HttpClient,
-                            logger,
-                            lookupTempDirs);
+                            logger);
 
                         if (foundElsewhere != null)
                         {

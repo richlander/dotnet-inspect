@@ -59,18 +59,8 @@ public static class TypeLookupService
         string typeName,
         string[] platformFrameworks,
         HttpClient httpClient,
-        VerboseLogger logger,
-        List<string> tempDirs)
+        VerboseLogger logger)
     {
-        // Ensure frameworks are available locally
-        var requests = PlatformPackService.GetMissingPackRequests(platformFrameworks);
-        if (requests.Count > 0)
-        {
-            await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, logger.Log))
-            {
-            }
-        }
-
         // Search for the type across all framework assemblies
         var options = new FindOptions
         {
@@ -79,7 +69,7 @@ public static class TypeLookupService
             Limit = 1 // We only need the first match
         };
 
-        var results = await TypeSearchService.CollectTypesAsync(options, typeName, logger, tempDirs, httpClient);
+        var results = await TypeSearchService.CollectTypesAsync(options, typeName, logger, httpClient);
 
         if (results.Count == 0)
             return null;
@@ -107,11 +97,10 @@ public static class TypeLookupService
         string typeName,
         string[] platformFrameworks,
         HttpClient httpClient,
-        VerboseLogger logger,
-        List<string> tempDirs)
+        VerboseLogger logger)
     {
         // First try exact match
-        var match = await FindTypeAsync(typeName, platformFrameworks, httpClient, logger, tempDirs);
+        var match = await FindTypeAsync(typeName, platformFrameworks, httpClient, logger);
         if (match != null)
             return (match, []);
 
@@ -122,7 +111,7 @@ public static class TypeLookupService
             PlatformFrameworks = platformFrameworks
         };
 
-        var allTypes = await TypeSearchService.CollectTypesAsync(options, null, logger, tempDirs, httpClient);
+        var allTypes = await TypeSearchService.CollectTypesAsync(options, null, logger, httpClient);
         var typeNames = allTypes.Select(t => t.FullName).Distinct().ToList();
 
         // Find similar types

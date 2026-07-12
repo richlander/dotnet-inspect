@@ -52,6 +52,7 @@ public static class MemberCommand
         var selectedTfm = source.SelectedTfm;
         var projectAssetsPath = source.ProjectAssetsPath;
         var tempDir = source.TempDir;
+        CallerScopeAssemblySet? callerScopeAssemblySet = null;
         var typeName = source.TypeName;
         var context = source.Context;
         var logger = context.Logger;
@@ -313,44 +314,23 @@ public static class MemberCommand
             // member's own assembly. Works for a specific overload or all overloads of a member.
             if (effectiveOptions.HasCallerScope)
             {
-                var tempDirs = new List<string>();
-                try
-                {
-                    var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
-                    var scopeAssemblies = await CallerScopeResolver.ResolveAsync(
-                        effectiveOptions.CallerScopeDirectories,
-                        effectiveOptions.CallerScopeProjects,
-                        effectiveOptions.CallerScopePackages,
-                        effectiveOptions.Tfm,
-                        ownAssembly,
-                        context.HttpClient,
-                        tempDirs,
-                        logger);
+                var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
+                callerScopeAssemblySet = await CallerScopeResolver.ResolveAsync(
+                    effectiveOptions.CallerScopeDirectories,
+                    effectiveOptions.CallerScopeProjects,
+                    effectiveOptions.CallerScopePackages,
+                    effectiveOptions.Tfm,
+                    ownAssembly,
+                    context.HttpClient,
+                    logger);
 
-                    // Supplying a caller scope is an explicit request for the Callers section, so it
-                    // renders (with an empty-state note when nothing matches) even at low verbosity.
-                    effectiveOptions = effectiveOptions with
-                    {
-                        CallerScopeAssemblies = scopeAssemblies,
-                        IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
-                    };
-                }
-                finally
+                // Supplying a caller scope is an explicit request for the Callers section, so it
+                // renders (with an empty-state note when nothing matches) even at low verbosity.
+                effectiveOptions = effectiveOptions with
                 {
-                    // Clean up temp directories from package downloads
-                    foreach (var dir in tempDirs)
-                    {
-                        try
-                        {
-                            if (Directory.Exists(dir))
-                                Directory.Delete(dir, recursive: true);
-                        }
-                        catch
-                        {
-                            // Best-effort cleanup
-                        }
-                    }
-                }
+                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
+                    IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
+                };
             }
 
             var projectionSections = effectiveOptions.IncludeSections;
@@ -425,6 +405,8 @@ public static class MemberCommand
             {
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
+
+            callerScopeAssemblySet?.Dispose();
         }
     }
 

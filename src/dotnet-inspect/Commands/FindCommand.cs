@@ -18,7 +18,6 @@ public class FindCommand
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
-        List<string> tempDirs = [];
 
         try
         {
@@ -47,7 +46,7 @@ public class FindCommand
                 };
             }
 
-            var results = await TypeSearchService.FindTypesAsync(options, patterns, logger, tempDirs, context.HttpClient);
+            var results = await TypeSearchService.FindTypesAsync(options, patterns, logger, context.HttpClient);
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
             if (options.JsonOutput)
@@ -70,10 +69,6 @@ public class FindCommand
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
-        }
-        finally
-        {
-            AssemblyCollector.CleanupTempDirs(tempDirs);
         }
     }
 

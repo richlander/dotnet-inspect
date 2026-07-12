@@ -534,9 +534,7 @@ public static class TypeCommand
             SourceOptions = options.SourceOptions
         };
 
-        List<string> tempDirs = [];
-        var searchResults = await TypeSearchService.CollectTypesAsync(findOptions, pattern, logger, tempDirs, context.HttpClient);
-        AssemblyCollector.CleanupTempDirs(tempDirs);
+        var searchResults = await TypeSearchService.CollectTypesAsync(findOptions, pattern, logger, context.HttpClient);
 
         var distinctResults = searchResults
             .Where(r => r.Assembly != null && r.Source != null)

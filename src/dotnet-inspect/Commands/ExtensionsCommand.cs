@@ -6,6 +6,7 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
 
@@ -81,62 +82,60 @@ public class ExtensionsCommand
         VerboseLogger logger,
         string targetType)
     {
-        return await AssemblyCollector.WithAssembliesAsync(
+        using var assemblySet = await AssemblySetResolver.CollectAsync(
             context.HttpClient,
-            options,
-            logger,
-            "inspect-ext",
-            assemblyInfos =>
+            options.ToAssemblySetRequest("inspect-ext"),
+            logger.Log);
+        AssemblySetDiagnosticWriter.Write(assemblySet);
+
+        List<ExtensionMethodResult> results = [];
+        var censuses = assemblySet.Assemblies
+            .Select(assembly => InspectExtensionAssembly(assembly, options.IncludeAll))
+            .ToList();
+        var availableCensuses = new List<ExtensionAssemblyCensus>(censuses.Count);
+
+        foreach (var census in censuses)
+        {
+            if (census.Inspection.Failure() is { } failure)
             {
-                List<ExtensionMethodResult> results = [];
-                var censuses = assemblyInfos
-                    .Select(assembly => InspectExtensionAssembly(assembly, options.IncludeAll))
-                    .ToList();
-                var availableCensuses = new List<ExtensionAssemblyCensus>(censuses.Count);
+                Console.Error.WriteLine(
+                    $"Warning: Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
+                continue;
+            }
 
-                foreach (var census in censuses)
-                {
-                    if (census.Inspection.Failure() is { } failure)
-                    {
-                        Console.Error.WriteLine(
-                            $"Warning: Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
-                        continue;
-                    }
+            availableCensuses.Add(census);
+            results.AddRange(ProjectExtensions(census, targetType));
+        }
 
-                    availableCensuses.Add(census);
-                    results.AddRange(ProjectExtensions(census, targetType));
-                }
+        if (!options.Reachable)
+            return results;
 
-                if (!options.Reachable)
-                    return results;
+        var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
+        var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
+        foreach (var (reachableType, path) in reachableTypes)
+        {
+            if (reachableType == targetType) continue;
 
-                var assemblyPaths = assemblyInfos.Select(a => a.Path).ToList();
-                var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
-                foreach (var (reachableType, path) in reachableTypes)
-                {
-                    if (reachableType == targetType) continue;
+            foreach (var census in availableCensuses)
+            {
+                results.AddRange(ProjectExtensions(
+                    census,
+                    reachableType,
+                    reachablePath: path,
+                    reachableFromType: reachableType));
+            }
+        }
 
-                    foreach (var census in availableCensuses)
-                    {
-                        results.AddRange(ProjectExtensions(
-                            census,
-                            reachableType,
-                            reachablePath: path,
-                            reachableFromType: reachableType));
-                    }
-                }
-
-                return results;
-            });
+        return results;
     }
 
     internal sealed record ExtensionAssemblyCensus(
-        AssemblyCollector.AssemblyInfo Assembly,
+        AssemblySetEntry Assembly,
         IReadOnlyList<ExtensionMethodInfo> Members,
         FindingInspection<ExtensionMemberObservation> Inspection);
 
     internal static ExtensionAssemblyCensus InspectExtensionAssembly(
-        AssemblyCollector.AssemblyInfo assembly,
+        AssemblySetEntry assembly,
         bool includeAll)
     {
         try

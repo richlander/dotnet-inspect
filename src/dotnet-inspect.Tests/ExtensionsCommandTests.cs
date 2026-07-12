@@ -6,6 +6,7 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
 
@@ -141,10 +142,11 @@ public class ExtensionsCommandTests
     [Fact]
     public void CommandProjection_ConsumesFindingCensusAndHandlesEdgeCases()
     {
-        var assembly = new AssemblyCollector.AssemblyInfo(
+        var assembly = new AssemblySetEntry(
             typeof(ExtensionsCommandTests).Assembly.Location,
             "tests",
-            "1.0.0");
+            "1.0.0",
+            AssemblySetSourceKind.Assembly);
 
         var census = ExtensionsCommand.InspectExtensionAssembly(assembly, includeAll: true);
         var finding = Assert.Single(
@@ -193,7 +195,7 @@ public class ExtensionsCommandTests
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
         var census = ExtensionsCommand.InspectExtensionAssembly(
-            new AssemblyCollector.AssemblyInfo(missingPath, "missing", null),
+            new AssemblySetEntry(missingPath, "missing", null, AssemblySetSourceKind.Assembly),
             includeAll: false);
 
         var failure = Assert.IsType<FindingInspection<ExtensionMemberObservation>.Failed>(
