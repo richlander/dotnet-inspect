@@ -601,12 +601,12 @@ internal static class LibraryMetadataService
         inspection.AsyncMethods = async.Count > 0 ? async : null;
     }
 
-    internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(Func<MethodBodyInspectionSession> openSession, string path, VerboseLogger logger)
+    internal static List<UnsafeMemberSummary>? ScanUnsafeMembers(Func<Analysis.LibraryBodyIndex> openIndex, string path, VerboseLogger logger)
     {
         try
         {
-            var session = openSession();
-            var rows = session.UnsafeEvidence()
+            var index = openIndex();
+            var rows = index.UnsafeEvidence
                 .Select(evidence => new UnsafeMemberSummary
                 {
                     Member = FormatMethod(evidence.Member),
@@ -622,7 +622,7 @@ internal static class LibraryMetadataService
                 .ThenBy(row => row.Detail, StringComparer.Ordinal)
                 .ToList();
 
-            foreach (var diagnostic in session.Diagnostics)
+            foreach (var diagnostic in index.Diagnostics)
                 logger.Log($"Warning: unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
 
             return rows.Count > 0 ? rows : null;
@@ -673,17 +673,17 @@ internal static class LibraryMetadataService
     /// then outbound shape). Emits the full ranked set so the row limiter (<c>-n</c>/
     /// <c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
     /// </summary>
-    internal static List<MethodLeverageSummary>? ScanTopLeverage(Func<MethodBodyInspectionSession> openSession, string path, VerboseLogger logger)
+    internal static List<MethodLeverageSummary>? ScanTopLeverage(Func<Analysis.LibraryBodyIndex> openIndex, string path, VerboseLogger logger)
     {
         try
         {
-            var session = openSession();
-            var generatedFrameworkTypes = session.GeneratedFrameworkTypeNames;
+            var index = openIndex();
+            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             // Reuse the exact Member Index canonical-signature/digest path (via the
             // extracted API surface) so library-scope rows carry the same round-tripping
             // Stable selector, Visibility, and Name:N Selector as the type-scoped view.
             var drillByToken = BuildLibraryDrillMap(path, logger);
-            var rows = session.TopLeverage(int.MaxValue)
+            var rows = index.TopLeverage(int.MaxValue)
                 .Select(entry =>
                 {
                     drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
@@ -757,17 +757,17 @@ internal static class LibraryMetadataService
     /// filtered set in triage priority order so the highest-value pay-dirt surfaces first.
     /// </summary>
     internal static List<OptimizationOpportunitySummary>? ScanOptimizationOpportunities(
-        Func<MethodBodyInspectionSession> openSession,
+        Func<Analysis.LibraryBodyIndex> openIndex,
         string path,
         VerboseLogger logger,
         PerformanceTriageOptions? options = null)
     {
         try
         {
-            var session = openSession();
-            var generatedFrameworkTypes = session.GeneratedFrameworkTypeNames;
+            var index = openIndex();
+            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
-                    session.OptimizationOpportunities
+                    index.OptimizationOpportunities
                         .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary

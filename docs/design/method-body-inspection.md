@@ -38,19 +38,30 @@ Both paths have useful pieces, but neither is the target architecture:
 
 ## Target
 
-The shared abstraction is **method body inspection**:
+The shared abstraction is a command-configured **method body analysis session**:
 
 ```text
 ResolvedAssemblyReference
   -> AssemblyInspectionSession
       -> MethodBodyInspectionSession
-          Inspect(MemberSelector | ILCoordinateSelector, facets)
-              -> MethodBodyInspection
+          -> LibraryBodyIndex
+              -> Analysis queries
+                  -> CLI composition and rendering
 ```
 
-The command chooses a **selector** (member or IL coordinate) and the requested
-**facets**. The service returns section-ready inspection facts. Renderers format
-those facts; they do not open indexes, classify opcodes, or assemble semantic rows.
+The command chooses a **selector** (member or IL coordinate), requested
+capabilities, and body scope. `MethodBodyInspectionSession` opens one configured
+`LibraryBodyIndex` and adds the composition state that earns a session:
+source attribution and cross-assembly caller scopes. CLI consumers query the
+index's Analysis APIs directly and render their projections.
+
+The boundary is semantic ownership, not type concealment:
+
+- Analysis owns method-body query semantics and canonical fact projections.
+- The session owns index construction policy, reuse, and cross-assembly
+  composition.
+- The CLI may hold and query `LibraryBodyIndex`; it must not duplicate Analysis
+  semantics or grow a forwarding method for every Analysis query.
 
 ## Selector shapes
 
@@ -88,7 +99,8 @@ pipeline.
 ## Facets
 
 Both query shapes request the same facets. A facet is a product capability, not a
-CLI section name. Section selection maps to facets at the command boundary.
+CLI section name. Section selection maps to index capabilities and owner queries
+at the command boundary.
 
 | Facet | Facts returned | Owner |
 | --- | --- | --- |
@@ -113,51 +125,50 @@ The important rule: a facet has one canonical owner. CLI sections such as
 render different projections, but they should not compute the underlying facts
 independently.
 
-Facet identity is typed here (a `MethodBodyFacetSet` over named facets), which suits a
-closed, product-owned catalog — see the *facet-identity design axis* (string vs typed
-vs generic type-as-key) in the
+Facet identity may become typed where a closed, product-owned catalog needs it —
+see the *facet-identity design axis* (string vs typed vs generic type-as-key) in the
 [Assembly Inspection Query Model](assembly-inspection-query.md) for when each applies.
-This service is also a **producer registry**: it delegates each facet to its one owning
-layer and composes the results, exactly the pattern `ILInspector.Research`'s
-`IResearchFactProducer` / `ResearchFactRegistry` already use over a build-once context
-(the *prior art* section of that same doc). Prefer generalizing that pattern over a
-green-field mechanism.
+That does not require an omnibus session facade. Each owning layer exposes its
+canonical query surface; the CLI composes those results. Cross-layer overlays
+still belong in `ILInspector.Research`, whose `IResearchFactProducer` /
+`ResearchFactRegistry` is the appropriate producer-registry prior art.
 
 ## Service shape
 
 ```csharp
 public sealed class MethodBodyInspectionSession
 {
-    public MethodBodyInspection Inspect(MemberSelector selector, MethodBodyFacetSet facets);
-    public MethodBodyInspection Inspect(ILCoordinateSelector selector, MethodBodyFacetSet facets);
-}
+    public LibraryBodyIndex BodyIndex { get; }
+    public string SourceName { get; }
 
-public sealed record MethodBodyInspection(
-    MethodBodyIdentity Method,
-    InstructionFact? Instruction,
-    SourceCoordinateFact? Source,
-    IReadOnlyList<ExceptionRegionFact> ExceptionRegions,
-    IReadOnlyList<CallSiteFact> Calls,
-    IReadOnlyList<CallerSiteFact> Callers,
-    CallGraphFact? CallGraph,
-    CallGraphFact? CallerGraph,
-    IReadOnlyList<UnsafeFact> Unsafe,
-    IReadOnlyList<AllocationFact> Allocations,
-    IReadOnlyList<SafetyFact> Safety,
-    IReadOnlyList<CostFact> Cost,
-    IReadOnlyList<HiddenFact> HiddenFacts,
-    SourceBodyFact? DecompiledSource,
-    SourceBodyFact? AnnotatedSource,
-    SourceBodyFact? OriginalSource);
+    public static MethodBodyInspectionSession Open(
+        string assemblyPath,
+        IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true,
+        bool includeOpportunities = true,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null);
+
+    public CallTreeNode CallerTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession> scopes);
+
+    public ImmutableArray<CallerEdge> CallerEdges(
+        int targetToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes = null);
+}
 ```
 
-The exact record names can change. The boundary should not:
+The exact method names can change. The boundary should not:
 
-- input is a member identity or IL coordinate plus requested facets
-- output is a product-model inspection shape
-- the CLI does not open `LibraryBodyIndex`, `PdbContext`, `MetadataSource`, or
-  `PEReader`
-- the formatter does not construct facts
+- `Open` captures command-selected capability and body-scope policy
+- one session builds and reuses one Analysis index per command
+- neutral Analysis queries stay on `LibraryBodyIndex` or Analysis projections
+- session methods exist only for composition requiring session-owned state,
+  such as source attribution or multiple assembly scopes
+- the CLI composes and renders; it does not classify or infer Analysis facts
+- PE, PDB, metadata, and decompiler lifetime should remain behind their owning
+  layers as those seams converge
 
 ## Layer ownership
 
@@ -202,9 +213,10 @@ Research.
 Owns composition:
 
 - open or receive the assembly inspection session
-- build/reuse `LibraryBodyIndex`
-- coordinate metadata, analysis, source acquisition, and Research
-- return `MethodBodyInspection`
+- build/reuse one command-configured `LibraryBodyIndex`
+- retain source attribution and compose cross-assembly caller data
+- coordinate metadata, analysis, source acquisition, and Research without
+  re-exporting their neutral query surfaces
 
 This layer must sit **above** Metadata, Analysis, Decompiler, and Research. It
 must not be `DotnetInspector.Services`, because that project is a lower-level
@@ -217,25 +229,32 @@ service shape proves out. If this grows beyond CLI-local orchestration, prefer a
 new high-level inspection/composition project over expanding
 `DotnetInspector.Services`.
 
-This composition layer is the natural home for caching and lazy facet execution.
+This composition layer is the natural home for command-scoped caching and lazy
+index construction. Analysis remains the home for query semantics.
 
 ### CLI
 
 Owns only:
 
 - parse command options
-- map section selection to facets
-- call the service
-- render the returned shape
+- map section selection to capabilities and body scope
+- open/reuse the method-body session
+- call canonical owner queries and compose presentation rows
+- render the resulting shape
 - write command-line diagnostics for invalid user input
+
+The CLI may depend on `LibraryBodyIndex` as an Analysis query type. It must not
+copy Analysis classification, matching, or aggregation rules into formatters.
 
 ## Relationship to assembly inspection
 
 The assembly inspection session answers: "what assembly am I inspecting, how do
 I open it once, and what assembly-level scanners are requested?"
 
-The method-body session answers: "inside that assembly, which method body or IL
-coordinate am I explaining, and which facets are requested?"
+The method-body session answers: "which Analysis body scope and capabilities
+does this command need, which assembly produced the evidence, and which sibling
+assemblies participate in caller composition?" Member and IL-coordinate
+selectors remain command inputs applied to the canonical owner queries.
 
 Method-body inspection can start from today's `dllPath` for early slices, but the
 target constructor consumes the assembly session or its `ResolvedAssemblyReference`,
@@ -254,63 +273,58 @@ paths; the single-open convergence arrives with that composition, not this doc.
 This depends on the sibling assembly acquisition design in
 [Assembly Inspection Query Model](assembly-inspection-query.md). Treat the
 two docs as one program of work under #2122: assembly inspection owns resolution
-and PE lifetime; method-body inspection owns member/coordinate facts inside the
-resolved assembly. In request terms, the CLI builds one `InspectionQuery` whose
-`Target.Selector` is a `MemberSelector` / `ILCoordinateSelector`; it hands that selector
-plus the requested facets to the method-body session.
+and PE lifetime; Analysis owns method-body semantics inside the resolved
+assembly; method-body composition owns command policy and multi-assembly joins.
+In request terms, the CLI builds one `InspectionQuery` whose `Target.Selector`
+is a `MemberSelector` / `ILCoordinateSelector`, then maps that selector and the
+requested facets onto the relevant owner queries.
 
 ## Migration
 
 Move in reviewable slices.
 
-1. **Design the shared model.** Land this doc and agree on the facet ownership
-   table.
-2. **Add a session-backed adapter.** Add `MethodBodyInspectionSession` that consumes
-   the existing `AssemblyInspectionSession` (or a `ResolvedAssemblyReference`), with a
-   `dllPath` convenience entry for early slices. Keep this above Metadata, Analysis,
-   Decompiler, and Research; do not add Research/Decompiler dependencies to
-   `DotnetInspector.Services`.
-3. **Raise semantic facts first.** Move `ILOffsetSourceQuery` allocation,
-   safety, and cost construction to Analysis-backed method/coordinate APIs.
-   Preserve the current instruction-only fallback behavior deliberately or
-   remove it with an explicit behavior note.
-4. **Raise metadata coordinate facts.** Move member, instruction, exception,
-   callsite, and return-address context behind the shared method-body service.
-5. **Delete `ILOffsetSourceQuery`.** Route `library --il-offset` through the
-   service with `ILCoordinateSelector`.
-6. **Raise member sections.** Move the fact construction currently in
-   `ApiOutputFormatter.PopulateIndexSections` into the service. Leave the
-   formatter as projection/rendering only.
-7. **Unify overlays.** Keep `MemberCodeProvider` only as an adapter if needed,
-   then route source/IL/decompiler/Research-backed sections through the same
-   method-body session.
+1. **Define owner queries.** Keep method/coordinate allocation, safety, cost,
+   calls, and graph semantics in Analysis; keep metadata, source, decompiler,
+   and overlay semantics in their owning layers.
+2. **Centralize command policy.** Use `MethodBodyInspectionSession.Open` for
+   capability flags, body scope, source attribution, and one index build per
+   command.
+3. **Delete neutral forwarders.** Let CLI consumers query `BodyIndex` and
+   Analysis projections directly instead of mirroring the Analysis API on the
+   session.
+4. **Raise remaining semantic construction.** Move any classification,
+   matching, or aggregation still implemented in CLI code to its canonical
+   owner. Thin CLI row mapping is presentation, not a second semantic surface.
+5. **Converge selectors.** Route member and `library --il-offset` selection
+   through shared metadata/Analysis query identities while preserving their
+   command-specific error behavior.
+6. **Unify overlays and lifetime.** Compose Research/source/decompiler facts
+   above the owner queries, and adopt the shared PE owner when that pending seam
+   lands.
 
 ## Acceptance tests for the architecture
 
 - Adding a new method-body fact requires changing one producer/service, not both
   `member` and `library --il-offset`.
-- `library --il-offset` has no bespoke query/helper file.
-- `ApiOutputFormatter` does not open `LibraryBodyIndex` or `PdbContext`.
+- Adding a neutral Analysis query does not require a
+  `MethodBodyInspectionSession` forwarding method.
+- One command builds one index with the requested capability and body scope.
+- Cross-assembly caller results retain source attribution.
 - Member-level and coordinate-level allocation/safety/cost rows agree for the
   same method and offset.
-- The CLI has no `System.Reflection.Metadata` or
-  `System.Reflection.PortableExecutable` dependency for method-body inspection.
+- CLI formatters do not reimplement Analysis classification, matching, or
+  aggregation semantics.
 - Analysis remains SRM-only, NativeAOT-friendly, Roslyn-free, and free of
   decompiler dependencies.
 - Research remains the only R1/R2 overlay bridge.
 
 ## Open questions
 
-- Should `MethodBodyInspection` return all facts as canonical records with the
-  CLI adapting to existing view rows, or should the service return
-  view-compatible section records? Prefer canonical product records first, with
-  thin render adapters.
 - Should missing facts be represented as empty lists, diagnostics, or
   unavailable-facet reasons? `member` sections often render empty-state notes;
   `library --il-offset` currently returns command errors for required contexts.
-- How much of caller-scope resolution belongs in this service versus the
-  command? The scope is user input, but resolving assemblies for the scope is a
-  service concern.
+- How should caller-scope assembly resolution move behind assembly inspection
+  while source attribution and cross-index composition remain session concerns?
 - Should `OriginalSource` be a method-body facet or remain a SourceLink service
-  call that the method-body service composes? It is a facet from the user's
-  perspective, even if SourceLink owns the fetch.
+  call that CLI composition joins? It is a facet from the user's perspective,
+  even if SourceLink owns the fetch.

@@ -14,6 +14,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 
 using Decompiler = ILInspector.Decompiler;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Commands;
 
@@ -678,14 +679,14 @@ public class ApiCommand
 
             // Type-scope analysis sections share one index build per type (built lazily, only
             // when such a section is requested) instead of opening one session per section.
-            MethodBodyInspectionSession? typeAnalysisSession = null;
-            MethodBodyInspectionSession TypeAnalysisSession() =>
-                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(options.DllPath!, GetRequestedMemberSections(type, options), type);
+            Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
+            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
+                typeAnalysisIndex ??= ApiOutputFormatter.OpenTypeAnalysisIndex(options.DllPath!, GetRequestedMemberSections(type, options), type);
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
             {
-                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisSession());
+                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
             }
 
             if (options.DllPath is { } exceptionRegionsDllPath
@@ -699,7 +700,7 @@ public class ApiCommand
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
                     || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisSession(), options.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), options.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, options);
@@ -707,13 +708,13 @@ public class ApiCommand
                 && options.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisSession(), semanticSections, options.IncludeSections);
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, options.IncludeSections);
             }
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisSession(), options.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
                     options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
@@ -722,7 +723,7 @@ public class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisSession(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
@@ -1313,14 +1314,14 @@ public class ApiCommand
                 PopulateSourceDiff(view, requestedSections);
             }
 
-            MethodBodyInspectionSession? typeAnalysisSession = null;
-            MethodBodyInspectionSession TypeAnalysisSession() =>
-                typeAnalysisSession ??= ApiOutputFormatter.OpenTypeAnalysisSession(renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type);
+            Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
+            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
+                typeAnalysisIndex ??= ApiOutputFormatter.OpenTypeAnalysisIndex(renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type);
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
-                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisSession());
+                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath
@@ -1334,7 +1335,7 @@ public class ApiCommand
                 && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
                     || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisSession(), renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, renderOptions);
@@ -1342,13 +1343,13 @@ public class ApiCommand
                 && renderOptions.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisSession(), semanticSections, renderOptions.IncludeSections);
+                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, renderOptions.IncludeSections);
             }
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisSession(), renderOptions.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
@@ -1356,7 +1357,7 @@ public class ApiCommand
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisSession(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }
