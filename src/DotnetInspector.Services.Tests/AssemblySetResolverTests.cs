@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -40,6 +41,88 @@ public class AssemblySetResolverTests
             assemblySet.Dispose();
 
             Assert.False(Directory.Exists(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_PackageSelectsStableHighestTfmAssemblySet()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-tfm-package-test").FullName;
+        var packagePath = Path.Combine(packageDir, "MultiSurface.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net8.0/Old.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/Zeta.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/Alpha.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/fr/Alpha.resources.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest { Packages = [packagePath] });
+
+            Assert.Equal(["Alpha.dll", "Zeta.dll"], assemblySet.Assemblies
+                .Select(static entry => Path.GetFileName(entry.Path))
+                .ToArray());
+            Assert.All(assemblySet.Assemblies, static entry => Assert.Equal("net10.0", entry.Tfm));
+
+            var expected = AssemblyReader.ExtractApiSurface(sourceAssembly)!;
+            var merged = AssemblySetSurfaceBuilder.Build(assemblySet);
+
+            Assert.NotNull(merged);
+            Assert.Equal("MultiSurface", merged.Name);
+            Assert.Equal("net10.0", merged.Tfm);
+            Assert.Equal(expected.PublicTypeCount * 2, merged.PublicTypeCount);
+            Assert.Equal(
+                merged.Types.OrderBy(static type => type.FullName).Select(static type => type.FullName),
+                merged.Types.Select(static type => type.FullName));
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_AllTfmsIncludesEveryNonResourcePackageAssembly()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-all-tfm-package-test").FullName;
+        var packagePath = Path.Combine(packageDir, "AllTfms.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net8.0/Old.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/New.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "runtimes/any/lib/net10.0/Runtime.dll");
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/fr/New.resources.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Packages = [packagePath],
+                    Tfm = "all",
+                    IncludePackageRuntimeAssemblies = true,
+                });
+
+            Assert.Equal(["New.dll", "Old.dll", "Runtime.dll"], assemblySet.Assemblies
+                .Select(static entry => Path.GetFileName(entry.Path))
+                .ToArray());
+            Assert.All(assemblySet.Assemblies, static entry => Assert.Null(entry.Tfm));
         }
         finally
         {

@@ -37,7 +37,8 @@ public sealed record AssemblySetEntry(
     string Path,
     string Source,
     string? Version,
-    AssemblySetSourceKind SourceKind);
+    AssemblySetSourceKind SourceKind,
+    string? Tfm = null);
 
 public enum AssemblySetSourceKind
 {
@@ -139,6 +140,7 @@ public static class AssemblySetResolver
                     tempDirs.Add(extracted.TempDir);
 
                 IEnumerable<string> dlls;
+                string? selectedTfm = null;
                 if (request.PackageSelectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
                 {
                     dlls = Directory.GetFiles(extracted.ExtractPath, "*.dll", SearchOption.AllDirectories)
@@ -148,22 +150,17 @@ public static class AssemblySetResolver
                 }
                 else
                 {
-                    var searchPath = TfmResolver.ResolvePackagePath(extracted.ExtractPath, request.Tfm)
-                        ?? extracted.ExtractPath;
-
-                    if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    var selection = TfmSelector.SelectHighestAssembliesFromPackage(
+                        extracted.ExtractPath,
+                        request.Tfm);
+                    selectedTfm = selection.tfm;
+                    dlls = selection.paths;
+                    if (!request.IncludePackageRuntimeAssemblies)
                     {
-                        dlls = [searchPath];
+                        dlls = dlls.Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
+                            && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
                     }
-                    else
-                    {
-                        dlls = Directory.GetFiles(searchPath, "*.dll", SearchOption.AllDirectories);
-                        if (!request.IncludePackageRuntimeAssemblies)
-                        {
-                            dlls = dlls.Where(p => !p.Contains("/runtimes/", StringComparison.Ordinal)
-                                && !p.Contains("\\runtimes\\", StringComparison.Ordinal));
-                        }
-                    }
+                    dlls = dlls.OrderBy(static p => p, StringComparer.Ordinal);
                 }
 
                 var foundAssembly = false;
@@ -174,11 +171,16 @@ public static class AssemblySetResolver
                         dll,
                         extracted.PackageName ?? pkg,
                         extracted.Version,
-                        AssemblySetSourceKind.Package));
+                        AssemblySetSourceKind.Package,
+                        selectedTfm));
                 }
 
                 if (!foundAssembly && request.PackageSelectionMode == AssemblySetPackageSelectionMode.LibAssembliesDescending)
                     Error($"No libraries found in package '{pkg}'.");
+                else if (!foundAssembly)
+                    Error(string.IsNullOrWhiteSpace(request.Tfm)
+                        ? $"No assemblies found in package '{pkg}'."
+                        : $"No assemblies found for target framework '{request.Tfm}' in package '{pkg}'.");
             }
         }
 

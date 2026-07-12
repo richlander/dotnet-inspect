@@ -1203,6 +1203,35 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_InvalidLibraryReportsSurfaceFailure()
+    {
+        var directory = Directory.CreateTempSubdirectory("diff-invalid-library-test").FullName;
+        var invalidAssembly = Path.Combine(directory, "Invalid.dll");
+        File.WriteAllText(invalidAssembly, "not a managed assembly");
+
+        try
+        {
+            var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    LibraryVersionRange = $"{invalidAssembly}..{invalidAssembly}",
+                }));
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Failed to extract API surface from one or both libraries",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("File not found", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteAsync_FindingTransitions_ComposesJson()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();

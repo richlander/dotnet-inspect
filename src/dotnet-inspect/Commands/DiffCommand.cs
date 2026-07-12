@@ -156,7 +156,7 @@ public class DiffCommand
             }
             else
             {
-                var result = ExecuteLibraryDiff(options);
+                var result = await ExecuteLibraryDiffAsync(options, logger, context.HttpClient);
                 if (result.error != null)
                 {
                     Console.Error.WriteLine(result.error);
@@ -296,29 +296,32 @@ public class DiffCommand
         }
     }
 
+    sealed record DiffEndpoint(
+        AssemblySet AssemblySet,
+        ApiSurface Surface) : IDisposable
+    {
+        public IReadOnlyList<string> Paths =>
+            AssemblySet.Assemblies.Select(static entry => entry.Path).ToList();
+
+        public void Dispose() => AssemblySet.Dispose();
+    }
+
     sealed record DiffInputs(
-        ApiSurface FromSurface,
-        ApiSurface ToSurface,
+        DiffEndpoint From,
+        DiffEndpoint To,
         string FromVersion,
         string ToVersion,
-        string Name,
-        IReadOnlyList<string> FromPaths,
-        IReadOnlyList<string> ToPaths,
-        string? FromTempDir = null,
-        string? ToTempDir = null) : IDisposable
+        string Name) : IDisposable
     {
+        public ApiSurface FromSurface => From.Surface;
+        public ApiSurface ToSurface => To.Surface;
+        public IReadOnlyList<string> FromPaths => From.Paths;
+        public IReadOnlyList<string> ToPaths => To.Paths;
+
         public void Dispose()
         {
-            DeleteTemp(FromTempDir);
-            DeleteTemp(ToTempDir);
-        }
-
-        static void DeleteTemp(string? tempDir)
-        {
-            if (!string.IsNullOrEmpty(tempDir) && Directory.Exists(tempDir))
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
+            From.Dispose();
+            To.Dispose();
         }
     }
 
@@ -333,19 +336,40 @@ public class DiffCommand
 
         logger.Log($"Comparing {packageName} v{fromVersion} -> v{toVersion}");
 
-        var from = await ExtractPackageInputAsync($"{packageName}@{fromVersion}", options, logger, httpClient);
+        var from = await ResolveDiffEndpointAsync(
+            httpClient,
+            new AssemblySetRequest
+            {
+                Packages = [$"{packageName}@{fromVersion}"],
+                Tfm = options.Tfm,
+                SourceOptions = options.SourceOptions,
+                TempDirPrefix = "inspect-diff",
+                IncludePackageRuntimeAssemblies = true,
+            },
+            options.IncludeAll,
+            logger);
         if (from.error is not null)
             return (null, $"Error resolving v{fromVersion}: {from.error}");
-        var to = await ExtractPackageInputAsync($"{packageName}@{toVersion}", options, logger, httpClient);
+        var to = await ResolveDiffEndpointAsync(
+            httpClient,
+            new AssemblySetRequest
+            {
+                Packages = [$"{packageName}@{toVersion}"],
+                Tfm = options.Tfm,
+                SourceOptions = options.SourceOptions,
+                TempDirPrefix = "inspect-diff",
+                IncludePackageRuntimeAssemblies = true,
+            },
+            options.IncludeAll,
+            logger);
         if (to.error is not null)
         {
-            DeleteTempDir(from.tempDir);
+            from.endpoint!.Dispose();
             return (null, $"Error resolving v{toVersion}: {to.error}");
         }
 
         return (new DiffInputs(
-            from.surface!, to.surface!, fromVersion, toVersion, packageName,
-            from.paths!, to.paths!, from.tempDir, to.tempDir), null);
+            from.endpoint!, to.endpoint!, fromVersion, toVersion, packageName), null);
     }
 
     private static async Task<(DiffInputs? inputs, string? error)>
@@ -360,116 +384,114 @@ public class DiffCommand
         var framework = options.Framework ?? "runtime";
         logger.Log($"Comparing {assemblyName} in {framework} v{fromVersion} -> v{toVersion}");
 
-        // Resolve assemblies for both versions (downloads ref packs as needed)
-        var (fromPath, _, _, fromError) = await PlatformResolver.ResolveAssemblyAsync(
-            assemblyName,
+        var from = await ResolveDiffEndpointAsync(
             httpClient,
-            logger.Log,
-            $"{framework}@{fromVersion}");
+            new AssemblySetRequest
+            {
+                PlatformAssemblies = [assemblyName],
+                PlatformAssemblyFrameworkHint = $"{framework}@{fromVersion}",
+                TempDirPrefix = "inspect-diff",
+            },
+            options.IncludeAll,
+            logger);
+        if (from.error is not null)
+            return (null, from.assembliesResolved
+                ? "Error: Failed to extract API surface from one or both versions."
+                : $"Error resolving v{fromVersion}: {from.error}");
 
-        if (fromError != null)
-        {
-            return (null, $"Error resolving v{fromVersion}: {fromError}");
-        }
-
-        var (toPath, _, _, toError) = await PlatformResolver.ResolveAssemblyAsync(
-            assemblyName,
+        var to = await ResolveDiffEndpointAsync(
             httpClient,
-            logger.Log,
-            $"{framework}@{toVersion}");
-
-        if (toError != null)
+            new AssemblySetRequest
+            {
+                PlatformAssemblies = [assemblyName],
+                PlatformAssemblyFrameworkHint = $"{framework}@{toVersion}",
+                TempDirPrefix = "inspect-diff",
+            },
+            options.IncludeAll,
+            logger);
+        if (to.error is not null)
         {
-            return (null, $"Error resolving v{toVersion}: {toError}");
-        }
-
-        // Extract API surfaces from both assemblies
-        var fromSurface = ExtractApiSurface(fromPath!, options.IncludeAll);
-        var toSurface = ExtractApiSurface(toPath!, options.IncludeAll);
-
-        if (fromSurface == null || toSurface == null)
-        {
-            return (null, "Error: Failed to extract API surface from one or both versions.");
+            from.endpoint!.Dispose();
+            return (null, to.assembliesResolved
+                ? "Error: Failed to extract API surface from one or both versions."
+                : $"Error resolving v{toVersion}: {to.error}");
         }
 
         return (new DiffInputs(
-            fromSurface, toSurface, fromVersion, toVersion, assemblyName,
-            [fromPath!], [toPath!]), null);
+            from.endpoint!, to.endpoint!, fromVersion, toVersion, assemblyName), null);
     }
 
-    private static (DiffInputs? inputs, string? error) ExecuteLibraryDiff(DiffOptions options)
+    private static async Task<(DiffInputs? inputs, string? error)> ExecuteLibraryDiffAsync(
+        DiffOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient)
     {
         var (fromPath, toPath) = ParsePathRange(options.LibraryVersionRange!);
         if (fromPath is null || toPath is null)
             return (null, "Error: Invalid library range. Use format: old/Foo.dll..new/Foo.dll");
-        if (!File.Exists(fromPath))
-            return (null, $"Error: File not found: {fromPath}");
-        if (!File.Exists(toPath))
-            return (null, $"Error: File not found: {toPath}");
-        var fromSurface = ExtractApiSurface(fromPath, options.IncludeAll);
-        var toSurface = ExtractApiSurface(toPath, options.IncludeAll);
-        if (fromSurface is null || toSurface is null)
-            return (null, "Error: Failed to extract API surface from one or both libraries.");
+
+        var from = await ResolveDiffEndpointAsync(
+            httpClient,
+            new AssemblySetRequest
+            {
+                Assemblies = [fromPath],
+                TempDirPrefix = "inspect-diff",
+            },
+            options.IncludeAll,
+            logger);
+        if (from.error is not null)
+            return (null, from.assembliesResolved
+                ? "Error: Failed to extract API surface from one or both libraries."
+                : $"Error: File not found: {fromPath}");
+
+        var to = await ResolveDiffEndpointAsync(
+            httpClient,
+            new AssemblySetRequest
+            {
+                Assemblies = [toPath],
+                TempDirPrefix = "inspect-diff",
+            },
+            options.IncludeAll,
+            logger);
+        if (to.error is not null)
+        {
+            from.endpoint!.Dispose();
+            return (null, to.assembliesResolved
+                ? "Error: Failed to extract API surface from one or both libraries."
+                : $"Error: File not found: {toPath}");
+        }
 
         var name = Path.GetFileNameWithoutExtension(toPath);
         return (new DiffInputs(
-            fromSurface, toSurface,
-            Path.GetFileName(fromPath), Path.GetFileName(toPath), name,
-            [fromPath], [toPath]), null);
+            from.endpoint!, to.endpoint!,
+            Path.GetFileName(fromPath), Path.GetFileName(toPath), name), null);
     }
 
-    private static async Task<(ApiSurface? surface, List<string>? paths, string? tempDir, string? error)> ExtractPackageInputAsync(
-        string packageReference, DiffOptions options, VerboseLogger logger, HttpClient httpClient)
+    private static async Task<(DiffEndpoint? endpoint, string? error, bool assembliesResolved)> ResolveDiffEndpointAsync(
+        HttpClient httpClient,
+        AssemblySetRequest request,
+        bool includeAll,
+        VerboseLogger logger)
     {
-        var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, packageReference, logger.Log, "inspect-diff", options.SourceOptions).ConfigureAwait(false);
-        if (!outcome.IsSuccess)
-            return (null, null, null, outcome.ErrorMessage);
-
-        var extracted = outcome.Result!;
-        var (paths, selectedTfm) = TfmSelector.SelectHighestAssembliesFromPackage(extracted.ExtractPath, options.Tfm);
-        if (paths.Count == 0 && string.IsNullOrEmpty(options.Tfm))
-            return (null, null, extracted.TempDir, "No DLLs found in package.");
-
-        paths = paths.OrderBy(path => path, StringComparer.Ordinal).ToList();
-
-        if (paths.Count == 0)
-            return (null, null, extracted.TempDir, "No DLLs found for selected TFM.");
-
-        var surface = MergeSurfaces(paths, extracted.PackageName, selectedTfm, options.IncludeAll, logger);
-        return surface is null
-            ? (null, null, extracted.TempDir, "Failed to extract API surface.")
-            : (surface, paths, extracted.TempDir, null);
-    }
-
-    private static ApiSurface? MergeSurfaces(IReadOnlyList<string> paths, string? name, string? tfm, bool includeAll, VerboseLogger logger)
-    {
-        if (paths.Count == 1)
+        var assemblySet = await AssemblySetResolver
+            .CollectAsync(httpClient, request, logger.Log)
+            .ConfigureAwait(false);
+        if (assemblySet.Assemblies.Count == 0)
         {
-            var single = AssemblyReader.ExtractApiSurface(paths[0], includeAll);
-            if (single is not null)
-            {
-                single.Name = name ?? Path.GetFileNameWithoutExtension(paths[0]);
-                single.Tfm = tfm;
-            }
-            return single;
+            var error = assemblySet.Diagnostics.LastOrDefault()?.Message
+                ?? "No assemblies were resolved.";
+            assemblySet.Dispose();
+            return (null, error, false);
         }
 
-        var merged = new ApiSurface { Name = name, Tfm = tfm };
-        foreach (var path in paths)
+        var surface = AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log);
+        if (surface is null)
         {
-            var surface = AssemblyReader.ExtractApiSurface(path, includeAll);
-            if (surface is null)
-                continue;
-            logger.Log($"  + {Path.GetFileNameWithoutExtension(path)}: {surface.PublicTypeCount} types");
-            merged.Types.AddRange(surface.Types);
-            merged.PublicTypeCount += surface.PublicTypeCount;
-            merged.PublicMethodCount += surface.PublicMethodCount;
-            merged.PublicPropertyCount += surface.PublicPropertyCount;
-            merged.PublicEventCount += surface.PublicEventCount;
-            merged.PublicFieldCount += surface.PublicFieldCount;
+            assemblySet.Dispose();
+            return (null, "Failed to extract API surface.", true);
         }
-        merged.Types = merged.Types.OrderBy(type => type.FullName).ToList();
-        return merged.Types.Count == 0 ? null : merged;
+
+        return (new DiffEndpoint(assemblySet, surface), null, true);
     }
 
     private static (string? fromPath, string? toPath) ParsePathRange(string input)
@@ -658,8 +680,8 @@ public class DiffCommand
         var memberTargetIdentities = options.MemberFilter.Count == 0
             ? null
             : ResolveMemberTargetIdentities(
-                fromSurface ?? MergeSurfaces(fromPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
-                toSurface ?? MergeSurfaces(toPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
+                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 options.MemberFilter,
                 options.TypeFilter,
                 requireBodyTargets: true).MemberIdentities;
@@ -702,8 +724,8 @@ public class DiffCommand
         var memberTargetIdentities = options.MemberFilter.Count == 0
             ? null
             : ResolveMemberTargetIdentities(
-                fromSurface ?? MergeSurfaces(fromPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
-                toSurface ?? MergeSurfaces(toPaths, name: null, tfm: null, includeAll: options.IncludeAll, logger: new VerboseLogger(enabled: false)) ?? new ApiSurface(),
+                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 options.MemberFilter,
                 options.TypeFilter,
                 requireBodyTargets: true,
@@ -774,19 +796,6 @@ public class DiffCommand
 
     internal static string MethodKey(MethodIdentity method)
         => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
-
-    private static void DeleteTempDir(string? tempDir)
-    {
-        if (!string.IsNullOrEmpty(tempDir) && Directory.Exists(tempDir))
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
-        }
-    }
-
-    private static ApiSurface? ExtractApiSurface(string assemblyPath, bool includeAll)
-    {
-        return AssemblyReader.ExtractApiSurface(assemblyPath, includeAll);
-    }
 
     private static (string? package, string? fromVersion, string? toVersion) ParseVersionRange(string input)
     {
