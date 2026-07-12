@@ -44,6 +44,9 @@ public sealed class SlotStoreDiamondPass : IIrPass
 
             for (int p = 0; p + 2 < blocks.Count; p++)
             {
+                if (TryFoldClassUnionStackSlotBoolReturn(function, container, blocks, offsetToIndex, leaveTargets, p, stepper))
+                    return true;
+
                 if (Match(function, blocks, offsetToIndex, leaveTargets, p, scopedSlotTypes) is { } shape)
                 {
                     Fold(container, blocks, p, shape, stepper);
@@ -52,6 +55,194 @@ public sealed class SlotStoreDiamondPass : IIrPass
             }
         }
         return false;
+    }
+
+    static bool TryFoldClassUnionStackSlotBoolReturn(
+        IrFunction function,
+        BlockContainer container,
+        IReadOnlyList<Block> blocks,
+        Dictionary<int, int> offsetToIndex,
+        HashSet<int> leaveTargets,
+        int p,
+        Stepper stepper)
+    {
+        var head = blocks[p];
+        if (head.Children.Count == 0
+            || head.Children[^1] is not ConditionalBranch nullBranch
+            || nullBranch.Condition is not LogicalNot { Operand: var receiver })
+        {
+            return false;
+        }
+
+        for (int s = 0; s < head.Children.Count - 1; s++)
+            if (IsControlFlow(head.Children[s]))
+                return false;
+
+        int conditionIndex = p + 1;
+        if (blocks[conditionIndex].Children is not [StoreStackSlot conditionStore, Branch conditionExit]
+            || !offsetToIndex.TryGetValue(nullBranch.TargetOffset, out int nullIndex)
+            || !offsetToIndex.TryGetValue(conditionExit.TargetOffset, out int mergeIndex)
+            || blocks[nullIndex].Children is not [StoreStackSlot nullStore]
+            || blocks[mergeIndex].Children is not [Return ret]
+            || nullIndex == p
+            || nullIndex == conditionIndex
+            || nullIndex <= conditionIndex
+            || mergeIndex == p
+            || mergeIndex == conditionIndex
+            || mergeIndex == nullIndex
+            || nullIndex + 1 != mergeIndex
+            || conditionStore.Slot != nullStore.Slot
+            || !IsFalseConstant(nullStore.Value)
+            || !ReturnsBoolSlot(ret, conditionStore.Slot, out bool returnNegates)
+            || !TryRewriteClassUnionTypeTest(function, conditionStore.Value, receiver, out var condition))
+        {
+            return false;
+        }
+
+        int[] removedIndices = [conditionIndex, nullIndex, mergeIndex];
+        if (!NoExternalEntry(blocks, p, removedIndices, leaveTargets)
+            || !ReferenceOwnership.StackSlotReferencesOnlyWithin(function, conditionStore.Slot, [conditionStore, nullStore, ret.Value!]))
+        {
+            return false;
+        }
+
+        var tested = returnNegates ? Conditions.Negate(condition) : condition;
+        var expression = new LogicalBinary(LogicalKind.And, (IrExpression)receiver.Clone(), tested);
+        FoldClassUnionStackSlotBoolReturn(container, p, removedIndices, expression, stepper);
+        return true;
+    }
+
+    static bool TryRewriteClassUnionTypeTest(IrFunction function, IrExpression expression, IrExpression receiver, out IrExpression rewritten)
+    {
+        if (expression is Comparison { Kind: ComparisonKind.GreaterThan, IsUnsigned: true } comparison
+            && comparison.Left is IsInstance test
+            && comparison.Right is Constant { Value: null }
+            && test.Operand is LoadProperty unionValue
+            && IsUnionValueProperty(function, unionValue)
+            && PlaceIdentity.SameVariable(unionValue.Instance, receiver))
+        {
+            rewritten = new IsInstance(test.Type, (IrExpression)unionValue.Clone());
+            return true;
+        }
+
+        rewritten = null!;
+        return false;
+    }
+
+    static bool ReturnsBoolSlot(Return ret, int slot, out bool negates)
+    {
+        if (ret.Value is LoadStackSlot load && load.Slot == slot)
+        {
+            negates = false;
+            return true;
+        }
+
+        if (ret.Value is LogicalNot { Operand: LoadStackSlot notLoad } && notLoad.Slot == slot)
+        {
+            negates = true;
+            return true;
+        }
+
+        if (ret.Value is Comparison { Kind: ComparisonKind.NotEqual } notEqual
+            && IsSlotZeroComparison(notEqual, slot))
+        {
+            negates = false;
+            return true;
+        }
+
+        if (ret.Value is Comparison { Kind: ComparisonKind.Equal } equal
+            && IsSlotZeroComparison(equal, slot))
+        {
+            negates = true;
+            return true;
+        }
+
+        negates = false;
+        return false;
+    }
+
+    static bool IsSlotZeroComparison(Comparison comparison, int slot)
+        => comparison.Left is LoadStackSlot leftLoad
+            && leftLoad.Slot == slot
+            && comparison.Right is Constant { Value: 0 }
+        || comparison.Right is LoadStackSlot rightLoad
+            && rightLoad.Slot == slot
+            && comparison.Left is Constant { Value: 0 };
+
+    static bool IsFalseConstant(IrExpression expression)
+        => expression is Constant { Value: false }
+            || expression is Constant { Value: 0 };
+
+    static bool IsUnionValueProperty(IrFunction function, LoadProperty property)
+        => property.PropertyName == "Value"
+            && property.IndexArguments.Count == 0
+            && function.UnionTypes.Contains(NamedDefinition(property.Accessor.DeclaringType))
+            && IsSimpleUnionValueReceiver(property.Instance);
+
+    static bool IsSimpleUnionValueReceiver(IrExpression? receiver) => receiver switch
+    {
+        LoadArgumentAddress or LoadArgument or LoadLocalAddress or LoadLocal => true,
+        _ => false,
+    };
+
+    static TypeRef NamedDefinition(TypeRef type)
+        => type is { Kind: TypeRefKind.GenericInstance, ElementType: { } definition } ? definition : type;
+
+    static bool NoExternalEntry(
+        IReadOnlyList<Block> blocks,
+        int root,
+        IReadOnlyCollection<int> removedIndices,
+        HashSet<int> leaveTargets)
+    {
+        var forbidden = removedIndices.Select(index => blocks[index].StartOffset).ToHashSet();
+        if (forbidden.Overlaps(leaveTargets))
+            return false;
+
+        var removed = removedIndices.ToHashSet();
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (i == root || removed.Contains(i))
+                continue;
+            foreach (var node in blocks[i].Children)
+                foreach (int target in Targets(node))
+                    if (forbidden.Contains(target))
+                        return false;
+        }
+        return true;
+    }
+
+    static void FoldClassUnionStackSlotBoolReturn(
+        BlockContainer container,
+        int p,
+        IReadOnlyCollection<int> removedIndices,
+        IrExpression expression,
+        Stepper stepper)
+    {
+        var ordered = container.Blocks.ToList();
+        var folded = new Block(ordered[p].StartOffset);
+        var rootChildren = ordered[p].DetachChildren();
+        for (int k = 0; k < rootChildren.Count - 1; k++)
+            folded.Add(rootChildren[k]);
+        folded.Add(new Return(expression));
+
+        foreach (var block in ordered)
+            block.Detach();
+
+        var removed = removedIndices.ToHashSet();
+        var rebuilt = new BlockContainer();
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            if (i == p)
+            {
+                rebuilt.Add(folded);
+                continue;
+            }
+            if (removed.Contains(i))
+                continue;
+            rebuilt.Add(ordered[i]);
+        }
+        stepper.StepOver("raise class union stack-slot type-test bool dispatch", container);
+        container.ReplaceWith(rebuilt);
     }
 
     sealed record Shape(
