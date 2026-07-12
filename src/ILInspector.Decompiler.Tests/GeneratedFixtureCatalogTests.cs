@@ -1157,6 +1157,7 @@ public class GeneratedFixtureCatalogTests
                         "abcdef1234",
                         "TestType",
                         "Method1"),
+                    FaultIsolation: null,
                     ClosureEvidence: new ReturnToSenderClosureEvidence(
                         RequiredTypes: 2,
                         RequiredMembers: 1,
@@ -1276,6 +1277,7 @@ public class GeneratedFixtureCatalogTests
                         "abcdef1234",
                         "TestType",
                         "Method1"),
+                    FaultIsolation: null,
                     ClosureEvidence: null,
                     IsFrontier: false,
                     Note: null),
