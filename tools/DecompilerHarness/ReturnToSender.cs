@@ -440,18 +440,37 @@ static class ReturnToSender
     }
 
     public static IReadOnlyList<Result> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
-        => CompileBackTargets(assemblyPath, targets, ReturnToSenderSourceIndex.TryCreate(assemblyPath));
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor: true);
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         IReadOnlyList<string> sourcePaths)
-        => CompileBackTargets(assemblyPath, targets, ReturnToSenderSourceIndex.TryCreate(sourcePaths));
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(sourcePaths),
+            applyCompileBackFloor: true);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        bool applyCompileBackFloor)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor);
 
     static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        bool applyCompileBackFloor)
     {
         if (targets.Count == 0)
             return [];
@@ -529,7 +548,7 @@ static class ReturnToSender
             }
         }
 
-        return ApplyCompileBackFloor(assemblyPath, results);
+        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
     }
 
     static IReadOnlyList<Result> ApplyCompileBackFloor(

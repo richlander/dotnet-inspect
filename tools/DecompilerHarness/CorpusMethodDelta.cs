@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ILInspector.DecompilerHarness;
 
 // The corpus-method snapshot and changed-method delta artifact schema. Kept in
@@ -17,7 +19,11 @@ internal sealed record CorpusMethodSnapshot(
     string? Residual,
     string? PassBug,
     string Validity,
-    string FidelityCheck)
+    string FidelityCheck,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? FidelityCapture = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? FidelityReference = null)
 {
     public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
 }

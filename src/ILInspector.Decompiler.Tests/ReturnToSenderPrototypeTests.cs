@@ -115,6 +115,52 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public abstract class BaseMarkerAttribute : Attribute
+            {
+            }
+
+            [AttributeUsage(AttributeTargets.Class)]
+            public sealed class MarkerAttribute : BaseMarkerAttribute
+            {
+                public bool Flag => true;
+            }
+            """);
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("MarkerAttribute", "get_Flag", 0);
+            var floored = Assert.Single(ReturnToSender.CompileBackTargets(assemblyPath, [target]));
+            Assert.True(floored.UsedCompileBackFloor, floored.Detail);
+            var reference = Assert.IsType<FidelityCheck.CompileBackResult>(floored.CompileBackFloor);
+
+            var native = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target],
+                applyCompileBackFloor: false));
+            Assert.False(native.UsedCompileBackFloor);
+            Assert.True(
+                native.Status is FidelityCheck.CompileBackStatus.RecompileFail
+                    or FidelityCheck.CompileBackStatus.ContextFail,
+                $"{native.Status}: {native.Detail}");
+
+            var aligned = CorpusSensor.AlignReturnToSenderResultsForTesting([reference], [native]);
+            var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting([reference], aligned);
+
+            Assert.Equal(0, parity.RescuedMethods);
+            Assert.Equal(0, parity.SameMethods);
+            Assert.Equal(1, parity.WorseMethods);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
@@ -183,6 +229,40 @@ public class ReturnToSenderPrototypeTests
                     Assert.Equal("get_Count", second.Plan.TargetMethod.Method);
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, second.Status);
                 });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CorpusFidelity_EvaluatesCompileBackSelectedTargetsThroughReturnToSender()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Value => 42;
+                public int Transform(int value) => value + 1;
+                public int Transform(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            var results = CorpusSensor.EvaluateReturnToSenderForTesting(assemblyPath, cap: 10);
+            var getter = Assert.Single(results, result => result.Method == "get_Value");
+            var overloads = results
+                .Where(result => result.Method == "Transform")
+                .OrderBy(result => result.Overload)
+                .ToArray();
+
+            Assert.Equal("Class1", getter.Type);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, getter.Status);
+            Assert.StartsWith("return-to-sender", getter.CaptureDetail);
+            Assert.Equal(2, overloads.Length);
+            Assert.Equal(new[] { 0, 1 }, overloads.Select(result => result.Overload));
+            Assert.Equal(2, overloads.Select(result => result.Signature).Distinct().Count());
+            Assert.All(overloads, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
         }
         finally
         {
