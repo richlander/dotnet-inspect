@@ -107,14 +107,41 @@ modifier changes how a selected payload is rendered.
 it does not mean "take the first row." Cardinality is resolved after section
 selection, filtering, and printable-capability filtering:
 
-| Printable rows | `--print` | `--print --row N` | `--print-all` |
+| Printable rows | `--print` | `--print --row N\|first\|last` | `--print-all` |
 | ---: | --- | --- | --- |
 | 0 | Error: the selected shape is not printable. | Error. | Error: the selected shape is not printable. |
-| 1 | Print the one payload. | Print row 1; any other index is an error. | Print the one payload. |
-| More than 1 | Guidance error requiring `--row N` or `--print-all`. | Print exactly the Nth printable row. | Print every printable payload in stable row order. |
+| 1 | Print the one payload. | Print row `1`, `first`, or `last`; any other index is an error. | Print the one payload. |
+| More than 1 | Guidance error requiring `--row` or `--print-all`. | Print exactly the selected printable row. | Print every printable payload in stable row order. |
 
-`--row N` is one-based and counts printable rows, not every row in the selected
-table. `--print-all` cannot be combined with `--row`.
+Numeric `--row N` is one-based and counts printable rows, not every row in the
+selected table. `first` and `last` are stable aliases for the endpoints of that
+printable-row sequence. `--print-all` cannot be combined with `--row`.
+
+`-n N` / `--head N` and `--tail N` are rendered-line windows applied after
+printable-row cardinality is resolved and payloads are fetched. They do not
+select rows or limit `--print-all` fan-out:
+
+```text
+--print --head 1
+  multi-row selection -> error; does not choose the first row
+
+--print --row 2 --head 20
+  select printable row 2 -> fetch one payload -> render its first 20 lines
+
+--print-all --tail 20
+  fetch every declared printable payload -> render the final 20 combined lines
+```
+
+`--rows` changes head/tail from rendered-line windows into per-table data-row
+windows:
+
+- `--rows --head N` keeps the first N data rows;
+- `--rows --tail N` keeps the last N data rows.
+
+Both row-window forms are incompatible with `--print` and `--print-all`;
+`--row N|first|last` is the explicit printable-row selector. The current CLI
+implements head rows and rejects tail rows; tail-row support is a follow-up to
+this symmetric contract.
 
 This policy deliberately rejects implicit-first behavior. Row order may change
 with filtering, producer evolution, or package versions, and choosing the first
@@ -143,7 +170,10 @@ payloads on already evaluated rows; it cannot probe missing cells.
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / `--rows` | with `--rows`, `-n` trims to N **data rows per table**, across Markdown, TSV, and JSONL |
+| `-n N` / `--head N` / numeric shorthand such as `-20` | keep the first N rendered output lines unless `--rows` is active |
+| `--tail N` | keep the last N rendered output lines unless `--rows` is active |
+| `--rows --head N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
+| `--rows --tail N` | keep the last N **data rows per table**; target symmetry, not yet implemented |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
@@ -344,6 +374,10 @@ The stable vocabulary is:
   of multiple printable rows implicitly.
 - `--print-all` is the explicit row-payload fan-out projection: it does not make
   non-printable rows printable or evaluate new addresses.
+- `--head` / `--tail` are post-projection line windows: they do not select rows
+  or constrain payload acquisition.
+- `--rows` promotes head/tail to first/last data-row windows, but those windows
+  remain presentation limits rather than printable-row selectors.
 - `--bare` is a presentation modifier: it strips the surrounding framing from an
   already-selected payload.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
