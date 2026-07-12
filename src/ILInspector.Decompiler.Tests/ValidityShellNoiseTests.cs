@@ -87,6 +87,20 @@ public class ValidityShellNoiseTests
     }
 
     [Fact]
+    public void ShellReceiverWithInvalidArgumentDiagnostic_StaysReported()
+    {
+        var (diagnostic, tree, semanticModel) = DiagnosticFor("""
+            class __Shell
+            {
+                void TakeInt(int value) { }
+                void __M() => this.TakeInt("bad");
+            }
+            """, "CS1503");
+
+        Assert.False(ValidityCheck.IsShellArtifact(diagnostic, tree, semanticModel));
+    }
+
+    [Fact]
     public void NonSourceDiagnostic_StaysReported()
     {
         var tree = CSharpSyntaxTree.ParseText(

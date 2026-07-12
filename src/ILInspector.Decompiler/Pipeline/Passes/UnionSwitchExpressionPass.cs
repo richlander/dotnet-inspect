@@ -1147,7 +1147,7 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                                 Right: Constant { Value: null }
                             }
                         }
-                    }
+                    } outerNot
                 }
             ]
             || !IsUnionValueProperty(function, unionValue)
@@ -1159,6 +1159,8 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         var raisedTypeTest = new IsInstance(typeTest.Type, (IrExpression)receiver.Clone());
         raisedTypeTest.InheritSourceOffset(typeTest);
         expression = new LogicalNot(raisedTypeTest);
+        expression.InheritSourceOffset(outerNot);
+        expression.InheritSourceOffset(typeTest);
         return true;
     }
 

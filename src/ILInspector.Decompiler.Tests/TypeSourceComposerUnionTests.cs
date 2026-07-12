@@ -1552,8 +1552,15 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
-        Assert.Equal("return pet is not Cat;",
-            RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat"));
+        var (isNotCat, isNotCatFunction) = RenderMemberWithFunction(
+            assembly.Path,
+            "UnionFixtures.Matcher",
+            "IsNotCat");
+        Assert.Equal("return pet is not Cat;", isNotCat);
+        var raisedNotTypeTest = Assert.Single(
+            isNotCatFunction.Descendants.OfType<LogicalNot>(),
+            node => node.Operand is IsInstance);
+        Assert.True(raisedNotTypeTest.SourceOffset >= 0);
         Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotCat"));
         var classValueNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueNotNamedCat);
@@ -1757,6 +1764,12 @@ public class TypeSourceComposerUnionTests
     }
 
     static string RenderMember(string assemblyPath, string typeName, string methodName)
+        => RenderMemberWithFunction(assemblyPath, typeName, methodName).Output;
+
+    static (string Output, IrFunction Function) RenderMemberWithFunction(
+        string assemblyPath,
+        string typeName,
+        string methodName)
     {
         using var source = MetadataSource.Open(assemblyPath);
         var function = IrImporter.Import(source, typeName, methodName);
@@ -1764,7 +1777,7 @@ public class TypeSourceComposerUnionTests
 
         var result = CSharpPrinter.PrintRaised(function);
         Assert.NotNull(result.Output);
-        return result.Output!.Trim();
+        return (result.Output!.Trim(), function);
     }
 
     static async Task AssertSdkPreviewBuilds(string source)
