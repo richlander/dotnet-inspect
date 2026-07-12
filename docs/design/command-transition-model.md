@@ -82,14 +82,31 @@ subject:
 | --- | --- | --- |
 | Type `T` | Type identity for `T` | Was `T` added or removed? |
 | Type `T` | Member identities declared by `T` | Which members of `T` were added or removed? |
+| Type `T` | Attribute occurrences applied to `T` | Which applied attributes were added, removed, or changed? |
 | Member `M` | Member identity for `M` | Was this particular `M` added or removed? |
+| Member `M` | Attribute occurrences applied to `M` | Which applied attributes on `M` were added, removed, or changed? |
 
-The first two questions retain type focus and differ by observation producer.
-Dropping to member focus answers the third question; it cannot replace the
-type-scoped member census. A child-identity row is therefore not evidence that
-the command should have zoomed to that child. Focus defines the producer's
-scope and input subject; the producer defines the Finding identity and payload
-family within that scope.
+These observations have three distinct relationships to the focused subject:
+
+- **self presence:** whether the focused identity exists;
+- **owned children:** the census of identities structurally contained by the
+  focus, such as members declared by a type;
+- **attached facets:** the census of occurrences applied to the focus, such as
+  custom attributes.
+
+All three may participate in the same unary, pairwise, or timeline operation
+without changing focus. A conceptual "type transition" is therefore incomplete
+until its observation census is named. A human default view may compose several
+clearly labelled transition sections, while a focused or machine-readable query
+selects one producer explicitly.
+
+Dropping to member focus answers the particular-member questions; it cannot
+replace the type-scoped member census. Attributes likewise do not require an
+`attribute` focus command merely because attribute identities appear as rows. A
+child or attached-facet identity row is not evidence that the command should
+have zoomed to that identity. Focus defines the producer's scope and input
+subject; the producer defines the Finding identity and payload family within
+that scope.
 
 ## When a command transition is justified
 
@@ -390,6 +407,18 @@ provides the stable scope; each member is an observation identity. Joining the
 complete member censuses by identity creates one longitudinal track per member,
 so the result shows how the type's API surface evolved without requiring the
 caller to name each member in advance.
+
+The same type focus can instead select the type-presence census or the
+applied-attribute census. Those timelines answer different questions and must
+identify the active observation in their title/schema:
+
+- type presence: when the type itself appeared or disappeared;
+- members: when each declared member was added, removed, or re-added;
+- applied attributes: when each attribute occurrence was added, removed, or
+  changed.
+
+Changing among those timelines changes the observation producer, not the focus
+or operation.
 
 ### Dense timeline
 
