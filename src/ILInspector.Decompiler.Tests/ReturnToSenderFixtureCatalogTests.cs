@@ -168,6 +168,26 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_RedactsWindowsSourcePathInFindings()
+    {
+        var result = new ReturnToSenderSourceProbeResult(
+            new ReturnToSender.RequestedTarget("T", "M", 0),
+            ReturnToSenderSourceOutcome.ValidDifferent,
+            FidelityCheck.CompileBackStatus.Exact,
+            "valid_different.known_taste",
+            Detail: "synthetic taste frontier",
+            SourcePath: @"C:\Users\builder\repo\Fixture.cs",
+            ExpectedBody: "return System.Math.Abs(value);",
+            ActualBody: "return Math.Abs(value);");
+
+        var finding = Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
+
+        Assert.Equal("Fixture.cs", finding.SourceFile);
+        Assert.DoesNotContain("Users", finding.SourceFile, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\", finding.SourceFile, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_DoesNotHideResidualInsideCheckedContext()
     {
         var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(

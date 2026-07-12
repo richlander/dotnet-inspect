@@ -358,10 +358,18 @@ static partial class ReturnToSenderSourceProbe
             result.CompileBackStatus?.ToString(),
             result.Reason,
             result.Detail,
-            Path.GetFileName(result.SourcePath),
+            SourceFileName(result.SourcePath),
             result.IlDiffLines is { Count: > 0 }
                 || !string.IsNullOrWhiteSpace(result.OriginalOpcodes)
                 || !string.IsNullOrWhiteSpace(result.RecompiledOpcodes));
+    }
+
+    internal static string? SourceFileName(string? sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+            return null;
+
+        return Path.GetFileName(sourcePath.Replace('\\', '/'));
     }
 
     static string SourceCorrespondenceCategory(ReturnToSenderSourceProbeResult result)

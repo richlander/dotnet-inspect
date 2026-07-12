@@ -2402,7 +2402,7 @@ internal static class GeneratedFixtureRunner
             : new
             {
                 result.Kind,
-                SourcePath = Path.GetFileName(result.SourcePath),
+                SourcePath = ReturnToSenderSourceProbe.SourceFileName(result.SourcePath),
                 result.Detail,
             };
 
