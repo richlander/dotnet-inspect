@@ -43,7 +43,7 @@ sealed record ReturnToSenderSourceProbeResult(
     public bool Skipped => Outcome is ReturnToSenderSourceOutcome.SourceUnavailable or ReturnToSenderSourceOutcome.UnsupportedTarget;
 }
 
-static class ReturnToSenderSourceProbe
+static partial class ReturnToSenderSourceProbe
 {
     internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
@@ -142,7 +142,7 @@ static class ReturnToSenderSourceProbe
         if (targets.Count == 0)
             return [];
 
-        var sourceIndex = FixtureSourceIndex.TryCreate(assemblyPath);
+        var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         return EvaluateTargets(assemblyPath, targets, sourceIndex);
     }
 
@@ -153,13 +153,13 @@ static class ReturnToSenderSourceProbe
         => EvaluateTargets(
             assemblyPath,
             targets,
-            FixtureSourceIndex.TryCreate(sourcePaths),
+            ReturnToSenderSourceIndex.TryCreate(sourcePaths),
             "source index could not be built from the supplied source paths");
 
     static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
-        FixtureSourceIndex? sourceIndex,
+        ReturnToSenderSourceIndex? sourceIndex,
         string sourceUnavailableDetail = "assembly is not registered in FixtureCatalog")
     {
         if (targets.Count == 0)
@@ -190,7 +190,7 @@ static class ReturnToSenderSourceProbe
                 continue;
             }
 
-            SourceMember? sourceMember = null;
+            ReturnToSenderSourceMember? sourceMember = null;
             bool sourceFound = sourceIndex?.TryFind(target, out sourceMember) == true;
             if (result.Status is FidelityCheck.CompileBackStatus.RecompileFail
                 or FidelityCheck.CompileBackStatus.ContextFail)
@@ -392,252 +392,177 @@ static class ReturnToSenderSourceProbe
             ActualBody: result.TargetBody));
     }
 
-    sealed record SourceMember(string Type, string Method, int Overload, string Signature, string SourcePath, string? Body);
+}
 
-    sealed class FixtureSourceIndex
+internal sealed record ReturnToSenderSourceMember(string Type, string Method, int Overload, string Signature, string SourcePath, string? Body);
+
+internal sealed class ReturnToSenderSourceIndex
+{
+    readonly Dictionary<string, ReturnToSenderSourceMember> _members;
+    readonly Dictionary<string, ReturnToSenderSourceMember> _membersBySignature;
+    readonly HashSet<string> _ambiguousSignatures;
+    readonly Dictionary<string, RecordSourceInfo> _recordSources;
+
+    ReturnToSenderSourceIndex(
+        Dictionary<string, ReturnToSenderSourceMember> members,
+        Dictionary<string, ReturnToSenderSourceMember> membersBySignature,
+        HashSet<string> ambiguousSignatures,
+        Dictionary<string, RecordSourceInfo> recordSources)
     {
-        readonly Dictionary<string, SourceMember> _members;
-        readonly Dictionary<string, SourceMember> _membersBySignature;
-        readonly HashSet<string> _ambiguousSignatures;
-        readonly Dictionary<string, RecordSourceInfo> _recordSources;
+        _members = members;
+        _membersBySignature = membersBySignature;
+        _ambiguousSignatures = ambiguousSignatures;
+        _recordSources = recordSources;
+    }
 
-        FixtureSourceIndex(
-            Dictionary<string, SourceMember> members,
-            Dictionary<string, SourceMember> membersBySignature,
-            HashSet<string> ambiguousSignatures,
-            Dictionary<string, RecordSourceInfo> recordSources)
+    public static ReturnToSenderSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
+    {
+        var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
+        var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+        var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
+        foreach (var sourcePath in sourcePaths)
         {
-            _members = members;
-            _membersBySignature = membersBySignature;
-            _ambiguousSignatures = ambiguousSignatures;
-            _recordSources = recordSources;
+            if (!TryReadSourceFile(sourcePath, out var root))
+                return null;
+            sourceFiles.Add((sourcePath, root));
         }
 
-        public static FixtureSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
+        var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
+        foreach (var sourceFile in sourceFiles)
+            AddSourceFile(members, membersBySignature, ambiguousSignatures, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+
+        return new ReturnToSenderSourceIndex(members, membersBySignature, ambiguousSignatures, recordSources);
+    }
+
+    public static ReturnToSenderSourceIndex? TryCreate(string assemblyPath)
+    {
+        foreach (var fixture in FixtureCatalog.All)
         {
-            var members = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
-            var membersBySignature = new Dictionary<string, SourceMember>(StringComparer.Ordinal);
-            var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
-            var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
-            var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-            var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
-            foreach (var sourcePath in sourcePaths)
+            if (!TryGetFixtureAssemblyPath(fixture, out var fixtureAssemblyPath))
+                continue;
+
+            if (!string.Equals(
+                Path.GetFullPath(fixtureAssemblyPath),
+                Path.GetFullPath(assemblyPath),
+                StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryReadSourceFile(sourcePath, out var root))
-                    return null;
-                sourceFiles.Add((sourcePath, root));
+                continue;
             }
 
-            var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
-            foreach (var sourceFile in sourceFiles)
-                AddSourceFile(members, membersBySignature, ambiguousSignatures, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+            if (!TryGetSourcePaths(fixture, out var sourcePaths))
+                return null;
 
-            return new FixtureSourceIndex(members, membersBySignature, ambiguousSignatures, recordSources);
+            return TryCreate(sourcePaths);
         }
 
-        public static FixtureSourceIndex? TryCreate(string assemblyPath)
+        return null;
+    }
+
+    static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)
+    {
+        try
         {
-            foreach (var fixture in FixtureCatalog.All)
-            {
-                if (!TryGetFixtureAssemblyPath(fixture, out var fixtureAssemblyPath))
-                    continue;
-
-                if (!string.Equals(
-                    Path.GetFullPath(fixtureAssemblyPath),
-                    Path.GetFullPath(assemblyPath),
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (!TryGetSourcePaths(fixture, out var sourcePaths))
-                    return null;
-
-                return TryCreate(sourcePaths);
-            }
-
-            return null;
+            path = fixture.AssemblyPath();
+            return true;
         }
-
-        static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            try
-            {
-                path = fixture.AssemblyPath();
-                return true;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-            {
-                path = "";
-                return false;
-            }
-        }
-
-        static bool TryGetSourcePaths(FixtureDefinition fixture, out IReadOnlyList<string> paths)
-        {
-            try
-            {
-                paths = fixture.SourcePaths();
-                return true;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-            {
-                paths = [];
-                return false;
-            }
-        }
-
-        public bool TryFind(ReturnToSender.RequestedTarget target, out SourceMember member)
-        {
-            if (target.Signature is { } signature)
-            {
-                var signatureKey = SigKey(target.Type, target.Method, signature);
-                if (!_ambiguousSignatures.Contains(signatureKey)
-                    && _membersBySignature.TryGetValue(signatureKey, out member!))
-                {
-                    return true;
-                }
-            }
-
-            return _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
-        }
-
-        public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
-        {
-            if (_recordSources.TryGetValue(target.Type, out var source)
-                && source.SynthesizedMembers.Contains(target.Method))
-            {
-                sourcePath = source.SourcePath;
-                return true;
-            }
-
-            sourcePath = "";
+            path = "";
             return false;
         }
+    }
 
-        static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
+    static bool TryGetSourcePaths(FixtureDefinition fixture, out IReadOnlyList<string> paths)
+    {
+        try
         {
-            string source;
-            try
-            {
-                source = File.ReadAllText(sourcePath);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-            {
-                root = null!;
-                return false;
-            }
+            paths = fixture.SourcePaths();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            paths = [];
+            return false;
+        }
+    }
 
-            var tree = CSharpSyntaxTree.ParseText(source, path: sourcePath);
-            root = tree.GetCompilationUnitRoot();
+    public bool TryFind(ReturnToSender.RequestedTarget target, out ReturnToSenderSourceMember member)
+    {
+        if (target.Signature is { } signature)
+        {
+            var signatureKey = SigKey(target.Type, target.Method, signature);
+            if (!_ambiguousSignatures.Contains(signatureKey)
+                && _membersBySignature.TryGetValue(signatureKey, out member!))
+            {
+                return true;
+            }
+        }
+
+        return _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
+    }
+
+    public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
+    {
+        if (_recordSources.TryGetValue(target.Type, out var source)
+            && source.SynthesizedMembers.Contains(target.Method))
+        {
+            sourcePath = source.SourcePath;
             return true;
         }
 
-        static void AddSourceFile(
-            Dictionary<string, SourceMember> members,
-            Dictionary<string, SourceMember> membersBySignature,
-            HashSet<string> ambiguousSignatures,
-            Dictionary<string, RecordSourceInfo> recordSources,
-            Dictionary<string, Dictionary<string, int>> overloads,
-            string sourcePath,
-            CompilationUnitSyntax root,
-            CSharpSourceIdentityContext sourceIdentity)
-        {
-            foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
-            {
-                members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
-
-                var signatureKey = SigKey(member.Type, member.Method, member.Signature);
-                if (ambiguousSignatures.Contains(signatureKey))
-                    continue;
-                if (!membersBySignature.TryAdd(signatureKey, member))
-                {
-                    membersBySignature.Remove(signatureKey);
-                    ambiguousSignatures.Add(signatureKey);
-                }
-            }
-        }
-
-        static IEnumerable<SourceMember> SourceMembers(
-            CompilationUnitSyntax root,
-            string sourcePath,
-            Dictionary<string, RecordSourceInfo> recordSources,
-            Dictionary<string, Dictionary<string, int>> overloads,
-            CSharpSourceIdentityContext sourceIdentity)
-        {
-            foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, recordSources, overloads, sourceIdentity))
-                yield return member;
-        }
-
-        static IEnumerable<SourceMember> SourceMembers(
-            SyntaxList<MemberDeclarationSyntax> declarations,
-            string namespaceName,
-            IReadOnlyList<string> containingTypes,
-            string sourcePath,
-            Dictionary<string, RecordSourceInfo> recordSources,
-            Dictionary<string, Dictionary<string, int>> overloads,
-            CSharpSourceIdentityContext sourceIdentity)
-        {
-            foreach (var declaration in declarations)
-            {
-                switch (declaration)
-                {
-                    case BaseNamespaceDeclarationSyntax ns:
-                    {
-                        string nextNamespace = namespaceName.Length == 0
-                            ? ns.Name.ToString()
-                            : $"{namespaceName}.{ns.Name}";
-                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, recordSources, overloads, sourceIdentity))
-                            yield return member;
-                        break;
-                    }
-                    case TypeDeclarationSyntax type:
-                    {
-                        string typeName = CSharpSourceIdentityContext.TypeMetadataName(type);
-                        var typeStack = containingTypes.Concat([typeName]).ToArray();
-                        string fullType = namespaceName.Length == 0
-                            ? string.Join(".", typeStack)
-                            : $"{namespaceName}.{string.Join(".", typeStack)}";
-                        if (type is RecordDeclarationSyntax record)
-                            recordSources.TryAdd(fullType, new RecordSourceInfo(sourcePath, RecordSynthesizedMembers(record)));
-
-                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, sourceIdentity))
-                            yield return member;
-                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, recordSources, overloads, sourceIdentity))
-                            yield return member;
-                        break;
-                    }
-                }
-            }
-
-            static IEnumerable<SourceMember> TypeMembers(
-                TypeDeclarationSyntax type,
-                string fullType,
-                string path,
-                Dictionary<string, Dictionary<string, int>> overloadsByType,
-                CSharpSourceIdentityContext sourceIdentity)
-            {
-                if (!overloadsByType.TryGetValue(fullType, out var overloads))
-                    overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
-
-                foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
-                {
-                    int overload = NextOverload(overloads, sourceMember.MetadataName);
-                    yield return new SourceMember(fullType, sourceMember.MetadataName, overload, sourceMember.Signature, path, sourceMember.Body);
-                }
-            }
-
-            static int NextOverload(Dictionary<string, int> overloads, string methodName)
-            {
-                int overload = overloads.GetValueOrDefault(methodName);
-                overloads[methodName] = overload + 1;
-                return overload;
-            }
-        }
-
+        sourcePath = "";
+        return false;
     }
 
-    sealed record RecordSourceInfo(string SourcePath, IReadOnlySet<string> SynthesizedMembers);
+    static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
+    {
+        string source;
+        try
+        {
+            source = File.ReadAllText(sourcePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            root = null!;
+            return false;
+        }
+
+        var tree = CSharpSyntaxTree.ParseText(source, path: sourcePath);
+        root = tree.GetCompilationUnitRoot();
+        return true;
+    }
+
+    static void AddSourceFile(
+        Dictionary<string, ReturnToSenderSourceMember> members,
+        Dictionary<string, ReturnToSenderSourceMember> membersBySignature,
+        HashSet<string> ambiguousSignatures,
+        Dictionary<string, RecordSourceInfo> recordSources,
+        Dictionary<string, Dictionary<string, int>> overloads,
+        string sourcePath,
+        CompilationUnitSyntax root,
+        CSharpSourceIdentityContext sourceIdentity)
+    {
+        foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
+        {
+            members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+
+            var signatureKey = SigKey(member.Type, member.Method, member.Signature);
+            if (ambiguousSignatures.Contains(signatureKey))
+                continue;
+            if (!membersBySignature.TryAdd(signatureKey, member))
+            {
+                membersBySignature.Remove(signatureKey);
+                ambiguousSignatures.Add(signatureKey);
+            }
+        }
+    }
+
+    static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
+
+    static string SigKey(string type, string method, string signature) => $"{type}::{method}{signature}";
 
     static IReadOnlySet<string> RecordSynthesizedMembers(RecordDeclarationSyntax record)
     {
@@ -659,6 +584,88 @@ static class ReturnToSenderSourceProbe
         return members;
     }
 
+    static IEnumerable<ReturnToSenderSourceMember> SourceMembers(
+        CompilationUnitSyntax root,
+        string sourcePath,
+        Dictionary<string, RecordSourceInfo> recordSources,
+        Dictionary<string, Dictionary<string, int>> overloads,
+        CSharpSourceIdentityContext sourceIdentity)
+    {
+        foreach (var member in SourceMembers(root.Members, namespaceName: "", containingTypes: [], sourcePath, recordSources, overloads, sourceIdentity))
+            yield return member;
+    }
+
+    static IEnumerable<ReturnToSenderSourceMember> SourceMembers(
+        SyntaxList<MemberDeclarationSyntax> declarations,
+        string namespaceName,
+        IReadOnlyList<string> containingTypes,
+        string sourcePath,
+        Dictionary<string, RecordSourceInfo> recordSources,
+        Dictionary<string, Dictionary<string, int>> overloads,
+        CSharpSourceIdentityContext sourceIdentity)
+    {
+        foreach (var declaration in declarations)
+        {
+            switch (declaration)
+            {
+                case BaseNamespaceDeclarationSyntax ns:
+                    {
+                        string nextNamespace = namespaceName.Length == 0
+                            ? ns.Name.ToString()
+                            : $"{namespaceName}.{ns.Name}";
+                        foreach (var member in SourceMembers(ns.Members, nextNamespace, containingTypes, sourcePath, recordSources, overloads, sourceIdentity))
+                            yield return member;
+                        break;
+                    }
+                case TypeDeclarationSyntax type:
+                    {
+                        string typeName = CSharpSourceIdentityContext.TypeMetadataName(type);
+                        var typeStack = containingTypes.Concat([typeName]).ToArray();
+                        string fullType = namespaceName.Length == 0
+                            ? string.Join(".", typeStack)
+                            : $"{namespaceName}.{string.Join(".", typeStack)}";
+                        if (type is RecordDeclarationSyntax record)
+                            recordSources.TryAdd(fullType, new RecordSourceInfo(sourcePath, RecordSynthesizedMembers(record)));
+
+                        foreach (var member in TypeMembers(type, fullType, sourcePath, overloads, sourceIdentity))
+                            yield return member;
+                        foreach (var member in SourceMembers(type.Members, namespaceName, typeStack, sourcePath, recordSources, overloads, sourceIdentity))
+                            yield return member;
+                        break;
+                    }
+            }
+        }
+
+        static IEnumerable<ReturnToSenderSourceMember> TypeMembers(
+            TypeDeclarationSyntax type,
+            string fullType,
+            string path,
+            Dictionary<string, Dictionary<string, int>> overloadsByType,
+            CSharpSourceIdentityContext sourceIdentity)
+        {
+            if (!overloadsByType.TryGetValue(fullType, out var overloads))
+                overloadsByType[fullType] = overloads = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (var sourceMember in sourceIdentity.TypeMembers(type, fullType))
+            {
+                int overload = NextOverload(overloads, sourceMember.MetadataName);
+                yield return new ReturnToSenderSourceMember(fullType, sourceMember.MetadataName, overload, sourceMember.Signature, path, sourceMember.Body);
+            }
+        }
+
+        static int NextOverload(Dictionary<string, int> overloads, string methodName)
+        {
+            int overload = overloads.GetValueOrDefault(methodName);
+            overloads[methodName] = overload + 1;
+            return overload;
+        }
+    }
+}
+
+internal sealed record RecordSourceInfo(string SourcePath, IReadOnlySet<string> SynthesizedMembers);
+
+static partial class ReturnToSenderSourceProbe
+{
     internal static IReadOnlyList<ProbeTarget> DiscoverTargets(string assemblyPath, int cap)
     {
         var targets = new List<ProbeTarget>();

@@ -730,6 +730,20 @@ the existing compile-back status buckets.
 | artifact source does not compile | `RecompileFail` |
 | unsupported product body shape before compile | `RecompileFail` or `ContextFail`, with explicit reason |
 
+SourceLink or fixture source coverage is a sidecar oracle, not a replacement RTS
+verdict. When a product artifact fails to recompile and an authored source body
+is available for the same requested target, RTS may substitute only that authored
+body into the same `ArtifactRequest` shell and retry compilation. If the authored
+body compiles, the `RecompileFail` is isolated to a product/decompiler body
+defect. If the authored body also fails, the failure is isolated to the RTS
+shell, closure, reference, or standalone source-consumption context. The original
+status remains `RecompileFail`; the sidecar reason may refine reporting as
+`body-defect` or `shell-or-closure-defect`, composed with the original compiler
+diagnostic bucket. On closure root or iteration budget exits, `body-defect`
+means the authored body fit inside the final RTS shell while the decompiled body
+did not; it may still point at a harness closure budget limit rather than a
+semantic product-body bug.
+
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
 `ContextFail`. ReturnToSender planning reasons should be structured details
 underneath those statuses, not replacement top-level metrics.
@@ -851,6 +865,7 @@ Tests should name the oracle they exercise:
 | fact agreement | Do independently produced facts agree on the same IL/member/type evidence? |
 | product diff parity | Do product API/IL/C# diffs match for the requested artifact scope? |
 | source artifact validity | Does the product artifact compile without RTS-side C# construction? |
+| authored-source isolation | Does the authored body compile in the same RTS shell after a product artifact `RecompileFail`? |
 | API/platform resolution | Did package/framework/shared-service resolution select the intended asset? |
 | performance-signal precision | Does a signal identify useful targets without noisy over-reporting? |
 
