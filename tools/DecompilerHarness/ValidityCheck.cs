@@ -727,23 +727,8 @@ static class ValidityCheck
         var node = tree.GetRoot().FindNode(
             diagnostic.Location.SourceSpan,
             getInnermostNodeForTie: true);
-        var expressions = node.AncestorsAndSelf()
-            .OfType<ExpressionSyntax>()
-            .Concat(node.DescendantNodesAndSelf().OfType<ExpressionSyntax>())
-            .ToList();
-        if (expressions.Count == 0)
-            return EvidenceDisposition.Unextracted;
-
-        if (expressions.Any(expression =>
-            expression.DescendantNodesAndSelf()
-                .OfType<ThisExpressionSyntax>()
-                .Any(candidate => IsSyntheticShellThis(candidate, semanticModel))))
-        {
-            return EvidenceDisposition.Filter;
-        }
-
         if (diagnostic.Id != "CS1540")
-            return EvidenceDisposition.Keep;
+            return ClassifySyntheticShellThis(diagnostic.Id, node, semanticModel);
 
         var memberAccess = node.FirstAncestorOrSelf<MemberAccessExpressionSyntax>()
             ?? node.DescendantNodesAndSelf()
@@ -766,10 +751,67 @@ static class ValidityCheck
             : EvidenceDisposition.Keep;
     }
 
+    static EvidenceDisposition ClassifySyntheticShellThis(
+        string diagnosticId,
+        SyntaxNode node,
+        SemanticModel semanticModel)
+    {
+        ExpressionSyntax? subject = diagnosticId switch
+        {
+            "CS0019" => ShellTypedBinaryOperand(node, semanticModel),
+            "CS0023" => node.FirstAncestorOrSelf<PrefixUnaryExpressionSyntax>()?.Operand,
+            "CS0030" => node.FirstAncestorOrSelf<CastExpressionSyntax>()?.Expression,
+            "CS8121" => node.FirstAncestorOrSelf<IsPatternExpressionSyntax>()?.Expression,
+            "CS8129" => node.FirstAncestorOrSelf<AssignmentExpressionSyntax>()?.Right
+                ?? ClosestExpression(node),
+            _ => ClosestExpression(node),
+        };
+        if (subject is null)
+            return EvidenceDisposition.Keep;
+
+        return IsSyntheticShellValue(subject, semanticModel)
+            ? EvidenceDisposition.Filter
+            : EvidenceDisposition.Keep;
+    }
+
+    static ExpressionSyntax? ShellTypedBinaryOperand(
+        SyntaxNode node,
+        SemanticModel semanticModel)
+    {
+        var binary = node.FirstAncestorOrSelf<BinaryExpressionSyntax>();
+        if (binary is null)
+            return null;
+        if (IsSyntheticShellValue(binary.Left, semanticModel))
+            return binary.Left;
+        if (IsSyntheticShellValue(binary.Right, semanticModel))
+            return binary.Right;
+        return binary;
+    }
+
+    static ExpressionSyntax? ClosestExpression(SyntaxNode node)
+        => node.FirstAncestorOrSelf<ExpressionSyntax>()
+            ?? node.DescendantNodesAndSelf()
+                .OfType<ExpressionSyntax>()
+                .OrderBy(candidate => candidate.Span.Length)
+                .FirstOrDefault();
+
+    static bool IsSyntheticShellValue(
+        ExpressionSyntax expression,
+        SemanticModel semanticModel)
+        => expression.DescendantNodesAndSelf()
+            .OfType<ThisExpressionSyntax>()
+            .Any(candidate => IsSyntheticShellThis(candidate, semanticModel))
+        && semanticModel.GetTypeInfo(expression).Type is INamedTypeSymbol type
+        && IsSyntheticShellType(type);
+
     static bool IsSyntheticShellThis(
         ThisExpressionSyntax expression,
         SemanticModel semanticModel)
-        => semanticModel.GetTypeInfo(expression).Type is INamedTypeSymbol
+        => semanticModel.GetTypeInfo(expression).Type is INamedTypeSymbol type
+        && IsSyntheticShellType(type);
+
+    static bool IsSyntheticShellType(INamedTypeSymbol type)
+        => type is
         {
             Name: "__Shell",
             ContainingType: null,
@@ -934,17 +976,33 @@ static class ValidityCheck
         var root = tree.GetRoot();
         var span = diagnostic.Location.SourceSpan;
         var node = root.FindNode(span, getInnermostNodeForTie: true);
+        TypeSyntax? type = diagnostic.Id switch
+        {
+            "CS0712" => node.FirstAncestorOrSelf<ObjectCreationExpressionSyntax>()?.Type,
+            "CS0721" => node.FirstAncestorOrSelf<ParameterSyntax>()?.Type,
+            "CS0722" => node.FirstAncestorOrSelf<MethodDeclarationSyntax>()?.ReturnType,
+            "CS0723" => node.FirstAncestorOrSelf<VariableDeclarationSyntax>()?.Type,
+            _ => null,
+        };
+        if (type is not null)
+            return RightmostSimpleName(type)?.Identifier.ValueText;
+
         var name = node.FirstAncestorOrSelf<SimpleNameSyntax>()
-            ?? node.FirstAncestorOrSelf<MethodDeclarationSyntax>()?.ReturnType
-                .DescendantNodesAndSelf()
-                .OfType<SimpleNameSyntax>()
-                .LastOrDefault()
             ?? node.DescendantNodesAndSelf()
                 .OfType<SimpleNameSyntax>()
-                .OrderBy(candidate => candidate.Span.Length)
-                .FirstOrDefault();
+                .Where(candidate =>
+                    span.Start <= candidate.Span.Start
+                    && candidate.Span.End <= span.End)
+                .OrderBy(candidate => candidate.Span.Start)
+                .LastOrDefault();
         return name?.Identifier.ValueText;
     }
+
+    static SimpleNameSyntax? RightmostSimpleName(SyntaxNode node)
+        => node.DescendantNodesAndSelf()
+            .OfType<SimpleNameSyntax>()
+            .OrderBy(candidate => candidate.Span.Start)
+            .LastOrDefault();
 
     enum EvidenceDisposition
     {

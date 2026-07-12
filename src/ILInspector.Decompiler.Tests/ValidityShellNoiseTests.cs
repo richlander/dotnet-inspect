@@ -48,6 +48,28 @@ public class ValidityShellNoiseTests
         Assert.Equal(["CS0161"], defects.Select(d => d.Id));
     }
 
+    [Theory]
+    [InlineData(
+        "CS0266",
+        "sealed class __Shell { byte M(long value) => this.Equals(null) ? value : value; }")]
+    [InlineData(
+        "CS0029",
+        "sealed class __Shell { void M() { (string, object) value; value = (1, this); } }")]
+    public void ShellThisInSiblingSubexpression_DoesNotHideDefect(
+        string diagnosticId,
+        string source)
+    {
+        var (diagnostics, tree, semanticModel) = CompileWithModel(source);
+
+        var defects = ValidityCheck.ClassifySemanticDiagnostics(
+            diagnostics.Where(d => d.Id == diagnosticId),
+            tree,
+            Function(TypeRef.Definition("fixture", "", "Real")),
+            semanticModel);
+
+        Assert.Equal([diagnosticId], defects.Select(d => d.Id));
+    }
+
     [Fact]
     public void ProtectedAccessThroughDeclaringTypeReceiver_IsFiltered()
     {
@@ -93,6 +115,9 @@ public class ValidityShellNoiseTests
     [Theory]
     [InlineData("CS0712", "class __Shell { object M() => new Convert(); }")]
     [InlineData("CS0721", "class __Shell { void M(Convert value) {} }")]
+    [InlineData(
+        "CS0721",
+        "class __Shell { System.Threading.Tasks.Task M(System.Convert value) => null; }")]
     [InlineData("CS0722", "class __Shell { Convert M() => null; }")]
     [InlineData("CS0723", "class __Shell { void M() { Convert value = null; } }")]
     public void StaticTypeNameCollisions_UseDiagnosticSyntax(
