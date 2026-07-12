@@ -49,6 +49,13 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 └─────────────────────────────────────────────────────────────┘
 ```
 
+The command surface has independent source, focus, operation, lens, traversal,
+and rendering axes. Noun-first commands (`package`, `type`, `member`) select a
+structural focus for unary inspection; operation-first commands (`diff`, and a
+future `timeline`) change arity while retaining source/focus selectors. See
+[Command Transition Model](design/command-transition-model.md) for the decision
+rules and version-range cardinality contract.
+
 ### package
 
 Inspects NuGet package metadata without extracting libraries:
