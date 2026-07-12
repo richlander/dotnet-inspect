@@ -334,10 +334,44 @@ it makes the transition explicit and reproducible.
 source and focus selectors:
 
 - `diff` has exactly two evaluated cells and emits pair transitions;
-- `timeline` has an ordered address space, zero or more explicitly evaluated
-  cells, and emits correlation states.
+- `timeline` has an ordered address space, evaluates a caller-selected dense or
+  sparse set of cells, and emits correlation states plus transitions between
+  evaluated censuses.
 
-The first timeline UX should preserve the Finding correlation semantics:
+The most informative initial composition is not necessarily a timeline of one
+type or one member. It is a type-focused timeline over a member census:
+
+| Axis | Selection |
+| --- | --- |
+| Source context | A package version range |
+| Focus | One type |
+| Observation | The members structurally owned by that type |
+| Operation | Timeline |
+| Traversal | Every version in the range, or an explicit sparse subset |
+| Projection | Member identity tracks and adjacent added/removed transitions |
+
+This is intentionally between package-wide and member-specific focus. The type
+provides the stable scope; each member is an observation identity. Joining the
+complete member censuses by identity creates one longitudinal track per member,
+so the result shows how the type's API surface evolved without requiring the
+caller to name each member in advance.
+
+### Dense timeline
+
+A bounded, explicit full-range traversal may evaluate every version in the
+address space. Comparing each pair of adjacent complete censuses then yields
+the producer's native member transitions at every boundary. This is a true
+transition timeline: it can show additions, removals, and later re-additions
+without assuming monotonic history.
+
+Selecting full traversal authorizes N package-payload acquisitions and must be
+explicit; merely supplying a range does not. The final syntax for that selector
+is deferred, but the architecture permits it.
+
+### Sparse timeline and bisect
+
+A sparse traversal evaluates only caller-selected cells. It preserves the
+Finding correlation semantics:
 
 - `Present`: a completed census contains the exact identity;
 - `Missing`: a completed census does not contain it;
@@ -354,8 +388,9 @@ Probe order does not define timeline order. Positions come from the resolved
 version vector in the caller's range direction; evaluated inspections retain
 those positions regardless of the order in which probes were requested.
 
-The default bisect behavior should recommend, not acquire. A recommendation may
-name the next unevaluated midpoint and print a copyable command, but it must not
+Bisect is a traversal policy over a sparse timeline, not another peer operation.
+Its default behavior should recommend, not acquire. A recommendation may name
+the next unevaluated midpoint and print a copyable command, but it must not
 download another payload without explicit caller intent. This preserves:
 
 - network and package-cache backpressure;
@@ -364,9 +399,11 @@ download another payload without explicit caller intent. This preserves:
 - the distinction between recurrence-safe backward scanning and a binary search
   that assumes a monotonic predicate.
 
-A timeline locates a candidate boundary. It does not claim introduction.
-The adjacent endpoint comparison must still produce the producer's native
-`PairFinding.Added` transition.
+A sparse timeline with an unevaluated gap locates only a candidate boundary. A
+dense timeline, or a sparse timeline whose evaluated cells are adjacent in the
+resolved vector, may claim the exact boundary only when that adjacent census
+comparison produces the producer's native `PairFinding.Added` or
+`PairFinding.Removed` transition.
 
 ## Decision checklist
 
@@ -374,16 +411,18 @@ Before adding a command or mode, answer in order:
 
 1. What is the structural focus and its stable identity?
 2. What is the source context?
-3. What is the operation arity and acquisition plan?
-4. Does the change require a new top-level outcome schema?
-5. Is this only another lens over the same focus and operation?
-6. Is this only traversal policy or output projection?
-7. Does every range-consuming path state how many payload cells it may acquire?
-8. Are unevaluated, absent, missing, and failed states kept distinct?
+3. What observation census runs within that focus?
+4. What is the operation arity and acquisition plan?
+5. Does the change require a new top-level outcome schema?
+6. Is this only another lens over the same focus and operation?
+7. Is this only traversal policy or output projection?
+8. Does every range-consuming path state how many payload cells it may acquire?
+9. Are unevaluated, absent, missing, and failed states kept distinct?
 
-Question 4 does not discriminate by itself. Pair it with question 1 or 3:
+Question 5 does not discriminate by itself. Pair it with question 1 or 4:
 
-- changed identity plus a changed schema means a focus transition;
+- changed addressed-subject identity plus a changed schema means a focus
+  transition;
 - changed arity/acquisition plus a changed schema means an operation transition.
 
 Otherwise, prefer an option, section, or writer.
@@ -396,7 +435,7 @@ This model does not:
 - remove existing positional shorthands;
 - make source options global;
 - add session state that implicitly carries source/focus between commands;
-- authorize automatic range scans;
+- authorize implicit or unbounded range scans;
 - turn sections into operation substitutes;
 - define the final `timeline` syntax before its bounded producer/view contract
   is designed.
