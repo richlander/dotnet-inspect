@@ -769,7 +769,6 @@ static class ReturnToSender
         MemberAnchor? memberAnchor)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
-        var property = reader.GetPropertyDefinition(propertyHandle);
         var getter = reader.GetMethodDefinition(getterHandle);
         string fullType = reader.GetFullTypeName(typeDef);
         string methodName = reader.GetString(getter.Name);
@@ -783,27 +782,19 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
-        var compileOptions = new CSharpCompilationOptions(
-            OutputKind.DynamicallyLinkedLibrary,
-            optimizationLevel: OptimizationLevel.Release,
-            nullableContextOptions: NullableContextOptions.Disable,
-            allowUnsafe: true);
-        var references = CompilationReferences(assemblyPath).ToArray();
-        var indexes = ClosureIndexes(reader);
-        var targetRoot = TopLevelRootOf(reader, typeHandle);
-        var closureRoots = new HashSet<TypeDefinitionHandle>
-        {
-            targetRoot,
-        };
-        var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        const int maxRoots = 200;
-        const int maxIterations = 80;
-        Diagnostic? firstError = null;
-
-        for (int iteration = 0; iteration < maxIterations; iteration++)
-        {
-            var sourceResult = CompileBackSourceComposer.Compose(new PropertyGetterArtifactRequest(
+        return CompileBackTarget(
+            assemblyPath,
+            reader,
+            typeHandle,
+            getterHandle,
+            function,
+            targetBody,
+            fullType,
+            methodName,
+            overload,
+            originalOps,
+            memberAnchor,
+            (closureRoots, closureFacts) => new PropertyGetterArtifactRequest(
                 AssemblyPath: assemblyPath,
                 Reader: reader,
                 Function: function,
@@ -817,128 +808,6 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts));
-            var plan = sourceResult.Plan;
-
-            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
-            {
-                return new Result(
-                    plan,
-                    sourceResult.Source,
-                    FidelityCheck.CompileBackStatus.ContextFail,
-                    string.Join(" ", originalOps),
-                    "",
-                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
-                    TargetBody: targetBody.Source,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
-            }
-
-            string unit = sourceResult.Source;
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = compilation.Emit(ms);
-            if (emit.Success)
-            {
-                var recompiledBytes = ms.ToArray();
-                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
-                using var recompiled = new PEReader(recompiledStream);
-                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
-                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
-                    .ToArray();
-                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, getterHandle, recompiledBytes, fullType, methodName, overload: 0);
-                var ilDiff = implementationDiff?.IlDiff;
-                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
-
-                if (recompiledOps is null)
-                {
-                    return new Result(
-                        plan,
-                        unit,
-                        FidelityCheck.CompileBackStatus.ContextFail,
-                        string.Join(" ", originalOps),
-                        "",
-                        "method-not-found",
-                        TargetBody: targetBody.Source,
-                        MemberAnchor: memberAnchor,
-                        Decisions: targetBody.Decisions);
-                }
-
-                return new Result(
-                    plan,
-                    unit,
-                    originalOps.SequenceEqual(recompiledOps)
-                        ? FidelityCheck.CompileBackStatus.Exact
-                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
-                    string.Join(" ", originalOps),
-                    string.Join(" ", recompiledOps),
-                    null,
-                    TargetBody: targetBody.Source,
-                    IlDiffDiagnostic: ilDiffDiagnostic,
-                    IlDiff: ilDiff,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
-            }
-
-            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
-            firstError ??= errors.FirstOrDefault();
-            var growth = AddClosureRoots(
-                errors,
-                compilation.GetSemanticModel(tree),
-                indexes,
-                reader.GetString(typeDef.Namespace),
-                TopLevelRootOf(reader, typeHandle),
-                closureRoots,
-                closureFacts);
-            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
-            if (!growth.Grew || effectiveRootCount > maxRoots)
-            {
-                string reason = effectiveRootCount > maxRoots
-                    ? "closure-root-budget"
-                    : ClosureDiagnosticEvidence.FailureReason(
-                        "closure-stalled",
-                        growth.UnextractedDiagnosticIds);
-                var error = errors.FirstOrDefault() ?? firstError;
-                return new Result(
-                    plan,
-                    unit,
-                    FidelityCheck.CompileBackStatus.RecompileFail,
-                    string.Join(" ", originalOps),
-                    "",
-                    $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: targetBody.Source,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
-            }
-        }
-
-        {
-            var sourceResult = CompileBackSourceComposer.Compose(new PropertyGetterArtifactRequest(
-                AssemblyPath: assemblyPath,
-                Reader: reader,
-                Function: function,
-                TargetType: typeHandle,
-                TargetMethod: getterHandle,
-                TargetProperty: propertyHandle,
-                TargetBody: targetBody,
-                FullType: fullType,
-                MethodName: methodName,
-                Overload: overload,
-                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
-                ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
-            var plan = sourceResult.Plan;
-            return new Result(
-                plan,
-                sourceResult.Source,
-                FidelityCheck.CompileBackStatus.RecompileFail,
-                string.Join(" ", originalOps),
-                "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
-                TargetBody: targetBody.Source,
-                MemberAnchor: memberAnchor,
-                Decisions: targetBody.Decisions);
-        }
     }
 
     static Result CompileBackMethod(
@@ -964,6 +833,100 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
+        return CompileBackTarget(
+            assemblyPath,
+            reader,
+            typeHandle,
+            methodHandle,
+            function,
+            targetBody,
+            fullType,
+            methodName,
+            overload,
+            originalOps,
+            memberAnchor,
+            (closureRoots, closureFacts) => new MethodArtifactRequest(
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: methodHandle,
+                TargetBody: targetBody,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts));
+    }
+
+    static Result CompileBackPropertySetter(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        PropertyDefinitionHandle propertyHandle,
+        MethodDefinitionHandle setterHandle,
+        MemberAnchor? memberAnchor)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var setter = reader.GetMethodDefinition(setterHandle);
+        string fullType = reader.GetFullTypeName(typeDef);
+        string methodName = reader.GetString(setter.Name);
+        int overload = OverloadIndex(reader, typeDef, setterHandle, methodName);
+
+        var function = IrImporter.Import(source, fullType, methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+
+        var original = ILInstructionPrinter.Disassemble(pe, reader, setter)
+            ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
+        var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
+
+        return CompileBackTarget(
+            assemblyPath,
+            reader,
+            typeHandle,
+            setterHandle,
+            function,
+            targetBody,
+            fullType,
+            methodName,
+            overload,
+            originalOps,
+            memberAnchor,
+            (closureRoots, closureFacts) => new PropertySetterArtifactRequest(
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: setterHandle,
+                TargetProperty: propertyHandle,
+                TargetBody: targetBody,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts));
+    }
+
+    static Result CompileBackTarget(
+        string assemblyPath,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        IrFunction function,
+        ProductTargetBody targetBody,
+        string fullType,
+        string methodName,
+        int overload,
+        string[] originalOps,
+        MemberAnchor? memberAnchor,
+        Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
@@ -981,22 +944,14 @@ static class ReturnToSender
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
+        string originalOpcodes = string.Join(" ", originalOps);
+
+        ProductArtifact Compose()
+            => CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
 
         for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new MethodArtifactRequest(
-                AssemblyPath: assemblyPath,
-                Reader: reader,
-                Function: function,
-                TargetType: typeHandle,
-                TargetMethod: methodHandle,
-                TargetBody: targetBody,
-                FullType: fullType,
-                MethodName: methodName,
-                Overload: overload,
-                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
-                ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+            var sourceResult = Compose();
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1005,7 +960,7 @@ static class ReturnToSender
                     plan,
                     sourceResult.Source,
                     FidelityCheck.CompileBackStatus.ContextFail,
-                    string.Join(" ", originalOps),
+                    originalOpcodes,
                     "",
                     $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
                     TargetBody: targetBody.Source,
@@ -1036,7 +991,7 @@ static class ReturnToSender
                         plan,
                         unit,
                         FidelityCheck.CompileBackStatus.ContextFail,
-                        string.Join(" ", originalOps),
+                        originalOpcodes,
                         "",
                         "method-not-found",
                         TargetBody: targetBody.Source,
@@ -1050,7 +1005,7 @@ static class ReturnToSender
                     originalOps.SequenceEqual(recompiledOps)
                         ? FidelityCheck.CompileBackStatus.Exact
                         : FidelityCheck.CompileBackStatus.OpcodeDiff,
-                    string.Join(" ", originalOps),
+                    originalOpcodes,
                     string.Join(" ", recompiledOps),
                     null,
                     TargetBody: targetBody.Source,
@@ -1083,7 +1038,7 @@ static class ReturnToSender
                     plan,
                     unit,
                     FidelityCheck.CompileBackStatus.RecompileFail,
-                    string.Join(" ", originalOps),
+                    originalOpcodes,
                     "",
                     $"{reason}: {FormatDiagnostic(error)}",
                     TargetBody: targetBody.Source,
@@ -1093,207 +1048,13 @@ static class ReturnToSender
         }
 
         {
-            var sourceResult = CompileBackSourceComposer.Compose(new MethodArtifactRequest(
-                AssemblyPath: assemblyPath,
-                Reader: reader,
-                Function: function,
-                TargetType: typeHandle,
-                TargetMethod: methodHandle,
-                TargetBody: targetBody,
-                FullType: fullType,
-                MethodName: methodName,
-                Overload: overload,
-                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
-                ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+            var sourceResult = Compose();
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
                 sourceResult.Source,
                 FidelityCheck.CompileBackStatus.RecompileFail,
-                string.Join(" ", originalOps),
-                "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
-                TargetBody: targetBody.Source,
-                MemberAnchor: memberAnchor,
-                Decisions: targetBody.Decisions);
-        }
-    }
-
-    static Result CompileBackPropertySetter(
-        string assemblyPath,
-        PEReader pe,
-        MetadataReader reader,
-        MetadataSource source,
-        TypeDefinitionHandle typeHandle,
-        PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle setterHandle,
-        MemberAnchor? memberAnchor)
-    {
-        var typeDef = reader.GetTypeDefinition(typeHandle);
-        var setter = reader.GetMethodDefinition(setterHandle);
-        string fullType = reader.GetFullTypeName(typeDef);
-        string methodName = reader.GetString(setter.Name);
-        int overload = OverloadIndex(reader, typeDef, setterHandle, methodName);
-
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
-
-        var original = ILInstructionPrinter.Disassemble(pe, reader, setter)
-            ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
-        var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
-
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
-        var compileOptions = new CSharpCompilationOptions(
-            OutputKind.DynamicallyLinkedLibrary,
-            optimizationLevel: OptimizationLevel.Release,
-            nullableContextOptions: NullableContextOptions.Disable,
-            allowUnsafe: true);
-        var references = CompilationReferences(assemblyPath).ToArray();
-        var indexes = ClosureIndexes(reader);
-        var targetRoot = TopLevelRootOf(reader, typeHandle);
-        var closureRoots = new HashSet<TypeDefinitionHandle>
-        {
-            targetRoot,
-        };
-        var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        const int maxRoots = 200;
-        const int maxIterations = 80;
-        Diagnostic? firstError = null;
-
-        for (int iteration = 0; iteration < maxIterations; iteration++)
-        {
-            var sourceResult = CompileBackSourceComposer.Compose(new PropertySetterArtifactRequest(
-                AssemblyPath: assemblyPath,
-                Reader: reader,
-                Function: function,
-                TargetType: typeHandle,
-                TargetMethod: setterHandle,
-                TargetProperty: propertyHandle,
-                TargetBody: targetBody,
-                FullType: fullType,
-                MethodName: methodName,
-                Overload: overload,
-                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
-                ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
-            var plan = sourceResult.Plan;
-
-            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
-            {
-                return new Result(
-                    plan,
-                    sourceResult.Source,
-                    FidelityCheck.CompileBackStatus.ContextFail,
-                    string.Join(" ", originalOps),
-                    "",
-                    $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
-                    TargetBody: targetBody.Source,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
-            }
-
-            string unit = sourceResult.Source;
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = compilation.Emit(ms);
-            if (emit.Success)
-            {
-                var recompiledBytes = ms.ToArray();
-                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
-                using var recompiled = new PEReader(recompiledStream);
-                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
-                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
-                    .ToArray();
-                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, setterHandle, recompiledBytes, fullType, methodName, overload: 0);
-                var ilDiff = implementationDiff?.IlDiff;
-                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
-
-                if (recompiledOps is null)
-                {
-                    return new Result(
-                        plan,
-                        unit,
-                        FidelityCheck.CompileBackStatus.ContextFail,
-                        string.Join(" ", originalOps),
-                        "",
-                        "method-not-found",
-                        TargetBody: targetBody.Source,
-                        MemberAnchor: memberAnchor,
-                        Decisions: targetBody.Decisions);
-                }
-
-                return new Result(
-                    plan,
-                    unit,
-                    originalOps.SequenceEqual(recompiledOps)
-                        ? FidelityCheck.CompileBackStatus.Exact
-                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
-                    string.Join(" ", originalOps),
-                    string.Join(" ", recompiledOps),
-                    null,
-                    TargetBody: targetBody.Source,
-                    IlDiffDiagnostic: ilDiffDiagnostic,
-                    IlDiff: ilDiff,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
-            }
-
-            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
-            firstError ??= errors.FirstOrDefault();
-            var growth = AddClosureRoots(
-                errors,
-                compilation.GetSemanticModel(tree),
-                indexes,
-                reader.GetString(typeDef.Namespace),
-                TopLevelRootOf(reader, typeHandle),
-                closureRoots,
-                closureFacts);
-            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
-            if (!growth.Grew || effectiveRootCount > maxRoots)
-            {
-                string reason = effectiveRootCount > maxRoots
-                    ? "closure-root-budget"
-                    : ClosureDiagnosticEvidence.FailureReason(
-                        "closure-stalled",
-                        growth.UnextractedDiagnosticIds);
-                var error = errors.FirstOrDefault() ?? firstError;
-                return new Result(
-                    plan,
-                    unit,
-                    FidelityCheck.CompileBackStatus.RecompileFail,
-                    string.Join(" ", originalOps),
-                    "",
-                    $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: targetBody.Source,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
-            }
-        }
-
-        {
-            var sourceResult = CompileBackSourceComposer.Compose(new PropertySetterArtifactRequest(
-                AssemblyPath: assemblyPath,
-                Reader: reader,
-                Function: function,
-                TargetType: typeHandle,
-                TargetMethod: setterHandle,
-                TargetProperty: propertyHandle,
-                TargetBody: targetBody,
-                FullType: fullType,
-                MethodName: methodName,
-                Overload: overload,
-                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
-                ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
-            var plan = sourceResult.Plan;
-            return new Result(
-                plan,
-                sourceResult.Source,
-                FidelityCheck.CompileBackStatus.RecompileFail,
-                string.Join(" ", originalOps),
+                originalOpcodes,
                 "",
                 $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
                 TargetBody: targetBody.Source,
