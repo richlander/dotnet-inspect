@@ -63,6 +63,14 @@ static class ValidityCheck
         "CS1929", "CS0428", "CS1955", "CS1729", "CS0704",
     ];
 
+    internal const string StructuredEvidenceMissId = "VLD0001";
+
+    static readonly HashSet<string> ShellTypeDiagnosticIds =
+    [
+        "CS0019", "CS0023", "CS0029", "CS0030", "CS0266",
+        "CS1540", "CS1605", "CS8121", "CS8129",
+    ];
+
     public sealed record ValidityDiagnostic(string Id, string Message);
 
     public sealed record MethodResult(
@@ -306,16 +314,55 @@ static class ValidityCheck
 
         var compilation = CSharpCompilation.Create("check", [tree], references, compileOptions);
         var semanticModel = compilation.GetSemanticModel(tree);
-        var defects = compilation.GetDiagnostics()
-            .Where(IsError)
-            .Where(d => !BindingNoise.Contains(d.Id))
-            .Where(d => !IsShellArtifact(d))
-            .Where(d => !IsGenericArityCollisionNoise(d, tree, function))
-            .Where(d => !IsSimpleNameStaticTypeCollisionNoise(d, tree, function))
-            .Where(d => !IsDeclaringTypeStaticPropertyCtorAssignmentNoise(d, tree, function, semanticModel))
-            .Select(d => new ValidityDiagnostic(d.Id, d.GetMessage()))
-            .ToImmutableArray();
+        var defects = ClassifySemanticDiagnostics(
+            compilation.GetDiagnostics(),
+            tree,
+            function,
+            semanticModel);
         return new RenderedBodyResult([], SemanticChecked: true, defects);
+    }
+
+    internal static ImmutableArray<ValidityDiagnostic> ClassifySemanticDiagnostics(
+        IEnumerable<Diagnostic> diagnostics,
+        SyntaxTree tree,
+        IrFunction function,
+        SemanticModel semanticModel)
+    {
+        var defects = ImmutableArray.CreateBuilder<ValidityDiagnostic>();
+        foreach (var diagnostic in diagnostics)
+        {
+            if (!IsError(diagnostic) || BindingNoise.Contains(diagnostic.Id))
+                continue;
+
+            var shellArtifact = ClassifyShellArtifact(diagnostic, tree, function, semanticModel);
+            if (shellArtifact == EvidenceDisposition.Filter)
+                continue;
+
+            var staticTypeCollision = ClassifySimpleNameStaticTypeCollision(diagnostic, tree, function);
+            if (staticTypeCollision == EvidenceDisposition.Filter)
+                continue;
+
+            if (IsGenericArityCollisionNoise(diagnostic, tree, function)
+                || IsDeclaringTypeStaticPropertyCtorAssignmentNoise(
+                    diagnostic,
+                    tree,
+                    function,
+                    semanticModel))
+            {
+                continue;
+            }
+
+            defects.Add(new ValidityDiagnostic(diagnostic.Id, diagnostic.GetMessage()));
+            if (shellArtifact == EvidenceDisposition.Unextracted
+                || staticTypeCollision == EvidenceDisposition.Unextracted)
+            {
+                defects.Add(new ValidityDiagnostic(
+                    StructuredEvidenceMissId,
+                    $"structured validity evidence unavailable for {diagnostic.Id}"));
+            }
+        }
+
+        return defects.ToImmutable();
     }
 
     static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)
@@ -662,29 +709,230 @@ static class ValidityCheck
 
     /// <summary>
     /// The body is wrapped in an instance method on a synthetic <c>__Shell</c>
-    /// class, so the only <c>__Shell</c>-typed expression in scope is <c>this</c>
-    /// — which in the real method is the declaring type. A diagnostic that names
-    /// <c>__Shell</c> is therefore the shell mistyping <c>this</c> (the original
-    /// source compiled, so the declaring-type form is valid), not a defect in the
-    /// decompiled output. Filtered like the binding-visibility codes.
+    /// class. Diagnostics caused by Roslyn binding <c>this</c> to that class, or
+    /// by protected access that would be legal inside the real declaring type,
+    /// are shell artifacts rather than decompiler defects.
     /// </summary>
-    internal static bool IsShellArtifact(Diagnostic diagnostic)
-        => diagnostic.GetMessage().Contains("__Shell") || IsThisRefShellArtifact(diagnostic);
-
-    static bool IsThisRefShellArtifact(Diagnostic diagnostic)
+    static EvidenceDisposition ClassifyShellArtifact(
+        Diagnostic diagnostic,
+        SyntaxTree tree,
+        IrFunction function,
+        SemanticModel semanticModel)
     {
-        // `out this` / `ref this` is valid inside a struct instance method, but
-        // the validity shell wraps every body in a reference-type __Shell method.
-        // Roslyn therefore reports CS1605 against `this` even when the original
-        // declaring type accepts the spelling.
-        if (diagnostic.Id != "CS1605" || diagnostic.Location.SourceTree is not { } tree)
-            return false;
-        var lineSpan = diagnostic.Location.GetLineSpan();
-        if (lineSpan.StartLinePosition.Line < 0)
-            return false;
-        var line = tree.GetText().Lines[lineSpan.StartLinePosition.Line].ToString();
-        return line.Contains("this", StringComparison.Ordinal);
+        if (!ShellTypeDiagnosticIds.Contains(diagnostic.Id))
+            return EvidenceDisposition.Keep;
+        if (diagnostic.Location.SourceTree != tree)
+            return EvidenceDisposition.Unextracted;
+
+        var node = tree.GetRoot().FindNode(
+            diagnostic.Location.SourceSpan,
+            getInnermostNodeForTie: true);
+        if (diagnostic.Id != "CS1540")
+            return ClassifySyntheticShellThis(
+                diagnostic.Id,
+                node,
+                function.DeclaringType,
+                semanticModel);
+
+        var memberAccess = node.FirstAncestorOrSelf<MemberAccessExpressionSyntax>()
+            ?? node.DescendantNodesAndSelf()
+                .OfType<MemberAccessExpressionSyntax>()
+                .FirstOrDefault(candidate =>
+                    diagnostic.Location.SourceSpan.IntersectsWith(candidate.Span));
+        if (memberAccess is null)
+            return EvidenceDisposition.Unextracted;
+
+        var symbolInfo = semanticModel.GetSymbolInfo(memberAccess.Name);
+        var member = symbolInfo.Symbol ?? symbolInfo.CandidateSymbols.FirstOrDefault();
+        if (member is null)
+            return EvidenceDisposition.Unextracted;
+        return IsProtected(member)
+            && ReceiverResolvesToDeclaringType(
+                memberAccess.Expression,
+                function.DeclaringType,
+                semanticModel)
+            ? EvidenceDisposition.Filter
+            : EvidenceDisposition.Keep;
     }
+
+    static EvidenceDisposition ClassifySyntheticShellThis(
+        string diagnosticId,
+        SyntaxNode node,
+        TypeRef declaringType,
+        SemanticModel semanticModel)
+    {
+        if (diagnosticId == "CS0019")
+            return ClassifySyntheticShellBinary(node, declaringType, semanticModel);
+
+        ExpressionSyntax? subject = diagnosticId switch
+        {
+            "CS0023" => node.FirstAncestorOrSelf<PrefixUnaryExpressionSyntax>()?.Operand,
+            "CS0030" => node.FirstAncestorOrSelf<CastExpressionSyntax>()?.Expression,
+            "CS8121" => node.FirstAncestorOrSelf<IsPatternExpressionSyntax>()?.Expression,
+            "CS8129" => node.FirstAncestorOrSelf<AssignmentExpressionSyntax>()?.Right
+                ?? ClosestExpression(node),
+            _ => ClosestExpression(node),
+        };
+        if (subject is null)
+            return EvidenceDisposition.Unextracted;
+
+        ITypeSymbol? targetType = diagnosticId switch
+        {
+            "CS0030" => node.FirstAncestorOrSelf<CastExpressionSyntax>() is { } cast
+                ? semanticModel.GetTypeInfo(cast.Type).Type
+                : null,
+            "CS0029" or "CS0266" => semanticModel.GetTypeInfo(subject).ConvertedType,
+            _ => null,
+        };
+        bool shellArtifact = targetType is null
+            ? IsDirectSyntheticShellValue(subject, semanticModel)
+            : IsSyntheticShellConversionArtifact(
+                subject,
+                targetType,
+                declaringType,
+                semanticModel);
+        return shellArtifact
+            ? EvidenceDisposition.Filter
+            : EvidenceDisposition.Keep;
+    }
+
+    static EvidenceDisposition ClassifySyntheticShellBinary(
+        SyntaxNode node,
+        TypeRef declaringType,
+        SemanticModel semanticModel)
+    {
+        var binary = node.FirstAncestorOrSelf<BinaryExpressionSyntax>();
+        if (binary is null)
+            return EvidenceDisposition.Unextracted;
+
+        var leftType = semanticModel.GetTypeInfo(binary.Left).Type;
+        var rightType = semanticModel.GetTypeInfo(binary.Right).Type;
+        bool shellArtifact = IsSyntheticShellValue(binary.Left, semanticModel)
+                && (IsSyntheticShellType(leftType)
+                    || TypesEquivalentAfterShellReplacement(leftType, rightType, declaringType))
+            || IsSyntheticShellValue(binary.Right, semanticModel)
+                && (IsSyntheticShellType(rightType)
+                    || TypesEquivalentAfterShellReplacement(rightType, leftType, declaringType));
+        return shellArtifact
+            ? EvidenceDisposition.Filter
+            : EvidenceDisposition.Keep;
+    }
+
+    static ExpressionSyntax? ClosestExpression(SyntaxNode node)
+        => node.FirstAncestorOrSelf<ExpressionSyntax>()
+            ?? node.DescendantNodesAndSelf()
+                .OfType<ExpressionSyntax>()
+                .OrderBy(candidate => candidate.Span.Length)
+                .FirstOrDefault();
+
+    static bool IsSyntheticShellValue(
+        ExpressionSyntax expression,
+        SemanticModel semanticModel)
+        => expression.DescendantNodesAndSelf()
+            .OfType<ThisExpressionSyntax>()
+            .Any(candidate => IsSyntheticShellThis(candidate, semanticModel))
+        && ContainsSyntheticShellType(semanticModel.GetTypeInfo(expression).Type);
+
+    static bool IsDirectSyntheticShellValue(
+        ExpressionSyntax expression,
+        SemanticModel semanticModel)
+        => expression.DescendantNodesAndSelf()
+            .OfType<ThisExpressionSyntax>()
+            .Any(candidate => IsSyntheticShellThis(candidate, semanticModel))
+        && IsSyntheticShellType(semanticModel.GetTypeInfo(expression).Type);
+
+    static bool IsSyntheticShellConversionArtifact(
+        ExpressionSyntax expression,
+        ITypeSymbol targetType,
+        TypeRef declaringType,
+        SemanticModel semanticModel)
+    {
+        if (!IsSyntheticShellValue(expression, semanticModel))
+            return false;
+
+        var sourceType = semanticModel.GetTypeInfo(expression).Type;
+        return IsSyntheticShellType(sourceType)
+            || TypesEquivalentAfterShellReplacement(sourceType, targetType, declaringType);
+    }
+
+    static bool ContainsSyntheticShellType(ITypeSymbol? type)
+        => type switch
+        {
+            INamedTypeSymbol namedType => IsSyntheticShellType(namedType)
+                || namedType.TypeArguments.Any(ContainsSyntheticShellType),
+            IArrayTypeSymbol arrayType => ContainsSyntheticShellType(arrayType.ElementType),
+            IPointerTypeSymbol pointerType => ContainsSyntheticShellType(pointerType.PointedAtType),
+            _ => false,
+        };
+
+    static bool TypesEquivalentAfterShellReplacement(
+        ITypeSymbol? left,
+        ITypeSymbol? right,
+        TypeRef declaringType)
+    {
+        if (left is null || right is null)
+            return false;
+        if (IsSyntheticShellType(left))
+            return right is INamedTypeSymbol rightNamed
+                && MetadataFullName(rightNamed) == MetadataFullName(declaringType);
+        if (IsSyntheticShellType(right))
+            return left is INamedTypeSymbol leftNamed
+                && MetadataFullName(leftNamed) == MetadataFullName(declaringType);
+        if (left is IArrayTypeSymbol leftArray && right is IArrayTypeSymbol rightArray)
+        {
+            return leftArray.Rank == rightArray.Rank
+                && TypesEquivalentAfterShellReplacement(
+                    leftArray.ElementType,
+                    rightArray.ElementType,
+                    declaringType);
+        }
+        if (left is IPointerTypeSymbol leftPointer && right is IPointerTypeSymbol rightPointer)
+        {
+            return TypesEquivalentAfterShellReplacement(
+                leftPointer.PointedAtType,
+                rightPointer.PointedAtType,
+                declaringType);
+        }
+        if (left is INamedTypeSymbol leftNamedType
+            && right is INamedTypeSymbol rightNamedType
+            && SymbolEqualityComparer.Default.Equals(
+                leftNamedType.OriginalDefinition,
+                rightNamedType.OriginalDefinition)
+            && leftNamedType.TypeArguments.Length == rightNamedType.TypeArguments.Length)
+        {
+            return leftNamedType.TypeArguments
+                .Zip(rightNamedType.TypeArguments)
+                .All(pair => TypesEquivalentAfterShellReplacement(
+                    pair.First,
+                    pair.Second,
+                    declaringType));
+        }
+
+        return SymbolEqualityComparer.Default.Equals(left, right);
+    }
+
+    static bool IsSyntheticShellThis(
+        ThisExpressionSyntax expression,
+        SemanticModel semanticModel)
+        => semanticModel.GetTypeInfo(expression).Type is INamedTypeSymbol type
+        && IsSyntheticShellType(type);
+
+    static bool IsSyntheticShellType(INamedTypeSymbol type)
+        => type is
+        {
+            Name: "__Shell",
+            ContainingType: null,
+            ContainingNamespace.IsGlobalNamespace: true,
+        };
+
+    static bool IsSyntheticShellType(ITypeSymbol? type)
+        => type is INamedTypeSymbol namedType && IsSyntheticShellType(namedType);
+
+    static bool IsProtected(ISymbol? symbol)
+        => symbol?.DeclaredAccessibility is
+            Accessibility.Protected or
+            Accessibility.ProtectedAndInternal or
+            Accessibility.ProtectedOrInternal;
 
     /// <summary>
     /// CS0305 ("the generic type 'X&lt;T&gt;' requires N type arguments") on a
@@ -731,19 +979,27 @@ static class ValidityCheck
     /// such as <c>System.Convert</c> or <c>System.Environment</c>.
     /// </summary>
     internal static bool IsSimpleNameStaticTypeCollisionNoise(Diagnostic diagnostic, SyntaxTree tree, IrFunction function)
+        => ClassifySimpleNameStaticTypeCollision(diagnostic, tree, function)
+            == EvidenceDisposition.Filter;
+
+    static EvidenceDisposition ClassifySimpleNameStaticTypeCollision(
+        Diagnostic diagnostic,
+        SyntaxTree tree,
+        IrFunction function)
     {
         if (diagnostic.Id is not ("CS0712" or "CS0721" or "CS0722" or "CS0723"))
-            return false;
+            return EvidenceDisposition.Keep;
         if (diagnostic.Location.SourceTree != tree)
-            return false;
+            return EvidenceDisposition.Unextracted;
 
-        string? simpleName = SimpleNameAtDiagnosticLocation(diagnostic, tree)
-            ?? SimpleNameFromDiagnosticMessage(diagnostic);
+        string? simpleName = SimpleNameAtDiagnosticLocation(diagnostic, tree);
         if (simpleName is null)
-            return false;
+            return EvidenceDisposition.Unextracted;
 
         return ShellNoise.ReferencesNonGenericTypeNamed(function, simpleName)
-            && !ShellNoise.ReferencesGenericTypeNamed(function, simpleName);
+            && !ShellNoise.ReferencesGenericTypeNamed(function, simpleName)
+            ? EvidenceDisposition.Filter
+            : EvidenceDisposition.Keep;
     }
 
     /// <summary>
@@ -789,7 +1045,9 @@ static class ValidityCheck
             ?? symbolInfo.CandidateSymbols.OfType<INamedTypeSymbol>().FirstOrDefault();
         if (symbol is IAliasSymbol alias)
             symbol = alias.Target;
-        if (symbol is not INamedTypeSymbol namedType)
+        var namedType = symbol as INamedTypeSymbol
+            ?? semanticModel.GetTypeInfo(receiver).Type as INamedTypeSymbol;
+        if (namedType is null)
             return false;
 
         return MetadataFullName(namedType) == MetadataFullName(declaringType);
@@ -825,27 +1083,42 @@ static class ValidityCheck
 
     static string? SimpleNameAtDiagnosticLocation(Diagnostic diagnostic, SyntaxTree tree)
     {
-        var node = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true);
-        if (node.FirstAncestorOrSelf<IdentifierNameSyntax>() is { } name)
-            return name.Identifier.ValueText;
-        if (node.FirstAncestorOrSelf<ObjectCreationExpressionSyntax>() is { Type: IdentifierNameSyntax objectType })
-            return objectType.Identifier.ValueText;
-        return null;
+        var root = tree.GetRoot();
+        var span = diagnostic.Location.SourceSpan;
+        var node = root.FindNode(span, getInnermostNodeForTie: true);
+        TypeSyntax? type = diagnostic.Id switch
+        {
+            "CS0712" => node.FirstAncestorOrSelf<ObjectCreationExpressionSyntax>()?.Type,
+            "CS0721" => node.FirstAncestorOrSelf<ParameterSyntax>()?.Type,
+            "CS0722" => node.FirstAncestorOrSelf<MethodDeclarationSyntax>()?.ReturnType,
+            "CS0723" => node.FirstAncestorOrSelf<VariableDeclarationSyntax>()?.Type,
+            _ => null,
+        };
+        if (type is not null)
+            return RightmostSimpleName(type)?.Identifier.ValueText;
+
+        var name = node.FirstAncestorOrSelf<SimpleNameSyntax>()
+            ?? node.DescendantNodesAndSelf()
+                .OfType<SimpleNameSyntax>()
+                .Where(candidate =>
+                    span.Start <= candidate.Span.Start
+                    && candidate.Span.End <= span.End)
+                .OrderBy(candidate => candidate.Span.Start)
+                .LastOrDefault();
+        return name?.Identifier.ValueText;
     }
 
-    static string? SimpleNameFromDiagnosticMessage(Diagnostic diagnostic)
+    static SimpleNameSyntax? RightmostSimpleName(SyntaxNode node)
+        => node.DescendantNodesAndSelf()
+            .OfType<SimpleNameSyntax>()
+            .OrderBy(candidate => candidate.Span.Start)
+            .LastOrDefault();
+
+    enum EvidenceDisposition
     {
-        var message = diagnostic.GetMessage();
-        int start = message.IndexOf('\'');
-        if (start < 0)
-            return null;
-        int end = message.IndexOf('\'', start + 1);
-        if (end <= start + 1)
-            return null;
-        var quoted = message[(start + 1)..end];
-        if (quoted.Any(c => !(char.IsLetterOrDigit(c) || c is '_' or '.' or '+')))
-            return null;
-        return ShellNoise.SimpleName(quoted);
+        Keep,
+        Filter,
+        Unextracted,
     }
 
     internal static ImmutableArray<MetadataReference> RuntimeReferences()
