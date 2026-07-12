@@ -262,6 +262,11 @@ The artifact provider should return structured diagnostics when it cannot
 produce an artifact. RTS should surface those diagnostics; it should not patch
 the artifact with local C#.
 
+Initial typed closure derivation belongs with artifact production: the provider
+can derive same-assembly roots, source facts, and member requirements from the
+raised `IrFunction`. RTS remains responsible for Roslyn oracle growth and passes
+only the target/oracle closure roots and facts discovered by compile feedback.
+
 The product/shared side should own truthful declaration facts that are useful
 beyond ReturnToSender: namespaces, type/member signatures, base/interface
 relationships, constructor signatures, generic constraints, explicit interface

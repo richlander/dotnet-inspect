@@ -799,10 +799,6 @@ static class ReturnToSender
             targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
-        // PrintRaised mutates the imported function in place, so raised evidence
-        // such as WithExpression is available to typed shell seeding here.
-        SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -822,8 +818,7 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureFacts: closureFacts));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -897,9 +892,10 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!growth.Grew || closureRoots.Count > maxRoots)
+            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
+            if (!growth.Grew || effectiveRootCount > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots
+                string reason = effectiveRootCount > maxRoots
                     ? "closure-root-budget"
                     : ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
@@ -932,8 +928,7 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureFacts: closureFacts));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -987,8 +982,6 @@ static class ReturnToSender
             targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
-        SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -1007,8 +1000,7 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureFacts: closureFacts));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1082,9 +1074,10 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!growth.Grew || closureRoots.Count > maxRoots)
+            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
+            if (!growth.Grew || effectiveRootCount > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots
+                string reason = effectiveRootCount > maxRoots
                     ? "closure-root-budget"
                     : ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
@@ -1116,8 +1109,7 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureFacts: closureFacts));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -1172,8 +1164,6 @@ static class ReturnToSender
             targetRoot,
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
-        var closureMemberRequirements = new Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>>();
-        SeedTypedClosureRoots(reader, function, typeHandle, targetRoot, closureRoots, closureFacts, closureMemberRequirements);
         const int maxRoots = 200;
         const int maxIterations = 80;
         Diagnostic? firstError = null;
@@ -1193,8 +1183,7 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureFacts: closureFacts));
             var plan = sourceResult.Plan;
 
             if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
@@ -1268,9 +1257,10 @@ static class ReturnToSender
                 TopLevelRootOf(reader, typeHandle),
                 closureRoots,
                 closureFacts);
-            if (!growth.Grew || closureRoots.Count > maxRoots)
+            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
+            if (!growth.Grew || effectiveRootCount > maxRoots)
             {
-                string reason = closureRoots.Count > maxRoots
+                string reason = effectiveRootCount > maxRoots
                     ? "closure-root-budget"
                     : ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
@@ -1303,8 +1293,7 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts,
-                ClosureMemberRequirements: closureMemberRequirements));
+                ClosureFacts: closureFacts));
             var plan = sourceResult.Plan;
             return new Result(
                 plan,
@@ -1646,6 +1635,18 @@ static class ReturnToSender
             : $"{diagnostic.Id}: {message}";
     }
 
+    static int EffectiveClosureRootCount(ProductArtifact artifact, IReadOnlySet<TypeDefinitionHandle> oracleClosureRoots)
+    {
+        int count = artifact.ClosureRoots.Count;
+        foreach (var root in oracleClosureRoots)
+        {
+            if (!artifact.ClosureRoots.Contains(root))
+                count++;
+        }
+
+        return count;
+    }
+
     static string CanonicalOpcode(string op)
         => HarnessOpcode.Canonicalize(op);
 
@@ -1657,225 +1658,6 @@ static class ReturnToSender
         Dictionary<string, List<TypeDefinitionHandle>> Fields,
         Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
         Dictionary<TypeDefinitionHandle, string> RootNamespaces);
-
-    static void SeedTypedClosureRoots(
-        MetadataReader reader,
-        IrFunction function,
-        TypeDefinitionHandle targetType,
-        TypeDefinitionHandle targetRoot,
-        HashSet<TypeDefinitionHandle> closureRoots,
-        Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
-    {
-        // Canonicalize the local assembly name so TryResolveHandle's same-assembly
-        // gate matches TypeRef.Assembly, which TypeRefDecoder canonicalizes (corelib
-        // facades collapse to one identity). Without this, a target assembly whose
-        // own name is a canonicalized facade (System.Runtime, mscorlib, ...) would
-        // fail to resolve its own definitions and drop their closure roots/facts.
-        string assemblyName = TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name));
-        var definitions = TypeDefinitionsByTypeRefIdentity(reader);
-        var consumedMemberEvidence = new List<ConsumedMemberEvidence>();
-        AddTargetInterfaceRoots(targetType);
-        foreach (var node in function.Descendants.Prepend(function))
-        {
-            foreach (var type in node.DirectTypes)
-                AddTypedClosureRoot(type);
-            if (node is IrExpression expression)
-                AddTypedClosureRoot(expression.ResultType);
-            AddTypedClosureMemberFacts(node);
-        }
-
-        void AddTypedClosureRoot(TypeRef? type)
-        {
-            switch (type?.Kind)
-            {
-                case TypeRefKind.Definition:
-                    if (TryResolveRoot(type) is not { } root)
-                        return;
-                    if (root == targetRoot)
-                        return;
-                    closureRoots.Add(root);
-                    AddClosureFact(
-                        closureFacts,
-                        root,
-                        new CompileBackFact("metadata", "body-type", TypeRefIdentityKey(type.Namespace, type.Name, separator: ".")));
-                    break;
-                case TypeRefKind.GenericInstance:
-                    AddTypedClosureRoot(type.ElementType);
-                    foreach (var argument in type.TypeArguments)
-                        AddTypedClosureRoot(argument);
-                    break;
-                case TypeRefKind.SzArray or TypeRefKind.Array
-                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
-                    AddTypedClosureRoot(type.ElementType);
-                    break;
-                case TypeRefKind.FunctionPointer:
-                    AddTypedClosureRoot(type.ElementType);
-                    foreach (var argument in type.TypeArguments)
-                        AddTypedClosureRoot(argument);
-                    break;
-            }
-        }
-
-        void AddTargetInterfaceRoots(TypeDefinitionHandle handle)
-        {
-            // Interface discovery is product knowledge: the decompiler decodes the
-            // target type's same-assembly interface definitions to typed refs. RTS
-            // keeps only closure-root bookkeeping — resolve each interface definition
-            // (TryResolveHandle applies the same-assembly + supported-root gates) and
-            // seed it as a root, matching the prior TypeDefinition-only walk.
-            foreach (var interfaceType in IrImporter.ImportImplementedInterfaces(reader, handle))
-            {
-                if (TryResolveHandle(interfaceType) is not { } interfaceHandle)
-                    continue;
-
-                var root = TopLevelRootOf(reader, interfaceHandle);
-                if (root == targetRoot)
-                    continue;
-
-                var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
-                closureRoots.Add(root);
-                AddClosureFact(
-                    closureFacts,
-                    root,
-                    new CompileBackFact("metadata", "target-interface", reader.GetFullTypeName(interfaceDef)));
-            }
-        }
-
-        TypeDefinitionHandle? TryResolveRoot(TypeRef? type)
-            => TryResolveHandle(type) is { } handle
-                ? TopLevelRootOf(reader, handle)
-                : null;
-
-        TypeDefinitionHandle? TryResolveHandle(TypeRef? type)
-        {
-            if (type is not { Kind: TypeRefKind.Definition } || type.Assembly != assemblyName)
-                return null;
-            string key = TypeRefIdentityKey(type.Namespace, type.Name);
-            if (!definitions.TryGetValue(key, out var handle))
-                return null;
-            return IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)) ? handle : null;
-        }
-
-        void AddMemberFact(TypeRef declaringType, string kind, string name)
-        {
-            var definition = declaringType.Kind == TypeRefKind.GenericInstance
-                ? declaringType.ElementType ?? declaringType
-                : declaringType;
-            if (TryResolveHandle(definition) is not { } handle)
-                return;
-            var root = TopLevelRootOf(reader, handle);
-            if (root == targetRoot && handle == root)
-                return;
-            AddClosureFact(
-                closureFacts,
-                handle,
-                new CompileBackFact("metadata", "typed-member-ref", $"{kind}: {TypeRefIdentityKey(definition.Namespace, definition.Name, separator: ".")}.{name}"));
-        }
-
-        void AddMethodFact(MethodRef method, bool allowTargetRoot = false)
-        {
-            AddSingleMethodFact(method, allowTargetRoot);
-            if (OperatorNames.UncheckedOperator(method.Name) is { } siblingName)
-                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRoot);
-        }
-
-        void AddSingleMethodFact(MethodRef method, bool allowTargetRoot)
-        {
-            AddMemberFact(method.DeclaringType, "method", method.Name);
-            AddMemberRequirement(
-                method.DeclaringType,
-                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, method),
-                allowTargetRoot);
-        }
-
-        void AddFieldFact(FieldRef field)
-        {
-            AddTypedClosureRoot(field.Type);
-            AddMemberFact(field.DeclaringType, "field", field.Name);
-            AddMemberRequirement(
-                field.DeclaringType,
-                root => CompileBackSourceComposer.TryCreateClosureMemberRequirement(reader, root, field),
-                allowTargetRoot: true);
-        }
-
-        void AddRecordShellFact(TypeRef? type)
-        {
-            var definition = type?.Kind == TypeRefKind.GenericInstance
-                ? type.ElementType ?? type
-                : type;
-            if (TryResolveHandle(definition) is not { } handle)
-                return;
-            var root = TopLevelRootOf(reader, handle);
-            closureRoots.Add(root);
-            AddClosureFact(
-                closureFacts,
-                handle,
-                new CompileBackFact("metadata", "record-shell", TypeRefIdentityKey(definition!.Namespace, definition.Name, separator: ".")));
-        }
-
-        void AddMemberRequirement(TypeRef declaringType, Func<TypeDefinitionHandle, CompileBackMemberRequirement?> create, bool allowTargetRoot)
-        {
-            var definition = declaringType.Kind == TypeRefKind.GenericInstance
-                ? declaringType.ElementType ?? declaringType
-                : declaringType;
-            if (TryResolveHandle(definition) is not { } handle)
-                return;
-            var root = TopLevelRootOf(reader, handle);
-            if (root == targetRoot && handle == root && !allowTargetRoot)
-                return;
-            if (create(handle) is not { } requirement)
-                return;
-            if (!closureMemberRequirements.TryGetValue(handle, out var requirements))
-                closureMemberRequirements[handle] = requirements = [];
-            if (!requirements.Any(existing => existing.Kind == requirement.Kind && existing.Identity == requirement.Identity))
-                requirements.Add(requirement);
-        }
-
-        void AddTypedClosureMemberFacts(IrNode node)
-        {
-            consumedMemberEvidence.Clear();
-            ConsumedMemberEvidence.AddFrom(node, consumedMemberEvidence);
-            foreach (var evidence in consumedMemberEvidence)
-            {
-                if (evidence.Method is { } method)
-                    AddMethodFact(method, evidence.EffectiveAllowTargetRoot);
-                if (evidence.Field is { } field)
-                    AddFieldFact(field);
-                if (evidence.RecordShellType is { } recordShell)
-                    AddRecordShellFact(recordShell);
-            }
-        }
-    }
-
-    static Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByTypeRefIdentity(MetadataReader reader)
-    {
-        var definitions = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
-        foreach (var handle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(handle);
-            if (!IsSupportedClosureRoot(reader, typeDef))
-                continue;
-            var (ns, name) = TypeRefIdentity(reader, handle);
-            definitions.TryAdd(TypeRefIdentityKey(ns, name), handle);
-        }
-
-        return definitions;
-    }
-
-    static (string Namespace, string Name) TypeRefIdentity(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        var typeDef = reader.GetTypeDefinition(handle);
-        string name = reader.GetString(typeDef.Name);
-        if (!typeDef.IsNested)
-            return (reader.GetString(typeDef.Namespace), name);
-
-        var declaring = TypeRefIdentity(reader, typeDef.GetDeclaringType());
-        return (declaring.Namespace, $"{declaring.Name}+{name}");
-    }
-
-    static string TypeRefIdentityKey(string ns, string name, string separator = "|")
-        => ns.Length == 0 ? name : $"{ns}{separator}{name}";
 
     static void AddClosureFact(
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
