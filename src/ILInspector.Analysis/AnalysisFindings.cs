@@ -368,7 +368,7 @@ public static class AnalysisFindings
     }
 
     static bool SameCallSiteFacets(DirectCall oldCall, DirectCall newCall)
-        // Deliberate whitelist: new DirectCall fields are identity or provenance unless
+        // Deliberate allow list: new DirectCall fields are identity or provenance unless
         // explicitly opted into transition classification here.
         => oldCall.Kind == newCall.Kind
             && oldCall.InLoop == newCall.InLoop

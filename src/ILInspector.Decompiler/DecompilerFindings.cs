@@ -116,7 +116,7 @@ public static class DecompilerFindings
     static bool SameSemanticFacets(
         DecompilerFidelityCause oldCause,
         DecompilerFidelityCause newCause)
-        // Deliberate whitelist: only stable producer-owned classification facets can turn a
+        // Deliberate allow list: only stable producer-owned classification facets can turn a
         // matched cause into Changed. Human prose, CLR implementation type names, rendered node
         // text, and location coordinates are diagnostic/display details and may drift without
         // changing the logical fidelity cause.
