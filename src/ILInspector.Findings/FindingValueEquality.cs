@@ -32,11 +32,8 @@ internal static class FindingValueEquality
     {
         if (ReferenceEquals(left, right))
             return true;
-        if (left.Count != right.Count)
-            return false;
 
-        var comparer = EqualityComparer<T>.Default;
-        return left.All(value => right.Contains(value, comparer));
+        return left.SetEquals(right);
     }
 
     public static int SetHashCode<T>(ImmutableHashSet<T> values)
