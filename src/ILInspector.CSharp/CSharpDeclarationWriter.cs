@@ -920,7 +920,8 @@ internal static class CSharpDeclarationWriter
                 while (i < text.Length && IsIdentifierPart(text[i]))
                     i++;
                 string token = text[start..i];
-                sb.Append(names.Contains(token) ? EscapeIdentifier(token) : token);
+                bool alreadyEscaped = start > 0 && text[start - 1] == '@';
+                sb.Append(!alreadyEscaped && names.Contains(token) ? EscapeIdentifier(token) : token);
                 continue;
             }
             sb.Append(text[i++]);

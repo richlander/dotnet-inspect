@@ -130,6 +130,17 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void KnownIdentifierEscapingIsIdempotent()
+    {
+        Assert.Equal(
+            "System.Action<@event>",
+            CSharpFormatter.EscapeKnownIdentifiers("System.Action<@event>", ["event"]));
+        Assert.Equal(
+            "System.Action<@event>",
+            CSharpFormatter.EscapeKnownIdentifiers("System.Action<event>", ["event"]));
+    }
+
+    [Fact]
     public void RejectsUndefinedPolicies()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
