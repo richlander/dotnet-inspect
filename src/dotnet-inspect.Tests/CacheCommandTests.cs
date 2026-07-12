@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 
@@ -58,14 +59,14 @@ public class CacheCommandTests : IDisposable
     [Fact]
     public void CacheMiss_CleansObsoleteVersionedCategories()
     {
-        var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v8");
-        var currentDir = Path.Combine(_cacheBasePath, "pkg-index-v9");
+        var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v9");
+        var currentDir = Path.Combine(_cacheBasePath, PackageIndexCache.Category);
         Directory.CreateDirectory(oldDir);
         Directory.CreateDirectory(currentDir);
         File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
         File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
 
-        CoreCache.RegisterVersionedCategory("pkg-index-v", "pkg-index-v9");
+        CoreCache.RegisterVersionedCategory("pkg-index-v", PackageIndexCache.Category);
 
         Assert.Null(CoreCache.TryGet("versions", $"missing-{Guid.NewGuid():N}", extension: "txt"));
         var result = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(5));
