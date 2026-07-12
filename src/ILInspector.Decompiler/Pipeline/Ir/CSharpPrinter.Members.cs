@@ -21,7 +21,7 @@ public sealed partial class CSharpPrinter
         if (field.BackingPropertyName is { } property)
             return instance switch
             {
-                null => $"{TypeText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
+                null => $"{TypeQualifierText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
                 LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(property)}",
                 _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(property)}",
             };
@@ -35,7 +35,7 @@ public sealed partial class CSharpPrinter
             string captured = CSharpNaming.EscapeIdentifier(capture);
             return instance switch
             {
-                null => $"{TypeText(field.DeclaringType)}.{captured}",
+                null => $"{TypeQualifierText(field.DeclaringType)}.{captured}",
                 LoadArgument { Index: 0, Name: "this" } => IsShadowedByLocal(capture) ? $"this.{captured}" : captured,
                 _ => $"{ReceiverText(instance)}.{captured}",
             };
@@ -43,7 +43,7 @@ public sealed partial class CSharpPrinter
         string fieldName = CSharpNaming.SafeIdentifier(field.Name);
         return instance switch
         {
-            null => $"{TypeText(field.DeclaringType)}.{fieldName}",
+            null => $"{TypeQualifierText(field.DeclaringType)}.{fieldName}",
             // A parameter or local with the same name shadows the field, so the
             // bare name binds to it, not the field (e.g. int Foo(int _x) =>
             // this._x + _x). Qualify with this. to reach the field; an
@@ -93,7 +93,7 @@ public sealed partial class CSharpPrinter
             // A NON-virtual this-receiver access to a base-declared member is
             // C#'s base. — the call opcode deliberately skips dispatch.
             LoadArgument { Index: 0, Name: "this" } when !isVirtual && IsCrossType(accessor.DeclaringType) => "base",
-            null => TypeText(accessor.DeclaringType),
+            null => TypeQualifierText(accessor.DeclaringType),
             // A parameter or local with the same name shadows the property, so a
             // bare read binds to it, not the property (e.g. the synthesized record
             // Deconstruct(out int X, ...) whose body reads this.X). Qualify with
@@ -224,7 +224,7 @@ public sealed partial class CSharpPrinter
     {
         string name = CSharpNaming.SourceMethodName(method.Name);
         if (target is Constant { Value: null })
-            return $"{TypeText(method.DeclaringType)}.{name}";
+            return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
             return name;
         if (PointerMethodReceiver(target) is { } pointerReceiver)
@@ -246,7 +246,7 @@ public sealed partial class CSharpPrinter
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
         string name = $"{CSharpNaming.SourceMethodName(method.Name)}{typeArguments}";
         return IsCrossType(method.DeclaringType)
-            ? $"&{TypeText(method.DeclaringType)}.{name}"
+            ? $"&{TypeQualifierText(method.DeclaringType)}.{name}"
             : $"&{name}";
     }
 
@@ -277,7 +277,7 @@ public sealed partial class CSharpPrinter
                 if (PointerRefExtensionReceiver(call.Callee, arguments[0]) is { } extensionReceiver)
                     return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
                 if (arguments[0].ResultType is { Kind: TypeRefKind.Pointer })
-                    return $"{TypeText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+                    return $"{TypeQualifierText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
                 return $"{ReceiverText(arguments[0])}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
             }
             // A static abstract/virtual interface member invoked through a type
@@ -311,7 +311,7 @@ public sealed partial class CSharpPrinter
             string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
             return IsCurrentStaticScope(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
                 ? $"{staticName}({staticArgs})"
-                : $"{TypeText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
+                : $"{TypeQualifierText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);

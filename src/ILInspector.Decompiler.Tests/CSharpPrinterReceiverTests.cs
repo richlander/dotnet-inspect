@@ -166,6 +166,54 @@ public sealed class CSharpPrinterReceiverTests
         Assert.Contains("return Other.Helper(1);", body);
     }
 
+    [Fact]
+    public void StaticCall_OnCrossType_WhenTypeQualifierIsShadowed_UsesGlobalAlias()
+    {
+        var other = TypeRef.Definition("synthetic", "", "TypeNameShadow");
+        var call = new Call(
+            new MethodRef(other, "M", Int32Type, [Int32Type], HasThis: false),
+            isVirtual: false,
+            [new LoadArgument(0, "M", Int32Type)]);
+
+        string body = RenderReturn(
+            call,
+            Int32Type,
+            [
+                new Parameter("M", Int32Type),
+                new Parameter("TypeNameShadow", Int32Type),
+            ]);
+
+        Assert.Contains("return global::TypeNameShadow.M(M);", body);
+        Assert.DoesNotContain("return TypeNameShadow.M(M);", body);
+        AssertCompiles(
+            "public static int Uses(int M, int TypeNameShadow)",
+            body,
+            "public static class TypeNameShadow { public static int M(int value) => value + 1; }");
+    }
+
+    [Fact]
+    public void StaticCall_OnCrossType_WhenTypeQualifierIsShadowedByLocal_UsesGlobalAlias()
+    {
+        var other = TypeRef.Definition("synthetic", "", "TypeNameShadow");
+        var call = new Call(
+            new MethodRef(other, "M", Int32Type, [Int32Type], HasThis: false),
+            isVirtual: false,
+            [new Constant(1, Int32Type)]);
+
+        string body = RenderWithLocal(
+            [Int32Type],
+            ["TypeNameShadow"],
+            new StoreLocal(0, Int32Type, new Constant(0, Int32Type)),
+            new Return(call));
+
+        Assert.Contains("return global::TypeNameShadow.M(1);", body);
+        Assert.DoesNotContain("return TypeNameShadow.M(1);", body);
+        AssertCompiles(
+            "public static int UsesLocal()",
+            body,
+            "public static class TypeNameShadow { public static int M(int value) => value + 1; }");
+    }
+
     static MethodRef Extension(string name, TypeRef receiverType)
         => new(
             TypeRef.Definition("synthetic", "", "Extensions"),
@@ -186,6 +234,21 @@ public sealed class CSharpPrinterReceiverTests
         var parameterList = parameters is null ? ImmutableArray<Parameter>.Empty : [.. parameters];
         var signature = new MethodSignature(returnType, parameterList, HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container);
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    static string RenderWithLocal(IReadOnlyList<TypeRef> locals, IReadOnlyList<string?> localNames, params IrNode[] statements)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32Type, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [.. locals], container)
+        {
+            LocalNames = [.. localNames],
+        };
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 

@@ -3920,11 +3920,56 @@ public sealed partial class CSharpPrinter
         // qualified through its declaring chain (ImmutableArray<string>.Builder)
         // unless the reference is made from inside that enclosing type, where the
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
-        string text = type.ToDisplayString(_function.DeclaringType);
+        string text = TypeTextCore(type);
         int tick = text.IndexOf('`');
         string rendered = tick < 0 ? text : text[..tick];
         RecordFrameworkTypeImportDecision(type, rendered);
         return rendered;
+    }
+
+    string TypeQualifierText(TypeRef type)
+    {
+        string rendered = TypeTextCore(type);
+        int tick = rendered.IndexOf('`');
+        if (tick >= 0)
+            rendered = rendered[..tick];
+
+        if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
+            rendered = FullyQualifiedTypeText(type);
+
+        RecordFrameworkTypeImportDecision(type, rendered);
+        return rendered;
+    }
+
+    string TypeTextCore(TypeRef type)
+        => type.ToDisplayString(_function.DeclaringType);
+
+    static string? FirstTypeQualifierSegment(string rendered)
+    {
+        if (rendered.Length == 0 || rendered.StartsWith("global::", StringComparison.Ordinal))
+            return null;
+        int i = rendered[0] == '@' ? 1 : 0;
+        if (i >= rendered.Length || !(char.IsLetter(rendered[i]) || rendered[i] == '_'))
+            return null;
+        while (++i < rendered.Length && (char.IsLetterOrDigit(rendered[i]) || rendered[i] == '_'))
+        {
+        }
+        return rendered[..i];
+    }
+
+    static string FullyQualifiedTypeText(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
+        if (definition.Kind != TypeRefKind.Definition || definition.Namespace.Length == 0 && definition.Name.Length == 0)
+            return type.ToDisplayString();
+
+        string text = type.ToDisplayString(TypeRef.Definition("__dotnet_inspect", "__", "__"));
+        int tick = text.IndexOf('`');
+        if (tick >= 0)
+            text = text[..tick];
+        return definition.Namespace.Length == 0
+            ? $"global::{text}"
+            : $"global::{definition.Namespace}.{text}";
     }
 
     void RecordFrameworkTypeImportDecision(TypeRef type, string rendered)
