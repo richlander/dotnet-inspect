@@ -159,7 +159,7 @@ internal static class ApiServices
 
     /// <summary>
     /// Extracts the full API surface from a package or assembly, enriching types with source info.
-    /// Used by source command for assembly-wide sample collection and DiffCommand.
+    /// Used by source command for assembly-wide sample collection.
     /// </summary>
     internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractApiSurfaceAsync(ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
@@ -224,92 +224,6 @@ internal static class ApiServices
             }
 
             return (api, selectedTfm);
-        }
-        finally
-        {
-            if (tempDir != null && Directory.Exists(tempDir))
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
-        }
-    }
-
-    // ===== Merged API Extraction (multi-library packages) =====
-
-    /// <summary>
-    /// Extracts and merges API surfaces from ALL DLLs in a package at the highest TFM.
-    /// Used by diff to compare multi-library packages.
-    /// </summary>
-    internal static async Task<(ApiSurface? api, string? selectedTfm)> ExtractMergedApiSurfaceAsync(ApiOptions options, VerboseLogger logger, HttpClient httpClient)
-    {
-        string? tempDir = null;
-        try
-        {
-            if (string.IsNullOrEmpty(options.PackagePath))
-                return (null, null);
-
-            var outcome = await PackageExtractor.ExtractPackageAsync(httpClient, options.PackagePath, logger.Log, "inspect-api", options.SourceOptions);
-            if (!outcome.IsSuccess)
-            {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
-                return (null, null);
-            }
-            var extracted = outcome.Result!;
-            var (searchPath, packageName) = (extracted.ExtractPath, extracted.PackageName);
-            tempDir = extracted.TempDir;
-
-            var dlls = TfmSelector.GetPackageAssemblies(searchPath);
-            if (dlls.Count == 0)
-                return (null, null);
-
-            // Single DLL — fast path
-            if (dlls.Count == 1)
-                return await ExtractApiSurfaceAsync(options, logger, httpClient);
-
-            var (tfmDlls, selectedTfm) = TfmSelector.SelectHighestAssemblies(dlls, searchPath);
-            if (tfmDlls.Count == 0)
-                return (null, null);
-
-            // Single DLL at this TFM — fast path
-            if (tfmDlls.Count == 1)
-            {
-                var singleApi = AssemblyReader.ExtractApiSurface(tfmDlls[0], options.IncludeAll);
-                if (singleApi != null)
-                {
-                    singleApi.Name = packageName ?? Path.GetFileNameWithoutExtension(tfmDlls[0]);
-                    singleApi.Tfm = selectedTfm;
-                }
-                return (singleApi, selectedTfm);
-            }
-
-            // Multiple DLLs — merge all API surfaces
-            logger.Log($"Merging API surfaces from {tfmDlls.Count} libraries at {selectedTfm}");
-
-            var merged = new ApiSurface
-            {
-                Name = packageName,
-                Tfm = selectedTfm
-            };
-
-            foreach (var dll in tfmDlls)
-            {
-                var surface = AssemblyReader.ExtractApiSurface(dll, options.IncludeAll);
-                if (surface == null)
-                    continue;
-
-                var libName = Path.GetFileNameWithoutExtension(dll);
-                logger.Log($"  + {libName}: {surface.PublicTypeCount} types");
-
-                merged.Types.AddRange(surface.Types);
-                merged.PublicTypeCount += surface.PublicTypeCount;
-                merged.PublicMethodCount += surface.PublicMethodCount;
-                merged.PublicPropertyCount += surface.PublicPropertyCount;
-                merged.PublicEventCount += surface.PublicEventCount;
-                merged.PublicFieldCount += surface.PublicFieldCount;
-            }
-
-            merged.Types = merged.Types.OrderBy(t => t.FullName).ToList();
-            return (merged, selectedTfm);
         }
         finally
         {
