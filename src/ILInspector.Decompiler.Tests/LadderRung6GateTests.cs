@@ -4,6 +4,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -842,7 +843,15 @@ public class LadderRung6GateTests
         {
             var member = members.Single(m => m.Name == name);
             Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-            Assert.Contains(FidelityRemarks.Collect(member.Function), r => r.Code == DiagnosticIds.UnsupportedConstruct);
+            var findings = DecompilerFindings.InspectFidelityCauses(
+                member.Function,
+                new FindingSubject($"{typeName}::{name}", name)) switch
+            {
+                FindingInspection<DecompilerFidelityCause>.Complete complete => complete.Findings,
+                _ => throw new InvalidOperationException("Expected a complete fidelity-cause inspection."),
+            };
+            Assert.Contains(findings, finding =>
+                finding.Payload.Code == DiagnosticIds.UnsupportedConstruct);
             Assert.Contains("cpblk", member.Body);
             Assert.Contains("return default;", member.Body);
         }

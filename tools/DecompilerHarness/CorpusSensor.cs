@@ -209,9 +209,10 @@ internal static class CorpusSensor
 
                 if (passBug is null)
                 {
+                    string id = $"{typeName}::{methodName}{overload}";
                     residual = Completeness.Residual(function)
                         ?? (function.Fidelity != DecompilationFidelity.Full
-                            ? $"fidelity: {BucketFor(function.Diagnostics.FirstOrDefault())}"
+                            ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(function, id)}"
                             : null);
                 }
                 if (passBug is null && residual is null)
@@ -367,19 +368,6 @@ internal static class CorpusSensor
         if (reports.Count == 0)
             reports.Add(new FidelityCapReport(0, new FidelitySensorMetrics(0, 0, 0, 0, 0, 0), ImmutableDictionary<string, FidelityCheck.FailureBucketSummary>.Empty, ImmutableDictionary<string, FidelityCheck.FailureBucketSummary>.Empty));
         return reports.ToImmutable();
-    }
-
-    static string BucketFor(DecompilerDiagnostic diagnostic)
-    {
-        if (diagnostic.Id is null)
-            return "(typed)";
-        if (diagnostic.Id == DiagnosticIds.UnsupportedType)
-        {
-            var message = diagnostic.Message ?? "(typed)";
-            int detail = message.IndexOf('(');
-            return detail < 0 ? message : message[..detail].TrimEnd();
-        }
-        return diagnostic.Message?.Split(' ').ElementAtOrDefault(1) ?? "(typed)";
     }
 
     static string MethodKey(CorpusMethodSnapshot method)
