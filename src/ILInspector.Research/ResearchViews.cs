@@ -77,7 +77,7 @@ public static class ResearchViews
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly),
-                        emptyOutputIsFailure: true),
+                        emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -91,7 +91,7 @@ public static class ResearchViews
                     .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                     .ToList();
                 var body = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: true),
+                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: false),
                     request.Source);
                 costOverlay = new CostOverlayResult(body, costHeaderFacts);
             }
@@ -103,7 +103,7 @@ public static class ResearchViews
                     .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
                     .ToList();
                 semanticsOverlay = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: true),
+                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -221,7 +221,7 @@ public static class ResearchViews
             {
                 Output = AddTrailingComments(imported, result.Output, statementLines, annotations)
             };
-        }, emptyOutputIsFailure: true);
+        }, emptyOutputIsFailure: false);
     }
 
     public static DecompilerResult RenderMixed(

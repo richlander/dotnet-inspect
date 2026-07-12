@@ -180,6 +180,12 @@ IL-ordered `Finding<DirectCall>` census. Research retains the complete native
 comparison only when requested, so `Present` remains observable without
 increasing the ordinary Body Signals result.
 
+Decompiler fidelity uses the same retention rule in the single-version product
+path. The member command's opt-in `Fidelity Causes` section keeps the complete
+`FindingInspection<DecompilerFidelityCause>` through member acquisition and
+projects it only when rendering. A complete empty census, absent method body,
+and failed inspection therefore remain distinct product outcomes.
+
 The remaining Analysis body observations preserve their native families:
 
 - definite unsafe IL operations use an IL-ordered

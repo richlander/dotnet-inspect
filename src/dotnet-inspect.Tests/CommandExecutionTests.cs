@@ -1,4 +1,7 @@
 using System.IO.Compression;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
@@ -24,6 +27,57 @@ public class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
+
+    private static void WriteFidelityFailureAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("FidelityFailedFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("FidelityFailedFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("FidelityFailedFixture"),
+            metadata.GetOrAddString("Malformed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var il = new BlobBuilder();
+        var instructions = new InstructionEncoder(il, new ControlFlowBuilder());
+        // The out-of-range method token is valid IL encoding but forces the
+        // importer down its diagnosed crash path when resolving the call.
+        instructions.Call(MetadataTokens.MethodDefinitionHandle(999));
+        instructions.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        var bodyOffset = bodyEncoder.AddMethodBody(instructions, maxStack: 8);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("InvalidCall"),
+            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
 
     private sealed class NestedDrillTarget
     {
@@ -3101,6 +3155,124 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("FactsTableFixture::BoxInt\tIL_", output);
         Assert.Contains("\toffset\tAllocation\talloc.box\tint; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once\tAlways", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_ReportsCompleteEmptyCensus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Complete", output);
+        Assert.Contains("decompiler fidelity is Full", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_EmptyBodyIsComplete()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FidelityCauseFixture.EmptyBody),
+            "-S", "Decompiled Source,Fidelity Causes,Annotated Source,Cost Overlay,Semantics Overlay",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("## Cost Overlay", output);
+        Assert.Contains("## Semantics Overlay", output);
+        Assert.Contains("public static void EmptyBody()", output);
+        Assert.Contains("Complete", output);
+        Assert.Contains("decompiler fidelity is Full", output);
+        Assert.DoesNotContain(ILInspector.Decompiler.DiagnosticIds.EmptyOutput, output);
+        Assert.DoesNotContain("Failed", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_ImporterCrashIsFailed()
+    {
+        var assemblyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-failed-{Guid.NewGuid():N}.dll");
+        try
+        {
+            WriteFidelityFailureAssembly(assemblyPath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "member", "FidelityFailedFixture.Malformed", "InvalidCall",
+                "--library", assemblyPath,
+                "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Failed", output);
+            Assert.Contains(ILInspector.Decompiler.DiagnosticIds.InternalError, output);
+            Assert.Contains("importer crash", output);
+            Assert.DoesNotContain("Absent", output);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_ReportsAbsentBody()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!, "--library", TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId), "--all",
+            "-S", "Fidelity Causes", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Absent", output);
+        Assert.Contains("no decompiler IR body", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_SelectFidelityCauses_RendersTypedCause()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FidelityCauseFixture.TypedReferenceType),
+            "-S", "Fidelity Causes", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("state\tcode\tlocation\tnode_kind\tnode\tdiscriminator\treason", output);
+        Assert.Contains("Complete", output);
+        Assert.Contains("DEC0004", output);
+        Assert.Matches(@"IL_[0-9A-F]{4}", output);
+        Assert.Contains("mkrefany", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoverSchema_ListsFidelityCauses()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FidelityCauseFixture.EmptyBody), "-D", "--schema");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Fidelity Causes | section (opt-in) |", output);
+    }
+
+    [Fact]
+    public async Task Member_FidelityCauses_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Fidelity Causes", output);
     }
 
     [Fact]
@@ -9292,5 +9464,18 @@ public static class CostOverlayFixture
         Span<int> values = stackalloc int[1];
         values[0] = value;
         return values[0];
+    }
+}
+
+public static class FidelityCauseFixture
+{
+    public static void EmptyBody()
+    {
+    }
+
+    public static Type TypedReferenceType(ref int value)
+    {
+        TypedReference reference = __makeref(value);
+        return __reftype(reference);
     }
 }

@@ -354,6 +354,7 @@ public class SectionPipelineTests
         SectionNames.Signature,
         SectionNames.CustomAttributes,
         SectionNames.DecompiledSource,
+        SectionNames.FidelityCauses,
         SectionNames.AnnotatedSource,
         SectionNames.CostOverlay,
         SectionNames.SemanticsOverlay,

@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.CSharp;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
@@ -1153,6 +1154,7 @@ public static class ApiOutputFormatter
             CallGraph: requestedSections.Contains(SectionNames.CallGraph),
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
             Facts: requestedSections.Contains(SectionNames.Facts),
+            FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm);
 
@@ -1455,7 +1457,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false))
@@ -1468,6 +1470,12 @@ public static class ApiOutputFormatter
             }
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
+
+            if (code.FidelityCauses is not null)
+            {
+                memberCode.FidelityCauseRows = BuildFidelityCauseRows(code.FidelityCauses);
+                hasCode = true;
+            }
 
             if ((code.ILText ?? code.ILDiagnostic) is { } ilText)
             {
@@ -1557,6 +1565,72 @@ public static class ApiOutputFormatter
 
         return hasCode;
     }
+
+    internal static List<FidelityCauseRow> BuildFidelityCauseRows(
+        FindingInspection<Decompiler.DecompilerFidelityCause> inspection)
+        => inspection switch
+        {
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Complete complete
+                when complete.Findings.IsEmpty =>
+            [
+                new(
+                    "Complete",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "No fidelity causes; decompiler fidelity is Full.")
+            ],
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Complete complete =>
+            [
+                .. complete.Findings.Select(static finding =>
+                {
+                    var cause = finding.Payload;
+                    return new FidelityCauseRow(
+                        "Complete",
+                        cause.Code,
+                        FormatFidelityLocation(cause.Location),
+                        cause.NodeKind,
+                        cause.Node,
+                        cause.Discriminator,
+                        cause.Reason);
+                })
+            ],
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Absent absent =>
+            [
+                new(
+                    "Absent",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    absent.Detail ?? "Method has no decompiler IR body.")
+            ],
+            FindingInspection<Decompiler.DecompilerFidelityCause>.Failed failed =>
+            [
+                new(
+                    "Failed",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    failed.Error.Reason)
+            ],
+        };
+
+    static string FormatFidelityLocation(Decompiler.DecompilerFidelityLocation location)
+        => location.Kind switch
+        {
+            Decompiler.DecompilerFidelityLocationKind.Signature => "signature",
+            Decompiler.DecompilerFidelityLocationKind.IlOffset
+                when location.ILOffset is { } offset => MarkoutInline.Code($"IL_{offset:X4}"),
+            Decompiler.DecompilerFidelityLocationKind.Local
+                when location.LocalIndex is { } local => MarkoutInline.Code($"V_{local}"),
+            _ => "unknown",
+        };
 
     static void AddOrReplaceSummaryField(TypeView view, string name, string value)
     {

@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 
 using Decompiler = ILInspector.Decompiler;
 
@@ -17,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -34,7 +35,8 @@ internal static class MemberCodeProvider
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
-        IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null);
+        IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
+        FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -104,24 +106,58 @@ internal static class MemberCodeProvider
             // shown, independent of which sections were requested.
             var methodGenericParameters = MethodGenericParameterNames(
                 reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+            var methodHasBody = SelectedMethodHasBody(
+                reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
-            if (request.DecompiledSource && pipelineSource is not null)
+            Decompiler.DecompilerResult? projectionResult = null;
+            IrFunction? raisedFunction = null;
+            if ((request.DecompiledSource || request.FidelityCauses) && pipelineSource is not null)
             {
-                decompiledResult = TrimOutput(RenderDecompiledSource(
+                projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
                     lookupType,
                     method.Name,
                     lookupOverloadIndex,
-                    publicOnly));
-                decompiledResult = decompiledResult with
+                    publicOnly,
+                    out raisedFunction));
+                projectionResult = projectionResult with
                 {
                     Trace = new Decompiler.DecompilerTrace(
-                        decompiledResult.Fidelity,
+                        projectionResult.Fidelity,
                         pipelineSource.Symbols,
-                        decompiledResult.Diagnostics)
+                        projectionResult.Diagnostics)
                 };
+            }
+
+            if (request.DecompiledSource)
+                decompiledResult = projectionResult;
+
+            FindingInspection<Decompiler.DecompilerFidelityCause>? fidelityCauses = null;
+            if (request.FidelityCauses)
+            {
+                var subject = new FindingSubject(
+                    method.MetadataToken is { } token
+                        ? $"{Path.GetFullPath(dllPath)}#0x{token:X8}"
+                        : $"{Path.GetFullPath(dllPath)}::{lookupType}.{method.Name}#{lookupOverloadIndex}",
+                    $"{lookupType}.{method.Name}");
+                if (pipelineSource is null)
+                {
+                    fidelityCauses = new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
+                        new InspectionError(
+                            subject,
+                            Decompiler.DecompilerFindings.FidelityInspectionDescriptor,
+                            "Decompiler metadata source could not be opened."));
+                }
+                else
+                {
+                    fidelityCauses = BuildFidelityCauseInspection(
+                        methodHasBody,
+                        raisedFunction,
+                        projectionResult,
+                        subject);
+                }
             }
 
             ILInspector.Research.ResearchViews.MemberProjectionResult? researchProjection = null;
@@ -198,7 +234,8 @@ internal static class MemberCodeProvider
                 ilText,
                 ilDiagnostic,
                 attributes,
-                facts)));
+                facts,
+                fidelityCauses)));
         }
 
         return results;
@@ -240,6 +277,47 @@ internal static class MemberCodeProvider
         return null;
     }
 
+    static bool SelectedMethodHasBody(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        int matchCount = 0;
+        foreach (var methodHandle in typeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+            if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask) != System.Reflection.MethodAttributes.Public)
+                continue;
+            if (matchCount++ != overloadIndex)
+                continue;
+            return method.RelativeVirtualAddress != 0;
+        }
+        return false;
+    }
+
+    internal static FindingInspection<Decompiler.DecompilerFidelityCause> BuildFidelityCauseInspection(
+        bool methodHasBody,
+        IrFunction? raisedFunction,
+        Decompiler.DecompilerResult? projection,
+        FindingSubject subject)
+    {
+        if (!methodHasBody)
+            return Decompiler.DecompilerFindings.InspectFidelityCauses(null, subject);
+
+        if (raisedFunction is not null && projection?.Succeeded == true)
+            return Decompiler.DecompilerFindings.InspectFidelityCauses(raisedFunction, subject);
+
+        return new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
+            new InspectionError(
+                subject,
+                Decompiler.DecompilerFindings.FidelityInspectionDescriptor,
+                string.Join(
+                    "; ",
+                    projection?.Diagnostics.Select(static diagnostic => diagnostic.ToString())
+                        ?? ["Decompiler import or projection failed."])));
+    }
+
     /// <summary>
     /// Opens the decompiler's reader for the code sections that need it
     /// (decompiled source, annotated source, IR stages), or null when none are
@@ -251,7 +329,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses)
             return null;
         try
         {
@@ -276,20 +354,18 @@ internal static class MemberCodeProvider
         string type,
         string method,
         int overloadIndex,
-        bool publicOnly)
+        bool publicOnly,
+        out IrFunction? imported)
     {
+        imported = null;
         try
         {
-            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+            imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
             var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
                 imported,
                 target => IrImporter.Import(source, target));
-            if (result.Output is not { } output)
-                return result;
-            return string.IsNullOrWhiteSpace(output) && result.ConstructorChain is null
-                ? Decompiler.DecompilerResult.Failure(Decompiler.DiagnosticIds.EmptyOutput, "projection produced no output for a method with a body")
-                : result;
+            return result;
         }
         catch (Exception ex)
         {

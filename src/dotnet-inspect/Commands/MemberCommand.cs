@@ -486,6 +486,7 @@ public static class MemberCommand
         SectionNames.Signature,
         SectionNames.CustomAttributes,
         SectionNames.DecompiledSource,
+        SectionNames.FidelityCauses,
         SectionNames.AnnotatedSource,
         SectionNames.OriginalSource,
         SectionNames.SourceDiff,

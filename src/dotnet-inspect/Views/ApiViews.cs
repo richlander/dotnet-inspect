@@ -628,6 +628,16 @@ public record ApiOneLineRow(string Kind, string Name,
 [MarkoutSerializable]
 public record ApiSurfaceOneLineRow(string Kind, string Type, string Members, string? Description);
 
+[MarkoutSerializable]
+public sealed record FidelityCauseRow(
+    string State,
+    string? Code,
+    string? Location,
+    [property: MarkoutPropertyName("Node Kind")] string? NodeKind,
+    string? Node,
+    string? Discriminator,
+    string? Reason);
+
 /// <summary>
 /// Code sections for member command output (Decompiled Source, Annotated Source, Original Source, IL).
 /// Serialized separately after the main TypeView.
@@ -637,6 +647,9 @@ public class MemberCodeView
 {
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
+
+    [MarkoutSection(Name = SectionNames.FidelityCauses)]
+    public List<FidelityCauseRow>? FidelityCauseRows { get; set; }
 
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
@@ -738,6 +751,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(CallerSiteRow))]
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(FactRow))]
+[MarkoutContext(typeof(FidelityCauseRow))]
 [MarkoutContext(typeof(TypeSourceFileRow))]
 [MarkoutContext(typeof(MemberSourceLocationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
