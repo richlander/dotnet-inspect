@@ -153,6 +153,13 @@ public sealed class MetadataDeclarationQueryTests
             globalKeyword.Signature,
             StringComparison.Ordinal);
         Assert.Contains("\"a\\\"b.class\"", globalKeyword.Signature, StringComparison.Ordinal);
+
+        var syntaxKeywords = Assert.Single(
+            surface.Members,
+            member => member.Name == "SyntaxKeywordTypes");
+        Assert.Contains("@delegate delegateValue", syntaxKeywords.Signature, StringComparison.Ordinal);
+        Assert.Contains("@readonly readonlyValue", syntaxKeywords.Signature, StringComparison.Ordinal);
+        Assert.Contains("@scoped scopedValue", syntaxKeywords.Signature, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -312,6 +319,13 @@ public class MetadataDeclarationQueryFixtures
         List<global::@class>? values = null,
         global::@event mode = (global::@event)1,
         string text = "a\"b.class")
+    {
+    }
+
+    public void SyntaxKeywordTypes(
+        global::@delegate delegateValue,
+        global::@readonly readonlyValue,
+        global::@scoped scopedValue)
     {
     }
 

@@ -230,7 +230,8 @@ public class ApiType
     public string? MetadataName { get; set; }
     
     /// <summary>
-    /// Access level for non-public types. Null for public types.
+    /// Access level for non-public types. Null means public, including for older
+    /// serialized surfaces; C# rendering preserves that compatibility fallback.
     /// </summary>
     public string? Accessibility { get; set; }
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate

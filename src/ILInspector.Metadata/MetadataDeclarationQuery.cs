@@ -792,8 +792,7 @@ public static class MetadataDeclarationQuery
             }
 
             string identifier = type[index..end];
-            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(identifier)
-                && (end == type.Length || type[end] != '.');
+            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(type, identifier, index, end);
             if ((index == 0 || type[index - 1] != '@')
                 && EscapeIdentifier(identifier) != identifier
                 && !isTypeSyntaxKeyword)
@@ -806,11 +805,29 @@ public static class MetadataDeclarationQuery
         return builder.ToString();
     }
 
-    static bool IsTypeSyntaxKeyword(string identifier)
-        => identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+    static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
+    {
+        if (identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
             or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
-            or "object" or "short" or "ushort" or "string" or "void" or "delegate"
-            or "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged";
+            or "object" or "short" or "ushort" or "string" or "void")
+        {
+            return end == type.Length || type[end] != '.';
+        }
+
+        if (identifier == "delegate")
+            return end < type.Length && type[end] == '*';
+
+        if (type.StartsWith("delegate*", StringComparison.Ordinal)
+            && identifier is "ref" or "in" or "out" or "readonly" or "unmanaged")
+        {
+            return true;
+        }
+
+        return start == 0
+            && end < type.Length
+            && char.IsWhiteSpace(type[end])
+            && identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped";
+    }
 
     // ApiMember.Signature is a legacy compatibility string. Keep its qualified
     // keyword escaping local rather than restoring declaration ownership to Metadata.
@@ -1192,6 +1209,7 @@ public static class MetadataDeclarationQuery
     static string EscapeIdentifier(string name)
         => ReservedKeywords.Contains(name) ? "@" + name : name;
 
+    // Keep synchronized with CSharpDeclarationWriter's owning spelling policy.
     static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
@@ -1202,6 +1220,6 @@ public static class MetadataDeclarationQuery
         "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
         "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
         "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while", "record", "required", "init", "file", "scoped",
+        "void", "volatile", "while", "await", "record", "required", "init", "file", "scoped",
     };
 }

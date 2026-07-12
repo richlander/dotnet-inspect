@@ -669,8 +669,7 @@ internal static class CSharpDeclarationWriter
                 end++;
 
             string identifier = type[index..end];
-            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(identifier)
-                && (end == type.Length || type[end] != '.');
+            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(type, identifier, index, end);
             if ((index == 0 || type[index - 1] != '@')
                 && EscapeIdentifier(identifier) != identifier
                 && !isTypeSyntaxKeyword)
@@ -683,11 +682,29 @@ internal static class CSharpDeclarationWriter
         return builder.ToString();
     }
 
-    static bool IsTypeSyntaxKeyword(string identifier)
-        => identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+    static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
+    {
+        if (identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
             or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
-            or "object" or "short" or "ushort" or "string" or "void" or "delegate"
-            or "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged";
+            or "object" or "short" or "ushort" or "string" or "void")
+        {
+            return end == type.Length || type[end] != '.';
+        }
+
+        if (identifier == "delegate")
+            return end < type.Length && type[end] == '*';
+
+        if (type.StartsWith("delegate*", StringComparison.Ordinal)
+            && identifier is "ref" or "in" or "out" or "readonly" or "unmanaged")
+        {
+            return true;
+        }
+
+        return start == 0
+            && end < type.Length
+            && char.IsWhiteSpace(type[end])
+            && identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped";
+    }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)
     {
@@ -938,7 +955,7 @@ internal static class CSharpDeclarationWriter
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
     public static string EscapeIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) || name == "await" ? "@" + name : name;
+        => s_csharpReservedKeywords.Contains(name) ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -1282,6 +1299,7 @@ internal static class CSharpDeclarationWriter
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];
 
+    // Keep synchronized with MetadataDeclarationQuery's legacy compatibility escaper.
     static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
@@ -1292,6 +1310,6 @@ internal static class CSharpDeclarationWriter
         "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
         "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
         "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
+        "void", "volatile", "while", "await", "record", "required", "init", "file", "scoped",
     };
 }

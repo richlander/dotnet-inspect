@@ -92,13 +92,27 @@ public sealed class CSharpFormatterTests
                 DefaultValueText = "default"
             },
             new() { Type = "class", Name = "value" },
-            new() { Type = "System.Collections.Generic.List<class>", Name = "items" }
+            new() { Type = "System.Collections.Generic.List<class>", Name = "items" },
+            new() { Type = "delegate", Name = "delegateValue" },
+            new() { Type = "readonly", Name = "readonlyValue" },
+            new() { Type = "scoped", Name = "scopedValue" },
+            new() { Type = "delegate*<ref int, void>", Name = "callback" }
         };
 
         Assert.Equal(
-            "([System.Runtime.InteropServices.Optional] System.@event.MyClass @event = default, @class value, System.Collections.Generic.List<@class> items)",
+            "([System.Runtime.InteropServices.Optional] System.@event.MyClass @event = default, @class value, System.Collections.Generic.List<@class> items, @delegate delegateValue, @readonly readonlyValue, @scoped scopedValue, delegate*<ref int, void> callback)",
             CSharpFormatter.FormatParameterList(parameters));
     }
+
+    [Theory]
+    [InlineData("await")]
+    [InlineData("file")]
+    [InlineData("init")]
+    [InlineData("record")]
+    [InlineData("required")]
+    [InlineData("scoped")]
+    public void EscapesConservativeContextualKeywordSet(string identifier)
+        => Assert.Equal($"@{identifier}", CSharpFormatter.EscapeIdentifier(identifier));
 
     [Fact]
     public void FormatsDelegateWithStructuredAccessibility()
