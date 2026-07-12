@@ -242,7 +242,7 @@ Shape reducers do not revise operation arity. In particular:
   transition from version-address rows to package artifact inspection. The
   explicit transition remains `package Package@version`.
 
-The same rule applies to a future timeline. `--count` can reduce an already
+The same rule applies to `timeline`. `--count` can reduce an already
 assembled Timeline table; it cannot probe additional cells. `--print` and
 `--print-all` can print only payloads already carried or explicitly referenced
 by evaluated rows; they cannot turn unevaluated rows into implicit acquisition.
