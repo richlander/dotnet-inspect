@@ -132,13 +132,13 @@ public sealed class SlotStoreDiamondPass : IIrPass
 
     static bool ReturnsBoolSlot(Return ret, int slot, out bool negates)
     {
-        if (ret.Value is LoadStackSlot load && load.Slot == slot)
+        if (ret.Value is LoadStackSlot load && IsBoolSlotLoad(load, slot))
         {
             negates = false;
             return true;
         }
 
-        if (ret.Value is LogicalNot { Operand: LoadStackSlot notLoad } && notLoad.Slot == slot)
+        if (ret.Value is LogicalNot { Operand: LoadStackSlot notLoad } && IsBoolSlotLoad(notLoad, slot))
         {
             negates = true;
             return true;
@@ -162,6 +162,10 @@ public sealed class SlotStoreDiamondPass : IIrPass
         return false;
     }
 
+    static bool IsBoolSlotLoad(LoadStackSlot load, int slot)
+        => load.Slot == slot
+            && (load.Type is null || IsBool(load.Type));
+
     static bool IsSlotZeroComparison(Comparison comparison, int slot)
         => comparison.Left is LoadStackSlot leftLoad
             && leftLoad.Slot == slot
@@ -182,7 +186,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
 
     static bool IsSimpleUnionValueReceiver(IrExpression? receiver) => receiver switch
     {
-        LoadArgumentAddress or LoadArgument or LoadLocalAddress or LoadLocal => true,
+        LoadArgument or LoadLocal => true,
         _ => false,
     };
 
