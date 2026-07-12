@@ -12,8 +12,9 @@ the subject, the observation, the operation, the lens, or only the rendering.
 
 The governing rule is:
 
-> One transition should change one axis. Change commands when subject identity
-> or operation arity changes; use options and sections for context,
+> One transition should change one axis. Change commands when the independently
+> navigable subject domain or operation arity changes; use selectors for points
+> within an established domain, and options or sections for context,
 > observations, lenses, and projection.
 
 Related docs:
@@ -23,13 +24,16 @@ Related docs:
 - [Output Composition](output-composition.md) separates data selection,
   filtering, and rendering.
 - [Rendering Model](rendering-model.md) defines verbosity and alternate lenses.
+- [Method Body Inspection](method-body-inspection.md) defines the shared member
+  and IL-coordinate query model.
 
 ## Independent axes
 
 | Axis | Question | Examples | CLI shape |
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
-| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member, member coordinate | Noun-first inspection command or an explicit focus selector on an operation-first command |
+| Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member | Noun-first inspection command or an explicit focus selector on an operation-first command |
+| Point selector / coordinate | Which exact instance or point is selected within that structural scope? | overload, MethodDef token, IL offset | Positional/named selector whose identity is complete within the current scope |
 | Observation / census | Which identities or facts are measured under that focus? | subject presence, child-member census, allocation sites, call sites | Section or producer descriptor such as `--finding` |
 | Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Top-level operation when the acquisition lifecycle and outcome shape change |
 | Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, versions | `-S` or focused mode options |
@@ -52,10 +56,23 @@ dotnet-inspect package System.Text.Json
 `package` selects the package artifact itself as the focus. The command noun and
 the source option use the same domain word but play different roles.
 
-An IL offset is a coordinate within a member, not a standalone command today.
-`library --il-offset` resolves that coordinate and sections such as
-`Instruction Context` render it. Raw `IL` is a representation lens over a
-member. The coordinate and the representation therefore occupy different axes.
+An IL offset is a point selector into method-body facts, not a standalone
+command today. It is reachable from more than one structural scope:
+
+- `library --il-offset <MethodDef>+<offset>` supplies a composite coordinate
+  that is complete within the library and discovers its containing member;
+- member-focused body views already have the member identity and expose the
+  peer offset-scoped facts within that narrower scope.
+
+These are two entry points into the same method-body inspection model, not
+different meanings for the coordinate. Sections such as `Instruction Context`
+choose the observation/projection, while raw `IL` is a representation lens.
+Neither changes coordinate identity.
+
+This means focus is not a strict parent-child ladder. A complete coordinate may
+refine a broad scope directly and still return the containing type/member
+context. Intermediate focus commands remain useful navigation surfaces, but
+they are not mandatory waypoints.
 
 Focus is also not the identity family emitted by an observation. A producer may
 measure the focused subject itself or a collection structurally owned by that
@@ -78,9 +95,13 @@ family within that scope.
 
 A command transition is justified when either of these changes:
 
-1. **Structural focus:** the addressed identity and primary schema change.
-   `type -> member` is a valid transition because a member has a different
-   selector, identity, default view, and drill-in surface.
+1. **Structural focus domain:** the addressed identity family and primary
+   workflow change to another independently navigable surface. `type -> member`
+   is a valid transition because a member has a different selector, identity,
+   default view, and drill-in surface. A coordinate refinement such as
+   `library --il-offset`, however, remains an option when the selector is
+   complete within the established library scope and does not need an
+   independent command surface.
 2. **Operation arity:** the acquisition topology and outcome envelope change.
    Unary inspection, pairwise comparison, and N-address correlation have
    different failure semantics, backpressure, and result shapes.
@@ -291,15 +312,18 @@ These transitions answer different questions.
 ### Focus / zoom
 
 ```text
-package -> library -> type -> member -> member coordinate
+package -> library -> type -> member
+library + MethodDef/offset -> IL coordinate
+member + body offset       -> IL coordinate
 ```
 
 The user changes what structural thing is being addressed. Identity and schema
-change; the operation remains unary inspection. The final step is expressed
-today with a coordinate option such as `--il-offset`, not an `offset` command.
-Zooming to a member means selecting one member as the input subject. It does not
-mean "observe the members owned by this type"; that remains a type-focused
-collection census.
+change; the operation remains unary inspection. The diagram shows common entry
+paths, not a required sequence: the composite library coordinate can jump
+directly to an IL point, while member scope can expose facts at offsets within
+the selected body. Zooming to a member means selecting one member as the input
+subject. It does not mean "observe the members owned by this type"; that remains
+a type-focused collection census.
 
 ### Operation / arity
 
@@ -411,15 +435,16 @@ Before adding a command or mode, answer in order:
 
 1. What is the structural focus and its stable identity?
 2. What is the source context?
-3. What observation census runs within that focus?
-4. What is the operation arity and acquisition plan?
-5. Does the change require a new top-level outcome schema?
-6. Is this only another lens over the same focus and operation?
-7. Is this only traversal policy or output projection?
-8. Does every range-consuming path state how many payload cells it may acquire?
-9. Are unevaluated, absent, missing, and failed states kept distinct?
+3. Is there a point selector, and is its identity complete within that scope?
+4. What observation census runs within that focus?
+5. What is the operation arity and acquisition plan?
+6. Does the change require a new top-level outcome schema?
+7. Is this only another lens over the same focus and operation?
+8. Is this only traversal policy or output projection?
+9. Does every range-consuming path state how many payload cells it may acquire?
+10. Are unevaluated, absent, missing, and failed states kept distinct?
 
-Question 5 does not discriminate by itself. Pair it with question 1 or 4:
+Question 6 does not discriminate by itself. Pair it with question 1 or 5:
 
 - changed addressed-subject identity plus a changed schema means a focus
   transition;
