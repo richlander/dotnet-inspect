@@ -141,6 +141,21 @@ Research retains exact as well as changed allocation comparisons when this lens
 requests them, so it can report `PairFinding.Present`, not only candidate
 boundaries.
 
+The same contract identifies a likely cause after an allocation onset. The
+caller method is the subject; each exact instantiated callee is a call-site
+observation:
+
+```bash
+dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.call-site
+```
+
+`PairFinding.Added` confirms a new direct-call occurrence. `Changed` can report
+that a retained call changed dispatch, opcode, or loop context. IL offsets and
+metadata tokens remain endpoint-local provenance rather than correspondence
+identity.
+
 ## Research composition
 
 Research is the join layer for sibling producers. It may retain a producer's

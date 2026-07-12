@@ -23,6 +23,13 @@ public class ResearchDiffTests
             typeof(ApiDiff),
             typeof(ApiFindingComparison),
         ]));
+        Assert.NotNull(typeof(ResearchComparison).GetConstructor(
+        [
+            typeof(ImmutableArray<ResearchChange>),
+            typeof(ApiDiff),
+            typeof(ApiFindingComparison),
+            typeof(ImmutableArray<AllocationFindingComparison>),
+        ]));
         Assert.NotNull(typeof(ResearchDiffOptions).GetConstructor(
         [
             typeof(ResearchChangeMechanism),
@@ -798,6 +805,37 @@ public class ResearchDiffTests
             _ => throw new InvalidOperationException("Expected a complete allocation comparison."),
         };
         Assert.Equal(PairKind.Present, Assert.Single(comparison.Pairs).Kind);
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_RetainsNativeCallSiteComparison()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.BodySignals,
+                TypeFilters: new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "DiffFixtureSample.DiffSample",
+                })
+            {
+                RetainCallSiteComparisons = true,
+            });
+
+        var retained = Assert.Single(diff.CallSiteComparisons, comparison =>
+            comparison.Subject.Display.Contains("RegressesAllocInLoop", StringComparison.Ordinal));
+        var comparison = retained.Comparison switch
+        {
+            FindingComparison<DirectCall>.Complete complete => complete,
+            _ => throw new InvalidOperationException("Expected a complete call-site comparison."),
+        };
+        Assert.Contains(comparison.Pairs, pair =>
+            pair is PairFinding<DirectCall>.Present present
+            && present.New.Payload.Callee.Name == "Add");
+        Assert.Contains(comparison.Pairs, pair =>
+            pair is PairFinding<DirectCall>.Added added
+            && added.New.Payload.Callee.Name == "Add");
     }
 
     [Fact]

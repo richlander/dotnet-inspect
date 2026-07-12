@@ -319,6 +319,10 @@ public sealed record AllocationFindingComparison(
     ResearchSubjectKey Subject,
     FindingComparison<AllocationOccurrence> Comparison);
 
+public sealed record CallSiteFindingComparison(
+    ResearchSubjectKey Subject,
+    FindingComparison<DirectCall> Comparison);
+
 /// <summary>
 /// Outcome of one Research diff operation. Changes are stored once; subject grouping is a
 /// projection so flat and grouped consumers cannot observe divergent state.
@@ -329,7 +333,7 @@ public sealed record ResearchComparison
         ImmutableArray<ResearchChange> changes,
         ApiDiff? apiDiff = null,
         ApiFindingComparison? apiComparison = null)
-        : this(changes, apiDiff, apiComparison, [])
+        : this(changes, apiDiff, apiComparison, [], [])
     {
     }
 
@@ -338,6 +342,16 @@ public sealed record ResearchComparison
         ApiDiff? apiDiff,
         ApiFindingComparison? apiComparison,
         ImmutableArray<AllocationFindingComparison> allocationComparisons)
+        : this(changes, apiDiff, apiComparison, allocationComparisons, [])
+    {
+    }
+
+    public ResearchComparison(
+        ImmutableArray<ResearchChange> changes,
+        ApiDiff? apiDiff,
+        ApiFindingComparison? apiComparison,
+        ImmutableArray<AllocationFindingComparison> allocationComparisons,
+        ImmutableArray<CallSiteFindingComparison> callSiteComparisons)
     {
         if (changes.IsDefault)
             throw new ArgumentException("Changes must be initialized.", nameof(changes));
@@ -349,6 +363,13 @@ public sealed record ResearchComparison
             throw new ArgumentException(
                 "Allocation comparisons cannot contain null entries.",
                 nameof(allocationComparisons));
+        }
+        if (!callSiteComparisons.IsDefault
+            && callSiteComparisons.Any(comparison => comparison is null))
+        {
+            throw new ArgumentException(
+                "Call-site comparisons cannot contain null entries.",
+                nameof(callSiteComparisons));
         }
         if (apiDiff is not null
             && apiComparison is not null
@@ -362,12 +383,14 @@ public sealed record ResearchComparison
         ApiComparison = apiComparison;
         ApiDiff = apiComparison?.ApiDiff ?? apiDiff;
         AllocationComparisons = allocationComparisons.IsDefault ? [] : allocationComparisons;
+        CallSiteComparisons = callSiteComparisons.IsDefault ? [] : callSiteComparisons;
     }
 
     public ImmutableArray<ResearchChange> Changes { get; }
     public ApiDiff? ApiDiff { get; }
     public ApiFindingComparison? ApiComparison { get; }
     public ImmutableArray<AllocationFindingComparison> AllocationComparisons { get; }
+    public ImmutableArray<CallSiteFindingComparison> CallSiteComparisons { get; }
     public bool IsEmpty => Changes.IsEmpty;
 
     public IReadOnlyList<ResearchSubjectChanges> BySubject()

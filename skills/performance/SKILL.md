@@ -78,6 +78,23 @@ and `Changed` identify a wrong boundary, disappearance, or changed allocation
 facets. The command does not traverse versions; the caller owns the search
 policy and bound.
 
+## Trace a likely cause to a new call
+
+After confirming an allocation boundary, compare the same caller method's
+direct-call census:
+
+```bash
+dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \
+  -t MyType -m HotPath \
+  --finding analysis.call-site
+```
+
+The target method is the caller and each row identifies a callee.
+`PairFinding.Added` confirms a new call occurrence, such as a newly introduced
+`Enumerable.ToArray`. `Changed` can show that an existing call moved into a loop
+or changed dispatch/opcode facets. Use the single-version `Calls` section while
+probing versions; use this final adjacent comparison as the onset proof.
+
 ## Drill a candidate
 
 `Call Graph` is a bounded outbound tree; `Caller Graph` is a bounded reverse
