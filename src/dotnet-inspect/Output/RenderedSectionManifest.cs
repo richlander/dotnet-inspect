@@ -78,10 +78,18 @@ internal sealed class RenderManifestFormatter :
         MarkoutWriterOptions options)
     {
         var formatter = new RenderManifestFormatter();
+        formatter.BeginDocument();
         var writer = new MarkoutWriter(TextWriter.Null, formatter, options);
         context.Serialize(value, writer);
         writer.Flush();
         return formatter.Manifest;
+    }
+
+    internal void BeginDocument()
+    {
+        _currentHeading = null;
+        _streamingTableSection = null;
+        _streamingFieldTable = false;
     }
 
     public void FormatHeading(TextWriter writer, int level, string text, string? context)

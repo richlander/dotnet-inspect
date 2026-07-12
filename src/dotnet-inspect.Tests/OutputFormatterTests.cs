@@ -710,6 +710,11 @@ public class OutputFormatterTests
             TextWriter.Null,
             [new MarkoutField("Methods", "polluting value")],
             bold: false);
+        formatter.BeginDocument();
+        formatter.FormatFields(
+            TextWriter.Null,
+            [new MarkoutField("Kind", "class")],
+            bold: false);
 
         var columns = Assert.IsAssignableFrom<IReadOnlySet<string>>(
             formatter.Manifest.GetTableColumns("Methods"));
@@ -719,6 +724,10 @@ public class OutputFormatterTests
             formatter.Manifest.GetFields("Library Info"));
         Assert.Contains("Assembly Version", fields);
         Assert.DoesNotContain("Methods", fields);
+        var otherFields = Assert.IsAssignableFrom<IReadOnlySet<string>>(
+            formatter.Manifest.GetFields("Other Section"));
+        Assert.Contains("Methods", otherFields);
+        Assert.DoesNotContain("Kind", otherFields);
     }
 
     [Fact]

@@ -1224,6 +1224,7 @@ public class ApiCommand
         var formatter = new RenderManifestFormatter();
         foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections))
         {
+            formatter.BeginDocument();
             var writer = new MarkoutWriter(TextWriter.Null, formatter, document.WriterOptions);
             document.Serialize(writer);
             writer.Flush();
