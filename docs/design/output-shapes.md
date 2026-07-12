@@ -4,7 +4,8 @@ dotnet-inspect output narrows through a small ladder of **shapes**. Markout
 defines the shapes and produces them; dotnet-inspect flags choose which rung you
 land on. Naming the ladder gives a shared vocabulary for the output flags
 (`-S`, `--fields`/`--columns`, `--tsv`/`--jsonl`, `--count`, `-n`/`--rows`,
-`--bare`, …) and for deciding what a new flag should do.
+`--print`, `--print-all`, `--bare`, …) and for deciding what a new flag should
+do.
 
 Related docs:
 
@@ -99,6 +100,39 @@ modifier changes how a selected payload is rendered.
 `-D`/`--discover` is orthogonal: it does not render the subject, it lists the
 *available* shapes — the sections of the Document and the columns of a Table (see
 [schema-query.md](schema-query.md)).
+
+### Printable payload projections
+
+`--print` projects a selected row's declared printable payload. It is unary, but
+it does not mean "take the first row." Cardinality is resolved after section
+selection, filtering, and printable-capability filtering:
+
+| Printable rows | `--print` | `--print --row N` | `--print-all` |
+| ---: | --- | --- | --- |
+| 0 | Error: the selected shape is not printable. | Error. | Error: the selected shape is not printable. |
+| 1 | Print the one payload. | Print row 1; any other index is an error. | Print the one payload. |
+| More than 1 | Guidance error requiring `--row N` or `--print-all`. | Print exactly the Nth printable row. | Print every printable payload in stable row order. |
+
+`--row N` is one-based and counts printable rows, not every row in the selected
+table. `--print-all` cannot be combined with `--row`.
+
+This policy deliberately rejects implicit-first behavior. Row order may change
+with filtering, producer evolution, or package versions, and choosing the first
+row could silently fetch the wrong document. It also rejects implicit fan-out:
+`--print-all` is the gesture that explicitly accepts every declared payload
+fetch.
+
+Printability is a row capability, not a property implied by Table or Vector
+shape. Neither `--print` nor `--print-all` may:
+
+- reinterpret an address row as the artifact at that address;
+- evaluate an unevaluated address;
+- change operation arity or primary-subject acquisition cardinality.
+
+A version-address Vector is therefore not printable merely because each row
+could name a package. The explicit transition to that package artifact remains
+`package Package@version`. Likewise, printing a timeline may use only declared
+payloads on already evaluated rows; it cannot probe missing cells.
 
 ### Presentation modifiers (render the chosen shape)
 
@@ -306,6 +340,10 @@ The stable vocabulary is:
 
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
   single scalar count.
+- `--print` is an exactly-one row-payload projection: it never chooses the first
+  of multiple printable rows implicitly.
+- `--print-all` is the explicit row-payload fan-out projection: it does not make
+  non-printable rows printable or evaluate new addresses.
 - `--bare` is a presentation modifier: it strips the surrounding framing from an
   already-selected payload.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
