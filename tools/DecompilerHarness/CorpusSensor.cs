@@ -458,12 +458,12 @@ internal static class CorpusSensor
         IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
         int cap)
     {
-        var allResults = EvaluateTargetsInAttemptOrder(assemblies, targetAttempts);
-        var usefulResults = allResults
+        var evaluatedResults = EvaluateTargetsInAttemptOrderUntilUseful(assemblies, targetAttempts, cap);
+        var usefulResults = evaluatedResults
             .Where(FidelityCheck.IsUsefulCorpusSample)
             .Take(cap)
             .ToArray();
-        return new FidelityOracleEvaluation(usefulResults, AllResults: allResults);
+        return new FidelityOracleEvaluation(usefulResults, AllResults: evaluatedResults);
     }
 
     static FidelityOracleEvaluation EvaluateReturnToSender(
@@ -471,7 +471,8 @@ internal static class CorpusSensor
         IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
         int cap)
     {
-        var targetSample = EvaluateTargetsInAttemptOrder([assemblyPath], targetAttempts)
+        var evaluatedResults = EvaluateTargetsInAttemptOrderUntilUseful([assemblyPath], targetAttempts, cap);
+        var targetSample = evaluatedResults
             .Where(FidelityCheck.IsUsefulCorpusSample)
             .Take(cap)
             .ToArray();
@@ -499,6 +500,33 @@ internal static class CorpusSensor
                 result => result.Status,
                 StringComparer.Ordinal),
             SummarizeReturnToSenderParity(targetSample, alignedResults));
+    }
+
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrderUntilUseful(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
+        int cap)
+    {
+        if (cap <= 0 || targetAttempts.Count == 0)
+            return [];
+
+        int batchSize = cap == int.MaxValue
+            ? targetAttempts.Count
+            : Math.Min(targetAttempts.Count, Math.Max(cap, 100));
+        var results = new List<FidelityCheck.CompileBackResult>();
+        int useful = 0;
+        for (int offset = 0; offset < targetAttempts.Count && useful < cap; offset += batchSize)
+        {
+            var batch = targetAttempts.Skip(offset).Take(batchSize).ToArray();
+            foreach (var result in EvaluateTargetsInAttemptOrder(assemblies, batch))
+            {
+                results.Add(result);
+                if (FidelityCheck.IsUsefulCorpusSample(result) && ++useful >= cap)
+                    break;
+            }
+        }
+
+        return results;
     }
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrder(
