@@ -358,6 +358,36 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildUnsafetyFindingTransitions_AddedOperation_IsNativeAddedPair()
+    {
+        var rows = BuildUnsafetyFindingTransitions("AddsUnsafe");
+
+        var added = Assert.Single(rows, row =>
+            row.Transition == "PairFinding.Added"
+            && row.Target.Contains("StackAlloc", StringComparison.Ordinal));
+        Assert.Equal("analysis.unsafety", added.Finding);
+        Assert.Contains("AddsUnsafe", added.Target);
+        Assert.Equal("absent", added.Old);
+        Assert.Equal("present", added.New);
+    }
+
+    [Fact]
+    public void BuildUnsafetyFindingTransitions_RetainsPresentOperations()
+    {
+        var rows = BuildUnsafetyFindingTransitions("MethodToken");
+
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Present"
+            && row.Target.Contains("CallIndirect", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildUnsafetyFindingTransitions_EmptyCensuses_HaveNoPair()
+    {
+        Assert.Empty(BuildUnsafetyFindingTransitions("Stable"));
+    }
+
+    [Fact]
     public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
     {
         var view = DiffOutputFormatter.BuildFindingTransitionsView(
@@ -564,6 +594,28 @@ public class DiffCommandTests
             new DiffOptions
             {
                 Finding = AnalysisFindings.CallSiteDescriptor.Id,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = [member],
+            });
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildUnsafetyFindingTransitions(
+        string member)
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+        return DiffCommand.BuildUnsafetyFindingTransitions(
+            [oldPath],
+            [newPath],
+            oldSurface,
+            newSurface,
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = AnalysisFindings.UnsafetyDescriptor.Id,
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = [member],
             });
@@ -1398,6 +1450,38 @@ public class DiffCommandTests
             && transition.GetProperty("finding").GetString() == "analysis.call-site"
             && transition.GetProperty("target").GetString()!.Contains(
                 ".Add(",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnsafetyFindingTransitions_ComposesJson()
+    {
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                JsonOutput = true,
+                Finding = AnalysisFindings.UnsafetyDescriptor.Id,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = ["AddsUnsafe"]
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.False(document.RootElement.TryGetProperty("changes", out _));
+        var transitions = document.RootElement
+            .GetProperty("finding_transitions")
+            .EnumerateArray()
+            .ToList();
+        Assert.Contains(transitions, transition =>
+            transition.GetProperty("transition").GetString() == "PairFinding.Added"
+            && transition.GetProperty("finding").GetString() == "analysis.unsafety"
+            && transition.GetProperty("target").GetString()!.Contains(
+                "StackAlloc",
                 StringComparison.Ordinal));
     }
 

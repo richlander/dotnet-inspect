@@ -109,6 +109,19 @@ Here `PairFinding.Added` confirms a new call-site occurrence in `Parse`.
 or changed dispatch/opcode facets. The caller method is the target; the rows
 identify its callees.
 
+To confirm a definite unsafe-operation boundary in the same method:
+
+```bash
+dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.unsafety
+```
+
+`PairFinding.Added` confirms that an unsafe operation was introduced;
+`Present` and `Removed` distinguish persistence from disappearance. Operation
+kind and producer detail establish identity, while IL offsets remain local to
+each endpoint.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |

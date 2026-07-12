@@ -180,16 +180,21 @@ IL-ordered `Finding<DirectCall>` census. Research retains the complete native
 comparison only when requested, so `Present` remains observable without
 increasing the ordinary Body Signals result.
 
+Definite unsafe IL operations are the third end-to-end Analysis proof.
+`diff --finding analysis.unsafety` consumes the same IL-ordered
+`Finding<UnsafetyOccurrence>` census used by Research's safety projection.
+Allocation, call-site, and unsafety comparisons share one descriptor-keyed
+retention container; new descriptors do not add parallel flags, lists,
+constructors, or merge branches.
+
 Decompiler fidelity uses the same retention rule in the single-version product
 path. The member command's opt-in `Fidelity Causes` section keeps the complete
 `FindingInspection<DecompilerFidelityCause>` through member acquisition and
 projects it only when rendering. A complete empty census, absent method body,
 and failed inspection therefore remain distinct product outcomes.
 
-The remaining Analysis body observations preserve their native families:
+The remaining Analysis safety observations preserve their native families:
 
-- definite unsafe IL operations use an IL-ordered
-  `Finding<UnsafetyOccurrence>` census;
 - declaration, signature, local, call, and opcode evidence use an identity
   multiset of `Finding<UnsafeEvidence>` values because some observations have no
   IL coordinate.

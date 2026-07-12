@@ -1455,6 +1455,29 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_FindingTransitions_ConfirmsUnsafetyIntroduction()
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", "DiffFixtureSample.DiffSample",
+            "-m", "AddsUnsafe",
+            "--finding", "analysis.unsafety",
+            "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("PairFinding.Added", output);
+        Assert.Contains("analysis.unsafety", output);
+        Assert.Contains("AddsUnsafe", output);
+        Assert.Contains("StackAlloc", output);
+        Assert.Contains("absent", output);
+        Assert.Contains("present", output);
+    }
+
+    [Fact]
     public async Task Diff_FindingTransitions_AllocationRequiresOneMemberBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1482,6 +1505,23 @@ public class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             "--finding analysis.call-site requires exactly one --member",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Diff_FindingTransitions_UnsafetyRequiresOneMemberBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "--finding", "analysis.unsafety",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--finding analysis.unsafety requires exactly one --member",
             error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
