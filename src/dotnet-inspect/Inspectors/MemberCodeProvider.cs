@@ -138,7 +138,7 @@ internal static class MemberCodeProvider
                         CostOverlay: request.CostOverlay,
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts));
-                decompileTrace = researchProjection.Trace;
+                decompileTrace = researchProjection.Trace ?? decompileTrace;
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
