@@ -122,6 +122,22 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_EscapesQualifiedKeywordParameterTypesInCompatibilitySignatures()
+    {
+        var surface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+
+        var method = Assert.Single(surface.Members, member => member.Name == "QualifiedKeyword");
+
+        Assert.Contains(
+            "MetadataDeclarationQueryFixtures.@namespace @class",
+            method.Signature,
+            StringComparison.Ordinal);
+        Assert.Contains("\".namespace\"", method.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SelfTypeSignature_IncludesDeclaringGenericParameters()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.Container<>.Row<>));
@@ -271,6 +287,8 @@ public class MetadataDeclarationQueryFixtures
 
     public int @event = 1;
 
+    public void QualifiedKeyword(@namespace @class, string text = ".namespace") { }
+
     public volatile int VolatileField;
 
     public int PlainField;
@@ -289,5 +307,9 @@ public class MetadataDeclarationQueryFixtures
         public class Row<U>
         {
         }
+    }
+
+    public class @namespace
+    {
     }
 }

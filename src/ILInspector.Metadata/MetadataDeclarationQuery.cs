@@ -766,7 +766,74 @@ public static class MetadataDeclarationQuery
         var declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{head} = {parameter.DefaultValueText}"
             : head;
-        return attributes + declaration;
+        return EscapeCompatibilityQualifiedKeywordSegments(attributes + declaration);
+    }
+
+    // ApiMember.Signature is a legacy compatibility string. Keep its qualified
+    // keyword escaping local rather than restoring declaration ownership to Metadata.
+    static string EscapeCompatibilityQualifiedKeywordSegments(string signature)
+    {
+        var builder = new StringBuilder(signature.Length);
+        bool inString = false;
+        bool inChar = false;
+        bool escapedCharacter = false;
+        for (int index = 0; index < signature.Length; index++)
+        {
+            char character = signature[index];
+            builder.Append(character);
+            if (inString || inChar)
+            {
+                if (escapedCharacter)
+                {
+                    escapedCharacter = false;
+                    continue;
+                }
+                if (character == '\\')
+                {
+                    escapedCharacter = true;
+                    continue;
+                }
+                if (inString && character == '"')
+                    inString = false;
+                else if (inChar && character == '\'')
+                    inChar = false;
+                continue;
+            }
+            if (character == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (character == '\'')
+            {
+                inChar = true;
+                continue;
+            }
+            if (character != '.'
+                || index + 1 >= signature.Length
+                || signature[index + 1] == '@'
+                || !(char.IsLetter(signature[index + 1]) || signature[index + 1] == '_'))
+            {
+                continue;
+            }
+
+            int start = index + 1;
+            int end = start + 1;
+            while (end < signature.Length
+                   && (char.IsLetterOrDigit(signature[end]) || signature[end] == '_'))
+            {
+                end++;
+            }
+
+            string segment = signature[start..end];
+            string escaped = EscapeIdentifier(segment);
+            if (escaped != segment)
+            {
+                builder.Append(escaped);
+                index = end - 1;
+            }
+        }
+        return builder.ToString();
     }
 
     static string AccessorText(ApiAccessor accessor)
