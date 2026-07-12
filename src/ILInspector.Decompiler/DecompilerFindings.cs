@@ -79,7 +79,9 @@ public static class DecompilerFindings
     public static string GetFidelityCauseIdentityKey(DecompilerFidelityCause cause)
     {
         ArgumentNullException.ThrowIfNull(cause);
-        return $"{cause.Code}|{(int)cause.Location.Kind}";
+        // Fidelity cause matching is an ordered stream keyed by the stable DEC#### cause code.
+        // Location kind/offset/slot are version-local coordinates, not correspondence identity.
+        return cause.Code;
     }
 
     static bool IsOperationFailure(string id)
@@ -114,10 +116,12 @@ public static class DecompilerFindings
     static bool SameSemanticFacets(
         DecompilerFidelityCause oldCause,
         DecompilerFidelityCause newCause)
+        // Deliberate whitelist: only stable producer-owned classification facets can turn a
+        // matched cause into Changed. Human prose, CLR implementation type names, rendered node
+        // text, and location coordinates are diagnostic/display details and may drift without
+        // changing the logical fidelity cause.
         => oldCause.Code == newCause.Code
-            && oldCause.NodeKind == newCause.NodeKind
-            && oldCause.Discriminator == newCause.Discriminator
-            && oldCause.Reason == newCause.Reason;
+            && oldCause.Discriminator == newCause.Discriminator;
 
     static string DescribeFacetChanges(
         DecompilerFidelityCause oldCause,
@@ -125,9 +129,7 @@ public static class DecompilerFindings
     {
         var changes = new List<string>();
         AddChange(changes, "code", oldCause.Code, newCause.Code);
-        AddChange(changes, "node kind", oldCause.NodeKind, newCause.NodeKind);
         AddChange(changes, "discriminator", oldCause.Discriminator, newCause.Discriminator);
-        AddChange(changes, "reason", oldCause.Reason, newCause.Reason);
         return changes.Count == 0 ? "other fidelity-cause facets changed" : string.Join("; ", changes);
     }
 

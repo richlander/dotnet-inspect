@@ -136,7 +136,26 @@ public class DecompilerFindingsTests
     }
 
     [Fact]
-    public void Compare_CauseDetailChange_IsChanged()
+    public void Compare_LocationKindOnlyChange_IsExact()
+    {
+        var oldFunction = Function(new Continue(), blockOffset: 0x20);
+        var newFunction = Function(new Continue(), blockOffset: -10);
+
+        var comparison = CompleteComparison(
+            DecompilerFindings.CompareFidelityCauses(oldFunction, newFunction, Subject));
+
+        Assert.True(comparison.IsExact);
+        var present = Assert.Single(comparison.Pairs) switch
+        {
+            PairFinding<DecompilerFidelityCause>.Present value => value,
+            _ => throw new InvalidOperationException("Expected a present pair."),
+        };
+        Assert.Equal(DecompilerFidelityLocationKind.IlOffset, present.Old.Payload.Location.Kind);
+        Assert.Equal(DecompilerFidelityLocationKind.Unknown, present.New.Payload.Location.Kind);
+    }
+
+    [Fact]
+    public void Compare_ProseOnlyCauseDetailChange_IsExact()
     {
         var oldFunction = Function(
             new Return(new UnsupportedNode(0x05, "calli", "unsupported call site")));
@@ -146,13 +165,43 @@ public class DecompilerFindingsTests
         var comparison = CompleteComparison(
             DecompilerFindings.CompareFidelityCauses(oldFunction, newFunction, Subject));
 
+        Assert.True(comparison.IsExact);
+        Assert.All(comparison.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
+    }
+
+    [Fact]
+    public void Compare_DiscriminatorChange_IsChanged()
+    {
+        var oldFunction = Function(
+            new Return(new UnsupportedNode(0x05, "calli", "unsupported call site")));
+        var newFunction = Function(
+            new Return(new UnsupportedNode(0x05, "jmp", "unsupported call site")));
+
+        var comparison = CompleteComparison(
+            DecompilerFindings.CompareFidelityCauses(oldFunction, newFunction, Subject));
+
         var changed = Assert.Single(comparison.Pairs) switch
         {
             PairFinding<DecompilerFidelityCause>.Changed value => value,
             _ => throw new InvalidOperationException("Expected a changed pair."),
         };
-        Assert.Contains("reason", changed.Detail);
+        Assert.Contains("discriminator", changed.Detail);
         Assert.False(comparison.IsExact);
+    }
+
+    [Fact]
+    public void GetFidelityCauseIdentityKey_UsesStableCodeOnly()
+    {
+        var cause = new DecompilerFidelityCause(
+            DiagnosticIds.UnverifiedContinue,
+            DecompilerFidelityLocation.AtIlOffset(0x20),
+            nameof(Continue),
+            "continue;",
+            "residual continue is not currently proven opcode-exact");
+
+        Assert.Equal(
+            DiagnosticIds.UnverifiedContinue,
+            DecompilerFindings.GetFidelityCauseIdentityKey(cause));
     }
 
     [Fact]
