@@ -1552,8 +1552,17 @@ public class TypeSourceComposerUnionTests
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "TernaryGuard"));
         Assert.Equal("return pet is Cat || pet is Dog;",
             RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog"));
-        Assert.Equal("return pet is not null && pet is not Cat;",
-            RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat"));
+        var classIsNotCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat");
+        // .NET 11 previews have emitted two different class-union not-pattern
+        // lowerings. Assert the spelling that matches the imported IL shape.
+        if (UsesNegatingStackSlotClassUnionTypeTest(assembly.Path))
+        {
+            Assert.Equal("return !(pet is not null && pet is Cat);", classIsNotCat);
+        }
+        else
+        {
+            Assert.Equal("return pet is not null && pet is not Cat;", classIsNotCat);
+        }
         Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotCat"));
         var classValueNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueIsNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueNotNamedCat);
@@ -1764,6 +1773,54 @@ public class TypeSourceComposerUnionTests
         Assert.NotNull(result.Output);
         return result.Output!.Trim();
     }
+
+    static bool UsesNegatingStackSlotClassUnionTypeTest(string assemblyPath)
+    {
+        using var source = MetadataSource.Open(assemblyPath);
+        var function = IrImporter.Import(source, "UnionFixtures.Matcher", "IsNotCat");
+        Assert.NotNull(function);
+        var blocks = function.Body.Blocks;
+        if (blocks is not [var head, var testArm, var nullArm, var merge]
+            || head.Children is not [ConditionalBranch nullBranch]
+            || nullBranch.Condition is not LogicalNot { Operand: LoadArgument { Name: "pet" } }
+            || testArm.Children is not [StoreStackSlot conditionStore, Branch branch]
+            || nullArm.Children is not [StoreStackSlot nullStore]
+            || merge.Children is not [Return ret]
+            || nullBranch.TargetOffset != nullArm.StartOffset
+            || branch.TargetOffset != merge.StartOffset
+            || conditionStore.Slot != nullStore.Slot
+            || nullStore.Value is not Constant { Value: 0 or false }
+            || !IsCatValueTest(conditionStore.Value)
+            || ret.Value is not Comparison { Kind: ComparisonKind.Equal } equal
+            || !IsSlotZeroComparison(equal, conditionStore.Slot))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool IsCatValueTest(IrExpression expression)
+        => expression is Comparison { Kind: ComparisonKind.GreaterThan, IsUnsigned: true } comparison
+            && comparison.Left is IsInstance { Type.Name: "Cat", Operand: var operand }
+            && comparison.Right is Constant { Value: null }
+            && IsPetValueAccess(operand);
+
+    static bool IsPetValueAccess(IrExpression expression)
+        => expression switch
+        {
+            Call { Callee.Name: "get_Value", Arguments: [LoadArgument { Name: "pet" }] } => true,
+            LoadProperty { PropertyName: "Value", Instance: LoadArgument { Name: "pet" } } => true,
+            _ => false,
+        };
+
+    static bool IsSlotZeroComparison(Comparison comparison, int slot)
+        => comparison.Left is LoadStackSlot { Slot: var leftSlot }
+            && leftSlot == slot
+            && comparison.Right is Constant { Value: 0 }
+        || comparison.Right is LoadStackSlot { Slot: var rightSlot }
+            && rightSlot == slot
+            && comparison.Left is Constant { Value: 0 };
 
     static async Task AssertSdkPreviewBuilds(string source)
     {
