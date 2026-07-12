@@ -157,6 +157,36 @@ public sealed class TimelineCommandTests
         Assert.Equal("Failed", Assert.Single(view.Transitions!).Transition);
     }
 
+    [Fact]
+    public void EmptyOwnedCensus_PreservesSubjectAvailabilityTransitions()
+    {
+        var vector = Vector("1.0.0", "1.0.1", "1.0.2");
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [
+                Evaluation(vector, 0, Surface()),
+                Evaluation(vector, 1, Surface(Type("Widget"))),
+                Evaluation(vector, 2, Surface()),
+            ],
+            Sections());
+
+        Assert.Collection(
+            view.Transitions!,
+            row =>
+            {
+                Assert.Equal("SubjectAvailable", row.Transition);
+                Assert.Equal("Adjacent", row.Span);
+            },
+            row =>
+            {
+                Assert.Equal("SubjectUnavailable", row.Transition);
+                Assert.Equal("Adjacent", row.Span);
+            });
+    }
+
     static TimelineCommand.TimelineEvaluation Evaluation(
         PackageVersionVector vector,
         int position,

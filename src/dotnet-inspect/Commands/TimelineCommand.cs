@@ -180,6 +180,45 @@ public static class TimelineCommand
                 continue;
             }
 
+            var oldInspection = Inspect(oldEvaluation.Surface, descriptor, typeFullName);
+            var newInspection = Inspect(newEvaluation.Surface, descriptor, typeFullName);
+            if (oldInspection is InspectionProjection.Failed
+                || newInspection is InspectionProjection.Failed)
+            {
+                var failure = oldInspection as InspectionProjection.Failed
+                    ?? (InspectionProjection.Failed)newInspection;
+                rows.Add(new TimelineTransitionRow(
+                    oldEvaluation.Address.Selector,
+                    newEvaluation.Address.Selector,
+                    span,
+                    "Failed",
+                    descriptor,
+                    typeFullName,
+                    failure.Error));
+                continue;
+            }
+
+            string? subjectTransition = (oldInspection, newInspection) switch
+            {
+                (InspectionProjection.Absent, InspectionProjection.Complete) => "SubjectAvailable",
+                (InspectionProjection.Complete, InspectionProjection.Absent) => "SubjectUnavailable",
+                _ => null,
+            };
+            if (subjectTransition is not null)
+            {
+                string detail = subjectTransition == "SubjectAvailable"
+                    ? "The focused type became available to this census."
+                    : "The focused type ceased to be available to this census.";
+                rows.Add(new TimelineTransitionRow(
+                    oldEvaluation.Address.Selector,
+                    newEvaluation.Address.Selector,
+                    span,
+                    subjectTransition,
+                    descriptor,
+                    typeFullName,
+                    exact ? detail : AppendGapQualification(detail)));
+            }
+
             var pairs = Compare(
                 oldEvaluation.Surface,
                 newEvaluation.Surface,
@@ -199,7 +238,7 @@ public static class TimelineCommand
             }
 
             var changes = pairs.Where(pair => pair.Kind != PairKind.Present).ToArray();
-            if (changes.Length == 0)
+            if (changes.Length == 0 && subjectTransition is null)
             {
                 rows.Add(new TimelineTransitionRow(
                     oldEvaluation.Address.Selector,
