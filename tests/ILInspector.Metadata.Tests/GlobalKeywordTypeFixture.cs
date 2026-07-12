@@ -8,6 +8,11 @@ public enum @event
 }
 
 [System.AttributeUsage(System.AttributeTargets.Parameter)]
-public sealed class GlobalTypeAttribute(System.Type type, @event mode) : System.Attribute
+public sealed class GlobalTypeAttribute : System.Attribute
 {
+    public GlobalTypeAttribute(System.Type type, @event mode)
+    {
+        _ = type;
+        _ = mode;
+    }
 }
