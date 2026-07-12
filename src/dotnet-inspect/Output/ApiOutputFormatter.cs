@@ -1367,11 +1367,9 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var evidenceByMember = IndexSession().BodyIndex.GetUnsafeEvidenceByMember();
-            var unsafeEvidence = evidenceByMember.TryGetValue(unsafeToken, out var methodEvidence)
-                ? methodEvidence
-                : ImmutableArray<Analysis.UnsafeEvidence>.Empty;
-            var evidence = unsafeEvidence
+            var evidence = InspectSafetyFindings(IndexSession().BodyIndex, unsafeToken)
+                .Evidence
+                .Select(static finding => finding.Payload)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
                 .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
                 .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
@@ -1429,10 +1427,10 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
+                var safety = InspectSafetyFindings(bodySession.BodyIndex, semanticToken);
                 var rows = Analysis.SemanticFactProjection.SafetyFacts(
-                        bodySession.BodyIndex.GetUnsafeEvidenceByMember(),
-                        bodySession.BodyIndex.GetUnsafetyOccurrences(),
-                        semanticToken)
+                        safety.Evidence,
+                        safety.Operations)
                     .Select(fact => ToSafetyFactRow(fact, includeMember: false))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.SafetyFacts))
@@ -1686,6 +1684,32 @@ public static class ApiOutputFormatter
     static bool IsUnsafeApiMemberEvidence(Analysis.UnsafeEvidence evidence)
         => evidence is { Reason: "Unsafe API member", Kind: "api" };
 
+    static SafetyFindingCensus InspectSafetyFindings(
+        Analysis.LibraryBodyIndex index,
+        int methodToken)
+    {
+        index.GetUnsafeEvidenceByMember().TryGetValue(methodToken, out var evidence);
+        index.GetUnsafetyOccurrences().TryGetValue(methodToken, out var operations);
+        evidence = evidence.IsDefault ? [] : evidence;
+        operations = operations.IsDefault ? [] : operations;
+
+        var method = index.Methods.FirstOrDefault(candidate => candidate.MetadataToken == methodToken)
+            ?? operations.FirstOrDefault()?.Method
+            ?? evidence.FirstOrDefault()?.Member;
+        if (method is null)
+            return new([], []);
+
+        var subject = FindingSubject(method);
+        return new(
+            Analysis.AnalysisFindings.InspectUnsafeEvidence(evidence, subject),
+            Analysis.AnalysisFindings.InspectUnsafety(operations, subject));
+    }
+
+    static FindingSubject FindingSubject(Analysis.MethodIdentity method)
+        => new(
+            $"{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
+            FormatMethod(method));
+
     static string FormatCallee(Analysis.MemberRef member)
     {
         if (member.Kind == Analysis.MemberKind.Unsupported)
@@ -1828,6 +1852,15 @@ public static class ApiOutputFormatter
         var rows = index
             .UnsafeEvidence
             .Where(evidence => SameType(evidence.Member.DeclaringType, type))
+            .GroupBy(evidence => evidence.Member.MetadataToken)
+            .SelectMany(group =>
+            {
+                var method = group.First().Member;
+                return Analysis.AnalysisFindings.InspectUnsafeEvidence(
+                    group,
+                    FindingSubject(method));
+            })
+            .Select(static finding => finding.Payload)
             .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
             .ThenBy(evidence => evidence.ILOffset ?? -1)
             .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
@@ -1912,13 +1945,14 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
-            var unsafeEvidenceByMember = index.GetUnsafeEvidenceByMember();
-            var unsafetyOccurrences = index.GetUnsafetyOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.SafetyFacts(
-                    unsafeEvidenceByMember,
-                    unsafetyOccurrences,
-                    token))
+                .SelectMany(token =>
+                {
+                    var safety = InspectSafetyFindings(index, token);
+                    return Analysis.SemanticFactProjection.SafetyFacts(
+                        safety.Evidence,
+                        safety.Operations);
+                })
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.SafetyFacts))
@@ -2113,6 +2147,10 @@ public static class ApiOutputFormatter
 
     static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
+
+    readonly record struct SafetyFindingCensus(
+        ImmutableArray<Finding<Analysis.UnsafeEvidence>> Evidence,
+        ImmutableArray<Finding<Analysis.UnsafetyOccurrence>> Operations);
 
     static CallerSiteRow CreateCallerRow(string source, Analysis.DirectCall call)
         => new(

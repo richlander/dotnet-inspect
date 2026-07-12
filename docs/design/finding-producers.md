@@ -196,6 +196,7 @@ The remaining Analysis body observations preserve their native families:
 
 Safety presentation may suppress broader evidence already covered by a definite
 operation at the same IL offset. That is consumer projection policy, not a reason
-for either producer to return an incomplete census. `BodySignalDiff` composes the
-two comparisons and retains only its compatibility count and offset-attribution
-projection; it does not own another matcher.
+for either producer to return an incomplete census. The CLI consumes both
+censuses directly for safety sections. Research composes their native
+comparisons and retains only its compatibility count and offset-attribution
+projection; neither consumer owns another matcher.
