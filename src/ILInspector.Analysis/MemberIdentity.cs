@@ -71,7 +71,60 @@ public sealed record MethodIdentity(
     bool IsExtension = false,
     CallerUnsafeMode CallerUnsafeMode = CallerUnsafeMode.None,
     int GenericArity = 0,
-    ImmutableArray<string> GenericParameterNames = default);
+    ImmutableArray<string> GenericParameterNames = default)
+{
+    ImmutableArray<TypeRef> _parameterTypes
+        = ImmutableArrayValueEquality.RequireInitialized(ParameterTypes, nameof(ParameterTypes));
+    ImmutableArray<string> _genericParameterNames
+        = ImmutableArrayValueEquality.EmptyIfDefault(GenericParameterNames, nameof(GenericParameterNames));
+
+    public ImmutableArray<TypeRef> ParameterTypes
+    {
+        get => _parameterTypes;
+        init => _parameterTypes = ImmutableArrayValueEquality.RequireInitialized(value, nameof(ParameterTypes));
+    }
+
+    public ImmutableArray<string> GenericParameterNames
+    {
+        get => _genericParameterNames;
+        init => _genericParameterNames = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(GenericParameterNames));
+    }
+
+    public bool Equals(MethodIdentity? other)
+        => other is not null
+            && AssemblyName == other.AssemblyName
+            && ModuleVersionId == other.ModuleVersionId
+            && Equals(DeclaringType, other.DeclaringType)
+            && Name == other.Name
+            && ImmutableArrayValueEquality.SequenceEqual(ParameterTypes, other.ParameterTypes)
+            && Equals(ReturnType, other.ReturnType)
+            && MetadataToken == other.MetadataToken
+            && IsStatic == other.IsStatic
+            && IsExtension == other.IsExtension
+            && CallerUnsafeMode == other.CallerUnsafeMode
+            && GenericArity == other.GenericArity
+            && ImmutableArrayValueEquality.SequenceEqual(
+                GenericParameterNames,
+                other.GenericParameterNames);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(AssemblyName);
+        hash.Add(ModuleVersionId);
+        hash.Add(DeclaringType);
+        hash.Add(Name);
+        ImmutableArrayValueEquality.AddToHash(ref hash, ParameterTypes);
+        hash.Add(ReturnType);
+        hash.Add(MetadataToken);
+        hash.Add(IsStatic);
+        hash.Add(IsExtension);
+        hash.Add(CallerUnsafeMode);
+        hash.Add(GenericArity);
+        ImmutableArrayValueEquality.AddToHash(ref hash, GenericParameterNames);
+        return hash.ToHashCode();
+    }
+}
 
 public sealed record MemberRef(
     TypeRef DeclaringType,
@@ -80,7 +133,22 @@ public sealed record MemberRef(
     TypeRef ReturnType,
     MemberKind Kind)
 {
-    public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
+    ImmutableArray<TypeRef> _parameterTypes
+        = ImmutableArrayValueEquality.RequireInitialized(ParameterTypes, nameof(ParameterTypes));
+    ImmutableArray<TypeRef> _typeArguments = [];
+    ImmutableArray<TypeRef> _openParameterTypes = [];
+
+    public ImmutableArray<TypeRef> ParameterTypes
+    {
+        get => _parameterTypes;
+        init => _parameterTypes = ImmutableArrayValueEquality.RequireInitialized(value, nameof(ParameterTypes));
+    }
+
+    public ImmutableArray<TypeRef> TypeArguments
+    {
+        get => _typeArguments;
+        init => _typeArguments = ImmutableArrayValueEquality.RequireInitialized(value, nameof(TypeArguments));
+    }
 
     /// <summary>
     /// True when the method has a `this` parameter (instance call), so a call site pops one
@@ -107,7 +175,11 @@ public sealed record MemberRef(
     /// separately captured, in which case <see cref="OpenSignatureParameters"/> falls
     /// back to <see cref="ParameterTypes"/>.
     /// </summary>
-    public ImmutableArray<TypeRef> OpenParameterTypes { get; init; } = [];
+    public ImmutableArray<TypeRef> OpenParameterTypes
+    {
+        get => _openParameterTypes;
+        init => _openParameterTypes = ImmutableArrayValueEquality.RequireInitialized(value, nameof(OpenParameterTypes));
+    }
 
     public ImmutableArray<TypeRef> OpenSignatureParameters
         => OpenParameterTypes.IsDefaultOrEmpty ? ParameterTypes : OpenParameterTypes;
@@ -122,8 +194,74 @@ public sealed record MemberRef(
 
     public TypeRef OpenSignatureReturn => OpenReturnType ?? ReturnType;
 
+    public bool Equals(MemberRef? other)
+        => other is not null
+            && Equals(DeclaringType, other.DeclaringType)
+            && Name == other.Name
+            && ImmutableArrayValueEquality.SequenceEqual(ParameterTypes, other.ParameterTypes)
+            && Equals(ReturnType, other.ReturnType)
+            && Kind == other.Kind
+            && ImmutableArrayValueEquality.SequenceEqual(TypeArguments, other.TypeArguments)
+            && HasThis == other.HasThis
+            && SignatureHeader == other.SignatureHeader
+            && GenericArity == other.GenericArity
+            && ImmutableArrayValueEquality.SequenceEqual(OpenParameterTypes, other.OpenParameterTypes)
+            && Equals(OpenReturnType, other.OpenReturnType);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(DeclaringType);
+        hash.Add(Name);
+        ImmutableArrayValueEquality.AddToHash(ref hash, ParameterTypes);
+        hash.Add(ReturnType);
+        hash.Add(Kind);
+        ImmutableArrayValueEquality.AddToHash(ref hash, TypeArguments);
+        hash.Add(HasThis);
+        hash.Add(SignatureHeader);
+        hash.Add(GenericArity);
+        ImmutableArrayValueEquality.AddToHash(ref hash, OpenParameterTypes);
+        hash.Add(OpenReturnType);
+        return hash.ToHashCode();
+    }
+
     public static MemberRef Unsupported(string reason)
         => new(TypeRef.Unsupported(reason), "?", [], TypeRef.Unsupported("unknown return"), MemberKind.Unsupported);
+}
+
+static class ImmutableArrayValueEquality
+{
+    public static ImmutableArray<T> RequireInitialized<T>(
+        ImmutableArray<T> values,
+        string parameterName)
+        where T : notnull
+    {
+        if (values.IsDefault)
+            throw new ArgumentException("Collection must be initialized.", parameterName);
+        if (values.Any(value => value is null))
+            throw new ArgumentException("Collection must not contain null values.", parameterName);
+        return values;
+    }
+
+    public static ImmutableArray<T> EmptyIfDefault<T>(
+        ImmutableArray<T> values,
+        string parameterName)
+        where T : notnull
+        => RequireInitialized(values.IsDefault ? [] : values, parameterName);
+
+    public static bool SequenceEqual<T>(
+        ImmutableArray<T> left,
+        ImmutableArray<T> right)
+        => left.SequenceEqual(right, EqualityComparer<T>.Default);
+
+    public static void AddToHash<T>(
+        ref HashCode hash,
+        ImmutableArray<T> values)
+    {
+        hash.Add(values.Length);
+        foreach (var value in values)
+            hash.Add(value, EqualityComparer<T>.Default);
+    }
 }
 
 /// <summary>This IL instruction definitely references this metadata token.</summary>

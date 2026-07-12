@@ -13,6 +13,42 @@ public sealed record FindingEquivalence(
     ImmutableHashSet<PairKind> AllowedKinds,
     ImmutableHashSet<FindingDifferenceKind> AllowedDifferenceKinds)
 {
+    ImmutableHashSet<PairKind> _allowedKinds
+        = Normalize(AllowedKinds, nameof(AllowedKinds));
+    ImmutableHashSet<FindingDifferenceKind> _allowedDifferenceKinds
+        = Normalize(AllowedDifferenceKinds, nameof(AllowedDifferenceKinds));
+
+    public ImmutableHashSet<PairKind> AllowedKinds
+    {
+        get => _allowedKinds;
+        init => _allowedKinds = Normalize(value, nameof(AllowedKinds));
+    }
+
+    public ImmutableHashSet<FindingDifferenceKind> AllowedDifferenceKinds
+    {
+        get => _allowedDifferenceKinds;
+        init => _allowedDifferenceKinds = Normalize(value, nameof(AllowedDifferenceKinds));
+    }
+
+    public bool Equals(FindingEquivalence? other)
+        => other is not null
+            && FindingValueEquality.SetEquals(AllowedKinds, other.AllowedKinds)
+            && FindingValueEquality.SetEquals(
+                AllowedDifferenceKinds,
+                other.AllowedDifferenceKinds);
+
+    public override int GetHashCode()
+        => HashCode.Combine(
+            FindingValueEquality.SetHashCode(AllowedKinds),
+            FindingValueEquality.SetHashCode(AllowedDifferenceKinds));
+
+    static ImmutableHashSet<T> Normalize<T>(
+        ImmutableHashSet<T> values,
+        string parameterName)
+        where T : notnull
+        => (values ?? throw new ArgumentNullException(parameterName))
+            .WithComparer(EqualityComparer<T>.Default);
+
     public bool IsEquivalent(IReadOnlyList<IPairFinding> pairs)
     {
         ArgumentNullException.ThrowIfNull(pairs);

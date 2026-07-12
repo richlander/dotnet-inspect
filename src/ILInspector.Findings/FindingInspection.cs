@@ -50,8 +50,20 @@ public sealed record FindingInspection<T>
     public sealed record Complete(
         ImmutableArray<Finding<T>> Findings)
     {
-        public ImmutableArray<Finding<T>> Findings { get; }
-            = Validate(Findings);
+        ImmutableArray<Finding<T>> _findings = Validate(Findings);
+
+        public ImmutableArray<Finding<T>> Findings
+        {
+            get => _findings;
+            init => _findings = Validate(value);
+        }
+
+        public bool Equals(Complete? other)
+            => other is not null
+                && FindingValueEquality.SequenceEqual(Findings, other.Findings);
+
+        public override int GetHashCode()
+            => FindingValueEquality.SequenceHashCode(Findings);
 
         static ImmutableArray<Finding<T>> Validate(ImmutableArray<Finding<T>> findings)
         {

@@ -106,6 +106,20 @@ public sealed record FindingComparison<T> where T : notnull
         public ImmutableArray<Finding<T>> OldAtoms => FindingComparison.InspectionAtoms(OldInspection);
         public ImmutableArray<Finding<T>> NewAtoms => FindingComparison.InspectionAtoms(NewInspection);
 
+        public bool Equals(Complete? other)
+            => other is not null
+                && FindingValueEquality.SequenceEqual(Pairs, other.Pairs)
+                && Match == other.Match
+                && OldInspection == other.OldInspection
+                && NewInspection == other.NewInspection;
+
+        public override int GetHashCode()
+            => HashCode.Combine(
+                FindingValueEquality.SequenceHashCode(Pairs),
+                Match,
+                OldInspection,
+                NewInspection);
+
         public bool IsExact =>
             SameInspectionState(OldInspection, NewInspection)
             && FindingEquivalence.Exact.IsEquivalent(Pairs);
