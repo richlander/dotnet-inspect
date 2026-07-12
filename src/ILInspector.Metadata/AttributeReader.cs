@@ -581,7 +581,7 @@ public static class AttributeReader
         // Anything else with an integral value is an enum constant; a cast is
         // always valid. Naming the member is a later refinement.
         _ when value is byte or sbyte or short or ushort or int or uint or long or ulong
-            => $"({type}){value}",
+            => $"({MetadataDeclarationQuery.EscapeCompatibilityTypeKeywords(type)}){value}",
         _ => null,
     };
 
@@ -589,7 +589,9 @@ public static class AttributeReader
     {
         if (typeName.IndexOfAny(['`', '[', ',']) >= 0)
             return null;
-        return $"typeof({typeName.Replace('+', '.')})";
+        string escapedType = MetadataDeclarationQuery.EscapeCompatibilityTypeKeywords(
+            typeName.Replace('+', '.'));
+        return $"typeof({escapedType})";
     }
 
     static string EscapeCharLiteral(char value) => value switch

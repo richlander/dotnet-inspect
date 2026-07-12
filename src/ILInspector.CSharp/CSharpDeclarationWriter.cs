@@ -669,9 +669,11 @@ internal static class CSharpDeclarationWriter
                 end++;
 
             string identifier = type[index..end];
+            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(identifier)
+                && (end == type.Length || type[end] != '.');
             if ((index == 0 || type[index - 1] != '@')
                 && EscapeIdentifier(identifier) != identifier
-                && !IsTypeSyntaxKeyword(identifier))
+                && !isTypeSyntaxKeyword)
             {
                 builder.Append('@');
             }

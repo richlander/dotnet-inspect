@@ -773,7 +773,7 @@ public static class MetadataDeclarationQuery
         return EscapeCompatibilityQualifiedKeywordSegments(attributes + declaration);
     }
 
-    static string EscapeCompatibilityTypeKeywords(string type)
+    internal static string EscapeCompatibilityTypeKeywords(string type)
     {
         var builder = new StringBuilder(type.Length);
         for (int index = 0; index < type.Length;)
@@ -792,9 +792,11 @@ public static class MetadataDeclarationQuery
             }
 
             string identifier = type[index..end];
+            bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(identifier)
+                && (end == type.Length || type[end] != '.');
             if ((index == 0 || type[index - 1] != '@')
                 && EscapeIdentifier(identifier) != identifier
-                && !IsTypeSyntaxKeyword(identifier))
+                && !isTypeSyntaxKeyword)
             {
                 builder.Append('@');
             }
@@ -1062,7 +1064,8 @@ public static class MetadataDeclarationQuery
                 continue;
             }
 
-            return $"({parameterType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+            string escapedType = EscapeCompatibilityTypeKeywords(parameterType);
+            return $"({escapedType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
         }
 
         return "";

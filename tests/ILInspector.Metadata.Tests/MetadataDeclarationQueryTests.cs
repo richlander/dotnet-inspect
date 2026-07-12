@@ -139,8 +139,19 @@ public sealed class MetadataDeclarationQueryTests
         var globalKeyword = Assert.Single(
             surface.Members,
             member => member.Name == "GlobalKeyword");
+        Assert.Contains(
+            "GlobalType(typeof(@class), (@event)1)",
+            globalKeyword.SignatureModel!.Parameters[0].Attributes);
+        Assert.Equal(
+            "(@event)1",
+            globalKeyword.SignatureModel.Parameters[2].DefaultValueText);
         Assert.Contains("@class value", globalKeyword.Signature, StringComparison.Ordinal);
         Assert.Contains("List<@class> values = null", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains("@event mode = (@event)1", globalKeyword.Signature, StringComparison.Ordinal);
+        Assert.Contains(
+            "GlobalType(typeof(@class), (@event)1)",
+            globalKeyword.Signature,
+            StringComparison.Ordinal);
         Assert.Contains("\"a\\\"b.class\"", globalKeyword.Signature, StringComparison.Ordinal);
     }
 
@@ -297,8 +308,9 @@ public class MetadataDeclarationQueryFixtures
     public void QualifiedKeyword(@namespace @class, string text = ".namespace") { }
 
     public void GlobalKeyword(
-        global::@class value,
+        [global::GlobalType(typeof(global::@class), (global::@event)1)] global::@class value,
         List<global::@class>? values = null,
+        global::@event mode = (global::@event)1,
         string text = "a\"b.class")
     {
     }
