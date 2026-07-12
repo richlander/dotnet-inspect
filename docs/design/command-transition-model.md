@@ -8,13 +8,13 @@
 
 That split is useful, but only if transitions between commands follow an
 explicit model. A user should be able to predict whether a new gesture changes
-the subject, the operation, the lens, or only the rendering.
+the subject, the observation, the operation, the lens, or only the rendering.
 
 The governing rule is:
 
 > One transition should change one axis. Change commands when subject identity
-> or operation arity changes; use options and sections for context, lenses, and
-> projection.
+> or operation arity changes; use options and sections for context,
+> observations, lenses, and projection.
 
 Related docs:
 
@@ -30,8 +30,9 @@ Related docs:
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
 | Focus / zoom | What structural subject is being addressed? | package artifact, library, type, member, member coordinate | Noun-first inspection command or an explicit focus selector on an operation-first command |
+| Observation / census | Which identities or facts are measured under that focus? | subject presence, child-member census, allocation sites, call sites | Section or producer descriptor such as `--finding` |
 | Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Top-level operation when the acquisition lifecycle and outcome shape change |
-| Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, Findings, versions | `-S`, descriptor selectors, or focused mode options |
+| Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, versions | `-S` or focused mode options |
 | Traversal policy | Which addresses are evaluated, and in what order? | `--at`, endpoints, caller-directed probes, next-probe recommendation | Operation-owned options; never implicit payload acquisition |
 | Projection / rendering | How is the same result shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
 
@@ -56,6 +57,23 @@ An IL offset is a coordinate within a member, not a standalone command today.
 `Instruction Context` render it. Raw `IL` is a representation lens over a
 member. The coordinate and the representation therefore occupy different axes.
 
+Focus is also not the identity family emitted by an observation. A producer may
+measure the focused subject itself or a collection structurally owned by that
+subject:
+
+| Focus | Observation census | Pairwise question |
+| --- | --- | --- |
+| Type `T` | Type identity for `T` | Was `T` added or removed? |
+| Type `T` | Member identities declared by `T` | Which members of `T` were added or removed? |
+| Member `M` | Member identity for `M` | Was this particular `M` added or removed? |
+
+The first two questions retain type focus and differ by observation producer.
+Dropping to member focus answers the third question; it cannot replace the
+type-scoped member census. A child-identity row is therefore not evidence that
+the command should have zoomed to that child. Focus defines the producer's
+scope and input subject; the producer defines the Finding identity and payload
+family within that scope.
+
 ## When a command transition is justified
 
 A command transition is justified when either of these changes:
@@ -67,10 +85,12 @@ A command transition is justified when either of these changes:
    Unary inspection, pairwise comparison, and N-address correlation have
    different failure semantics, backpressure, and result shapes.
 
-Keep the current command when only a lens, section, traversal choice, or output
-projection changes. `member -S IL` does not become an `il` command; it is the
-same member under another representation. `--json` does not become a command;
-it is another writer over the same result.
+Keep the current command when only an observation producer, lens, section,
+traversal choice, or output projection changes. A type-presence census and a
+type-scoped member census can both participate in `diff --type T`;
+`member -S IL` does not become an `il` command because it is the same member
+under another representation. `--json` does not become a command; it is another
+writer over the same result.
 
 An execution lifecycle is different when at least one of these is true:
 
@@ -277,6 +297,9 @@ package -> library -> type -> member -> member coordinate
 The user changes what structural thing is being addressed. Identity and schema
 change; the operation remains unary inspection. The final step is expressed
 today with a coordinate option such as `--il-offset`, not an `offset` command.
+Zooming to a member means selecting one member as the input subject. It does not
+mean "observe the members owned by this type"; that remains a type-focused
+collection census.
 
 ### Operation / arity
 
@@ -286,18 +309,19 @@ inspect -> diff -> timeline
 
 The user keeps the source and structural focus but changes the question:
 
-- inspect: what is true at this address?
-- diff: what transition exists between these two addresses?
-- timeline: what is known across this ordered address space?
+- inspect: what does the selected observation report at this address?
+- diff: how does the selected observation transition between these addresses?
+- timeline: what is known for the selected observation across this ordered
+  address space?
 
-A workflow may move on either axis, but one command transition should not hide
-both. For example:
+A workflow may move on any axis, but one command transition should not hide
+multiple changes. For example:
 
 ```text
-type at #6
-  -> member at #6       structural zoom
-  -> timeline member    operation change, same member focus
-  -> diff member        pairwise confirmation, same member focus
+diff type presence
+  -> diff type members  observation change, same type focus and operation
+  -> diff member        structural zoom to one member
+  -> timeline member    operation change, same member focus and observation
 ```
 
 Because the CLI is stateless, source and focus selectors must be repeated when
