@@ -79,6 +79,55 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
+    {
+        var parameters = new ApiParameter[]
+        {
+            new()
+            {
+                Attributes = ["System.Runtime.InteropServices.Optional"],
+                Type = "System.event.MyClass",
+                Name = "event",
+                HasDefault = true,
+                DefaultValueText = "default"
+            }
+        };
+
+        Assert.Equal(
+            "([System.Runtime.InteropServices.Optional] System.@event.MyClass @event = default)",
+            CSharpFormatter.FormatParameterList(parameters));
+    }
+
+    [Fact]
+    public void FormatsDelegateWithStructuredAccessibility()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Callback",
+            Kind = "delegate",
+            Accessibility = "private",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Invoke",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = "Invoke"
+                    }
+                }
+            ]
+        };
+
+        Assert.Equal(
+            "private delegate void Callback();",
+            new CSharpFormatter().FormatDelegate(type, type.Members.Single()));
+    }
+
+    [Fact]
     public void RejectsUndefinedPolicies()
     {
         Assert.Throws<ArgumentOutOfRangeException>(

@@ -331,10 +331,7 @@ public sealed record CompileBackReconstructionPlan(
     CompileBackModuleRequirement Module,
     IReadOnlyList<CompileBackTypeRequirement> Types,
     IReadOnlyList<CSharpTypePrintRequest> PrintRequests,
-    IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics)
-{
-    public IReadOnlyList<CompileBackTypeRequirement> TypeRequirements => Types;
-}
+    IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics);
 
 public sealed record CompileBackMethodIdentity(
     string Type,

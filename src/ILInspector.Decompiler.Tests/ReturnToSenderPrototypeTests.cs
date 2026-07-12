@@ -215,7 +215,7 @@ public class ReturnToSenderPrototypeTests
                     Assert.Equal("get_SameAssemblyType", first.Plan.TargetMethod.Method);
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, first.Status);
                     Assert.Contains(first.Plan.Types, type => type.Name == "Helper");
-                    Assert.Contains(first.Plan.TypeRequirements, requirement =>
+                    Assert.Contains(first.Plan.Types, requirement =>
                         requirement.Type.DisplayName == "Helper"
                         && requirement.SourceFacts.Any(fact => fact.Id == "body-type"
                             && fact.Producer == "metadata"

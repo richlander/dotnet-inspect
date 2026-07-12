@@ -1,21 +1,22 @@
 using System.Text;
+using ILInspector.Metadata;
 
-namespace ILInspector.Metadata;
+namespace ILInspector.CSharp;
 
-public enum CSharpTypeNameMode
+internal enum CSharpTypeNameMode
 {
     Qualified,
     ShortWithUsings,
     ContextualShort
 }
 
-public enum CSharpNamespaceMode
+internal enum CSharpNamespaceMode
 {
     Omit,
     FileScoped
 }
 
-public sealed record CSharpDeclarationOptions
+internal sealed record CSharpDeclarationOptions
 {
     public CSharpTypeNameMode TypeNameMode { get; init; } = CSharpTypeNameMode.Qualified;
     public string? ContainingNamespace { get; init; }
@@ -31,7 +32,7 @@ public sealed record CSharpDeclarationOptions
     public bool OmitPropertyAccessors { get; init; }
 }
 
-public sealed record CSharpRenderedDeclaration(
+internal sealed record CSharpRenderedDeclaration(
     string Source,
     IReadOnlyList<string> Usings,
     IReadOnlyList<string> Diagnostics);
@@ -40,7 +41,7 @@ public sealed record CSharpRenderedDeclaration(
 /// Cheap C# declaration and signature composition over the API metadata model.
 /// It never imports method bodies, opens inspected assemblies, or depends on the decompiler.
 /// </summary>
-public static class CSharpDeclarationWriter
+internal static class CSharpDeclarationWriter
 {
     public static CSharpRenderedDeclaration RenderMemberUnit(
         ApiType type,
@@ -138,7 +139,7 @@ public static class CSharpDeclarationWriter
 
     static string RenderTypeDeclarationCore(ApiType type, CSharpDeclarationOptions options)
     {
-        var parts = new List<string> { "public" };
+        var parts = new List<string> { TypeAccessibility(type) };
         if (type.Kind is "class" or "record")
         {
             if (type.IsStatic)
@@ -555,7 +556,7 @@ public static class CSharpDeclarationWriter
             return false;
         }
 
-        var parameters = string.Join(", ", model.Parameters.Select(ParameterDeclaration));
+        var parameters = string.Join(", ", model.Parameters.Select(FormatParameter));
         if (member.Name == ".cctor")
         {
             signature = $"{FormatConstructorTypeName(type.Name)}()";
@@ -635,7 +636,7 @@ public static class CSharpDeclarationWriter
                || !name.Contains('.', StringComparison.Ordinal);
     }
 
-    static string ParameterDeclaration(ApiParameter parameter)
+    internal static string FormatParameter(ApiParameter parameter)
     {
         var head = parameter.TypeWithModifier;
         var declaration = string.IsNullOrWhiteSpace(parameter.Name)
@@ -930,6 +931,9 @@ public static class CSharpDeclarationWriter
                 ".",
                 name.Split('.').Select(segment =>
                     segment.StartsWith('@') ? segment : EscapeIdentifier(segment)));
+
+    internal static string TypeAccessibility(ApiType type)
+        => type.Accessibility ?? "public";
 
     static string AddExtensionThisModifier(string signature)
     {

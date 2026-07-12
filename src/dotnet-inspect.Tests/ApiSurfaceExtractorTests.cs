@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
@@ -8,6 +9,8 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class ApiSurfaceExtractorTests
 {
+    static readonly CSharpFormatter Formatter = new();
+
     [Fact]
     public void Extract_IncludesParameterNamesInMethodSignatures()
     {
@@ -82,7 +85,13 @@ public class ApiSurfaceExtractorTests
         {
             var all = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
             // --all surfaces the top-level internal type so its members are inspectable (#1300).
-            Assert.Contains(all.Types, t => t.Name == nameof(InternalTopLevelSurfaceFixture));
+            var internalType = Assert.Single(
+                all.Types,
+                t => t.Name == nameof(InternalTopLevelSurfaceFixture));
+            Assert.Equal("internal", internalType.Accessibility);
+            Assert.StartsWith(
+                "internal class InternalTopLevelSurfaceFixture",
+                Formatter.FormatTypeDeclaration(internalType));
         }
 
         using (var stream = File.OpenRead(assemblyPath))
@@ -111,7 +120,7 @@ public class ApiSurfaceExtractorTests
         Assert.Equal("struct", refStruct.Kind);
         Assert.True(refStruct.IsByRefLike);
         Assert.False(refStruct.IsReadOnly);
-        var refStructDeclaration = CSharpDeclarationWriter.RenderTypeDeclaration(refStruct);
+        var refStructDeclaration = Formatter.FormatTypeDeclaration(refStruct);
         Assert.Contains("ref struct SampleRefStruct", refStructDeclaration);
         Assert.DoesNotContain("CompilerFeatureRequired", refStructDeclaration);
 
@@ -127,7 +136,7 @@ public class ApiSurfaceExtractorTests
 
         var inlineArray = surface.Types.FirstOrDefault(t => t.Name == "SampleInlineBuffer");
         Assert.NotNull(inlineArray);
-        var inlineArrayDeclaration = CSharpDeclarationWriter.RenderTypeDeclaration(inlineArray);
+        var inlineArrayDeclaration = Formatter.FormatTypeDeclaration(inlineArray);
         Assert.DoesNotContain("InlineArray", inlineArrayDeclaration);
     }
 
@@ -250,7 +259,7 @@ public class ApiSurfaceExtractorTests
         var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithMarshalAs");
         Assert.NotNull(method);
         Assert.NotNull(method.SignatureModel);
-        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
+        var declaration = Formatter.FormatMember(testType, method);
         Assert.Contains(
             "[System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] int value",
             declaration);
@@ -290,7 +299,7 @@ public class ApiSurfaceExtractorTests
         Assert.NotNull(method);
         Assert.NotNull(method.SignatureModel);
         Assert.DoesNotContain("[return:", method.Signature);
-        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
+        var declaration = Formatter.FormatMember(testType, method);
         Assert.StartsWith(
             "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] public int MethodWithReturnAttributes()",
             declaration,
@@ -298,7 +307,7 @@ public class ApiSurfaceExtractorTests
 
         var notNullMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnNotNull");
         Assert.NotNull(notNullMethod);
-        var notNullDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, notNullMethod);
+        var notNullDeclaration = Formatter.FormatMember(testType, notNullMethod);
         Assert.StartsWith(
             "[return: System.Diagnostics.CodeAnalysis.NotNull] public string MethodWithReturnNotNull()",
             notNullDeclaration,
@@ -307,7 +316,7 @@ public class ApiSurfaceExtractorTests
         var fallbackMethod = testType.Members.FirstOrDefault(m => m.Name == "MethodWithReturnAttributesAndFallbackSignature");
         Assert.NotNull(fallbackMethod);
         Assert.DoesNotContain("[return:", fallbackMethod.Signature);
-        var fallbackDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, fallbackMethod);
+        var fallbackDeclaration = Formatter.FormatMember(testType, fallbackMethod);
         Assert.StartsWith(
             "[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] public int MethodWithReturnAttributesAndFallbackSignature(",
             fallbackDeclaration,
@@ -332,17 +341,17 @@ public class ApiSurfaceExtractorTests
 
         var textProperty = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithReturnNotNull");
         Assert.NotNull(textProperty);
-        var textDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, textProperty);
+        var textDeclaration = Formatter.FormatMember(testType, textProperty);
         Assert.Contains("string PropertyWithReturnNotNull { [return: System.Diagnostics.CodeAnalysis.NotNull] get; }", textDeclaration);
 
         var numberProperty = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithReturnMarshalAs");
         Assert.NotNull(numberProperty);
-        var numberDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, numberProperty);
+        var numberDeclaration = Formatter.FormatMember(testType, numberProperty);
         Assert.Contains("int PropertyWithReturnMarshalAs { [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)] get; }", numberDeclaration);
 
         var indexer = testType.Members.FirstOrDefault(m => m.Name == "Item");
         Assert.NotNull(indexer);
-        var indexerDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, indexer);
+        var indexerDeclaration = Formatter.FormatMember(testType, indexer);
         Assert.Contains("this[int index] { [return: System.Diagnostics.CodeAnalysis.NotNull] get; }", indexerDeclaration);
     }
 
@@ -360,7 +369,7 @@ public class ApiSurfaceExtractorTests
 
         var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithMemberAttribute");
         Assert.NotNull(method);
-        var methodDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, method);
+        var methodDeclaration = Formatter.FormatMember(testType, method);
         Assert.StartsWith(
             "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int MethodWithMemberAttribute()",
             methodDeclaration,
@@ -368,7 +377,7 @@ public class ApiSurfaceExtractorTests
 
         var property = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithMemberAttribute");
         Assert.NotNull(property);
-        var propertyDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, property);
+        var propertyDeclaration = Formatter.FormatMember(testType, property);
         Assert.StartsWith(
             "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string PropertyWithMemberAttribute",
             propertyDeclaration,
@@ -376,7 +385,7 @@ public class ApiSurfaceExtractorTests
 
         var decimalField = testType.Members.FirstOrDefault(m => m.Name == "DecimalField");
         Assert.NotNull(decimalField);
-        var decimalFieldDeclaration = CSharpDeclarationWriter.RenderMemberDeclaration(testType, decimalField);
+        var decimalFieldDeclaration = Formatter.FormatMember(testType, decimalField);
         Assert.DoesNotContain("DecimalConstant", decimalFieldDeclaration);
         Assert.Contains("DecimalField", decimalFieldDeclaration);
     }
@@ -393,7 +402,7 @@ public class ApiSurfaceExtractorTests
         var testType = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleTypeAttributeHost));
         Assert.NotNull(testType);
 
-        var declaration = CSharpDeclarationWriter.RenderTypeDeclaration(testType);
+        var declaration = Formatter.FormatTypeDeclaration(testType);
         Assert.StartsWith(
             "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class SampleTypeAttributeHost",
             declaration,

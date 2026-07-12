@@ -63,6 +63,7 @@ public static class MetadataDeclarationQuery
         {
             Namespace = ns,
             Name = name,
+            Accessibility = TypeAccessibility(typeDef),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
             Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
@@ -428,6 +429,18 @@ public static class MetadataDeclarationQuery
     public static string AccessibilityKeyword(MethodDefinition method)
         => AccessibilityKeyword(method.Attributes & MethodAttributes.MemberAccessMask);
 
+    internal static string? TypeAccessibility(TypeDefinition type)
+        => (type.Attributes & TypeAttributes.VisibilityMask) switch
+        {
+            TypeAttributes.NotPublic => "internal",
+            TypeAttributes.NestedPrivate => "private",
+            TypeAttributes.NestedFamily => "protected",
+            TypeAttributes.NestedAssembly => "internal",
+            TypeAttributes.NestedFamANDAssem => "private protected",
+            TypeAttributes.NestedFamORAssem => "protected internal",
+            _ => null,
+        };
+
     static IReadOnlyList<ApiParameter> MethodParameters(
         MetadataReader reader,
         MethodDefinition method,
@@ -726,7 +739,7 @@ public static class MetadataDeclarationQuery
 
     static string MethodSignatureText(MetadataMethodDeclaration declaration)
     {
-        var parameters = declaration.Signature.ParameterDeclarationsSummary;
+        var parameters = $"({string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))})";
         var returnType = declaration.Signature.ReturnType ?? "void";
         return $"{returnType} {declaration.Signature.MemberName ?? declaration.MetadataName}{parameters}";
     }
@@ -739,7 +752,21 @@ public static class MetadataDeclarationQuery
             : "{ " + string.Join(" ", declaration.Signature.Accessors.Select(AccessorText)) + " }";
         return declaration.Signature.Parameters.Count == 0
             ? $"{returnType} {declaration.CSharpName} {accessors}"
-            : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(parameter => parameter.Declaration))}] {accessors}";
+            : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))}] {accessors}";
+    }
+
+    static string ParameterDeclaration(ApiParameter parameter)
+    {
+        var attributes = parameter.Attributes.Count == 0
+            ? ""
+            : $"[{string.Join(", ", parameter.Attributes)}] ";
+        var head = string.IsNullOrWhiteSpace(parameter.Name)
+            ? parameter.TypeWithModifier
+            : $"{parameter.TypeWithModifier} {EscapeIdentifier(parameter.Name)}";
+        var declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
+            ? $"{head} = {parameter.DefaultValueText}"
+            : head;
+        return attributes + declaration;
     }
 
     static string AccessorText(ApiAccessor accessor)

@@ -186,11 +186,6 @@ public class ApiSignature
         ? ""
         : $"({string.Join(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
 
-    public string ParameterDeclarationsSummary => Parameters.Count == 0
-        ? "()"
-        : CSharpDeclarationWriter.EscapeQualifiedKeywordSegments(
-            $"({string.Join(", ", Parameters.Select(parameter => parameter.Declaration))})");
-
     public List<(string name, string type, bool hasDefault)> ParameterInfoSummary => Parameters
         .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
         .ToList();
@@ -213,23 +208,6 @@ public class ApiParameter
     public string TypeWithModifier => string.IsNullOrEmpty(Modifier)
         ? Type
         : $"{Modifier} {Type}";
-
-    public string Declaration
-    {
-        get
-        {
-            var attributes = Attributes.Count == 0
-                ? ""
-                : $"[{string.Join(", ", Attributes)}] ";
-            var head = string.IsNullOrWhiteSpace(Name)
-                ? TypeWithModifier
-                : $"{TypeWithModifier} {CSharpDeclarationWriter.EscapeIdentifier(Name)}";
-            var declaration = HasDefault && DefaultValueText is { Length: > 0 }
-                ? $"{head} = {DefaultValueText}"
-                : head;
-            return attributes + declaration;
-        }
-    }
 }
 
 public class ApiAccessor
@@ -251,6 +229,10 @@ public class ApiType
     /// </summary>
     public string? MetadataName { get; set; }
     
+    /// <summary>
+    /// Access level for non-public types. Null for public types.
+    /// </summary>
+    public string? Accessibility { get; set; }
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];
 

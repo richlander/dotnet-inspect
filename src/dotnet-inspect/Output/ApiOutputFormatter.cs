@@ -1116,7 +1116,7 @@ public static class ApiOutputFormatter
                     return ConstructorCallFromDeclaration(declaration);
             }
 
-            return signature.ParameterDeclarationsSummary;
+            return CSharpFormatter.FormatParameterList(signature.Parameters);
         }
 
         // Compatibility-only fallback for legacy signatures without complete
@@ -1129,7 +1129,7 @@ public static class ApiOutputFormatter
         return type.TypeParameters
             .Concat(signature.TypeParameters)
             .Select(parameter => parameter.Name)
-            .Any(name => CSharpDeclarationWriter.EscapeIdentifier(name) != name);
+            .Any(name => CSharpFormatter.EscapeIdentifier(name) != name);
     }
 
     private static string ConstructorCallFromDeclaration(string declaration)
