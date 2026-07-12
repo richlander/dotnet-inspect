@@ -3176,11 +3176,15 @@ public class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
             nameof(FidelityCauseFixture.EmptyBody),
-            "-S", "Decompiled Source,Fidelity Causes", "--tips", "q");
+            "-S", "Decompiled Source,Fidelity Causes,Annotated Source,Cost Overlay,Semantics Overlay",
+            "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("## Cost Overlay", output);
+        Assert.Contains("## Semantics Overlay", output);
         Assert.Contains("public static void EmptyBody()", output);
         Assert.Contains("Complete", output);
         Assert.Contains("decompiler fidelity is Full", output);

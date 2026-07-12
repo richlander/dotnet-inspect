@@ -60,6 +60,18 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void RunProjection_AllowsEmptyBodyOnlyCSharp()
+    {
+        var result = ResearchViews.RunProjection(
+            () => DecompilerResult.Success(""),
+            emptyOutputIsFailure: false);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("", result.Output);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
     public void EmptyRegistry_ProducesNoOverlayFacts()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
