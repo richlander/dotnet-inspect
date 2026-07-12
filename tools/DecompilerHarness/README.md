@@ -521,8 +521,9 @@ Diagnostics outside the enumerated shell-noise set, such as `CS0039`, stay
 reported as ordinary defects without `VLD0001` until they are explicitly
 modeled; surfacing an unknown code is preferred to blanket suppression.
 This intentionally stops suppressing method-level `CS0161` merely because its
-message names `__Shell.__M`; the current decompiler fixture assembly consequently
-exposes ten previously hidden missing-return defects, pinned by
+message names `__Shell.__M`; the current Release decompiler assembly consequently
+exposes ten previously hidden missing-return defects, while Debug IL exposes one.
+Both configuration-specific populations are pinned by
 `ValidityCoverageReportingTests.DecompilerAssembly_MissingReturnPopulationIsPinned`.
 The separate type-binding report still extracts a `CS0104` ambiguous simple
 name from invariant-culture message text for display; that reporting-only value

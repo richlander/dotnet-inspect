@@ -42,6 +42,11 @@ public class ValidityCoverageReportingTests
             .ToArray();
 
         string[] expected =
+#if DEBUG
+        [
+            "ILInspector.Decompiler.TypeSourceComposer::DecompileBody",
+        ];
+#else
         [
             "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
@@ -54,6 +59,7 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.UnionSwitchExpressionPass::SameTailNode",
             "ILInspector.Decompiler.TypeSourceComposer::DecompileBody",
         ];
+#endif
         Assert.Equal(expected, actual);
     }
 
