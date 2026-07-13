@@ -179,6 +179,25 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.Contains("return index;", body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AuthoredMemberSource_RejectsEqualRankGenericFallbacks()
+    {
+        Assert.False(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "int ICustom<(int, string)>.Value { get { return 1; } } "
+                + "int ICustom<(int, int)>.Value { get { return 2; } }",
+            "ICustom<System.ValueTuple<System.Byte,System.Byte>>.get_Value",
+            out _));
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_RejectsMultipleConstructorsWithoutArity()
+    {
+        Assert.False(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public Sample() { } public Sample(int value) { }",
+            ".ctor",
+            out _));
+    }
+
     static FindingInspection<CompilationOptionInfo> CompleteOptions(
         params CompilationOptionInfo[] options)
         => MetadataFindings.InspectCompilationOptions(options, Subject);

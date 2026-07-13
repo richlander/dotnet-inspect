@@ -795,10 +795,15 @@ public static class ResearchDiff
                     newBodies.MetadataReader,
                     newBody!);
                 if (findingComparison is FindingComparison<CanonicalIlOperation>.Complete complete
-                    && complete.IsExact != diff.IsExact)
+                    && ImplementationDiff.FindingDivergenceChange(
+                        subject,
+                        ResearchChangeMechanism.IlBody,
+                        ResearchChangeCategory.IlBody,
+                        ImplementationDiff.IlFindingDivergenceDescriptor,
+                        complete.IsExact,
+                        diff.IsExact) is { } divergence)
                 {
-                    throw new InvalidOperationException(
-                        $"IL Finding comparison diverged from the semantic IL diff for '{subject.Display}'.");
+                    builder.Add(divergence);
                 }
                 if (diff.IsExact)
                     continue;
@@ -1082,10 +1087,15 @@ public static class ResearchDiff
                         failure.Anchor.StableSelector,
                         retained.Anchor.StableSelector,
                         StringComparison.Ordinal));
-            if (retained.Comparison.IsExact != semanticExact)
+            if (ImplementationDiff.FindingDivergenceChange(
+                subject,
+                ResearchChangeMechanism.CSharp,
+                ResearchChangeCategory.CSharp,
+                ImplementationDiff.CSharpFindingDivergenceDescriptor,
+                retained.Comparison.IsExact,
+                semanticExact) is { } divergence)
             {
-                throw new InvalidOperationException(
-                    $"C# Finding comparison diverged from the semantic C# diff for '{subject.Display}'.");
+                builder.Add(divergence);
             }
         }
     }
@@ -1101,7 +1111,7 @@ public static class ResearchDiff
             subject,
             mechanism,
             descriptor,
-            ResearchChangeKind.Changed,
+            ResearchChangeKind.Failed,
             detail: failure,
             category: category));
 

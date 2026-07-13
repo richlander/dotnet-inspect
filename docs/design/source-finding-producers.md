@@ -64,8 +64,8 @@ presentation folds, not additional Metadata Findings.
 token. `AuthoredSourceAcquisition` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
-`FindingInspection<string>`. It keeps missing PDB/mapping/URL as `Absent` and
-fetch/checksum/extraction errors as `Failed`.
+`FindingInspection<string>`. It keeps missing PDB/mapping/URL/checksum metadata
+as `Absent` and fetch/checksum mismatch/extraction errors as `Failed`.
 
 Compilation options and references describe available rebuild context. They do
 not claim that the context is complete enough to reproduce the original build.

@@ -82,7 +82,7 @@ public class AuthoredSourceAcquisitionTests
     }
 
     [Fact]
-    public void FromContent_MissingChecksumIsNotAuthoredEvidence()
+    public void FromContent_MissingChecksumIsAbsentEvidence()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
         var document = Document(content) with
@@ -98,10 +98,13 @@ public class AuthoredSourceAcquisitionTests
             "M",
             Subject);
 
-        Assert.True(result.Lines.Value is FindingInspection<string>.Failed);
+        Assert.IsType<FindingInspection<string>.Absent>(result.Lines.Value);
         Assert.Equal(
             SourceChecksumVerification.Unavailable,
             result.ChecksumVerification);
+        Assert.NotNull(result.Mapping);
+        Assert.NotNull(result.Document);
+        Assert.Null(result.Text);
     }
 
     [Fact]

@@ -1538,6 +1538,82 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ImplementationDiff_FindingFailureIsNotSemanticChange()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+
+        var change = ImplementationDiff.FindingFailureChange(
+            subject,
+            ResearchChangeMechanism.CSharp,
+            ResearchChangeCategory.CSharp,
+            CSharpFindings.InspectionDescriptor,
+            "render failed");
+
+        Assert.Equal(ResearchChangeKind.Failed, change.Kind);
+        Assert.Equal("render failed", change.Detail);
+    }
+
+    [Fact]
+    public void ImplementationDiff_FindingDivergenceIsScopedFailure()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+
+        var divergence = ImplementationDiff.FindingDivergenceChange(
+            subject,
+            ResearchChangeMechanism.CSharp,
+            ResearchChangeCategory.CSharp,
+            ImplementationDiff.CSharpFindingDivergenceDescriptor,
+            findingExact: true,
+            semanticExact: false);
+
+        Assert.NotNull(divergence);
+        Assert.Equal(ResearchChangeKind.Failed, divergence.Kind);
+        Assert.Contains("diverged", divergence.Detail, StringComparison.Ordinal);
+        Assert.Null(ImplementationDiff.FindingDivergenceChange(
+            subject,
+            ResearchChangeMechanism.CSharp,
+            ResearchChangeCategory.CSharp,
+            ImplementationDiff.CSharpFindingDivergenceDescriptor,
+            findingExact: true,
+            semanticExact: true));
+    }
+
+    [Fact]
+    public void ImplementationDiff_AuthoredSourceFailureIsNotSemanticChange()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var comparison = FindingComparison.Compare<string>(
+            new FindingInspection<string>.Failed(
+                new InspectionError(
+                    new FindingSubject(subject.Id, subject.Display),
+                    TextFindings.LineDescriptor,
+                    "checksum failed")),
+            new FindingInspection<string>.Complete([]));
+
+        var change = Assert.Single(ImplementationDiff.ToSourceChanges(
+            comparison,
+            subject));
+
+        Assert.Equal(ResearchChangeKind.Failed, change.Kind);
+        Assert.Contains("checksum failed", change.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ImplementationDiff_ToIlChanges_ProjectsTypedMemberDiffRows()
     {
         var typedDiff = new IlMemberDiffResult(

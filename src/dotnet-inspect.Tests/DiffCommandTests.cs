@@ -1405,6 +1405,43 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildImplementationDiffView_RendersCSharpFailure()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var result = new ImplementationDiffResult(
+            [
+                new ImplementationDiffMember(
+                    subject,
+                    [
+                        new ResearchChange(
+                            subject,
+                            ResearchChangeMechanism.CSharp,
+                            CSharpFindings.InspectionDescriptor,
+                            ResearchChangeKind.Failed,
+                            detail: "render failed",
+                            category: ResearchChangeCategory.CSharp)
+                    ])
+            ],
+            new ResearchComparison([]));
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("C#", row.Mechanism);
+        Assert.Equal("failed", row.Change);
+        Assert.Equal("render failed", row.Evidence);
+    }
+
+    [Fact]
     public void BuildImplementationDiff_MemberFilter_UsesResolverBackedTarget()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();

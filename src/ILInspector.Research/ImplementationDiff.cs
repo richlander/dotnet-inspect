@@ -89,6 +89,10 @@ public static class ImplementationDiff
 {
     public static readonly FindingDescriptor AuthoredSourceFailureDescriptor =
         new("source.authored.failed", "Authored source acquisition failed");
+    internal static readonly FindingDescriptor CSharpFindingDivergenceDescriptor =
+        new("csharp.finding.diverged", "C# Finding comparison diverged");
+    internal static readonly FindingDescriptor IlFindingDivergenceDescriptor =
+        new("il.finding.diverged", "IL Finding comparison diverged");
 
     public static ImplementationDiffResult CompareAssemblies(
         string oldAssemblyPath,
@@ -147,10 +151,15 @@ public static class ImplementationDiff
                     CSharpFindings.InspectionDescriptor,
                     failed.Failure));
             }
-            else if (comparison.IsExact != csharpDiff.IsExact)
+            else if (FindingDivergenceChange(
+                subject,
+                ResearchChangeMechanism.CSharp,
+                ResearchChangeCategory.CSharp,
+                CSharpFindingDivergenceDescriptor,
+                comparison.IsExact,
+                csharpDiff.IsExact) is { } divergence)
             {
-                throw new InvalidOperationException(
-                    $"C# Finding comparison diverged from the semantic C# diff for '{subject.Display}'.");
+                changes.Add(divergence);
             }
         }
 
@@ -192,10 +201,15 @@ public static class ImplementationDiff
             }
             else if (MethodHasBody(oldSource, oldMethod)
                 && MethodHasBody(newSource, newMethod)
-                && comparison.IsExact != ilDiff.Diff.IsExact)
+                && FindingDivergenceChange(
+                    subject,
+                    ResearchChangeMechanism.IlBody,
+                    ResearchChangeCategory.IlBody,
+                    IlFindingDivergenceDescriptor,
+                    comparison.IsExact,
+                    ilDiff.Diff.IsExact) is { } divergence)
             {
-                throw new InvalidOperationException(
-                    $"IL Finding comparison diverged from the semantic IL diff for '{subject.Display}'.");
+                changes.Add(divergence);
             }
         }
 
@@ -356,7 +370,7 @@ public static class ImplementationDiff
                     subject,
                     ResearchChangeMechanism.Source,
                     AuthoredSourceFailureDescriptor,
-                    ResearchChangeKind.Changed,
+                    ResearchChangeKind.Failed,
                     detail: failed.Failure,
                     category: ResearchChangeCategory.Source)
             ];
@@ -596,7 +610,7 @@ public static class ImplementationDiff
            || memberTargetIdentities.Count == 0
            || memberTargetIdentities.Contains(subject.Id);
 
-    static ResearchChange FindingFailureChange(
+    internal static ResearchChange FindingFailureChange(
         ResearchSubjectKey subject,
         ResearchChangeMechanism mechanism,
         ResearchChangeCategory category,
@@ -606,9 +620,25 @@ public static class ImplementationDiff
             subject,
             mechanism,
             descriptor,
-            ResearchChangeKind.Changed,
+            ResearchChangeKind.Failed,
             detail: failure,
             category: category);
+
+    internal static ResearchChange? FindingDivergenceChange(
+        ResearchSubjectKey subject,
+        ResearchChangeMechanism mechanism,
+        ResearchChangeCategory category,
+        FindingDescriptor descriptor,
+        bool findingExact,
+        bool semanticExact)
+        => findingExact == semanticExact
+            ? null
+            : FindingFailureChange(
+                subject,
+                mechanism,
+                category,
+                descriptor,
+                $"{descriptor.Title} from the semantic projection for '{subject.Display}'.");
 
     static bool MethodHasBody(MetadataSource source, MethodDefinitionHandle method)
         => source.Reader.GetMethodDefinition(method).RelativeVirtualAddress != 0;

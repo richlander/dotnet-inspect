@@ -84,6 +84,15 @@ public static class AuthoredSourceAcquisition
                 StringComparison.OrdinalIgnoreCase));
         if (document is null)
             return Absent("The selected member's source document is not in the portable PDB.");
+        if (document.ChecksumAlgorithm is not { Length: > 0 }
+            || document.Checksum is not { Length: > 0 })
+        {
+            return Absent(
+                "The portable PDB does not provide a usable source checksum.",
+                mapping,
+                document,
+                SourceChecksumVerification.Unavailable);
+        }
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
             return Absent(document.Storage == SourceDocumentStorage.Embedded
@@ -121,16 +130,21 @@ public static class AuthoredSourceAcquisition
         ArgumentNullException.ThrowIfNull(subject);
 
         var verification = VerifyChecksum(document, content);
-        if (verification is SourceChecksumVerification.Unavailable
-            or SourceChecksumVerification.Unsupported
+        if (verification == SourceChecksumVerification.Unavailable)
+        {
+            return Absent(
+                "The portable PDB does not provide a usable source checksum.",
+                mapping,
+                document,
+                verification);
+        }
+        if (verification is SourceChecksumVerification.Unsupported
             or SourceChecksumVerification.Mismatch)
         {
             return Failed(
                 subject,
                 verification switch
                 {
-                    SourceChecksumVerification.Unavailable =>
-                        "The portable PDB does not provide a usable source checksum.",
                     SourceChecksumVerification.Unsupported =>
                         $"The source checksum algorithm '{document.ChecksumAlgorithm}' is unsupported.",
                     _ => "Fetched authored source does not match the portable-PDB checksum.",
@@ -214,6 +228,18 @@ public static class AuthoredSourceAcquisition
             Mapping: null,
             Document: null,
             ChecksumVerification: null);
+
+    static AuthoredMemberSourceInspection Absent(
+        string detail,
+        MemberSourceObservation mapping,
+        SourceDocumentObservation document,
+        SourceChecksumVerification verification)
+        => new(
+            new FindingInspection<string>.Absent(detail),
+            Text: null,
+            mapping,
+            document,
+            verification);
 
     static AuthoredMemberSourceInspection Failed(
         InspectionError error)

@@ -28,7 +28,8 @@ family.
   Source comparisons retain `FindingComparison<string>` with the `text.line`
   descriptor. Research
   cross-checks their exactness against the richer semantic projections for
-  members present on both sides.
+  members present on both sides. A disagreement is retained as a per-member
+  `Failed` diagnostic; it does not abort healthy members in the same diff.
 
 ## Research comparison model
 
@@ -38,7 +39,7 @@ type-centric groups from that collection; grouped and flat consumers therefore
 cannot observe divergent copies of the same result.
 
 Each `ResearchChange` carries one mechanism, a `FindingDescriptor`, an
-added/removed/changed classification, its subject, and any native producer
+added/removed/changed/failed classification, its subject, and any native producer
 payload needed for typed presentation. It is deliberately not a
 `PairFinding<T>`. Metadata now exposes genuine API type/member comparisons and
 `ResearchComparison.ApiComparison` retains that producer-owned envelope. C#,
@@ -50,6 +51,24 @@ their semantic rows remain because they carry richer producer-owned evidence,
 while retained comparisons expose the exact census transitions. `Source` never
 replaces or changes the meaning of `CSharp`: one describes checksum-verified
 authored text and the other describes product-decompiled text.
+
+### Deliberate dual-representation decision
+
+This design revises the earlier plan to retire the C# and IL semantic
+projections immediately after Finding adoption. The two retained
+representations have different durable payloads:
+
+- native Finding comparisons own inspection outcomes, stable census identity,
+  and added/removed/present/changed transitions;
+- `CSharpBodyDiff` and `IlBodyDiff` own aligned hunks, typed display failures,
+  old/new offsets, and richer producer-formatted evidence.
+
+The semantic projections therefore remain deliberately rather than by
+accretion. Every overlapping member is cross-validated against the native
+comparison, and divergence becomes a visible per-member `Failed` diagnostic.
+If the Finding producers later carry equivalent aligned hunk and typed display
+payloads, the semantic projections should be deleted rather than matched a
+third time.
 
 ## Consumer contract
 
@@ -69,6 +88,10 @@ Use `CompareMembersWithAuthoredSource` when the caller also has old/new
 `WithAuthoredSourceComparisons` to enrich an assembly comparison. These APIs
 preserve `Complete`, `Absent`, and `Failed` independently and retain the native
 line comparison. Research does not fetch source.
+
+Finding acquisition and cross-validation failures use
+`ResearchChangeKind.Failed`; they are operational diagnostics, never semantic
+`Changed` rows in table, TSV, JSONL, or programmatic consumers.
 
 The `diff --finding csharp.line` and `diff --finding il.op` focused lenses read
 those retained comparisons and render native `PairFinding` cases. Missing
@@ -97,6 +120,10 @@ endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled
 `Source` lane. Missing mappings and acquisition failures remain visible rather
 than falling back to decompiled C#.
+The authored A→IL lane reuses the final RTS shell/request but compiles with
+portable-PDB-recorded options when available; the decompiled B→IL lane uses the
+RTS compile context. `BuildContext` and determinism verdicts therefore remain
+part of interpreting any Exact/IlDifferent disagreement.
 Package, platform, and local-library ranges use the same acquisition path as the
 default API diff; `--type`, `--member`, row limits, table, TSV, and JSONL
 projection continue to apply. The CLI consumes this product component and does

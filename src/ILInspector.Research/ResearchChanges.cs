@@ -31,6 +31,7 @@ public enum ResearchChangeKind
     Added,
     Removed,
     Changed,
+    Failed,
 }
 
 public enum ResearchChangeCategory

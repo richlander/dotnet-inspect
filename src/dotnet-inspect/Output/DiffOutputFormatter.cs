@@ -334,11 +334,7 @@ public static class DiffOutputFormatter
                     _ => change.Mechanism.ToString()
                 };
                 var evidenceLines = ImplementationDiff.UnifiedLines(change);
-                string changeKind = change.Mechanism == ResearchChangeMechanism.Source
-                    && change.Descriptor.Id
-                        == ImplementationDiff.AuthoredSourceFailureDescriptor.Id
-                    ? "failed"
-                    : change.Kind.ToString().ToLowerInvariant();
+                string changeKind = change.Kind.ToString().ToLowerInvariant();
                 if (evidenceLines.IsDefaultOrEmpty)
                 {
                     rows.Add(new ImplementationDiffRow(

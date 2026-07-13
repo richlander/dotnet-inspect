@@ -256,6 +256,8 @@ static class AuthoredRebuildFidelity
             ConstructorDeclarationSyntax constructor
                 when identity.SimpleName is ".ctor" or ".cctor"
                     && identity.ExplicitInterface is null
+                // Metadata names do not encode constructor arity. Multiple constructors in the
+                // checksum-verified sequence-point window tie and are rejected as ambiguous.
                 => (2, BodyText(
                     constructor.Body,
                     constructor.ExpressionBody,
