@@ -253,6 +253,41 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void MalformedExtensionInstanceParameter_DoesNotSoftMatch()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, object value)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(object value)",
+                "System.Void",
+                [Parameter("")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.DoesNotContain(Pairs(comparison), pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
     public void AmbiguousExtensionInstanceEndpoints_DoNotSoftMatch()
     {
         var oldSurface = Surface(

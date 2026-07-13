@@ -456,6 +456,13 @@ public static class ApiMemberIdentity
             variant = "";
             return false;
         }
+        if (signature.Parameters.Any(parameter =>
+                string.IsNullOrWhiteSpace(parameter.TypeWithModifier)))
+        {
+            identityKey = "";
+            variant = "";
+            return false;
+        }
 
         string receiver = isExtension
             ? member.ExtendedType ?? signature.Parameters[0].TypeWithModifier
