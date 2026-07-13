@@ -3457,6 +3457,14 @@ public static class CompileBackSourceComposer
             // Attributes must derive from System.Attribute (existing behavior).
             if (baseType is "System.Attribute")
                 return CompileBackTypeSignature.Display(baseType);
+            // Only reconstruct same-assembly base classes. External (TypeReference)
+            // and generic-instantiation (TypeSpecification) bases are dropped as
+            // before: the shell cannot own their construction, so an external base
+            // whose only constructor is parameterized would make the derived stub's
+            // implicit `: base()` fail (CS7036) where the baseline compiled without
+            // a base. This mirrors ReconstructedSameAssemblyBaseName's own gate.
+            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+                return null;
             // Only plain classes reconstruct a real base class; records/structs/enums/
             // delegates keep their compiler-implied base to avoid primary-constructor
             // and value-type conflicts. A generic type's base can reference its own
@@ -3471,9 +3479,12 @@ public static class CompileBackSourceComposer
             return CompileBackTypeSignature.Display(baseType);
         }
 
-        // True when some other reconstructed shell type derives from this class via a
-        // reconstructed (same-assembly) base declaration, so its implicit `: base()`
-        // depends on this class exposing an accessible parameterless constructor.
+        // True when some other reconstructed shell type — top-level or nested —
+        // derives from this class via a reconstructed (same-assembly) base
+        // declaration, so its implicit `: base()` depends on this class exposing an
+        // accessible parameterless constructor. Nested types are emitted by
+        // NestedTypes() from their enclosing requirement and are not present in
+        // requirementsByMetadataName, so each requirement's nested tree is walked.
         static bool IsReconstructedBaseOfAnotherType(
             MetadataReader reader,
             CompileBackTypeRequirement requirement,
@@ -3482,11 +3493,27 @@ public static class CompileBackSourceComposer
             string metadataFullName = requirement.Type.MetadataFullName;
             foreach (var other in requirementsByMetadataName.Values)
             {
-                if (other.Type.MetadataFullName == metadataFullName)
-                    continue;
                 if (FindType(reader, other.Type.MetadataFullName) is not { } otherHandle)
                     continue;
-                if (ReconstructedSameAssemblyBaseName(reader, otherHandle, other.RequiredKind) == metadataFullName)
+                if (TypeOrNestedDerivesFrom(reader, otherHandle, metadataFullName))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static bool TypeOrNestedDerivesFrom(MetadataReader reader, TypeDefinitionHandle handle, string baseMetadataFullName)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (CompileBackTypeIdentity.FromDefinition(reader, typeDef).MetadataFullName != baseMetadataFullName
+                && ReconstructedSameAssemblyBaseName(reader, handle, ShellKind(reader, typeDef)) == baseMetadataFullName)
+            {
+                return true;
+            }
+
+            foreach (var nestedHandle in typeDef.GetNestedTypes())
+            {
+                if (TypeOrNestedDerivesFrom(reader, nestedHandle, baseMetadataFullName))
                     return true;
             }
 

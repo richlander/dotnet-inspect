@@ -17,6 +17,120 @@ namespace ILInspector.Decompiler.Tests;
 public class ReturnToSenderPrototypeTests
 {
     [Fact]
+    public void CompileBackTargets_SynthesizesParameterlessConstructorForNestedDerivedType()
+    {
+        // Issue #2527 guard (Gemini review of #2732): nested types are emitted from
+        // their enclosing requirement and are absent from the top-level requirement
+        // map, so the synthetic-parameterless-base-constructor scan must also walk
+        // nested types. Here `Outer.Nested : Base` is emitted even though it is never
+        // consumed; `Base` (reconstructed with only a parameterized constructor) must
+        // still receive a synthetic parameterless constructor so Nested's implicit
+        // `: base()` binds natively, without relying on the compile-back floor.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public class Base
+            {
+                public Base(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+            }
+
+            public class Outer
+            {
+                public Outer()
+                {
+                }
+
+                public class Nested : Base
+                {
+                    public Nested() : base(1)
+                    {
+                    }
+                }
+            }
+
+            public static class Use
+            {
+                public static void Run()
+                {
+                    Console.WriteLine(new Base(1));
+                    Console.WriteLine(new Outer());
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Use", "Run", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotReconstructGenericBaseClass()
+    {
+        // Issue #2527 guard (Gemini review of #2732): a closed generic base
+        // instantiation (`Derived : Base<int>`) is a TypeSpecification, which the
+        // flat shell cannot carry and cannot own a synthetic constructor for. It must
+        // be dropped rather than emitted, so the derived stub does not fail on an
+        // implicit `: base()` with no parameterless target.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public class Base<T>
+            {
+                public Base(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+            }
+
+            public class Derived : Base<int>
+            {
+                public Derived() : base(1)
+                {
+                }
+            }
+
+            public static class Use
+            {
+                public static void Run()
+                {
+                    Console.WriteLine(new Base<int>(1));
+                    Console.WriteLine(new Derived());
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Use", "Run", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain(": Base", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_RoundTripsMinimalClassProperty()
     {
         var assemblyPath = CompileFixture("""
@@ -883,6 +997,62 @@ public class ReturnToSenderPrototypeTests
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.Contains("class Widget : Base", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotReconstructExternalBaseClass()
+    {
+        // Issue #2527 guard (GPT-5.5 review of #2732): base-class reconstruction must
+        // stay same-assembly. An external (referenced-assembly) base whose only
+        // constructor is parameterized cannot receive a synthesized parameterless
+        // constructor (the shell does not own it), so reconstructing `Derived : Base`
+        // would make the derived stub's implicit `: base()` fail with CS7036 where the
+        // baseline dropped the base and compiled. The shell must not declare the
+        // external base.
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var dependencyPath = CompileFixture("""
+            namespace External;
+
+            public class Base
+            {
+                public Base(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+            }
+            """, directory, "ExternalLib");
+        var assemblyPath = CompileFixture("""
+            using External;
+
+            public class Derived : Base
+            {
+                public Derived(int seed) : base(seed)
+                {
+                }
+            }
+
+            public static class Factory
+            {
+                public static Derived Make(Derived value) => value;
+            }
+            """, directory, "Fixture", [MetadataReference.CreateFromFile(dependencyPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Factory", "Make", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain(": Base", result.Source);
         }
         finally
         {
