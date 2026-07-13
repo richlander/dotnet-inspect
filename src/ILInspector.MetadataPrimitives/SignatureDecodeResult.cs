@@ -130,7 +130,7 @@ public static class GuardedSignatureDecoder
             if (!TypeSpecGuard.TryEnter(
                 reader,
                 handle,
-                out int blobLength,
+                out var scope,
                 out var rejectionKind))
             {
                 SignatureDecoder.Reject(
@@ -142,14 +142,10 @@ public static class GuardedSignatureDecoder
                 return "object";
             }
 
-            try
+            using (scope)
             {
                 return reader.GetTypeSpecification(handle)
                     .DecodeSignature(SignatureDecoder.Instance, context);
-            }
-            finally
-            {
-                TypeSpecGuard.Exit(blobLength);
             }
         });
 }

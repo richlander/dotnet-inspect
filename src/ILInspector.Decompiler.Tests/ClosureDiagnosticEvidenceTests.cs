@@ -39,7 +39,7 @@ public class ClosureDiagnosticEvidenceTests
     [InlineData("CS1061", "class Receiver : System.Collections.IEnumerable { public System.Collections.IEnumerator GetEnumerator() => null; } class C { async System.Threading.Tasks.Task M() { await System.Threading.Tasks.Task.FromResult(new Receiver { 1 }); } }", "Add", "Receiver", null)]
     [InlineData("CS1061", "namespace @for { class @class {} class C { void M(@class value) { value.Missing(); } } }", "Missing", "@for.@class", null)]
     [InlineData("CS1061", "namespace @await { class Receiver {} class C { void M(Receiver value) { value.Missing(); } } }", "Missing", "@await.Receiver", null)]
-    [InlineData("CS1061", "namespace N { class Outer<T> { public class Inner {} } class C { void M(Outer<int>.Inner value) { value.Missing(); } } }", "Missing", "N.Outer.Inner", null)]
+    [InlineData("CS1061", "namespace N { class Outer<T> { public class Inner {} } class C { void M(Outer<int>.Inner value) { value.Missing(); } } }", "Missing", "N.Outer`1.Inner", null)]
     [InlineData("CS0117", "class Receiver {} class C { void M() { Receiver.Missing(); } }", "Missing", "Receiver", null)]
     [InlineData("CS0117", "class Receiver {} class C { Receiver M() => new Receiver { Missing = 1 }; }", "Missing", "Receiver", null)]
     public void Extract_UsesStructuredSyntaxAndSemanticEvidence(
@@ -128,7 +128,7 @@ public class ClosureDiagnosticEvidenceTests
                 "ReceiverEvidence.Derived",
                 "ReceiverEvidence.Base",
                 "System.Object",
-                "ReceiverEvidence.IReceiver",
+                "ReceiverEvidence.IReceiver`1",
             ],
             reference.CompatibleReceiverTypes);
         Assert.True(reference.CompatibleReceiverTypesComplete);

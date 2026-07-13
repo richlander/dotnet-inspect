@@ -53,7 +53,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         if (!TypeSpecGuard.TryEnter(
             reader,
             handle,
-            out int blobLength,
+            out var scope,
             out var rejectionKind))
         {
             Reject(
@@ -64,13 +64,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                         : "A nested TypeSpec exceeds the re-entry depth or cumulative-byte budget."));
             return Unresolved;
         }
-        try
+        using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
-        }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
         }
     }
 

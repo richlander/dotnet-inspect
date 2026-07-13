@@ -248,7 +248,7 @@ internal static class ClosureDiagnosticEvidence
         var (types, complete) = CompatibleReceiverTypes(receiver);
         return new ClosureDiagnosticReference(
             name,
-            TypeName(receiver),
+            TypeName(receiver, includeGenericArity: true),
             CompatibleReceiverTypes: types,
             CompatibleReceiverTypesComplete: complete);
     }
@@ -284,7 +284,7 @@ internal static class ClosureDiagnosticEvidence
 
         void Add(ITypeSymbol type)
         {
-            types.Add(TypeName(type));
+            types.Add(TypeName(type, includeGenericArity: true));
             complete &= !ContainsErrorType(type);
         }
     }
@@ -324,16 +324,21 @@ internal static class ClosureDiagnosticEvidence
         };
     }
 
-    static string TypeName(ITypeSymbol type)
+    static string TypeName(ITypeSymbol type, bool includeGenericArity = false)
     {
         if (type is IArrayTypeSymbol array)
-            return $"{TypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]";
+            return $"{TypeName(array.ElementType, includeGenericArity)}[{new string(',', array.Rank - 1)}]";
         if (type is not INamedTypeSymbol named)
             return type.Name;
 
         var names = new Stack<string>();
         for (INamedTypeSymbol? current = named.OriginalDefinition; current is not null; current = current.ContainingType)
-            names.Push(CompileBackCSharpNames.Identifier(current.Name));
+        {
+            string name = CompileBackCSharpNames.Identifier(current.Name);
+            names.Push(includeGenericArity && current.Arity > 0
+                ? $"{name}`{current.Arity}"
+                : name);
+        }
 
         string typeName = string.Join(".", names);
         string ns = named.ContainingNamespace is { IsGlobalNamespace: false } containingNamespace

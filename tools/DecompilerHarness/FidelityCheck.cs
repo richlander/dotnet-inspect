@@ -1850,28 +1850,29 @@ static class FidelityCheck
             value = value[4..];
 
         var normalized = new StringBuilder(value.Length);
-        int genericDepth = 0;
         for (int i = 0; i < value.Length; i++)
         {
             char ch = value[i];
             if (ch == '<')
             {
-                genericDepth++;
+                int end = FindGenericListEnd(value, i);
+                if (end > i)
+                {
+                    normalized.Append('`');
+                    normalized.Append(GenericArity(value.AsSpan(i + 1, end - i - 1)));
+                    i = end;
+                    continue;
+                }
+            }
+            if (ch == '`')
+            {
+                normalized.Append(ch);
+                while (i + 1 < value.Length && char.IsAsciiDigit(value[i + 1]))
+                    normalized.Append(value[++i]);
                 continue;
             }
             if (ch == '>')
-            {
-                genericDepth--;
                 continue;
-            }
-            if (genericDepth > 0)
-                continue;
-            if (ch == '`')
-            {
-                while (i + 1 < value.Length && char.IsAsciiDigit(value[i + 1]))
-                    i++;
-                continue;
-            }
             if (ch is '@' or ' ')
                 continue;
             normalized.Append(ch == '+' ? '.' : ch);
@@ -1897,6 +1898,57 @@ static class FidelityCheck
             "nuint" => "System.UIntPtr",
             var result => result,
         };
+    }
+
+    static int FindGenericListEnd(string value, int start)
+    {
+        int depth = 0;
+        for (int i = start; i < value.Length; i++)
+        {
+            if (value[i] == '<')
+            {
+                depth++;
+            }
+            else if (value[i] == '>' && --depth == 0)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    static int GenericArity(ReadOnlySpan<char> arguments)
+    {
+        int arity = 1;
+        int depth = 0;
+        bool hasContent = false;
+        foreach (char ch in arguments)
+        {
+            if (!char.IsWhiteSpace(ch))
+                hasContent = true;
+
+            switch (ch)
+            {
+                case '<':
+                case '(':
+                case '[':
+                case '{':
+                    depth++;
+                    break;
+                case '>':
+                case ')':
+                case ']':
+                case '}':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
+                    arity++;
+                    break;
+            }
+        }
+
+        return hasContent ? arity : 0;
     }
 
     static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>

@@ -24,16 +24,16 @@ public static class TypeSpecGuard
     [ThreadStatic]
     static int s_depth;
 
-    public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out int blobLength)
-        => TryEnter(reader, handle, out blobLength, out _);
+    public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
+        => TryEnter(reader, handle, out scope, out _);
 
     internal static bool TryEnter(
         MetadataReader reader,
         TypeSpecificationHandle handle,
-        out int blobLength,
+        out Scope scope,
         out SignatureDecodeRejectionKind rejectionKind)
     {
-        blobLength = 0;
+        scope = default;
         if (s_depth >= MaxDepth)
         {
             rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
@@ -58,14 +58,44 @@ public static class TypeSpecGuard
 
         s_depth++;
         s_cumulativeBytes += length;
-        blobLength = length;
+        scope = new Scope(length, s_depth);
         rejectionKind = default;
         return true;
     }
 
-    public static void Exit(int blobLength)
+    static void Exit(int blobLength, int depth)
     {
+        if (s_depth != depth)
+            throw new InvalidOperationException("TypeSpecGuard scopes must be disposed in entry order.");
+
         s_depth--;
         s_cumulativeBytes -= blobLength;
+    }
+
+    /// <summary>
+    /// Restores the calling thread's TypeSpec decode budget when the guarded
+    /// re-entry completes. The stack-only token cannot escape to another thread.
+    /// </summary>
+    public ref struct Scope
+    {
+        int _blobLength;
+        readonly int _depth;
+        bool _active;
+
+        internal Scope(int blobLength, int depth)
+        {
+            _blobLength = blobLength;
+            _depth = depth;
+            _active = true;
+        }
+
+        public void Dispose()
+        {
+            if (!_active)
+                return;
+
+            Exit(_blobLength, _depth);
+            _active = false;
+        }
     }
 }

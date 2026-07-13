@@ -95,15 +95,11 @@ public static class ApiMemberIdentity
 
         public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
         {
-            if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
                 return "System.Object";
-            try
+            using (scope)
             {
                 return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
-            }
-            finally
-            {
-                TypeSpecGuard.Exit(blobLength);
             }
         }
 

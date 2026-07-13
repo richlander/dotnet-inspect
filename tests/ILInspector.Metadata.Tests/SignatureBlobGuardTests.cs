@@ -129,6 +129,19 @@ public class SignatureBlobGuardTests
     }
 
     [Fact]
+    public void TypeSpecScope_EmptyBlob_DoesNotLeakBudget()
+    {
+        var (reader, handle) = BuildTypeSpec([]);
+
+        for (int i = 0; i < 300; i++)
+        {
+            Assert.True(TypeSpecGuard.TryEnter(reader, handle, out var scope));
+            scope.Dispose();
+            scope.Dispose();
+        }
+    }
+
+    [Fact]
     public void DeepPrefixChains_AreUnsafe()
     {
         // SRM recurses natively through by-ref, pinned, and custom-modifier prefixes, so a long
