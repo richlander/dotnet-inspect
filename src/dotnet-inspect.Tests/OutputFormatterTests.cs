@@ -689,28 +689,37 @@ public class OutputFormatterTests
     [Fact]
     public void RenderManifestFormatter_CapturesStructuredSectionsColumnsAndFields()
     {
-        var formatter = new RenderManifestFormatter();
+        var schema = new DocumentSchema()
+            .Add("Methods", "column", "Field", "Signature | Display")
+            .Add("Library Info", "field", "Assembly Version")
+            .Add("Other Section", "field", "Methods");
+        var formatter = new RenderManifestFormatter(schema);
+        var options = MarkoutWriterOptions.Default;
+        var sectionLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
+        var nestedLevel = Math.Clamp(4 + options.HeadingLevelOffset, 1, 6);
+        formatter.BeginDocument(options);
 
-        formatter.FormatHeading(TextWriter.Null, 2, "Methods", context: null);
+        formatter.FormatHeading(TextWriter.Null, sectionLevel, "Methods", context: null);
+        formatter.FormatHeading(TextWriter.Null, nestedLevel, "Method Details", context: null);
         formatter.FormatTable(
             TextWriter.Null,
-            ["Name", "Signature | Display"],
+            ["Field", "Signature | Display"],
             [["Run", "void Run()"]],
             skippedRows: 0,
             MarkoutWriterOptions.Default);
-        formatter.FormatHeading(TextWriter.Null, 2, "Library Info", context: null);
+        formatter.FormatHeading(TextWriter.Null, sectionLevel, "Library Info", context: null);
         formatter.BeginTable(
             TextWriter.Null,
-            ["Field", "Value"],
+            ["Property", "Contents"],
             MarkoutWriterOptions.Default);
         formatter.WriteRow(TextWriter.Null, ["Assembly Version", "1.0.0.0"]);
         formatter.EndTable(TextWriter.Null, skippedRows: 0);
-        formatter.FormatHeading(TextWriter.Null, 2, "Other Section", context: null);
+        formatter.FormatHeading(TextWriter.Null, sectionLevel, "Other Section", context: null);
         formatter.FormatFields(
             TextWriter.Null,
             [new MarkoutField("Methods", "polluting value")],
             bold: false);
-        formatter.BeginDocument();
+        formatter.BeginDocument(options);
         formatter.FormatFields(
             TextWriter.Null,
             [new MarkoutField("Kind", "class")],
@@ -718,8 +727,10 @@ public class OutputFormatterTests
 
         var columns = Assert.IsAssignableFrom<IReadOnlySet<string>>(
             formatter.Manifest.GetTableColumns("Methods"));
-        Assert.Contains("Name", columns);
+        Assert.Contains("Field", columns);
         Assert.Contains("Signature | Display", columns);
+        Assert.Null(formatter.Manifest.GetTableColumns("Method Details"));
+        Assert.Null(formatter.Manifest.GetFields("Methods"));
         var fields = Assert.IsAssignableFrom<IReadOnlySet<string>>(
             formatter.Manifest.GetFields("Library Info"));
         Assert.Contains("Assembly Version", fields);
@@ -728,6 +739,68 @@ public class OutputFormatterTests
             formatter.Manifest.GetFields("Other Section"));
         Assert.Contains("Methods", otherFields);
         Assert.DoesNotContain("Kind", otherFields);
+    }
+
+    [Fact]
+    public void RenderManifestFormatter_DoesNotTreatTitleTextAsAField()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test.Published.PackageInfoDiscovery",
+            Version = "1.0.0",
+            Authors = "tests"
+        };
+        var writerOptions = new MarkoutWriterOptions
+        {
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.PackageInfo
+            }
+        };
+        var schema = new DocumentSchema()
+            .Add(PackageSections.PackageInfo, "field", "Authors", "Published", "Version");
+        var manifest = RenderManifestFormatter.Capture(
+            new InspectionResultView(result),
+            InspectionContext.Default,
+            writerOptions,
+            schema);
+
+        var fields = Assert.IsAssignableFrom<IReadOnlySet<string>>(
+            manifest.GetFields(PackageSections.PackageInfo));
+        Assert.Contains("Authors", fields);
+        Assert.DoesNotContain("Published", fields);
+    }
+
+    [Fact]
+    public void MemberSignature_ShowsDegradedDecodeMarker()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = "Run",
+                    Signature = "object Run()",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "object",
+                        MemberName = "Run"
+                    },
+                    SignatureDecodeStatus = SignatureDecodeStatus.Degraded
+                }
+            ]
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateMemberSignature(view, type, new MemberOptions());
+
+        var row = Assert.Single(Assert.IsType<List<MemberSignatureRow>>(view.SignatureRows));
+        Assert.Equal("degraded", row.Decode);
     }
 
     [Fact]

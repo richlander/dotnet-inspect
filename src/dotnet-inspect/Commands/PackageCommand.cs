@@ -496,7 +496,8 @@ public class PackageCommand
                         var renderManifest = RenderManifestFormatter.Capture(
                             view,
                             InspectionContext.Default,
-                            writerOpts);
+                            writerOpts,
+                            schemaMap);
                         schemaMap = DiscoverOutput.FilterSchemaToRenderedFields(
                             effective,
                             schemaMap,

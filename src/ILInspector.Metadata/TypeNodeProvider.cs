@@ -38,7 +38,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
         if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
-            return new NamedTypeNode("object", isReferenceType: true);
+            return new DegradedTypeNode();
         try
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
@@ -73,7 +73,12 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         while (suffixStart < rawName.Length && char.IsDigit(rawName[suffixStart]))
             suffixStart++;
         var nestedSuffix = TypeResolver.FormatDisplayName(rawName[suffixStart..]);
-        return new GenericTypeNode(baseName, genericType.IsReferenceType, typeArguments, nestedSuffix);
+        return new GenericTypeNode(
+            baseName,
+            genericType.IsReferenceType,
+            typeArguments,
+            nestedSuffix,
+            genericType.IsDegraded);
     }
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)

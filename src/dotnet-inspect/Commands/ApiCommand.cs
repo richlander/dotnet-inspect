@@ -1221,10 +1221,10 @@ public class ApiCommand
         ApiOptions options,
         IReadOnlyCollection<string>? discoverySections = null)
     {
-        var formatter = new RenderManifestFormatter();
+        var formatter = new RenderManifestFormatter(GetTypeDocumentSchema(options));
         foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections))
         {
-            formatter.BeginDocument();
+            formatter.BeginDocument(document.WriterOptions);
             var writer = new MarkoutWriter(TextWriter.Null, formatter, document.WriterOptions);
             document.Serialize(writer);
             writer.Flush();

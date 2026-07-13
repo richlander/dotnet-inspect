@@ -1382,7 +1382,8 @@ public class LibraryCommand
         var renderManifest = RenderManifestFormatter.Capture(
             view,
             InspectionContext.Default,
-            writerOpts);
+            writerOpts,
+            schema);
 
         return DiscoverOutput.FilterSchemaToRenderedFields(
             effectiveSections,

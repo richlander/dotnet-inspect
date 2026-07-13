@@ -32,6 +32,10 @@ public class SignatureDecoderSafetyTests
         => RunWorker(nameof(DeepFieldSignatureThroughApiSurfaceExtractorWorker));
 
     [Fact]
+    public void DeepMethodSignature_ThroughApiSurfaceExtractor_IsContainedInChildProcess()
+        => RunWorker(nameof(DeepMethodSignatureThroughApiSurfaceExtractorWorker));
+
+    [Fact]
     public void DeepTypeSpec_ThroughCanonicalIl_IsContainedInChildProcess()
         => RunWorker(nameof(DeepTypeSpecThroughCanonicalIlWorker));
 
@@ -146,7 +150,10 @@ public class SignatureDecoderSafetyTests
 
         var image = BuildApiSurfaceTypeSpecCycle();
         using var peReader = new PEReader(new MemoryStream(image));
-        _ = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var member = Assert.Single(Assert.Single(surface.Types).Members);
+        Assert.Equal(SignatureDecodeStatus.Degraded, member.SignatureDecodeStatus);
     }
 
     [Fact]
@@ -163,7 +170,26 @@ public class SignatureDecoderSafetyTests
 
         var image = BuildSurfacePe(fieldSignature: fieldSignature, methodSignature: null);
         using var peReader = new PEReader(new MemoryStream(image));
-        _ = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var member = Assert.Single(Assert.Single(surface.Types).Members);
+        Assert.Equal(SignatureDecodeStatus.Degraded, member.SignatureDecodeStatus);
+    }
+
+    [Fact]
+    public void DeepMethodSignatureThroughApiSurfaceExtractorWorker()
+    {
+        if (!IsSelectedWorker(nameof(DeepMethodSignatureThroughApiSurfaceExtractorWorker)))
+            return;
+
+        var image = BuildSurfacePe(
+            fieldSignature: null,
+            methodSignature: DeepMethodSignature());
+        using var peReader = new PEReader(new MemoryStream(image));
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var member = Assert.Single(Assert.Single(surface.Types).Members);
+        Assert.Equal(SignatureDecodeStatus.Degraded, member.SignatureDecodeStatus);
     }
 
     [Fact]

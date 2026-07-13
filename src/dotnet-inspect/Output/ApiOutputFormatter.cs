@@ -764,7 +764,12 @@ public static class ApiOutputFormatter
                 }
 
                 var sigDisplay = FormatMemberDeclaration(type, m, abbreviate: abbreviate);
-                return new MemberRow(select, OperatorNames.FormatDisplayName(m.Name), MarkoutInline.Code(sigDisplay), hasDocs ? (m.Documentation.Summary ?? "") : null);
+                return new MemberRow(
+                    select,
+                    OperatorNames.FormatDisplayName(m.Name),
+                    MarkoutInline.Code(sigDisplay),
+                    SignatureDecodeMarker(m),
+                    hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
             switch (kind)
@@ -837,7 +842,10 @@ public static class ApiOutputFormatter
 
         view.SignatureRows =
         [
-            new MemberSignatureRow(MarkoutInline.Code(sigDisplay), description)
+            new MemberSignatureRow(
+                MarkoutInline.Code(sigDisplay),
+                SignatureDecodeMarker(member),
+                description)
         ];
     }
 
@@ -948,6 +956,7 @@ public static class ApiOutputFormatter
                 MarkoutInline.Code(selector),
                 MarkoutInline.Code(anchor.Format(MemberAnchorFormat.StableSelector)),
                 MarkoutInline.Code(anchor.Format(MemberAnchorFormat.CanonicalSignature)),
+                SignatureDecodeMarker(member),
                 anchor.Fingerprint));
         }
 
@@ -1002,7 +1011,8 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                         new ConstructorSummaryRow(
                             OperatorNames.FormatDisplayName(e.members[0].Name),
-                            e.members.Count.ToString())).ToList();
+                            e.members.Count.ToString(),
+                            SignatureDecodeMarker(e.members))).ToList();
                     if (hasOverloads)
                         view.ConstructorSummaryRowsWithOverloads = rows;
                     else
@@ -1015,7 +1025,8 @@ public static class ApiOutputFormatter
                         new MethodSummaryRow(
                             OperatorNames.FormatDisplayName(e.members[0].Name),
                             MemberReturnType(e.members[0]),
-                            e.members.Count.ToString())).ToList();
+                            e.members.Count.ToString(),
+                            SignatureDecodeMarker(e.members))).ToList();
                     if (hasOverloads)
                         methodGroupsView.RowsWithOverloads = rows;
                     else
@@ -1030,7 +1041,8 @@ public static class ApiOutputFormatter
                         return new PropertySummaryRow(
                             m.Name,
                             MemberReturnType(m),
-                            MemberAccessors(m));
+                            MemberAccessors(m),
+                            SignatureDecodeMarker(e.members));
                     }).ToList();
                     view.PropertySummaryRows = rows;
                     break;
@@ -1038,7 +1050,10 @@ public static class ApiOutputFormatter
                 case "field":
                 {
                     var rows = byName.Select(e =>
-                        new FieldSummaryRow(e.members[0].Name, e.members[0].ReturnType ?? "")).ToList();
+                        new FieldSummaryRow(
+                            e.members[0].Name,
+                            e.members[0].ReturnType ?? "",
+                            SignatureDecodeMarker(e.members))).ToList();
                     view.FieldSummaryRows = rows;
                     break;
                 }
@@ -1057,6 +1072,17 @@ public static class ApiOutputFormatter
 
         return (truncated, "members");
     }
+
+    private static string? SignatureDecodeMarker(ApiMember member)
+        => member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded
+            ? "degraded"
+            : null;
+
+    private static string? SignatureDecodeMarker(IEnumerable<ApiMember> members)
+        => members.Any(member =>
+            member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
+            ? "degraded"
+            : null;
 
     internal static void PopulateConstructorOverloads(TypeView view, ApiType type, ApiOptions options)
     {
