@@ -207,6 +207,54 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "receiver mutated through ref local created before blob guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    ref var alias = ref value;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    alias = other;
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "receiver mutated through closure created before blob guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    Action mutate = () => value = other;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    mutate();
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "receiver mutated through predeclared method group",
+            """
+            class C
+            {
+                object M()
+                {
+                    Action mutate = MutateValue;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    mutate();
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
             "member receiver reassigned after blob guard",
             """
             class C
@@ -1612,7 +1660,12 @@ public class ProviderSignatureDecodeBoundaryTests
         int start,
         SyntaxNode end)
     {
-        var root = end.SyntaxTree.GetRoot();
+        var root = end.AncestorsAndSelf().FirstOrDefault(node =>
+            node is BaseMethodDeclarationSyntax
+                or AccessorDeclarationSyntax
+                or LocalFunctionStatementSyntax
+                or AnonymousFunctionExpressionSyntax)
+            ?? end.SyntaxTree.GetRoot();
         var identifiers = expression.DescendantNodesAndSelf()
             .OfType<IdentifierNameSyntax>()
             .Select(identifier => identifier.Identifier.Text)
@@ -1621,12 +1674,35 @@ public class ProviderSignatureDecodeBoundaryTests
             identifiers.Add("\0this");
         if (expression.DescendantNodesAndSelf().OfType<BaseExpressionSyntax>().Any())
             identifiers.Add("\0base");
-        return IdentifiersMutatedBetween(
-            root,
-            identifiers,
-            start,
-            end.SpanStart);
+        return HasPotentialAliasBefore(root, identifiers, end.SpanStart)
+            || IdentifiersMutatedBetween(
+                root,
+                identifiers,
+                start,
+                end.SpanStart);
     }
+
+    static bool HasPotentialAliasBefore(
+        SyntaxNode root,
+        HashSet<string> identifiers,
+        int end)
+        => root.DescendantNodes().Any(node =>
+            node.SpanStart < end
+            && (node is RefExpressionSyntax
+                {
+                    Expression: { } reference
+                }
+                && ContainsProtectedIdentity(reference, identifiers)
+                || node is PrefixUnaryExpressionSyntax
+                {
+                    RawKind: (int)SyntaxKind.AddressOfExpression,
+                    Operand: { } address
+                }
+                && ContainsProtectedIdentity(address, identifiers)
+                || node is LambdaExpressionSyntax
+                    or AnonymousMethodExpressionSyntax
+                    or LocalFunctionStatementSyntax
+                && ContainsProtectedIdentity(node, identifiers)));
 
     static bool IdentifierMutatedBetween(
         SyntaxNode root,
@@ -1647,7 +1723,8 @@ public class ProviderSignatureDecodeBoundaryTests
         => root.DescendantNodes().Any(node =>
             node.SpanStart > start
             && node.SpanStart < end
-            && IsProtectedMutation(node, identifiers));
+            && (IsProtectedMutation(node, identifiers)
+                || node is InvocationExpressionSyntax));
 
     static bool CrossesDeferredExecutionBoundary(SyntaxNode descendant, SyntaxNode ancestor)
     {
