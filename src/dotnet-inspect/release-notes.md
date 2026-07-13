@@ -53,7 +53,7 @@
   flag for emitting grounding/content payloads directly (#1659, #1672).
 - Turns `dotnet-inspect skill` into a router to focused scenario sub-skills
   (`skill list`, `skill source`, `skill performance`, and more), with
-  table descriptions sourced from each skill's YAML frontmatter
+  one-line descriptions sourced from each skill's YAML frontmatter
   (#1559, #1577).
 
 ### Performance analysis (experimental)
