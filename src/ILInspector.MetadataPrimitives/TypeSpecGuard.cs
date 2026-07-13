@@ -5,7 +5,9 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// Bounds cross-handle TypeSpec re-entry performed by signature providers.
 /// A top-level blob prescan cannot see a custom modifier that resolves another
-/// TypeSpec, including a cycle back to the current row.
+/// TypeSpec, including a cycle back to the current row. Successful entries
+/// return a disposable scope so depth and byte accounting cannot be exited
+/// independently.
 /// </summary>
 public static class TypeSpecGuard
 {
@@ -23,6 +25,12 @@ public static class TypeSpecGuard
 
     [ThreadStatic]
     static int s_depth;
+
+    [ThreadStatic]
+    static ulong s_currentToken;
+
+    [ThreadStatic]
+    static ulong s_nextToken;
 
     public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
         => TryEnter(reader, handle, out scope, out _);
@@ -58,16 +66,21 @@ public static class TypeSpecGuard
 
         s_depth++;
         s_cumulativeBytes += length;
-        scope = new Scope(length, s_depth);
+        ulong parentToken = s_currentToken;
+        ulong token;
+        do
+        {
+            token = unchecked(++s_nextToken);
+        }
+        while (token == 0 || token == parentToken);
+        s_currentToken = token;
+        scope = new Scope(length, token, parentToken);
         rejectionKind = default;
         return true;
     }
 
-    static void Exit(int blobLength, int depth)
+    static void Exit(int blobLength)
     {
-        if (s_depth != depth)
-            throw new InvalidOperationException("TypeSpecGuard scopes must be disposed in entry order.");
-
         s_depth--;
         s_cumulativeBytes -= blobLength;
     }
@@ -76,26 +89,26 @@ public static class TypeSpecGuard
     /// Restores the calling thread's TypeSpec decode budget when the guarded
     /// re-entry completes. The stack-only token cannot escape to another thread.
     /// </summary>
-    public ref struct Scope
+    public readonly ref struct Scope
     {
-        int _blobLength;
-        readonly int _depth;
-        bool _active;
+        readonly int _blobLength;
+        readonly ulong _token;
+        readonly ulong _parentToken;
 
-        internal Scope(int blobLength, int depth)
+        internal Scope(int blobLength, ulong token, ulong parentToken)
         {
             _blobLength = blobLength;
-            _depth = depth;
-            _active = true;
+            _token = token;
+            _parentToken = parentToken;
         }
 
         public void Dispose()
         {
-            if (!_active)
+            if (_token == 0 || s_currentToken != _token)
                 return;
 
-            Exit(_blobLength, _depth);
-            _active = false;
+            Exit(_blobLength);
+            s_currentToken = _parentToken;
         }
     }
 }

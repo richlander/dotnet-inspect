@@ -116,14 +116,14 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 exception.Message));
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
-    
-    public string GetArrayType(string elementType, ArrayShape shape) 
+
+    public string GetArrayType(string elementType, ArrayShape shape)
         => $"{elementType}[{new string(',', shape.Rank - 1)}]";
-    
+
     public string GetByReferenceType(string elementType) => $"ref {elementType}";
-    
+
     public string GetPointerType(string elementType) => $"{elementType}*";
-    
+
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
         => TypeResolver.ApplyGenericArguments(genericType, typeArguments);
 
@@ -160,8 +160,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
         _ => "unmanaged",
     };
-    
+
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
-    
+
     public string GetPinnedType(string elementType) => elementType;
 }

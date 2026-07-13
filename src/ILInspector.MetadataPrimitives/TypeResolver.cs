@@ -32,7 +32,7 @@ public static class TypeResolver
 
     /// <summary>
     /// Gets the type name from a TypeReference handle, qualifying a nested type
-    /// through its declaring type (<c>Outer.Inner</c>) — a nested
+    /// through its declaring type (<c>Outer.Inner</c>) - a nested
     /// <see cref="TypeReference"/> carries an empty namespace and a leaf name with
     /// its enclosing type as the resolution scope, so a raw namespace+name would
     /// drop the qualifier (rendering <c>ImmutableArray`1+Builder</c> as a bare
@@ -93,7 +93,7 @@ public static class TypeResolver
     /// <summary>
     /// Renders a generic instantiation by substituting the supplied type arguments
     /// at each <c>`N</c> arity marker in the open type name, preserving the
-    /// surrounding text — crucially any trailing nested-type segment such as the
+    /// surrounding text - crucially any trailing nested-type segment such as the
     /// <c>.Enumerator</c> in <c>Dictionary`2.Enumerator</c>. Arguments are consumed
     /// in order across arity markers (so <c>Outer`1.Inner`1</c> with two arguments
     /// becomes <c>Outer&lt;A&gt;.Inner&lt;B&gt;</c>). When the name carries no arity

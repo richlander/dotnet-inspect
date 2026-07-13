@@ -104,6 +104,51 @@ public class SignatureDecoderSafetyTests
             Type.GetType("ILInspector.Metadata.SignatureBlobGuard, ILInspector.Metadata"));
 
     [Fact]
+    public void EmptyTypeSpec_DisposesGuardScopeAfterDecodeFailure()
+    {
+        var reader = BuildTypeSpec(_ => { });
+        var handle = MetadataTokens.TypeSpecificationHandle(1);
+
+        for (int i = 0; i <= 256; i++)
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => TypeResolver.GetTypeNameFromSpecification(reader, handle));
+        }
+    }
+
+    [Fact]
+    public void CopiedTypeSpecScope_CannotExitTwice()
+    {
+        var reader = BuildTypeSpec(signature => signature.WriteByte(0x08));
+        var handle = MetadataTokens.TypeSpecificationHandle(1);
+
+        Assert.True(TypeSpecGuard.TryEnter(reader, handle, out var scope));
+        var copy = scope;
+        scope.Dispose();
+        copy.Dispose();
+
+        AssertDepthLimit(reader, handle, depth: 0);
+    }
+
+    static void AssertDepthLimit(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        int depth)
+    {
+        if (depth == 256)
+        {
+            Assert.False(TypeSpecGuard.TryEnter(reader, handle, out _));
+            return;
+        }
+
+        Assert.True(TypeSpecGuard.TryEnter(reader, handle, out var scope));
+        using (scope)
+        {
+            AssertDepthLimit(reader, handle, depth + 1);
+        }
+    }
+
+    [Fact]
     public void SelfReferentialTypeSpecWorker()
     {
         if (!IsSelectedWorker(nameof(SelfReferentialTypeSpecWorker)))

@@ -131,6 +131,13 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             return TypeRef.Unsupported("type-specification signature blob too large");
         if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
             return TypeRef.Unsupported("type-specification cumulative signature blob too large");
+        if (!ILInspector.Metadata.SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            spec.Signature,
+            ILInspector.Metadata.SignatureBlobGuard.Kind.TypeSpecification))
+        {
+            return TypeRef.Unsupported("type-specification signature nesting depth exceeded");
+        }
         s_cumulativeSignatureBytes += blobLength;
         s_recursionDepth++;
         try
