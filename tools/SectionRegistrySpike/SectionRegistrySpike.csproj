@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Evaluation spike for issue #2605: a capability-driven, lazy section registry that
+    reuses the real DotnetInspector.Sections.SectionPipeline<T> for selection while
+    layering typed, dependency-ordered async capability execution on top. This project
+    is a contained runnable evaluation, not a production migration — see
+    docs/design/capability-section-registry-spike.md.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>section-registry-spike</AssemblyName>
+    <RootNamespace>SectionRegistrySpike</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/dotnet-inspect/dotnet-inspect.csproj" />
+  </ItemGroup>
+
+</Project>
