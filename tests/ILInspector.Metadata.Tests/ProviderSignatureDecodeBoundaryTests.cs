@@ -224,6 +224,17 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "prescan deferred lambda",
+            """
+            class C
+            {
+                object M() => SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind)
+                    ? (() => value.DecodeSignature(provider, context))
+                    : fallback;
+            }
+            """
+        },
+        {
             "new decoder entry point",
             """
             class C
@@ -241,6 +252,25 @@ public class ProviderSignatureDecodeBoundaryTests
                 {
                     TypeSpecGuard.TryEnter(reader, otherHandle, out var unrelated);
                     return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "TypeSpec deferred local function",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        object Decode() =>
+                            reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                        return Decode;
+                    }
                 }
             }
             """
@@ -380,6 +410,41 @@ public class ProviderSignatureDecodeBoundaryTests
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     return spec.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder counters incremented conditionally",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    if (shouldCount)
+                    {
+                        s_cumulativeSignatureBytes += blobLength;
+                        s_recursionDepth++;
+                    }
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
                 }
             }
             """
@@ -567,6 +632,7 @@ public class ProviderSignatureDecodeBoundaryTests
         foreach (var usingStatement in invocation.Ancestors().OfType<UsingStatementSyntax>())
         {
             if (!usingStatement.Statement.Span.Contains(invocation.Span)
+                || CrossesDeferredExecutionBoundary(invocation, usingStatement)
                 || usingStatement.Expression is not IdentifierNameSyntax scope
                 || usingStatement.Parent is not BlockSyntax block)
             {
@@ -645,6 +711,7 @@ public class ProviderSignatureDecodeBoundaryTests
         {
             if (ancestor is ConditionalExpressionSyntax conditional
                 && conditional.WhenTrue.Span.Contains(invocation.Span)
+                && !CrossesDeferredExecutionBoundary(invocation, conditional)
                 && ConditionGuardsReceiverSignature(conditional.Condition, decodeReceiver))
             {
                 return true;
@@ -662,6 +729,7 @@ public class ProviderSignatureDecodeBoundaryTests
         foreach (var ifStatement in invocation.Ancestors().OfType<IfStatementSyntax>())
         {
             if (ifStatement.Statement.Span.Contains(invocation.Span)
+                && !CrossesDeferredExecutionBoundary(invocation, ifStatement)
                 && ConditionGuardsReceiverSignature(ifStatement.Condition, decodeReceiver))
             {
                 return true;
@@ -670,6 +738,9 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var block in invocation.Ancestors().OfType<BlockSyntax>())
         {
+            if (CrossesDeferredExecutionBoundary(invocation, block))
+                continue;
+
             var guardedStatement = block.Statements.FirstOrDefault(
                 statement => statement.Span.Contains(invocation.Span));
             if (guardedStatement is null)
@@ -783,26 +854,8 @@ public class ProviderSignatureDecodeBoundaryTests
         var guardedTry = invocation.Ancestors().OfType<TryStatementSyntax>()
             .FirstOrDefault(statement => statement.Block.Span.Contains(invocation.Span));
         if (guardedTry?.Finally?.Block is not { } finallyBlock
-            || !HasPostfixMutationBefore(
-                body,
-                guardedTry,
-                "s_recursionDepth",
-                SyntaxKind.PostIncrementExpression)
-            || !HasAssignmentBefore(
-                body,
-                guardedTry,
-                "s_cumulativeSignatureBytes",
-                "blobLength",
-                SyntaxKind.AddAssignmentExpression)
-            || !HasPostfixMutation(
-                finallyBlock,
-                "s_recursionDepth",
-                SyntaxKind.PostDecrementExpression)
-            || !HasAssignment(
-                finallyBlock,
-                "s_cumulativeSignatureBytes",
-                "blobLength",
-                SyntaxKind.SubtractAssignmentExpression))
+            || !HasImmediatelyPrecedingCounterIncrements(guardedTry)
+            || !HasExactCounterCleanup(finallyBlock))
         {
             return false;
         }
@@ -830,50 +883,58 @@ public class ProviderSignatureDecodeBoundaryTests
                     SyntaxFactory.ParseExpression(right))
                 && StatementAlwaysExits(statement.Statement));
 
-    static bool HasPostfixMutationBefore(
-        BlockSyntax body,
-        StatementSyntax boundary,
+    static bool HasImmediatelyPrecedingCounterIncrements(TryStatementSyntax guardedTry)
+    {
+        if (guardedTry.Parent is not BlockSyntax block)
+            return false;
+
+        int tryIndex = block.Statements.IndexOf(guardedTry);
+        return tryIndex >= 2
+            && IsAssignmentStatement(
+                block.Statements[tryIndex - 2],
+                "s_cumulativeSignatureBytes",
+                "blobLength",
+                SyntaxKind.AddAssignmentExpression)
+            && IsPostfixMutationStatement(
+                block.Statements[tryIndex - 1],
+                "s_recursionDepth",
+                SyntaxKind.PostIncrementExpression);
+    }
+
+    static bool HasExactCounterCleanup(BlockSyntax finallyBlock)
+        => finallyBlock.Statements.Count == 2
+            && IsPostfixMutationStatement(
+                finallyBlock.Statements[0],
+                "s_recursionDepth",
+                SyntaxKind.PostDecrementExpression)
+            && IsAssignmentStatement(
+                finallyBlock.Statements[1],
+                "s_cumulativeSignatureBytes",
+                "blobLength",
+                SyntaxKind.SubtractAssignmentExpression);
+
+    static bool IsPostfixMutationStatement(
+        StatementSyntax statement,
         string identifier,
         SyntaxKind kind)
-        => body.DescendantNodes()
-            .OfType<PostfixUnaryExpressionSyntax>()
-            .Any(expression =>
-                expression.SpanStart < boundary.SpanStart
-                && expression.IsKind(kind)
-                && expression.Operand is IdentifierNameSyntax id
-                && id.Identifier.Text == identifier);
+        => statement is ExpressionStatementSyntax
+        {
+            Expression: PostfixUnaryExpressionSyntax expression
+        }
+            && expression.IsKind(kind)
+            && expression.Operand is IdentifierNameSyntax id
+            && id.Identifier.Text == identifier;
 
-    static bool HasPostfixMutation(
-        BlockSyntax body,
-        string identifier,
-        SyntaxKind kind)
-        => body.DescendantNodes()
-            .OfType<PostfixUnaryExpressionSyntax>()
-            .Any(expression =>
-                expression.IsKind(kind)
-                && expression.Operand is IdentifierNameSyntax id
-                && id.Identifier.Text == identifier);
-
-    static bool HasAssignmentBefore(
-        BlockSyntax body,
-        StatementSyntax boundary,
+    static bool IsAssignmentStatement(
+        StatementSyntax statement,
         string left,
         string right,
         SyntaxKind kind)
-        => body.DescendantNodes()
-            .OfType<AssignmentExpressionSyntax>()
-            .Any(expression =>
-                expression.SpanStart < boundary.SpanStart
-                && IsAssignment(expression, left, right, kind));
-
-    static bool HasAssignment(
-        BlockSyntax body,
-        string left,
-        string right,
-        SyntaxKind kind)
-        => body.DescendantNodes()
-            .OfType<AssignmentExpressionSyntax>()
-            .Any(expression => IsAssignment(expression, left, right, kind));
+        => statement is ExpressionStatementSyntax
+        {
+            Expression: AssignmentExpressionSyntax expression
+        }
+            && IsAssignment(expression, left, right, kind);
 
     static bool IsAssignment(
         AssignmentExpressionSyntax expression,
@@ -900,6 +961,21 @@ public class ProviderSignatureDecodeBoundaryTests
         while (expression is ParenthesizedExpressionSyntax parenthesized)
             expression = parenthesized.Expression;
         return expression;
+    }
+
+    static bool CrossesDeferredExecutionBoundary(SyntaxNode descendant, SyntaxNode ancestor)
+    {
+        for (var node = descendant.Parent; node is not null && node != ancestor; node = node.Parent)
+        {
+            if (node is LambdaExpressionSyntax
+                or AnonymousMethodExpressionSyntax
+                or LocalFunctionStatementSyntax)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static bool Equivalent(ExpressionSyntax left, ExpressionSyntax right)
