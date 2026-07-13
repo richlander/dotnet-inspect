@@ -93,8 +93,15 @@ public static class AttributeDecoder
                 foreach (var fieldHandle in def.GetFields())
                 {
                     var field = reader.GetFieldDefinition(fieldHandle);
-                    if ((field.Attributes & FieldAttributes.Static) == 0)
-                        return field.DecodeSignature(new PrimitiveCodeProvider(), null);
+                    if ((field.Attributes & FieldAttributes.Static) != 0)
+                        continue;
+
+                    // SRM decodes this field signature on the native stack before the
+                    // first provider callback, so an over-deep enum field blob would
+                    // overflow uncatchably. Prescan and fail closed to Int32.
+                    return SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
+                        ? field.DecodeSignature(new PrimitiveCodeProvider(), null)
+                        : PrimitiveTypeCode.Int32;
                 }
             }
             return PrimitiveTypeCode.Int32;

@@ -16,8 +16,10 @@ public class StringSignatureDecodeBoundaryTests
             "GuardedSignatureText.cs",
             "SignatureDecoder.cs",
             "TypeResolver.cs",
-            // TypeNodeProvider delegates leaf-name callbacks to the string provider; its own
-            // top-level and nested-TypeSpec safety belongs to provider-closure issue #2575.
+            // TypeNodeProvider delegates leaf-name callbacks to the string provider for
+            // primitive/def/ref names; its top-level and nested-TypeSpec decode safety is
+            // enforced separately by GuardedProviderDecode + TypeSpecGuard (issue #2575) and
+            // frozen by ProviderSignatureDecodeBoundaryTests.
             "TypeNodeProvider.cs",
         };
         var violations = new List<string>();
