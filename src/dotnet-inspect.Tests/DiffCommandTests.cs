@@ -8,6 +8,7 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
+using ILInspector.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
@@ -1309,6 +1310,101 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildImplementationDiffView_LabelsAuthoredSourceAsIndependentLane()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var oldInspection = new FindingInspection<string>.Complete(
+            [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
+        var newInspection = new FindingInspection<string>.Complete(
+            [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult([], new ResearchComparison([])),
+            [new AuthoredSourceComparisonInput(subject, oldInspection, newInspection)]);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        Assert.Contains(view.Rows!, row =>
+            row.Mechanism == "Source"
+            && row.Evidence.Contains("return 2", StringComparison.Ordinal));
+        Assert.Contains("authored Source", view.Summary, StringComparison.Ordinal);
+        Assert.Contains("C# is decompiled", view.Status.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildImplementationDiffView_RendersAuthoredSourceAbsence()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult([], new ResearchComparison([])),
+            [
+                new AuthoredSourceComparisonInput(
+                    subject,
+                    new FindingInspection<string>.Absent("old PDB unavailable"),
+                    new FindingInspection<string>.Absent("new PDB unavailable"))
+            ]);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("unavailable", row.Change);
+        Assert.Contains("old PDB unavailable", row.Evidence, StringComparison.Ordinal);
+        Assert.Contains("new PDB unavailable", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildImplementationDiffView_RendersAuthoredSourceFailure()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var failure = new FindingInspection<string>.Failed(new InspectionError(
+            new FindingSubject(subject.Id, subject.Display),
+            TextFindings.LineDescriptor,
+            "checksum mismatch"));
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult([], new ResearchComparison([])),
+            [
+                new AuthoredSourceComparisonInput(
+                    subject,
+                    failure,
+                    new FindingInspection<string>.Absent("new source unavailable"))
+            ]);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("failed", row.Change);
+        Assert.Contains("checksum mismatch", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildImplementationDiff_MemberFilter_UsesResolverBackedTarget()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -1421,7 +1517,7 @@ public class DiffCommandTests
             output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
+            "C# is decompiled evidence; Source is checksum-verified authored evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility.",
             output,
             StringComparison.Ordinal);
     }
@@ -1472,7 +1568,7 @@ public class DiffCommandTests
             "Analysis signal changes are body-level evidence, not public API compatibility changes.",
             document.RootElement.GetProperty("analysis_diff_note").GetString());
         Assert.Equal(
-            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
+            "C# is decompiled evidence; Source is checksum-verified authored evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility.",
             document.RootElement.GetProperty("implementation_diff_note").GetString());
         Assert.DoesNotContain(analysis.EnumerateArray(), row =>
             row.GetProperty("member").GetString()!.Contains("<code>", StringComparison.Ordinal)

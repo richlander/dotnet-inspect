@@ -7,6 +7,7 @@ using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Text;
 
 namespace ILInspector.Research;
 
@@ -16,7 +17,9 @@ public enum ImplementationDiffMechanism
     None = 0,
     CSharp = 1,
     IlBody = 2,
+    Source = 4,
     All = CSharp | IlBody,
+    AllAvailable = All | Source,
 }
 
 public sealed record ImplementationDiffOptions(
@@ -35,12 +38,22 @@ public sealed record ImplementationDiffMember(
     ResearchSubjectKey Subject,
     IReadOnlyList<ResearchChange> Changes)
 {
+    public FindingComparison<string>? SourceComparison { get; init; }
+
     public bool HasCSharpChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.CSharp);
 
     public bool HasIlChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.IlBody);
+
+    public bool HasSourceChanges
+        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.Source);
 }
+
+public sealed record AuthoredSourceComparisonInput(
+    ResearchSubjectKey Subject,
+    FindingInspection<string> OldInspection,
+    FindingInspection<string> NewInspection);
 
 public sealed record ImplementationMemberDiffResult(
     ResearchSubjectKey Subject,
@@ -49,17 +62,23 @@ public sealed record ImplementationMemberDiffResult(
     IReadOnlyList<ResearchChange> Changes,
     RetainedFindingComparisonSet RetainedComparisons)
 {
+    public FindingComparison<string>? SourceComparison { get; init; }
+
     public bool HasCSharpChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.CSharp);
 
     public bool HasIlChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.IlBody);
 
+    public bool HasSourceChanges
+        => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.Source);
+
     public bool IsExact
         => Changes.Count == 0
            && (CSharpDiff is null || CSharpDiff.IsExact)
            && (IlDiff is null || IlDiff.Diff.IsExact)
-           && RetainedComparisons.Items.All(comparison => comparison.IsExact);
+           && RetainedComparisons.Items.All(comparison => comparison.IsExact)
+           && (SourceComparison is null || SourceComparison.IsExact);
 }
 
 /// <summary>
@@ -68,6 +87,9 @@ public sealed record ImplementationMemberDiffResult(
 /// </summary>
 public static class ImplementationDiff
 {
+    public static readonly FindingDescriptor AuthoredSourceFailureDescriptor =
+        new("source.authored.failed", "Authored source acquisition failed");
+
     public static ImplementationDiffResult CompareAssemblies(
         string oldAssemblyPath,
         string newAssemblyPath,
@@ -185,6 +207,45 @@ public static class ImplementationDiff
             new RetainedFindingComparisonSet(retainedComparisons));
     }
 
+    public static ImplementationMemberDiffResult CompareMembersWithAuthoredSource(
+        MetadataSource oldSource,
+        MethodDefinitionHandle oldMethod,
+        MetadataSource newSource,
+        MethodDefinitionHandle newMethod,
+        FindingInspection<string> oldAuthoredSource,
+        FindingInspection<string> newAuthoredSource,
+        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.AllAvailable,
+        ResearchSubjectKey? subject = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldAuthoredSource);
+        ArgumentNullException.ThrowIfNull(newAuthoredSource);
+
+        var result = CompareMembers(
+            oldSource,
+            oldMethod,
+            newSource,
+            newMethod,
+            mechanisms & ~ImplementationDiffMechanism.Source,
+            subject);
+        if (!mechanisms.HasFlag(ImplementationDiffMechanism.Source))
+            return result;
+
+        var comparison = FindingComparison.Compare(
+            oldAuthoredSource,
+            newAuthoredSource);
+        var retained = result.RetainedComparisons.Items.ToBuilder();
+        retained.Add(new RetainedFindingComparison<string>(
+            result.Subject,
+            TextFindings.LineDescriptor,
+            comparison));
+        return result with
+        {
+            Changes = [.. result.Changes, .. ToSourceChanges(comparison, result.Subject)],
+            RetainedComparisons = new RetainedFindingComparisonSet(retained),
+            SourceComparison = comparison,
+        };
+    }
+
     public static ImplementationDiffResult Compare(
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
@@ -208,18 +269,133 @@ public static class ImplementationDiff
         ArgumentNullException.ThrowIfNull(research);
         options ??= new ImplementationDiffOptions();
 
-        var members = research.MembersWhere(member => member.ImplementationChanged)
+        var sourceComparisons = research.RetainedComparisons.Items
+            .Where(comparison => comparison.Descriptor.Id == TextFindings.LineDescriptor.Id)
+            .OfType<RetainedFindingComparison<string>>()
+            .GroupBy(comparison => comparison.Subject.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var changedMembers = research.BySubject()
+            .Where(member => member.Subject.Kind == ResearchSubjectKind.Member)
+            .ToDictionary(member => member.Subject.Id, StringComparer.Ordinal);
+        var subjects = changedMembers.Values
+            .Select(member => member.Subject)
+            .Concat(sourceComparisons.Values.Select(comparison => comparison.Subject))
+            .DistinctBy(subject => subject.Id, StringComparer.Ordinal);
+        var members = subjects
+            .Select(subject => (
+                Subject: subject,
+                Changes: changedMembers.TryGetValue(subject.Id, out var member)
+                    ? member.Changes
+                    : ImmutableArray<ResearchChange>.Empty))
+            .Where(item => item.Changes.Any(change =>
+                    change.Mechanism is ResearchChangeMechanism.CSharp
+                        or ResearchChangeMechanism.IlBody
+                        or ResearchChangeMechanism.Source)
+                || sourceComparisons.ContainsKey(item.Subject.Id))
             .Select(member => new ImplementationDiffMember(
                 member.Subject,
                 [.. member.Changes.Where(change =>
                     change.Mechanism is ResearchChangeMechanism.CSharp
-                        or ResearchChangeMechanism.IlBody)]))
-            .Where(member => member.Changes.Count > 0)
+                        or ResearchChangeMechanism.IlBody
+                        or ResearchChangeMechanism.Source)])
+                {
+                    SourceComparison = sourceComparisons.GetValueOrDefault(member.Subject.Id)?.Comparison,
+                })
+            .Where(member => member.Changes.Count > 0 || member.SourceComparison is not null)
             .Where(member => ResearchDiff.MatchesTypeFilters(member.Subject.TypeName ?? "", options.TypeFilters))
             .Where(member => MatchesMemberTargets(member.Subject, options.MemberTargetIdentities))
             .ToArray();
 
         return new ImplementationDiffResult(members, research);
+    }
+
+    public static ImplementationDiffResult WithAuthoredSourceComparisons(
+        ImplementationDiffResult result,
+        IEnumerable<AuthoredSourceComparisonInput> inputs,
+        ImplementationDiffOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(inputs);
+        options ??= new ImplementationDiffOptions();
+
+        var changes = result.Research.Changes.ToBuilder();
+        var retained = result.Research.RetainedComparisons.Items.ToBuilder();
+        foreach (var input in inputs)
+        {
+            ArgumentNullException.ThrowIfNull(input);
+            var comparison = FindingComparison.Compare(
+                input.OldInspection,
+                input.NewInspection);
+            retained.Add(new RetainedFindingComparison<string>(
+                input.Subject,
+                TextFindings.LineDescriptor,
+                comparison));
+            changes.AddRange(ToSourceChanges(comparison, input.Subject));
+        }
+
+        var research = new ResearchComparison(
+            changes.ToImmutable(),
+            result.Research.ApiDiff,
+            result.Research.ApiComparison,
+            new RetainedFindingComparisonSet(retained));
+        return FromResearchComparison(research, options);
+    }
+
+    public static ImmutableArray<ResearchChange> ToSourceChanges(
+        FindingComparison<string> comparison,
+        ResearchSubjectKey subject)
+    {
+        ArgumentNullException.ThrowIfNull(comparison);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        if (comparison is FindingComparison<string>.Failed failed)
+        {
+            return
+            [
+                new ResearchChange(
+                    subject,
+                    ResearchChangeMechanism.Source,
+                    AuthoredSourceFailureDescriptor,
+                    ResearchChangeKind.Changed,
+                    detail: failed.Failure,
+                    category: ResearchChangeCategory.Source)
+            ];
+        }
+
+        var complete = (FindingComparison<string>.Complete)comparison.Value;
+        var changes = ImmutableArray.CreateBuilder<ResearchChange>();
+        foreach (var pair in complete.Pairs)
+        {
+            switch (pair)
+            {
+                case PairFinding<string>.Added added:
+                    changes.Add(SourceChange(
+                        subject,
+                        ResearchChangeKind.Added,
+                        newValue: added.New.Payload,
+                        detail: added.Detail));
+                    break;
+                case PairFinding<string>.Removed removed:
+                    changes.Add(SourceChange(
+                        subject,
+                        ResearchChangeKind.Removed,
+                        oldValue: removed.Old.Payload,
+                        detail: removed.Detail));
+                    break;
+                case PairFinding<string>.Changed changed:
+                    changes.Add(SourceChange(
+                        subject,
+                        ResearchChangeKind.Changed,
+                        changed.Old.Payload,
+                        changed.New.Payload,
+                        changed.Detail));
+                    break;
+                case PairFinding<string>.Present:
+                    break;
+            }
+        }
+
+        return changes.ToImmutable();
     }
 
     public static ImmutableArray<ResearchChange> ToIlChanges(
@@ -322,8 +498,31 @@ public static class ImplementationDiff
             lines.Add(change.IlDisplayFailureRow.UnifiedLine);
         if (!change.IlDisplayRows.IsDefaultOrEmpty)
             lines.AddRange(change.IlDisplayRows.Select(row => row.UnifiedLine));
+        if (change.Mechanism == ResearchChangeMechanism.Source)
+        {
+            if (change.OldValue is { } oldValue)
+                lines.Add($"- {oldValue}");
+            if (change.NewValue is { } newValue)
+                lines.Add($"+ {newValue}");
+        }
         return lines.ToImmutable();
     }
+
+    static ResearchChange SourceChange(
+        ResearchSubjectKey subject,
+        ResearchChangeKind kind,
+        string? oldValue = null,
+        string? newValue = null,
+        string? detail = null)
+        => new(
+            subject,
+            ResearchChangeMechanism.Source,
+            TextFindings.LineDescriptor,
+            kind,
+            oldValue,
+            newValue,
+            detail: detail,
+            category: ResearchChangeCategory.Source);
 
     static ImmutableArray<ResearchChange> ToCSharpChanges(
         CSharpBodyDiffResult diff,

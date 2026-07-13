@@ -83,12 +83,15 @@ Rows identify unsafe operation kinds and details. `PairFinding.Added` confirms
 introduction; `Present` and `Removed` distinguish persistence from
 disappearance without treating endpoint-local IL offsets as identity.
 
-## Did the implementation change? (C# + IL)
+## Did the implementation change? (decompiled C# + IL + authored Source)
 
 `-S "Implementation Diff"` selects Research-composed body evidence instead of
-the default API compatibility view. Rows identify the member, producer (`C#` or
-`IL`), change kind, and producer-owned evidence. Narrow with `-t` and `-m`; use
-`--table`, `--tsv`, or `--jsonl` for columnar output.
+the default API compatibility view. Rows identify the member, producer (`C#`,
+`IL`, or `Source`), change kind, and producer-owned evidence. `C#` is
+decompiled text; `Source` is checksum-verified authored SourceLink text. The
+lanes are peers: Source absence or failure stays visible and never replaces the
+C# lane. Narrow with `-t` and `-m`; use `--table`, `--tsv`, or `--jsonl` for
+columnar output.
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -t MyType -m HotPath

@@ -8,6 +8,7 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Instructions;
+using ILInspector.Text;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
 namespace ILInspector.Research.Tests;
@@ -1475,6 +1476,65 @@ public class ResearchDiffTests
             CSharpFindings.LineDescriptor)).IsExact);
         Assert.False(Assert.Single(diff.RetainedComparisons.Get<CanonicalIlOperation>(
             IlFindings.OperationDescriptor)).IsExact);
+    }
+
+    [Fact]
+    public void ImplementationDiff_AuthoredSourceIsIndependentPeerMechanism()
+    {
+        using var source = DecompilerMetadataSource.OpenWithoutSymbols(FixtureCatalog.DiffPair.OldAssemblyPath());
+        var stable = FindMethodHandle(FixtureCatalog.DiffPair.OldAssemblyPath(), "DiffFixtureSample.DiffSample", "Stable");
+        var oldInspection = new FindingInspection<string>.Complete(
+            [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
+        var newInspection = new FindingInspection<string>.Complete(
+            [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
+        var result = ImplementationDiff.CompareMembersWithAuthoredSource(
+            source,
+            stable,
+            source,
+            stable,
+            oldInspection,
+            newInspection);
+
+        Assert.True(result.HasSourceChanges);
+        Assert.False(result.HasCSharpChanges);
+        Assert.False(result.HasIlChanges);
+        Assert.NotNull(result.SourceComparison);
+        Assert.Contains(result.Changes, change =>
+            change.Mechanism == ResearchChangeMechanism.Source
+            && ImplementationDiff.UnifiedLines(change).Any(line =>
+                line.Contains("return 2", StringComparison.Ordinal)));
+        Assert.Single(result.RetainedComparisons.Get<string>(TextFindings.LineDescriptor));
+        Assert.Single(result.RetainedComparisons.Get<CSharpCanonicalLine>(
+            CSharpFindings.LineDescriptor));
+        Assert.Single(result.RetainedComparisons.Get<CanonicalIlOperation>(
+            IlFindings.OperationDescriptor));
+    }
+
+    [Fact]
+    public void ImplementationDiff_AuthoredSourcePreservesAbsentStateWithoutChangingCSharp()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult(
+                [],
+                new ResearchComparison([])),
+            [
+                new AuthoredSourceComparisonInput(
+                    subject,
+                    new FindingInspection<string>.Absent("old source unavailable"),
+                    new FindingInspection<string>.Absent("new source unavailable"))
+            ]);
+
+        var member = Assert.Single(result.Members);
+        Assert.Empty(member.Changes);
+        Assert.True(member.SourceComparison!.IsExact);
+        Assert.IsType<FindingInspection<string>.Absent>(member.SourceComparison.OldInspection.Value);
+        Assert.IsType<FindingInspection<string>.Absent>(member.SourceComparison.NewInspection.Value);
     }
 
     [Fact]

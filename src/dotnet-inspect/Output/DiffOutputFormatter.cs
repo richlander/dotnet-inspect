@@ -330,15 +330,21 @@ public static class DiffOutputFormatter
                 {
                     ResearchChangeMechanism.CSharp => "C#",
                     ResearchChangeMechanism.IlBody => "IL",
+                    ResearchChangeMechanism.Source => "Source",
                     _ => change.Mechanism.ToString()
                 };
                 var evidenceLines = ImplementationDiff.UnifiedLines(change);
+                string changeKind = change.Mechanism == ResearchChangeMechanism.Source
+                    && change.Descriptor.Id
+                        == ImplementationDiff.AuthoredSourceFailureDescriptor.Id
+                    ? "failed"
+                    : change.Kind.ToString().ToLowerInvariant();
                 if (evidenceLines.IsDefaultOrEmpty)
                 {
                     rows.Add(new ImplementationDiffRow(
                         member.Subject.Display,
                         mechanism,
-                        change.Kind.ToString().ToLowerInvariant(),
+                        changeKind,
                         change.Detail ?? change.Descriptor.Title));
                     continue;
                 }
@@ -348,18 +354,34 @@ public static class DiffOutputFormatter
                     rows.Add(new ImplementationDiffRow(
                         member.Subject.Display,
                         mechanism,
-                        change.Kind.ToString().ToLowerInvariant(),
+                        changeKind,
                         evidence));
+                }
+            }
+
+            var sourceComparison = member.SourceComparison;
+            if (sourceComparison is not null && !member.HasSourceChanges)
+            {
+                string? sourceState = SourceState(sourceComparison);
+                if (sourceState is not null)
+                {
+                    rows.Add(new ImplementationDiffRow(
+                        member.Subject.Display,
+                        "Source",
+                        sourceComparison.IsExact ? "unavailable" : "changed",
+                        sourceState));
                 }
             }
         }
 
         var csharpCount = rows.Count(row => row.Mechanism == "C#");
         var ilCount = rows.Count(row => row.Mechanism == "IL");
+        var sourceCount = rows.Count(row => row.Mechanism == "Source");
         var summary = rows.Count == 0
             ? "No implementation differences detected."
             : $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
-              + $"{csharpCount} C# and {ilCount} IL evidence row{(rows.Count == 1 ? "" : "s")}.";
+              + $"{csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} authored Source "
+              + $"evidence row{(rows.Count == 1 ? "" : "s")}.";
 
         return new ImplementationDiffView
         {
@@ -370,9 +392,32 @@ public static class DiffOutputFormatter
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(
                     CalloutSeverity.Note,
-                    "C# and IL implementation evidence is body-level evidence, not public API compatibility."),
+                    "C# is decompiled evidence; Source is checksum-verified authored evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility."),
             Rows = rows.Count > 0 ? rows : null
         };
+    }
+
+    static string? SourceState(ILInspector.Findings.FindingComparison<string> comparison)
+    {
+        if (comparison is ILInspector.Findings.FindingComparison<string>.Failed failed)
+            return failed.Failure;
+
+        bool oldAbsent = comparison.OldInspection.Value
+            is ILInspector.Findings.FindingInspection<string>.Absent;
+        bool newAbsent = comparison.NewInspection.Value
+            is ILInspector.Findings.FindingInspection<string>.Absent;
+        if (!oldAbsent && !newAbsent)
+            return null;
+
+        string oldState = oldAbsent
+            ? ((ILInspector.Findings.FindingInspection<string>.Absent)
+                comparison.OldInspection.Value).Detail ?? "unavailable"
+            : "complete";
+        string newState = newAbsent
+            ? ((ILInspector.Findings.FindingInspection<string>.Absent)
+                comparison.NewInspection.Value).Detail ?? "unavailable"
+            : "complete";
+        return $"old: {oldState}; new: {newState}";
     }
 
     public static string RenderImplementationDiffView(ImplementationDiffView view)

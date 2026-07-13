@@ -1,6 +1,7 @@
 # Implementation Diff Boundary
 
-`ImplementationDiff` is the product-side C# + IL/body diff projection in
+`ImplementationDiff` is the product-side decompiled C# + IL/body + authored
+Source diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
 the CLI, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
@@ -17,12 +18,15 @@ family.
 - `ILInspector.Instructions` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
-  with C# and IL/body mechanisms, groups changes by `ResearchSubjectKey`, and
+  with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
+  line inspections from Services, groups changes by `ResearchSubjectKey`, and
   exposes typed display rows and unified lines without reformatting producer
   wording.
 - `ResearchComparison.RetainedComparisons` keeps the native
   `FindingComparison<CSharpCanonicalLine>` and
-  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Research
+  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Authored
+  Source comparisons retain `FindingComparison<string>` with the `text.line`
+  descriptor. Research
   cross-checks their exactness against the richer semantic projections for
   members present on both sides.
 
@@ -43,7 +47,9 @@ old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
 must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a Research-owned migration projection, not the seed of a
 parallel generic `EvidenceRow` spine. C# and IL now have native comparisons;
 their semantic rows remain because they carry richer producer-owned evidence,
-while retained comparisons expose the exact census transitions.
+while retained comparisons expose the exact census transitions. `Source` never
+replaces or changes the meaning of `CSharp`: one describes checksum-verified
+authored text and the other describes product-decompiled text.
 
 ## Consumer contract
 
@@ -57,6 +63,12 @@ old/new `MethodDefinitionHandle` values in live `MetadataSource` instances. The
 member result keeps the typed C# diff, typed IL diff, joined implementation
 changes, and a single `ResearchSubjectKey`; exact members return an empty
 change list with `IsExact` set.
+
+Use `CompareMembersWithAuthoredSource` when the caller also has old/new
+`FindingInspection<string>` envelopes from Services. Use
+`WithAuthoredSourceComparisons` to enrich an assembly comparison. These APIs
+preserve `Complete`, `Absent`, and `Failed` independently and retain the native
+line comparison. Research does not fetch source.
 
 The `diff --finding csharp.line` and `diff --finding il.op` focused lenses read
 those retained comparisons and render native `PairFinding` cases. Missing
@@ -80,6 +92,10 @@ third implementation-specific row family.
 The `diff` command exposes this component through the explicit-only
 `Implementation Diff` section. The CLI projects one row per producer-owned
 unified line with `Member`, `Mechanism`, `Change`, and `Evidence` columns.
+For changed implementation members, it acquires each endpoint's PDB and
+SourceLink body, verifies the document checksum, and adds a separately labeled
+`Source` lane. Missing mappings and acquisition failures remain visible rather
+than falling back to decompiled C#.
 Package, platform, and local-library ranges use the same acquisition path as the
 default API diff; `--type`, `--member`, row limits, table, TSV, and JSONL
 projection continue to apply. The CLI consumes this product component and does

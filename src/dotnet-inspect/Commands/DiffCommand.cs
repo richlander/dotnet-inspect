@@ -184,7 +184,11 @@ public class DiffCommand
             {
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
-                    WriteSelectedDocument(inputs, options);
+                    await WriteSelectedDocumentAsync(
+                        inputs,
+                        options,
+                        context.HttpClient,
+                        logger);
                     return 0;
                 }
 
@@ -214,10 +218,12 @@ public class DiffCommand
 
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
                 {
-                    var implementation = BuildImplementationDiff(
+                    var implementation = await BuildImplementationDiffWithSourceAsync(
                         inputs.FromPaths,
                         inputs.ToPaths,
                         options,
+                        context.HttpClient,
+                        logger,
                         inputs.FromSurface,
                         inputs.ToSurface);
                     var view = DiffOutputFormatter.BuildImplementationDiffView(
@@ -676,7 +682,11 @@ public class DiffCommand
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
 
-    private static void WriteSelectedDocument(DiffInputs inputs, DiffOptions options)
+    private static async Task WriteSelectedDocumentAsync(
+        DiffInputs inputs,
+        DiffOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
     {
         var selected = options.IncludeSections
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -718,10 +728,12 @@ public class DiffCommand
         ImplementationDiffView? implementationView = null;
         if (selected.Contains(DiffSections.ImplementationDiff.Name))
         {
-            var implementation = BuildImplementationDiff(
+            var implementation = await BuildImplementationDiffWithSourceAsync(
                 inputs.FromPaths,
                 inputs.ToPaths,
                 options,
+                httpClient,
+                logger,
                 inputs.FromSurface,
                 inputs.ToSurface);
             implementationView = DiffOutputFormatter.BuildImplementationDiffView(
@@ -837,6 +849,157 @@ public class DiffCommand
             new ImplementationDiffOptions(
                 TypeFilters: options.TypeFilter,
                 MemberTargetIdentities: memberTargetIdentities));
+    }
+
+    internal static async Task<ImplementationDiffResult> BuildImplementationDiffWithSourceAsync(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        DiffOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        ApiSurface? fromSurface = null,
+        ApiSurface? toSurface = null)
+    {
+        var result = BuildImplementationDiff(
+            fromPaths,
+            toPaths,
+            options,
+            fromSurface,
+            toSurface);
+        if (result.Members.Count == 0)
+            return result;
+
+        var subjects = result.Members
+            .Select(member => member.Subject)
+            .ToDictionary(subject => subject.Id, StringComparer.Ordinal);
+        var from = await AcquireAuthoredSourceInspectionsAsync(
+            fromPaths,
+            subjects,
+            options,
+            oldSide: true,
+            httpClient,
+            logger);
+        var to = await AcquireAuthoredSourceInspectionsAsync(
+            toPaths,
+            subjects,
+            options,
+            oldSide: false,
+            httpClient,
+            logger);
+        var comparisons = subjects.Values.Select(subject =>
+            new AuthoredSourceComparisonInput(
+                subject,
+                from.GetValueOrDefault(subject.Id)
+                    ?? new FindingInspection<string>.Absent(
+                        "The member is unavailable in the old endpoint."),
+                to.GetValueOrDefault(subject.Id)
+                    ?? new FindingInspection<string>.Absent(
+                        "The member is unavailable in the new endpoint.")));
+        return ImplementationDiff.WithAuthoredSourceComparisons(
+            result,
+            comparisons,
+            new ImplementationDiffOptions(
+                TypeFilters: options.TypeFilter,
+                MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
+    }
+
+    static async Task<Dictionary<string, FindingInspection<string>>> AcquireAuthoredSourceInspectionsAsync(
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
+        DiffOptions options,
+        bool oldSide,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
+        var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
+
+        foreach (string path in paths)
+        {
+            LibraryBodyIndex index;
+            try
+            {
+                index = LibraryBodyIndex.Open(
+                    path,
+                    includeAllocations: false,
+                    includeOpportunities: false);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException)
+            {
+                logger.Log($"Could not index authored-source targets in '{path}': {ex.Message}");
+                continue;
+            }
+
+            var targets = index.DeclaredMethods
+                .Select(method => (
+                    Method: method,
+                    Subject: ResearchMemberIdentity.SubjectFromMethod(method)))
+                .Where(item => subjects.ContainsKey(item.Subject.Id))
+                .Where(item => !results.ContainsKey(item.Subject.Id))
+                .ToArray();
+            if (targets.Length == 0)
+                continue;
+
+            try
+            {
+                using var source = SourceLinkService.Open(path, logger.Log);
+                if (source.Context.NeedsPdb)
+                {
+                    await SourceEnricher.AcquirePdbAsync(
+                        source.Context,
+                        httpClient,
+                        packageName,
+                        packageVersion,
+                        isPlatformAssembly: options.PlatformVersionRange is not null,
+                        logger.Log);
+                }
+
+                foreach (var target in targets)
+                {
+                    var subject = subjects[target.Subject.Id];
+                    var inspection = await AuthoredSourceAcquisition.AcquireMemberAsync(
+                        source,
+                        target.Method.MetadataToken,
+                        target.Method.Name,
+                        new FindingSubject(subject.Id, subject.Display),
+                        fetcher);
+                    results[subject.Id] = inspection.Lines;
+                }
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException
+                or HttpRequestException)
+            {
+                foreach (var target in targets)
+                {
+                    var subject = subjects[target.Subject.Id];
+                    results[subject.Id] = new FindingInspection<string>.Failed(
+                        new InspectionError(
+                            new FindingSubject(subject.Id, subject.Display),
+                            ILInspector.Text.TextFindings.LineDescriptor,
+                            $"Authored-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
+                }
+            }
+        }
+
+        return results;
+    }
+
+    static (string? PackageName, string? PackageVersion) DiffPackageIdentity(
+        DiffOptions options,
+        bool oldSide)
+    {
+        if (options.PackageVersionRange is null)
+            return (null, null);
+
+        var (name, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange);
+        return (name, oldSide ? fromVersion : toVersion);
     }
 
     // Applies the changed-only / allocation-regression filters, ranks rows (in-place
