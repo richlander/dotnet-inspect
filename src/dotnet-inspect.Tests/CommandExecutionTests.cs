@@ -720,6 +720,33 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task InitializerOnlyConstructor_ProjectsThroughMemberAndTypeCommands()
+    {
+        string typeName = typeof(CommandInitializerOnlyFixture).FullName!;
+        var member = await RunAppAsync(
+            "member", typeName, ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-S", "Decompiled Source",
+            "--tips", "q");
+        var type = await RunAppAsync(
+            "type", typeName,
+            "--library", TestAssemblyPath,
+            "-S", "Decompiled Source",
+            "--tips", "q");
+
+        Assert.Equal(0, member.Exit);
+        Assert.Empty(member.Error);
+        Assert.Contains("CommandInitializerOnlyFixture()", member.Output);
+        Assert.DoesNotContain("Value = 42", member.Output);
+        Assert.DoesNotContain("DEC0003", member.Output);
+
+        Assert.Equal(0, type.Exit);
+        Assert.Empty(type.Error);
+        Assert.Contains("public int Value = 42;", type.Output);
+        Assert.DoesNotContain("DEC0003", type.Output);
+    }
+
+    [Fact]
     public async Task MemberCommand_DoesNotInferAsyncFromRenderedText()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -9512,6 +9539,11 @@ public sealed class CommandExecutionSourceDiffFixture
     {
         return value + 1;
     }
+}
+
+public sealed class CommandInitializerOnlyFixture
+{
+    public int Value = 42;
 }
 
 public static class FactsTableFixture
