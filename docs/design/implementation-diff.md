@@ -92,6 +92,10 @@ line comparison. Research does not fetch source.
 Finding acquisition and cross-validation failures use
 `ResearchChangeKind.Failed`; they are operational diagnostics, never semantic
 `Changed` rows in table, TSV, JSONL, or programmatic consumers.
+When a semantic projection carries the corresponding typed failure, Research
+keeps that richer row and suppresses the duplicate generic Finding failure.
+Synthetic add/remove rows from the same failed C# hunk are omitted; genuine
+body absence and independently decoded partial IL evidence remain visible.
 
 The `diff --finding csharp.line` and `diff --finding il.op` focused lenses read
 those retained comparisons and render native `PairFinding` cases. Missing

@@ -97,7 +97,7 @@ public static class ResearchDiff
                 subject,
                 ResearchChangeMechanism.IlBody,
                 Descriptor("il.diff.failed", "IL diff failed"),
-                ResearchChangeKind.Changed,
+                ResearchChangeKind.Failed,
                 detail: failure,
                 category: ResearchChangeCategory.IlBody));
         }
@@ -132,9 +132,11 @@ public static class ResearchDiff
     {
         ArgumentNullException.ThrowIfNull(diff);
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        if (!diff.FailureRows.IsDefaultOrEmpty)
+        var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
+        var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
+        if (!failureRows.IsEmpty)
         {
-            changes.AddRange(diff.FailureRows.Select(row =>
+            changes.AddRange(failureRows.Select(row =>
             {
                 string descriptorId = $"csharp.diff.{ToKebabCase(row.Kind.ToString())}";
                 return new ResearchChange(
@@ -153,7 +155,9 @@ public static class ResearchDiff
 
         if (!diff.Rows.IsDefaultOrEmpty)
         {
-            changes.AddRange(diff.Rows.Select(row =>
+            changes.AddRange(diff.Rows
+                .Where(row => !operationalFailureHunks.Contains(row.HunkId))
+                .Select(row =>
             {
                 var kind = Direction(row.Kind);
                 return new ResearchChange(
@@ -976,12 +980,14 @@ public static class ResearchDiff
 
     static void AddIlFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, IlDiffFailureRow failure)
     {
-        var kind = failure.Kind switch
+        var kind = Direction(failure.Kind);
+        if (kind == ResearchChangeKind.Failed)
         {
-            IlDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
-            IlDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
-        };
+            builder.RemoveFailure(
+                subject,
+                ResearchChangeMechanism.IlBody,
+                IlFindings.InspectionDescriptor);
+        }
         string descriptorId = $"il.diff.{ToKebabCase(failure.Kind.ToString())}";
         builder.Add(new ResearchChange(
             subject,
@@ -1012,7 +1018,9 @@ public static class ResearchDiff
             newInput.AssemblyPaths,
             typeFilters: typeFilters,
             memberTargetIdentities: memberTargetIdentities);
-        foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
+        var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
+        var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
+        foreach (var failure in failureRows)
         {
             var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
             if (MatchesMemberTargets(subject, memberTargetIdentities))
@@ -1021,6 +1029,9 @@ public static class ResearchDiff
 
         foreach (var row in diff.Rows)
         {
+            if (operationalFailureHunks.Contains(row.HunkId))
+                continue;
+
             var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member);
             if (!MatchesMemberTargets(subject, memberTargetIdentities))
                 continue;
@@ -1064,13 +1075,16 @@ public static class ResearchDiff
                 retained.Comparison);
             if (retained.Comparison is FindingComparison<CSharpCanonicalLine>.Failed failed)
             {
-                AddFindingComparisonFailure(
-                    builder,
-                    subject,
-                    ResearchChangeMechanism.CSharp,
-                    ResearchChangeCategory.CSharp,
-                    CSharpFindings.InspectionDescriptor,
-                    failed.Failure);
+                if (!builder.HasFailure(subject, ResearchChangeMechanism.CSharp))
+                {
+                    AddFindingComparisonFailure(
+                        builder,
+                        subject,
+                        ResearchChangeMechanism.CSharp,
+                        ResearchChangeCategory.CSharp,
+                        CSharpFindings.InspectionDescriptor,
+                        failed.Failure);
+                }
                 continue;
             }
 
@@ -1128,12 +1142,7 @@ public static class ResearchDiff
 
     static void AddCSharpFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, CSharpDiffFailureRow failure)
     {
-        var kind = failure.Kind switch
-        {
-            CSharpDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
-            CSharpDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
-        };
+        var kind = Direction(failure.Kind);
         string descriptorId = $"csharp.diff.{ToKebabCase(failure.Kind.ToString())}";
         builder.Add(new ResearchChange(
             subject,
@@ -1304,12 +1313,12 @@ public static class ResearchDiff
             _ => ResearchChangeKind.Changed,
         };
 
-    static ResearchChangeKind Direction(IlDiffFailureKind kind)
+    internal static ResearchChangeKind Direction(IlDiffFailureKind kind)
         => kind switch
         {
             IlDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
             IlDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
+            _ => ResearchChangeKind.Failed,
         };
 
     static ResearchChangeKind Direction(CSharpDiffKind kind)
@@ -1320,13 +1329,21 @@ public static class ResearchDiff
             _ => ResearchChangeKind.Changed,
         };
 
-    static ResearchChangeKind Direction(CSharpDiffFailureKind kind)
+    internal static ResearchChangeKind Direction(CSharpDiffFailureKind kind)
         => kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
             CSharpDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
+            _ => ResearchChangeKind.Failed,
         };
+
+    internal static ImmutableHashSet<int> OperationalCSharpFailureHunks(
+        ImmutableArray<CSharpDiffFailureRow> failureRows)
+        => failureRows
+            .Where(failure => Direction(failure.Kind) == ResearchChangeKind.Failed
+                && failure.HunkId is not null)
+            .Select(failure => failure.HunkId!.Value)
+            .ToImmutableHashSet();
 
     static ResearchChangeCategory ToResearchCategory(ApiChangeCategory category)
         => category switch
@@ -1489,6 +1506,24 @@ public static class ResearchDiff
 
         public void Add(RetainedFindingComparison comparison)
             => _retainedComparisons.Add(comparison);
+
+        public bool HasFailure(
+            ResearchSubjectKey subject,
+            ResearchChangeMechanism mechanism)
+            => _changes.Any(change =>
+                change.Subject.Id == subject.Id
+                && change.Mechanism == mechanism
+                && change.Kind == ResearchChangeKind.Failed);
+
+        public void RemoveFailure(
+            ResearchSubjectKey subject,
+            ResearchChangeMechanism mechanism,
+            FindingDescriptor descriptor)
+            => _changes.RemoveAll(change =>
+                change.Subject.Id == subject.Id
+                && change.Mechanism == mechanism
+                && change.Descriptor == descriptor
+                && change.Kind == ResearchChangeKind.Failed);
 
         public ResearchComparison ToResult()
             => new(

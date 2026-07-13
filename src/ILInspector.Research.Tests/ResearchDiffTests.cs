@@ -509,6 +509,7 @@ public class ResearchDiffTests
             failure =>
             {
                 Assert.Equal("il.diff.unsupported-boundary", failure.Descriptor.Id);
+                Assert.Equal(ResearchChangeKind.Failed, failure.Kind);
                 Assert.NotNull(failure.IlFailureRow);
                 Assert.Null(failure.IlRow);
             },
@@ -568,6 +569,44 @@ public class ResearchDiffTests
         Assert.Contains(diff.Changes, row =>
             row.CSharpRow is not null
             && row.Descriptor.Id == "csharp.method.body-added");
+    }
+
+    [Fact]
+    public void FromCSharpBodyDiff_OperationalFailureOmitsSyntheticChangeRows()
+    {
+        var template = Assert.Single(CSharpBodyDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            typeFilters: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ConstructorSample" }).Rows,
+            row => row.ChangeId == "csharp.line.removed");
+        var failure = new CSharpDiffFailureRow(
+            template.AssemblyIdentity,
+            template.StableMemberKey,
+            template.Anchor,
+            template.Member,
+            CSharpDiffFailureKind.OldDecompileFailure,
+            "Old method body decompilation failed.",
+            Side: "old",
+            Detail: "invalid IL",
+            HunkId: 42);
+        var synthetic = template with
+        {
+            ChangeId = "csharp.decompile.failed",
+            HunkId = 42,
+            Kind = CSharpDiffKind.Remove,
+            Message = "Old method body decompilation failed.",
+            Text = "invalid IL",
+        };
+
+        var diff = ResearchDiff.FromCSharpBodyDiff(
+            new CSharpBodyDiffResult([synthetic], [failure]));
+
+        var change = Assert.Single(diff.Changes);
+        Assert.Equal(ResearchChangeKind.Failed, change.Kind);
+        Assert.Equal("csharp.diff.old-decompile-failure", change.Descriptor.Id);
+        Assert.Same(failure, change.CSharpFailureRow);
+        Assert.DoesNotContain(diff.Changes, row =>
+            row.Descriptor.Id == "csharp.decompile.failed");
     }
 
     [Fact]
@@ -1684,6 +1723,7 @@ public class ResearchDiffTests
 
         var row = Assert.Single(changes);
         Assert.Equal("il.diff.new-body-missing", row.Descriptor.Id);
+        Assert.Equal(ResearchChangeKind.Removed, row.Kind);
         Assert.Equal("method has no body", row.Detail);
         Assert.Same(failure, row.IlDisplayFailureRow);
         Assert.Null(row.IlMemberDiff);

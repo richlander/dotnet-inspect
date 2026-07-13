@@ -131,7 +131,8 @@ public static class ImplementationDiff
         if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
         {
             csharpDiff = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
-            changes.AddRange(ToCSharpChanges(csharpDiff, subject));
+            var semanticChanges = ToCSharpChanges(csharpDiff, subject);
+            changes.AddRange(semanticChanges);
             var comparison = CSharpFindings.Compare(
                 oldSource,
                 oldMethod,
@@ -144,12 +145,15 @@ public static class ImplementationDiff
                 comparison));
             if (comparison is FindingComparison<CSharpCanonicalLine>.Failed failed)
             {
-                changes.Add(FindingFailureChange(
-                    subject,
-                    ResearchChangeMechanism.CSharp,
-                    ResearchChangeCategory.CSharp,
-                    CSharpFindings.InspectionDescriptor,
-                    failed.Failure));
+                if (!semanticChanges.Any(change => change.Kind == ResearchChangeKind.Failed))
+                {
+                    changes.Add(FindingFailureChange(
+                        subject,
+                        ResearchChangeMechanism.CSharp,
+                        ResearchChangeCategory.CSharp,
+                        CSharpFindings.InspectionDescriptor,
+                        failed.Failure));
+                }
             }
             else if (FindingDivergenceChange(
                 subject,
@@ -177,7 +181,8 @@ public static class ImplementationDiff
                 newMethod,
                 oldLabel: label,
                 newLabel: label);
-            changes.AddRange(ToIlChanges(ilDiff, subject));
+            var semanticChanges = ToIlChanges(ilDiff, subject);
+            changes.AddRange(semanticChanges);
             var comparison = IlFindings.Compare(
                 oldSource.Pe,
                 oldSource.Reader,
@@ -192,12 +197,15 @@ public static class ImplementationDiff
                 comparison));
             if (comparison is FindingComparison<CanonicalIlOperation>.Failed failed)
             {
-                changes.Add(FindingFailureChange(
-                    subject,
-                    ResearchChangeMechanism.IlBody,
-                    ResearchChangeCategory.IlBody,
-                    IlFindings.InspectionDescriptor,
-                    failed.Failure));
+                if (!semanticChanges.Any(change => change.Kind == ResearchChangeKind.Failed))
+                {
+                    changes.Add(FindingFailureChange(
+                        subject,
+                        ResearchChangeMechanism.IlBody,
+                        ResearchChangeCategory.IlBody,
+                        IlFindings.InspectionDescriptor,
+                        failed.Failure));
+                }
             }
             else if (MethodHasBody(oldSource, oldMethod)
                 && MethodHasBody(newSource, newMethod)
@@ -451,7 +459,7 @@ public static class ImplementationDiff
                 subject,
                 ResearchChangeMechanism.IlBody,
                 new FindingDescriptor(descriptorId, failureRow.Kind.ToString()),
-                ResearchChangeKind.Changed,
+                ResearchDiff.Direction(failureRow.Kind),
                 detail: failureRow.Detail ?? failureRow.Message,
                 category: ResearchChangeCategory.IlBody,
                 ilDisplayFailureRow: failureRow,
@@ -464,7 +472,7 @@ public static class ImplementationDiff
                 subject,
                 ResearchChangeMechanism.IlBody,
                 new FindingDescriptor("il.diff.failed", "IL diff failed"),
-                ResearchChangeKind.Changed,
+                ResearchChangeKind.Failed,
                 detail: failure,
                 category: ResearchChangeCategory.IlBody,
                 ilMemberDiff: diff));
@@ -547,14 +555,11 @@ public static class ImplementationDiff
             return [];
 
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
+        var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
+        var operationalFailureHunks = ResearchDiff.OperationalCSharpFailureHunks(failureRows);
+        foreach (var failure in failureRows)
         {
-            var kind = failure.Kind switch
-            {
-                CSharpDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
-                CSharpDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-                _ => ResearchChangeKind.Changed,
-            };
+            var kind = ResearchDiff.Direction(failure.Kind);
             string descriptorId = $"csharp.diff.{ResearchDiff.ToChangeIdPart(failure.Kind.ToString())}";
             changes.Add(new ResearchChange(
                 subject,
@@ -570,6 +575,9 @@ public static class ImplementationDiff
 
         foreach (var row in diff.Rows.IsDefault ? [] : diff.Rows)
         {
+            if (operationalFailureHunks.Contains(row.HunkId))
+                continue;
+
             var kind = row.Kind switch
             {
                 CSharpDiffKind.Add => ResearchChangeKind.Added,
