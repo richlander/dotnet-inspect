@@ -5,39 +5,60 @@ namespace ILInspector.Metadata;
 
 /// <summary>
 /// Allocation-free signature type provider that only detects pointer types.
-/// Returns true when any type in the signature is a pointer.
+/// Preserves degraded-decode evidence separately from a definite pointer match.
 /// </summary>
-internal sealed class PointerDetector : ISignatureTypeProvider<bool, object?>
+internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection, object?>
 {
     public static PointerDetector Instance { get; } = new();
 
-    public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
-    public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
-    public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => false;
+    public PointerDetection GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
+    public PointerDetection GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => default;
+    public PointerDetection GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => default;
 
-    public bool GetTypeFromSpecification(MetadataReader reader, object? context, TypeSpecificationHandle handle, byte rawTypeKind)
+    public PointerDetection GetTypeFromSpecification(MetadataReader reader, object? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
-            return false;
-        try
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return PointerDetection.Degraded;
+        using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
         }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
-        }
     }
 
-    public bool GetSZArrayType(bool elementType) => elementType;
-    public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
-    public bool GetByReferenceType(bool elementType) => elementType;
-    public bool GetPointerType(bool elementType) => true;
-    public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
-        => genericType || typeArguments.Any(static t => t);
-    public bool GetGenericMethodParameter(object? context, int index) => false;
-    public bool GetGenericTypeParameter(object? context, int index) => false;
-    public bool GetFunctionPointerType(MethodSignature<bool> signature) => true;
-    public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => unmodifiedType;
-    public bool GetPinnedType(bool elementType) => elementType;
+    public PointerDetection GetSZArrayType(PointerDetection elementType) => elementType;
+    public PointerDetection GetArrayType(PointerDetection elementType, ArrayShape shape) => elementType;
+    public PointerDetection GetByReferenceType(PointerDetection elementType) => elementType;
+    public PointerDetection GetPointerType(PointerDetection elementType)
+        => new(HasPointer: true, elementType.IsDegraded);
+    public PointerDetection GetGenericInstantiation(
+        PointerDetection genericType,
+        ImmutableArray<PointerDetection> typeArguments)
+        => PointerDetection.Combine(genericType, typeArguments);
+    public PointerDetection GetGenericMethodParameter(object? context, int index) => default;
+    public PointerDetection GetGenericTypeParameter(object? context, int index) => default;
+    public PointerDetection GetFunctionPointerType(MethodSignature<PointerDetection> signature)
+        => new(
+            HasPointer: true,
+            signature.ReturnType.IsDegraded
+                || signature.ParameterTypes.Any(static type => type.IsDegraded));
+    public PointerDetection GetModifiedType(
+        PointerDetection modifier,
+        PointerDetection unmodifiedType,
+        bool isRequired)
+        => new(
+            modifier.HasPointer || unmodifiedType.HasPointer,
+            modifier.IsDegraded || unmodifiedType.IsDegraded);
+    public PointerDetection GetPinnedType(PointerDetection elementType) => elementType;
+}
+
+internal readonly record struct PointerDetection(bool HasPointer, bool IsDegraded)
+{
+    public static PointerDetection Degraded => new(HasPointer: false, IsDegraded: true);
+
+    public static PointerDetection Combine(
+        PointerDetection first,
+        ImmutableArray<PointerDetection> rest)
+        => new(
+            first.HasPointer || rest.Any(static type => type.HasPointer),
+            first.IsDegraded || rest.Any(static type => type.IsDegraded));
 }

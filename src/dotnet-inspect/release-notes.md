@@ -22,6 +22,9 @@
 - Adds JSON array projection output and scalar URL/path shape projections,
   generalizes print row projection, and aligns library value projection with
   rendered fields (#1955, #1950, #1935, #1963, #1928).
+- Removes the hidden `--oneline` compatibility alias and retires
+  `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table` or
+  `DOTNET_INSPECT_FORMAT=table` for compact table output.
 
 ### Decompiler fidelity and unions (experimental)
 

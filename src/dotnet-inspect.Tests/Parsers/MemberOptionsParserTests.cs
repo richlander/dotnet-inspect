@@ -68,6 +68,7 @@ public class MemberOptionsParserTests
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
+        memberCommand.Options.Add(opts.Bare);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
@@ -76,7 +77,7 @@ public class MemberOptionsParserTests
         var root = new RootCommand { memberCommand };
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
+            allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, atOption);
 
@@ -230,11 +231,120 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.False(options.Tsv);
         Assert.False(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithEnvironmentTable_SetsExplicitTabularOutput()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+
+            Assert.True(options.Tabular);
+            Assert.False(options.Tsv);
+            Assert.False(options.Jsonl);
+            Assert.True(options.TabularExplicitlySet);
+            Assert.True(options.FormatExplicitlySet);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Theory]
+    [InlineData("markdown", OutputFormat.Markdown)]
+    [InlineData("json", OutputFormat.Json)]
+    [InlineData("plaintext", OutputFormat.PlainText)]
+    [InlineData("mermaid", OutputFormat.Mermaid)]
+    public void ExplicitPackage_WithEnvironmentNonTabularFormat_TreatsFormatAsExplicit(
+        string environmentFormat,
+        OutputFormat expectedFormat)
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
+            var (root, opts, _) = CreateTestCommand();
+            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json"]);
+
+            Assert.Empty(parseResult.Errors);
+            Assert.Equal(expectedFormat, opts.ResolveFormat(parseResult));
+            Assert.True(opts.IsFormatExplicitlySet(parseResult));
+            Assert.False(opts.IsTableExplicitlySet(parseResult));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithEnvironmentMarkdown_SuppressesTips()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
+
+            Assert.True(options.FormatExplicitlySet);
+            Assert.False(options.Tabular);
+            Assert.False(options.TabularExplicitlySet);
+            Assert.Equal(TipLevel.Quiet, options.TipLevel);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithBareAndEnvironmentTable_SuppressesTabularOutput()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--bare");
+
+            Assert.False(options.Tabular);
+            Assert.False(options.Tsv);
+            Assert.False(options.Jsonl);
+            Assert.False(options.TabularExplicitlySet);
+            Assert.True(options.FormatExplicitlySet);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public void ResolveFormat_WithBareJsonAndEnvironmentTable_UsesExplicitJson()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var (root, opts, _) = CreateTestCommand();
+            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--bare", "--json"]);
+
+            Assert.Empty(parseResult.Errors);
+            Assert.Equal(OutputFormat.Json, opts.ResolveFormat(parseResult));
+            Assert.False(opts.ResolveTabular(parseResult));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
     }
 
     [Fact]
@@ -261,11 +371,11 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.True(options.Tsv);
         Assert.False(options.Jsonl);
         Assert.True(options.NoHeader);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -274,10 +384,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--jsonl");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.False(options.Tsv);
         Assert.True(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -286,10 +396,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--tsv");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.True(options.Tsv);
         Assert.False(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -298,10 +408,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--jsonl");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.False(options.Tsv);
         Assert.True(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -338,18 +448,6 @@ public class MemberOptionsParserTests
                 () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
             return 0;
         });
-    }
-
-    [Fact]
-    public async Task ExplicitPackage_WithOneline_SetsTableCompatOutput()
-    {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--oneline");
-
-        Assert.True(options.OneLine);
-        Assert.False(options.Tsv);
-        Assert.False(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
-        Assert.True(options.FormatExplicitlySet);
     }
 
     // ── Explicit --package with type and member ──────────────────────────

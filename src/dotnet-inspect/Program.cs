@@ -114,10 +114,11 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
     RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
 // Install line-limiting writer when -NN shorthand was used (e.g. -30).
-// With --rows, -n/-NN is interpreted by commands as per-table row limits, and the
-// head/tail conflict is validated by SharedOptions.BuildRowWindow against the real
-// System.CommandLine parse (see the RowWindowValidationException catch below), not
-// the token scan here — the scan misses =-syntax and concatenated forms.
+// With --rows, -n/-NN is interpreted by commands as per-table row limits. The
+// head/tail conflict is validated at parse time by the command validator in
+// SharedOptions.AddOutputOptionsTo against the real System.CommandLine parse (so it
+// covers =-syntax and concatenated forms the arg-preprocessor token scan misses),
+// which is why no --rows gate remains here.
 var rowLimitMode = args.Any(a => a == "--rows");
 // Line/tail windows apply only outside --rows mode; in --rows mode the count is a
 // per-table data-row window rendered by the commands, not an output-line window.
@@ -148,6 +149,10 @@ try
 }
 catch (RowWindowValidationException ex)
 {
+    // Defensive: the --rows head/tail window is rejected at parse time by the
+    // command validator (SharedOptions.AddOutputOptionsTo), so this is not the
+    // primary path. It converts any escaped validation throw into the clean CLI
+    // error contract instead of an unhandled-exception stack trace.
     Console.Error.WriteLine($"Error: {ex.Message}");
     return 1;
 }

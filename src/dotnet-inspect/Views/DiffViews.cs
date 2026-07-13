@@ -5,18 +5,18 @@ namespace DotnetInspector.Views;
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     FieldLayout = FieldLayout.Table)]
-public class DiffOneLineView
+public class DiffTableView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     public string Versions { get; set; } = "";
     public string Summary { get; set; } = "";
 
     [MarkoutSection(Name = "Changes")]
-    public List<DiffOneLineRow>? Rows { get; set; }
+    public List<DiffTableRow>? Rows { get; set; }
 }
 
 [MarkoutSerializable]
-public record DiffOneLineRow(string Change, string Type, string Detail);
+public record DiffTableRow(string Change, string Type, string Detail);
 
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
@@ -166,8 +166,8 @@ public record DiffChangeRow(
     string Message);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
-[MarkoutContext(typeof(DiffOneLineView))]
-[MarkoutContext(typeof(DiffOneLineRow))]
+[MarkoutContext(typeof(DiffTableView))]
+[MarkoutContext(typeof(DiffTableRow))]
 [MarkoutContext(typeof(DiffDetailedChangesView))]
 [MarkoutContext(typeof(DiffDetailedChangeRow))]
 [MarkoutContext(typeof(DiffDocumentView))]

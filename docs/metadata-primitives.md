@@ -79,6 +79,43 @@ helper is SRM-only. `Analysis` stays independent of `Metadata`.
   metadata *product* surface
 - each consumer's own `TypeRef`/IR model and its `ISignatureTypeProvider<T>`
 
+## Guarded string-signature decoding
+
+String-producing SRM decodes return `SignatureDecodeResult<T>`. `Decoded`
+carries the real field, method, property, method-spec, or TypeSpec value;
+`Rejected` carries a `SignatureDecodeRejectionKind` and detail. Rejection is
+never represented by a plausible `object` type, a default method signature, or
+an empty generic-argument list.
+
+Consumers fail closed according to their operation:
+
+- discovery and classification scanners skip the rejected member;
+- API-surface census construction projects a visible degraded row with
+  `SignatureDecodeStatus.Degraded`;
+- formatting helpers may throw `BadImageFormatException` through
+  `GetValueOrThrow` when their caller already owns a row-level failure boundary.
+
+This contract governs the shared string-signature decoder and is separate from
+the provider-specific `TypeNode` and semantic-tree paths guarded for stack
+safety under #2575. Those providers retain their own result and fallback
+policies.
+
+The safety envelope has two independent limits:
+
+- `SignatureBlobGuard.DefaultMaxDepth` is 512 structural type nodes within one
+  signature blob;
+- `TypeSpecGuard.MaxDepth` is 256 cross-handle TypeSpec re-entries, with
+  `TypeSpecGuard.MaxCumulativeBytes` fixed at 4,096 bytes across the active
+  TypeSpec closure.
+
+A single wide, shallow TypeSpec may consume the full 4,096-byte closure budget.
+There is no separate 1,024-byte per-blob cap. Both
+`GuardedSignatureText.TypeSpecText` and
+`TypeResolver.DecodeTypeNameFromSpecification` enter through the same
+`TypeSpecGuard`, so legal-input acceptance cannot vary by route. The
+compatibility API `GetTypeNameFromSpecification` returns a decoded value or
+throws on rejection; it does not restore a plausible fallback.
+
 ## The key finding: it's an entangled cluster, used widely
 
 The shareable primitives are not independent functions — `TypeResolver` and

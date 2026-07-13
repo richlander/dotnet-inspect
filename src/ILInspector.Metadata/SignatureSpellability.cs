@@ -7,6 +7,10 @@ using System.Threading;
 
 namespace ILInspector.Metadata;
 
+public readonly record struct SignatureSpellabilityResult(
+    bool CanSpell,
+    SignatureDecodeStatus? DecodeStatus);
+
 /// <summary>
 /// Answers whether metadata signatures can be spelled from a generated C#
 /// assembly. Public metadata can expose non-public referenced types, especially
@@ -22,30 +26,87 @@ public sealed class SignatureSpellability
         => _resolver = resolver;
 
     public bool CanSpellField(MetadataReader reader, FieldDefinition field, GenericContext context)
+        => InspectField(reader, field, context).CanSpell;
+
+    public SignatureSpellabilityResult InspectField(
+        MetadataReader reader,
+        FieldDefinition field,
+        GenericContext context)
     {
-        try { return !GuardedProviderDecode.Field(reader, field, new InaccessibleTypeDetector(this), context, false); }
-        catch (Exception ex) when (IsDecodeException(ex)) { return true; }
+        try
+        {
+            var decoded = GuardedProviderDecode.FieldResult(
+                reader,
+                field,
+                new InaccessibleTypeDetector(this),
+                context,
+                SpellabilityEvidence.Degraded);
+            return Result(decoded.Value, decoded.IsDegraded);
+        }
+        catch (Exception ex) when (IsDecodeException(ex))
+        {
+            return DegradedResult;
+        }
     }
 
     public bool CanSpellProperty(MetadataReader reader, PropertyDefinition property, GenericContext context)
+        => InspectProperty(reader, property, context).CanSpell;
+
+    public SignatureSpellabilityResult InspectProperty(
+        MetadataReader reader,
+        PropertyDefinition property,
+        GenericContext context)
     {
         try
         {
-            var signature = GuardedProviderDecode.Property(reader, property, new InaccessibleTypeDetector(this), context, false);
-            return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
+            var decoded = GuardedProviderDecode.PropertyResult(
+                reader,
+                property,
+                new InaccessibleTypeDetector(this),
+                context,
+                SpellabilityEvidence.Degraded);
+            return Result(SpellabilityEvidence.Combine(decoded.Value), decoded.IsDegraded);
         }
-        catch (Exception ex) when (IsDecodeException(ex)) { return true; }
+        catch (Exception ex) when (IsDecodeException(ex))
+        {
+            return DegradedResult;
+        }
     }
 
     public bool CanSpellMethod(MetadataReader reader, MethodDefinition method, GenericContext context)
+        => InspectMethod(reader, method, context).CanSpell;
+
+    public SignatureSpellabilityResult InspectMethod(
+        MetadataReader reader,
+        MethodDefinition method,
+        GenericContext context)
     {
         try
         {
-            var signature = GuardedProviderDecode.Method(reader, method, new InaccessibleTypeDetector(this), context, false);
-            return !signature.ReturnType && !signature.ParameterTypes.Any(inaccessible => inaccessible);
+            var decoded = GuardedProviderDecode.MethodResult(
+                reader,
+                method,
+                new InaccessibleTypeDetector(this),
+                context,
+                SpellabilityEvidence.Degraded);
+            return Result(SpellabilityEvidence.Combine(decoded.Value), decoded.IsDegraded);
         }
-        catch (Exception ex) when (IsDecodeException(ex)) { return true; }
+        catch (Exception ex) when (IsDecodeException(ex))
+        {
+            return DegradedResult;
+        }
     }
+
+    static SignatureSpellabilityResult Result(SpellabilityEvidence evidence, bool topLevelDegraded)
+    {
+        bool isDegraded = topLevelDegraded || evidence.IsDegraded;
+        return new SignatureSpellabilityResult(
+            CanSpell: !evidence.IsInaccessible && !isDegraded,
+            isDegraded ? SignatureDecodeStatus.Degraded : null);
+    }
+
+    static SignatureSpellabilityResult DegradedResult =>
+        new(CanSpell: false, SignatureDecodeStatus.Degraded);
 
     static bool IsDecodeException(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
@@ -146,36 +207,60 @@ public sealed class SignatureSpellability
     sealed record NonPublicTypeSet(HashSet<string>? Types);
 
     sealed class InaccessibleTypeDetector(SignatureSpellability spellability)
-        : ISignatureTypeProvider<bool, GenericContext?>
+        : ISignatureTypeProvider<SpellabilityEvidence, GenericContext?>
     {
-        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
-        public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
-        public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => spellability.IsInaccessible(reader, handle);
-        public bool GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
+        public SpellabilityEvidence GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
+        public SpellabilityEvidence GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => default;
+        public SpellabilityEvidence GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+            => new(spellability.IsInaccessible(reader, handle), IsDegraded: false);
+        public SpellabilityEvidence GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
         {
-            if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
-                return false;
-            try
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return SpellabilityEvidence.Degraded;
+            using (scope)
             {
                 return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
             }
-            finally
-            {
-                TypeSpecGuard.Exit(blobLength);
-            }
         }
-        public bool GetSZArrayType(bool elementType) => elementType;
-        public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
-        public bool GetByReferenceType(bool elementType) => elementType;
-        public bool GetPointerType(bool elementType) => elementType;
-        public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
-            => genericType || typeArguments.Any(inaccessible => inaccessible);
-        public bool GetGenericMethodParameter(GenericContext? context, int index) => false;
-        public bool GetGenericTypeParameter(GenericContext? context, int index) => false;
-        public bool GetFunctionPointerType(MethodSignature<bool> signature)
-            => signature.ReturnType || signature.ParameterTypes.Any(inaccessible => inaccessible);
-        public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => unmodifiedType;
-        public bool GetPinnedType(bool elementType) => elementType;
+        public SpellabilityEvidence GetSZArrayType(SpellabilityEvidence elementType) => elementType;
+        public SpellabilityEvidence GetArrayType(SpellabilityEvidence elementType, ArrayShape shape) => elementType;
+        public SpellabilityEvidence GetByReferenceType(SpellabilityEvidence elementType) => elementType;
+        public SpellabilityEvidence GetPointerType(SpellabilityEvidence elementType) => elementType;
+        public SpellabilityEvidence GetGenericInstantiation(
+            SpellabilityEvidence genericType,
+            ImmutableArray<SpellabilityEvidence> typeArguments)
+            => SpellabilityEvidence.Combine(genericType, typeArguments);
+        public SpellabilityEvidence GetGenericMethodParameter(GenericContext? context, int index) => default;
+        public SpellabilityEvidence GetGenericTypeParameter(GenericContext? context, int index) => default;
+        public SpellabilityEvidence GetFunctionPointerType(MethodSignature<SpellabilityEvidence> signature)
+            => SpellabilityEvidence.Combine(signature);
+        public SpellabilityEvidence GetModifiedType(
+            SpellabilityEvidence modifier,
+            SpellabilityEvidence unmodifiedType,
+            bool isRequired)
+            => new(
+                (isRequired && modifier.IsInaccessible) || unmodifiedType.IsInaccessible,
+                modifier.IsDegraded || unmodifiedType.IsDegraded);
+        public SpellabilityEvidence GetPinnedType(SpellabilityEvidence elementType) => elementType;
+    }
+
+    readonly record struct SpellabilityEvidence(bool IsInaccessible, bool IsDegraded)
+    {
+        public static SpellabilityEvidence Degraded =>
+            new(IsInaccessible: false, IsDegraded: true);
+
+        public static SpellabilityEvidence Combine(
+            SpellabilityEvidence first,
+            ImmutableArray<SpellabilityEvidence> rest)
+            => new(
+                first.IsInaccessible || rest.Any(static type => type.IsInaccessible),
+                first.IsDegraded || rest.Any(static type => type.IsDegraded));
+
+        public static SpellabilityEvidence Combine(MethodSignature<SpellabilityEvidence> signature)
+            => Combine(signature.ReturnType, signature.ParameterTypes);
     }
 }

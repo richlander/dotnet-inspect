@@ -108,3 +108,32 @@ trace join supplies. The static side's contribution to precision is a clean,
 semantically-grounded pruning of the un-actionable, plus the shape vocabulary that
 lets a join explain *why* a confirmed-hot site is hot (loop-intrinsic versus
 call-frequency-driven) and therefore *how* to fix it.
+
+## Finding provenance for joins
+
+Performance Triage keeps ranking and fix guidance as downstream judgments; it
+does not turn triage priority into a Finding. Exact rows do retain the native
+observation that supports them:
+
+- allocation-backed rows carry `Finding=analysis.allocation`;
+- call-backed rows carry `Finding=analysis.call-site`;
+- `Provenance=exact` marks those producer-backed rows, while `aggregate` marks
+  cross-occurrence judgments and `unmatched` exposes a failed instruction-level
+  producer join;
+- `Operation`, `Token`, and `IL` retain machine-readable occurrence
+  coordinates;
+- `Candidate` uses the Performance Triage-owned
+  `dotnet-inspect.performance-triage.v1` namespace and a 16-hex SHA-256 prefix
+  over the descriptor, complete producer-owned `FindingKey`, MethodDef token +
+  IL offset, occurrence ordinal, and triage shape.
+
+This separates two joins that have different stability contracts. `Candidate`
+is exact within one assembly build and is the key for runtime/static trace
+correlation. Cross-version onset still uses the producer-native
+`diff --finding` or `timeline --finding` matcher, where IL offsets and metadata
+tokens remain provenance rather than correspondence identity. Aggregate rows
+such as `allocation-hotspot` have no exact source occurrence and therefore use
+`Provenance=aggregate` while keeping their `Finding`, `Operation`, and `Token`
+fields empty. Candidate IDs are checked for uniqueness when an index is built;
+a truncated-prefix collision is deterministically lengthened rather than
+creating an ambiguous join.

@@ -1758,7 +1758,7 @@ public class CSharpPrinterTests
     }
 
     [Fact]
-    public void Constructor_ImplicitBaseCall_IsSuppressed()
+    public void Constructor_InitializerOnlyResult_RemainsSuccessful()
     {
         // A no-argument base-constructor call is implicit in C#, and the field
         // initializer (`_shadowed = 1`) the compiler emits before that base call
@@ -1770,6 +1770,9 @@ public class CSharpPrinterTests
         Assert.NotNull(function);
         var result = CSharpPrinter.Print(function);
         string output = result.Output!;
+        Assert.True(result.Succeeded);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Empty(output);
         Assert.DoesNotContain("base(", output);
         Assert.DoesNotContain(".ctor", output);
         Assert.DoesNotContain("_shadowed", output);

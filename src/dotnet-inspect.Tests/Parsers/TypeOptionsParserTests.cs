@@ -6,6 +6,7 @@ using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests.Parsers;
 
+[Collection("Console")]
 public class TypeOptionsParserTests
 {
     static (Command Root, SharedOptions Opts, TypeOptionsParser.TypeCommandArgs Args) CreateTestCommand()
@@ -57,7 +58,7 @@ public class TypeOptionsParserTests
         var root = new RootCommand { typeCommand };
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders,
+            allOption, typeFilterOption, compactOption, opts.NoHeaders,
             shapeOption, unsafeOption, memberOption, kindOption, atOption);
 
         return (root, opts, args);
@@ -73,6 +74,25 @@ public class TypeOptionsParserTests
         var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
         var success = Assert.IsType<TypeOptionsParser.Success>(result);
         return success.Options;
+    }
+
+    [Fact]
+    public async Task PackageSource_WithEnvironmentJson_SetsJsonOutput()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "json");
+            var options = await ParseSuccessAsync("type", "JsonSerializer", "--package", "System.Text.Json");
+
+            Assert.True(options.JsonOutput);
+            Assert.True(options.FormatExplicitlySet);
+            Assert.False(options.Tabular);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
     }
 
     [Fact]

@@ -86,7 +86,7 @@ public record ExtensionsOptions : IAssemblySourceOptions
     /// <summary>
     /// Output as a pretty table.
     /// </summary>
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
 
     /// <summary>
     /// Output as normalized tab-separated values.
@@ -147,5 +147,5 @@ public record ExtensionsOptions : IAssemblySourceOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Tsv || Jsonl || NoHeader;
+    public bool IsRawOutput => JsonOutput || Tabular || Tsv || Jsonl || NoHeader;
 }

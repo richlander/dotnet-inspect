@@ -217,7 +217,7 @@ public static class ApiOutputFormatter
         && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
-        && !options.OneLine;
+        && !options.Tabular;
 
     internal static bool ShouldRenderMemberGroups(ApiOptions options)
     {
@@ -2016,8 +2016,13 @@ public static class ApiOutputFormatter
                 options)
             .Select(opportunity => new OptimizationOpportunityRow(
                 MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
+                opportunity.CandidateId is null ? null : MarkoutInline.Code(opportunity.CandidateId),
+                opportunity.SourceFinding,
+                LibraryMetadataService.FormatProvenance(opportunity.Provenance),
                 opportunity.RootReach.ToString(),
                 opportunity.Shape,
+                opportunity.Operation,
+                opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
                 opportunity.Evidence,
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,
@@ -2414,13 +2419,13 @@ public static class ApiOutputFormatter
         return index >= 0 ? index : MemberKinds.Length;
     }
 
-    // ===== One-Line View Builders =====
+    // ===== Table View Builders =====
 
     /// <summary>
     /// Builds a unified tabular view for a single type's members.
     /// All member kinds are merged into one table with a Kind column.
     /// </summary>
-    internal static (ApiTypeOneLineView view, int truncated) BuildTypeOneLineView(ApiType type, ApiOptions options)
+    internal static (ApiTypeTableView view, int truncated) BuildTypeTableView(ApiType type, ApiOptions options)
     {
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         var requestedKinds = GetRequestedMemberKinds(options.IncludeSections);
@@ -2428,7 +2433,7 @@ public static class ApiOutputFormatter
             grouped = grouped
                 .Where(kvp => requestedKinds.Contains(kvp.Key))
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-        if (grouped.Count == 0) return (new ApiTypeOneLineView(), 0);
+        if (grouped.Count == 0) return (new ApiTypeTableView(), 0);
 
         var allEntries = grouped
             .OrderBy(g => GetMemberSortOrder(g.Key))
@@ -2464,10 +2469,10 @@ public static class ApiOutputFormatter
                 _ => ""
             };
             var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
-            return new ApiOneLineRow(kindLabel, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
+            return new ApiTableRow(kindLabel, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
         }).ToList();
 
-        return (new ApiTypeOneLineView { Rows = rows }, truncated);
+        return (new ApiTypeTableView { Rows = rows }, truncated);
     }
 
     private static string MemberReturnType(ApiMember member)
@@ -2487,7 +2492,7 @@ public static class ApiOutputFormatter
     /// Builds a unified tabular view for a full API surface (all types).
     /// All type kinds are merged into one table with a Kind column.
     /// </summary>
-    internal static (ApiSurfaceOneLineView view, int truncated) BuildSurfaceOneLineView(ApiSurface api, ApiOptions options)
+    internal static (ApiSurfaceTableView view, int truncated) BuildSurfaceTableView(ApiSurface api, ApiOptions options)
     {
         int truncated = 0;
         var types = api.Types;
@@ -2518,7 +2523,7 @@ public static class ApiOutputFormatter
                         if (desc.Length > 80) desc = desc[..77] + "...";
                     }
                 }
-                return new ApiSurfaceOneLineRow(
+                return new ApiSurfaceTableRow(
                     t.Kind,
                     MarkoutInline.Code(FormatGenericFullName(t)),
                     t.Members.Count.ToString(),
@@ -2526,7 +2531,7 @@ public static class ApiOutputFormatter
             })
             .ToList();
 
-        var view = new ApiSurfaceOneLineView();
+        var view = new ApiSurfaceTableView();
         if (showDescription)
             view.RowsWithDescription = rows;
         else

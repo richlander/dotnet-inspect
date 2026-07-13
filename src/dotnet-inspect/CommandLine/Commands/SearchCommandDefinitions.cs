@@ -81,7 +81,7 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders, packagePrefixOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -225,9 +225,9 @@ public static class SearchCommandDefinitions
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 Rows = opts.ParseRows(parseResult),
                 Count = parseResult.GetValue(opts.Count),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -366,9 +366,9 @@ public static class SearchCommandDefinitions
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 Rows = opts.ParseRows(parseResult),
                 Count = parseResult.GetValue(opts.Count),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -450,7 +450,7 @@ public static class SearchCommandDefinitions
                 var commonOptions = new DependsOptions
                 {
                     Tfm = parseResult.GetValue(tfmOption),
-                    JsonOutput = parseResult.GetValue(opts.Json),
+                    JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -495,7 +495,7 @@ public static class SearchCommandDefinitions
                 PlatformFrameworks = scope.Frameworks,
                 Projects = projects,
                 Tfm = parseResult.GetValue(tfmOption),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -514,7 +514,7 @@ public static class SearchCommandDefinitions
                 {
                     LibraryName = targetType,
                     Tfm = parseResult.GetValue(tfmOption),
-                    JsonOutput = parseResult.GetValue(opts.Json),
+                    JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = opts.ResolveFormat(parseResult) == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),

@@ -399,13 +399,28 @@ public class CommandExecutionTests
         {
             args = CommandLineBuilder.PreprocessArgs(args);
             var root = CommandLineBuilder.CreateRootCommand();
+            var result = root.Parse(args);
+            // Mirror Program.cs: surface parse/validation errors (including the --rows
+            // head/tail window validator) as a clean "Error: ..." line on stderr with
+            // exit 1, instead of letting InvokeAsync print usage help.
+            if (result.Errors.Count > 0)
+            {
+                foreach (var error in result.Errors)
+                {
+                    var message = error.Message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
+                        ? error.Message
+                        : $"Error: {error.Message}";
+                    Console.Error.WriteLine(message);
+                }
+                return 1;
+            }
             try
             {
-                return await root.Parse(args).InvokeAsync();
+                return await result.InvokeAsync();
             }
             catch (RowWindowValidationException ex)
             {
-                // Mirror Program.cs so --rows window validation surfaces as exit 1 + stderr.
+                // Defensive: matches the Program.cs safety-net catch.
                 Console.Error.WriteLine($"Error: {ex.Message}");
                 return 1;
             }
@@ -464,6 +479,56 @@ public class CommandExecutionTests
         Assert.Contains("\tbox-value-type\t", output);
         Assert.Contains("\tboxed System.Int32\tstraight-line\t", output);
         Assert.DoesNotContain("\tstackalloc-candidate\t", output);
+    }
+
+    [Fact]
+    public async Task PerformanceTriage_ExposesAndFiltersFindingProvenance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Finding=analysis.allocation",
+            "--where", "Operation=box",
+            "--top", "1",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"candidate\":\"pt~", output);
+        Assert.Contains("\"finding\":\"analysis.allocation\"", output);
+        Assert.Contains("\"provenance\":\"exact\"", output);
+        Assert.Contains("\"operation\":\"box\"", output);
+        Assert.Contains("\"token\":\"0x", output);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageWhere_NormalizesMetadataToken()
+    {
+        var baseline = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Finding=analysis.allocation",
+            "--top", "1",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, baseline.Exit);
+        Assert.Empty(baseline.Error);
+        using var document = JsonDocument.Parse(baseline.Output.Trim());
+        string token = document.RootElement.GetProperty("token").GetString()!;
+        string unpaddedToken = $"0x{token[2..].TrimStart('0')}";
+
+        var filtered = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", $"Token={unpaddedToken}",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, filtered.Exit);
+        Assert.Empty(filtered.Error);
+        Assert.Contains($"\"token\":\"{token}\"", filtered.Output);
     }
 
     [Fact]
@@ -720,6 +785,33 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task InitializerOnlyConstructor_ProjectsThroughMemberAndTypeCommands()
+    {
+        string typeName = typeof(CommandInitializerOnlyFixture).FullName!;
+        var member = await RunAppAsync(
+            "member", typeName, ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-S", "Decompiled Source",
+            "--tips", "q");
+        var type = await RunAppAsync(
+            "type", typeName,
+            "--library", TestAssemblyPath,
+            "-S", "Decompiled Source",
+            "--tips", "q");
+
+        Assert.Equal(0, member.Exit);
+        Assert.Empty(member.Error);
+        Assert.Contains("CommandInitializerOnlyFixture()", member.Output);
+        Assert.DoesNotContain("Value = 42", member.Output);
+        Assert.DoesNotContain("DEC0003", member.Output);
+
+        Assert.Equal(0, type.Exit);
+        Assert.Empty(type.Error);
+        Assert.Contains("public int Value = 42;", type.Output);
+        Assert.DoesNotContain("DEC0003", type.Output);
+    }
+
+    [Fact]
     public async Task MemberCommand_DoesNotInferAsyncFromRenderedText()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -836,12 +928,12 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_OneLine()
+    public async Task Api_PlatformLibrary_Table()
     {
         var options = new ApiOptions
         {
             PlatformAssembly = "System.Text.Json",
-            OneLine = true
+            Tabular = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -862,7 +954,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            OneLine = true,
+            Tabular = true,
             Select = ["Classes"]
         };
 
@@ -1391,6 +1483,9 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows cannot combine -n/--head with --tail", error);
+        // Pin the failure shape, not just the message: a swallowed BuildRowWindow
+        // throw would dump a stack trace that also contains the message and exits 1.
+        Assert.DoesNotContain("Unhandled exception", error);
     }
 
     [Fact]
@@ -1402,6 +1497,8 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows requires -n/--head N or --tail N", error);
+        // Pin the failure shape, not just the message (see above).
+        Assert.DoesNotContain("Unhandled exception", error);
     }
 
     [Fact]
@@ -3634,7 +3731,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectDecompiledSource_UsesExpressionBodiedSyntaxForOneLineReturn()
+    public async Task Member_SelectDecompiledSource_UsesExpressionBodiedSyntaxForTableReturn()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -3773,9 +3870,9 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Select = ["Methods", "Properties"],
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true
+            TabularExplicitlySet = true
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -3939,7 +4036,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForOneLineMembers()
+    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForTableMembers()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -4130,7 +4227,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_MixedKindFilter_TsvUsesUnifiedOneLineRows()
+    public async Task Member_MixedKindFilter_TsvUsesUnifiedTableRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
@@ -4639,9 +4736,9 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             Select = ["Library Info", "Signals"],
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true
+            TabularExplicitlySet = true
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -9512,6 +9609,11 @@ public sealed class CommandExecutionSourceDiffFixture
     {
         return value + 1;
     }
+}
+
+public sealed class CommandInitializerOnlyFixture
+{
+    public int Value = 42;
 }
 
 public static class FactsTableFixture

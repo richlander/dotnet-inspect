@@ -289,15 +289,7 @@ public static class IlAssemblyDiff
     }
 
     static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        var type = reader.GetTypeDefinition(handle);
-        string name = reader.GetString(type.Name);
-        var declaring = type.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{TypeName(reader, declaring)}+{name}";
-        string ns = reader.GetString(type.Namespace);
-        return ns.Length == 0 ? name : $"{ns}.{name}";
-    }
+        => BoundedMetadataName.TypeDefinition(reader, handle, includeAssembly: false);
 
     static ImmutableArray<IlDiffBucket> Buckets(Dictionary<string, int> counts)
         => [.. counts
@@ -350,23 +342,10 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
         };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => TypeDefinitionName(reader, handle);
+        => BoundedMetadataName.TypeDefinition(reader, handle, includeAssembly: true);
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-    {
-        var type = reader.GetTypeReference(handle);
-        string name = reader.GetString(type.Name);
-        string ns = reader.GetString(type.Namespace);
-        string fullName = ns.Length == 0 ? name : $"{ns}.{name}";
-        return type.ResolutionScope.Kind switch
-        {
-            HandleKind.AssemblyReference =>
-                $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name)}]{fullName}",
-            HandleKind.TypeReference =>
-                $"{GetTypeFromReference(reader, (TypeReferenceHandle)type.ResolutionScope, rawTypeKind)}+{fullName}",
-            _ => fullName,
-        };
-    }
+        => BoundedMetadataName.TypeReference(reader, handle);
 
     public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
     {
@@ -395,15 +374,4 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     public string GetFunctionPointerType(MethodSignature<string> signature)
         => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
 
-    static string TypeDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
-    {
-        var type = reader.GetTypeDefinition(handle);
-        string name = reader.GetString(type.Name);
-        var declaring = type.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{TypeDefinitionName(reader, declaring)}+{name}";
-        string ns = reader.GetString(type.Namespace);
-        string assembly = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
-        return $"[{assembly}]{(ns.Length == 0 ? name : $"{ns}.{name}")}";
-    }
 }

@@ -44,6 +44,35 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void MemberProjection_PreservesInitializerOnlyConstructorMetadata()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchInitializerOnlyFixture).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchInitializerOnlyFixture).FullName!,
+            ".ctor",
+            AnnotatedSource: true,
+            CostOverlay: true,
+            SemanticsOverlay: true));
+
+        var results = new[]
+        {
+            Assert.IsType<DecompilerResult>(projection.AnnotatedSource),
+            Assert.IsType<DecompilerResult>(projection.CostOverlay?.Body),
+            Assert.IsType<DecompilerResult>(projection.SemanticsOverlay)
+        };
+        Assert.All(results, result =>
+        {
+            Assert.True(result.Succeeded, string.Join(Environment.NewLine, result.Diagnostics));
+            Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+            Assert.Contains((nameof(ResearchInitializerOnlyFixture.Value), "42"), result.FieldInitializers);
+            Assert.DoesNotContain(nameof(ResearchInitializerOnlyFixture.Value), result.Output);
+            Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.EmptyOutput);
+        });
+    }
+
+    [Fact]
     public void RunProjection_PreservesFailureDiagnostics()
     {
         var failure = DecompilerResult.Failure(
@@ -466,4 +495,9 @@ public sealed class ResearchConstructorFixture
     {
         GC.KeepAlive(value);
     }
+}
+
+public sealed class ResearchInitializerOnlyFixture
+{
+    public int Value = 42;
 }

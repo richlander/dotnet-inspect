@@ -37,15 +37,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
             return new DegradedTypeNode();
-        try
+        using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
-        }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
         }
     }
 

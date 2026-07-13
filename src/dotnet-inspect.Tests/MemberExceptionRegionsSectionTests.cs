@@ -103,9 +103,9 @@ public class MemberExceptionRegionsSectionTests
             Discover = [],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 
@@ -123,9 +123,9 @@ public class MemberExceptionRegionsSectionTests
             TipLevel = TipLevel.Quiet,
             Discover = discover ? [] : null,
             Verbosity = Verbosity.Minimal,
-            OneLine = discover,
+            Tabular = discover,
             Tsv = discover,
-            OneLineExplicitlySet = discover,
+            TabularExplicitlySet = discover,
             FormatExplicitlySet = true,
         }));
 }

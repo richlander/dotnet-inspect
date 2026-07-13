@@ -39,7 +39,7 @@ The major advantage of this system is that section queries / scoping pushes back
 
 Effective discovery uses two predicates. The section pipeline's applicability gate answers whether a section is structurally selectable for the current target without doing the section's own work. `CanRender` answers whether collected data can actually produce output. Use explicit applicability gates to keep opt-in or alternate-representation sections discoverable when their render data is populated only after selection, or when the default render pass chooses a compact alternate; keep `CanRender` data-dependent so rendering and empty-section notes remain honest. Discovery annotates explicit non-default alternates as `verbose`.
 
-Note: This content should itself be data and printable with any of the renderers using the same system as "actual data". I consider this view to be oneline + no-heading. One can imagine either of the following (which would include a heading).
+Note: This content should itself be data and printable with any of the renderers using the same system as "actual data". I consider this view to be table output with no heading. One can imagine either of the following (which would include a heading).
 
 ```bash=
 dotnet run --project src/dotnet-inspect -- System.CommandLine -S --markdown

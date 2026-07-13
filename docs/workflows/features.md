@@ -14,7 +14,7 @@
 | `dotnet-inspect` CLI | 6b773da | 0.1.0 | ✓ | Initial tool creation |
 | `api` command | de505ec | 0.1.0 | ⚠️ | API surface extraction (deprecated in 0.5.0, use `type`/`member`) |
 | `llmstxt` command | aaa289e | 0.1.0 | ✗ | Removed in 0.7.0; replaced by SKILL.md via dotnet/skills marketplace |
-| `type` command | 208ebd2 | 0.1.3 | ✓ | Discover types (terse output, split from `api` in 0.5.0) |
+| `type` command | 208ebd2 | 0.1.3 | ✓ | Discover types (compact table output, split from `api` in 0.5.0) |
 | `diff` command | 0d3d24c | 0.1.7 | ✓ | Compare API surfaces between package versions |
 | `samples` command | 916c845 | 0.1.8 | ✗ | Removed; use SourceLink sections for source workflows |
 | `platform` command | e516f96 | 0.2.0 | ✗ | Inspect platform assemblies (removed in 0.4.0, use `--platform` flag) |
@@ -231,7 +231,7 @@ The `api` command was the original all-in-one command for type and member inspec
 
 | Original | Replacement | Reason |
 | ---------- | ------------- | -------- |
-| `api --package Foo` | `type --package Foo` | Type discovery (terse, no docs) |
+| `api --package Foo` | `type --package Foo` | Type discovery (compact table, no docs) |
 | `api --package Foo Bar` | `member Bar --package Foo` | Member inspection (docs on by default) |
 | `api --package Foo Bar -m Baz` | `member Bar --package Foo -m Baz` | Member filtering |
 

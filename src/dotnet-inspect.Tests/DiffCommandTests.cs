@@ -1211,7 +1211,7 @@ public class DiffCommandTests
             {
                 LibraryVersionRange = $"{v1}..{v2}",
                 Select = ["Implementation Diff"],
-                OneLine = true,
+                Tabular = true,
                 TypeFilter = ["DiffSample"],
                 MemberFilter = ["ConstantValue"]
             }));
@@ -1268,8 +1268,8 @@ public class DiffCommandTests
             {
                 LibraryVersionRange = $"{v1}..{v2}",
                 Select = ["Changes", "Implementation Diff"],
-                OneLine = true,
-                OneLineExplicitlySet = true
+                Tabular = true,
+                TabularExplicitlySet = true
             }));
 
         Assert.Equal(1, exitCode);

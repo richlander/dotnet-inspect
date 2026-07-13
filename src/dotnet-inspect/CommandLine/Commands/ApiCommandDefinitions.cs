@@ -25,7 +25,7 @@ public static class ApiCommandDefinitions
         {
             Console.Error.WriteLine("The 'api' command is deprecated. Please use:");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("  type   - Discover types in a package/library (terse, no docs by default)");
+            Console.Error.WriteLine("  type   - Discover types in a package/library (compact table, no docs by default)");
             Console.Error.WriteLine("  member - Inspect type members (docs by default)");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Examples:");
@@ -38,11 +38,11 @@ public static class ApiCommandDefinitions
     }
 
     /// <summary>
-    /// Creates the type command for fast type discovery (terse, no docs by default).
+    /// Creates the type command for fast type discovery (compact table, no docs by default).
     /// </summary>
     public static Command CreateTypeCommand(SharedOptions opts)
     {
-        var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (terse output)");
+        var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (compact table output)");
 
         var argsArg = new Argument<string[]>("args")
         {
@@ -108,7 +108,7 @@ public static class ApiCommandDefinitions
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, compactOption, opts.OneLine,
+            allOption, typeFilterOption, compactOption,
             opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption, atOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
@@ -244,7 +244,7 @@ public static class ApiCommandDefinitions
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
-            compactOption, opts.OneLine, opts.NoHeaders,
+            compactOption, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, atOption);
 

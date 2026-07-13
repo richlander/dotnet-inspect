@@ -37,7 +37,7 @@ public record ProjectOptions
 
     public bool JsonOutput { get; init; }
 
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
 
     public bool Tsv { get; init; }
 

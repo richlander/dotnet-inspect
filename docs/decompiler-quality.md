@@ -415,7 +415,7 @@ below clean. Tear the worktree down once the row's PR merges.
 
 These keep a review fast and the proof legible:
 
-- **Build the review packet from git, not memory.** `git log --oneline --
+- **Build the review packet from git, not memory.** `git log --format='%h %s' --
   <pass-file>` lists the PRs that introduced and broadened a raise, and
   `gh pr view <n> --json title,body` recovers each one's stated intent.
   Reconstruct the claim from that history before reading today's matcher.

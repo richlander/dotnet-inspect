@@ -5,9 +5,9 @@
 
 ## Context
 
-v0.6.0 made oneline the default output and unified the find command's dual views into a single `FindResultView` that serves both `OneLineWriter` and `MarkdownWriter`. The command→view→writer pipeline is now clean, but the service→command boundary still has unnecessary transformation steps.
+v0.6.0 made table output the default and unified the find command's dual views into a single `FindResultView` that serves both table and Markdown writers. The command→view→writer pipeline is now clean, but the service→command boundary still has unnecessary transformation steps.
 
-The spec's goal: "The commands should request data from the services. Those OMs should be crafted to be oneline-compatible such that there isn't much transformation required."
+The spec's goal: "The commands should request data from the services. Those OMs should be crafted to be tabular-compatible such that there isn't much transformation required."
 
 ## Current State
 
@@ -33,18 +33,18 @@ View:     FindResultView → FindRow[]
 Service:  InspectionResult  (40+ raw properties — version, size, TFMs, deps, files, ...)
      ↓ InspectionResultView(result) — manual field construction
 View:     InspectionResultView  (curated fields + sections for markdown)
-     ↓ OR OutputFormatter.BuildPackageOneLineView()
-View:     PackageOneLineView  (Property/Value rows from GetMetadataFields)
+     ↓ OR OutputFormatter.BuildPackageTableView()
+View:     PackageTableView  (Property/Value rows from GetMetadataFields)
 ```
 
 `GetMetadataFields()` does selective, formatted extraction: `ByteSizeFormatter.Format()`, date formatting, null filtering, collection joining. This is inherently view-level work — formatting raw bytes as "2.1 MB" is a presentation concern.
 
-### Type/Member: ApiSurface/ApiType → ApiTypeView/ApiTypeOneLineView
+### Type/Member: ApiSurface/ApiType → ApiTypeView/ApiTypeTableView
 
 ```text
 Service:  ApiSurface { Types: List<ApiType> }  where ApiType has List<ApiMember>
-     ↓ ApiOutputFormatter.BuildTypeOneLineView() — groups by kind, extracts ReturnType/Detail
-View:     ApiTypeOneLineView { Rows: List<ApiOneLineRow> }
+     ↓ ApiOutputFormatter.BuildTypeTableView() — groups by kind, extracts ReturnType/Detail
+View:     ApiTypeTableView { Rows: List<ApiTableRow> }
      ↓ OR ApiOutputFormatter.BuildFullApiView() — builds 50+ property view
 View:     ApiTypeView  (rich document with per-kind sections)
 ```
@@ -75,19 +75,19 @@ This would:
 
 ### Package: Consider Markout attributes on the service model
 
-If `InspectionResult` had Markout attributes directly — `[MarkoutSkipDefault]` on nullable properties, `[MarkoutPropertyName("Size")]` with custom formatters — the view layer could thin out for the oneline case. The service model IS the view, following the GitHubRepo demo pattern where `RepoView` has domain data with rendering attributes.
+If `InspectionResult` had Markout attributes directly — `[MarkoutSkipDefault]` on nullable properties, `[MarkoutPropertyName("Size")]` with custom formatters — the view layer could thin out for the tabular case. The service model IS the view, following the GitHubRepo demo pattern where `RepoView` has domain data with rendering attributes.
 
 **Blocker:** `InspectionResult` lives in `DotnetInspector.Services` which doesn't reference Markout. Options:
 1. Add Markout reference to Services (couples service to rendering)
 2. Use a source-generated adapter in the dotnet-inspect project
 3. Keep the current `InspectionResultView` wrapper (it's thin and works)
 
-Option 3 is pragmatic. The `GetMetadataFields()` transformation involves formatting logic (byte sizes, date formatting, null coalescing) that belongs in the view layer regardless. The dual PackageOneLineView/InspectionResultView structure isn't a problem — `BuildPackageOneLineView` is 8 lines.
+Option 3 is pragmatic. The `GetMetadataFields()` transformation involves formatting logic (byte sizes, date formatting, null coalescing) that belongs in the view layer regardless. The dual PackageTableView/InspectionResultView structure isn't a problem — `BuildPackageTableView` is small.
 
 ### Type: The structural gap is permanent
 
 The type command has a genuine structural mismatch:
-- **Oneline:** One flat table with Kind column, all member kinds merged, one row per unique name
+- **Table:** One flat table with Kind column, all member kinds merged, one row per unique name
 - **Markdown:** Multiple sections per member kind (Properties, Methods, Events...), overloads expanded, docs inline
 
 This isn't a data model problem — it's a presentation structure difference. The `ApiOutputFormatter` methods that build each view are doing real work (grouping, truncation, signature extraction). Collapsing them would add complexity, not remove it.

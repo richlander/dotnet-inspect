@@ -16,7 +16,7 @@ namespace ILInspector.Metadata;
 ///
 /// This guard walks the blob *iteratively* (an explicit heap work-stack, never the native stack),
 /// computing the maximum type-nesting depth, and reports whether it exceeds a safe limit so the
-/// caller can fail closed (skip the decode and degrade to an unresolved shape) instead of crashing.
+/// caller can fail closed with an explicit rejection instead of crashing.
 /// A raw blob-length cap is deliberately avoided: a legitimately <i>wide</i> method signature (many
 /// parameters or generic arguments) is long but structurally shallow, so length would false-reject
 /// real code. Depth does not.

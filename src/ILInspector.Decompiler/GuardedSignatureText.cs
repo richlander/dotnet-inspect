@@ -12,37 +12,36 @@ namespace ILInspector.Decompiler;
 /// deeply-nested or huge-count signature would overflow the native stack inside SRM's
 /// <c>SignatureDecoder</c> (an uncatchable <c>StackOverflowException</c>) or trigger a
 /// multi-gigabyte pre-allocation. <see cref="SignatureBlobGuard"/> detects both before decoding,
-/// so these helpers fail closed to an unresolved placeholder type (a parseable <c>object</c>)
-/// instead of crashing. Real signatures are shallow, so the guard only trips on malformed input.
+/// so these helpers reject the member instead of fabricating a parseable <c>object</c> signature.
+/// Real signatures are shallow, so the guard only trips on malformed input.
 /// </summary>
 internal static class GuardedSignatureText
 {
-    // A degraded but syntactically valid C# type keeps composed source parseable; a member whose
-    // signature could not be decoded is already un-reconstructable, so its exact text is moot.
-    const string Unresolved = "object";
-
     public static MethodSignature<string> MethodText(MetadataReader reader, MethodDefinition method, GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, method.Signature, SignatureBlobGuard.Kind.Method)
-            ? method.DecodeSignature(SignatureDecoder.Instance, context)
-            : UnresolvedMethod;
+        => GuardedSignatureDecoder.Decode(
+            reader,
+            method.Signature,
+            SignatureBlobGuard.Kind.Method,
+            () => method.DecodeSignature(SignatureDecoder.Instance, context))
+            .GetValueOrThrow();
 
     public static MethodSignature<string> PropertyText(MetadataReader reader, PropertyDefinition property, GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, property.Signature, SignatureBlobGuard.Kind.Method)
-            ? property.DecodeSignature(SignatureDecoder.Instance, context)
-            : UnresolvedMethod;
+        => GuardedSignatureDecoder.Decode(
+            reader,
+            property.Signature,
+            SignatureBlobGuard.Kind.Method,
+            () => property.DecodeSignature(SignatureDecoder.Instance, context))
+            .GetValueOrThrow();
 
     public static string FieldText(MetadataReader reader, FieldDefinition field, GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
-            ? field.DecodeSignature(SignatureDecoder.Instance, context)
-            : Unresolved;
+        => GuardedSignatureDecoder.Decode(
+            reader,
+            field.Signature,
+            SignatureBlobGuard.Kind.Field,
+            () => field.DecodeSignature(SignatureDecoder.Instance, context))
+            .GetValueOrThrow();
 
     public static string TypeSpecText(MetadataReader reader, TypeSpecificationHandle handle, GenericContext? context)
-    {
-        var spec = reader.GetTypeSpecification(handle);
-        return SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, SignatureBlobGuard.Kind.TypeSpecification)
-            ? spec.DecodeSignature(SignatureDecoder.Instance, context)
-            : Unresolved;
-    }
-
-    static readonly MethodSignature<string> UnresolvedMethod = new(default, Unresolved, 0, 0, []);
+        => TypeResolver.DecodeTypeNameFromSpecification(reader, handle, context)
+            .GetValueOrThrow();
 }

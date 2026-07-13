@@ -903,6 +903,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void CanRender_UnsafeMembers_UsesDegradedDecodeStatus()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Members" });
+
+        Assert.Contains("Unsafe Members", effective);
+    }
+
+    [Fact]
     public void CanRender_PInvokeMethods_UsesPresenceFlag()
     {
         var pipeline = LibrarySections.CreatePipeline();

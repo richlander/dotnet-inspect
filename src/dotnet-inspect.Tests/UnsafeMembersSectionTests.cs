@@ -78,9 +78,9 @@ public class UnsafeMembersSectionTests
             Discover = ["Unsafe Operations"],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 
@@ -144,9 +144,9 @@ public class UnsafeMembersSectionTests
             Discover = [],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 
@@ -185,9 +185,9 @@ public class UnsafeMembersSectionTests
             Discover = [],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 

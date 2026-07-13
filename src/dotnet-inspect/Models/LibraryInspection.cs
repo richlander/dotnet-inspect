@@ -680,6 +680,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasUnsafeCode { get; set; }
 
+    /// <summary>Set when guarded decoding prevents unsafe-code presence from being determined.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SignatureDecodeStatus? UnsafeSignatureDecodeStatus { get; set; }
+
     /// <summary>True when the assembly has at least one method with an IL body (not a pure ref/abstract assembly).</summary>
     [JsonIgnore]
     public bool HasMethodBodies { get; set; }
@@ -1080,8 +1084,18 @@ public record class MethodLeverageSummary
 public record class OptimizationOpportunitySummary
 {
     public string Member { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Candidate { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Finding { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Provenance { get; init; }
     public int RootReach { get; init; }
     public string Shape { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Operation { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Token { get; init; }
     public string Evidence { get; init; } = "";
     public string Fix { get; init; } = "";
     public string Confidence { get; init; } = "";

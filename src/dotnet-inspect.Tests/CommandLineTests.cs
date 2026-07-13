@@ -41,6 +41,23 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "--tail", "5"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("--rows is not supported by the 'cache' command.", error.Message);
+    }
+
+    [Fact]
+    public void CacheCommand_WithTailLineLimit_Parses()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--tail", "5"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void RootCommand_DoesNotExposeRemovedUtilityCommands()
     {
         var rootCommand = CommandLineBuilder.CreateRootCommand();
@@ -294,14 +311,6 @@ public class CommandLineTests
     public void MemberCommand_WithMultipleMembers_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Serialize", "-m", "Deserialize"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void MemberCommand_WithOneLine_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--oneline"]);
 
         Assert.Empty(result.Errors);
     }
@@ -887,14 +896,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void FindCommand_WithOneLine_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--oneline"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
     public void FindCommand_WithTable_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--table"]);
@@ -1002,14 +1003,6 @@ public class CommandLineTests
     public void FindCommand_WithLimit_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--platform", "-n", "10"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void DiffCommand_WithOneLine_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--oneline"]);
 
         Assert.Empty(result.Errors);
     }

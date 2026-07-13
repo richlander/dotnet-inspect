@@ -82,7 +82,7 @@ public class FindCommand
             return;
         }
 
-        if (options.OneLine)
+        if (options.Tabular)
         {
             OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,

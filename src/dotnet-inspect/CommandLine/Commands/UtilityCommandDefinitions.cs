@@ -18,7 +18,7 @@ public static class UtilityCommandDefinitions
         var cleanOption = new Option<bool>("--clean", "--clear") { Hidden = true };
 
         cacheCommand.Options.Add(cleanOption);
-        opts.AddOutputOptionsTo(cacheCommand);
+        opts.AddOutputOptionsTo(cacheCommand, supportsRowWindows: false);
 
         // Subcommand: clear
         var clearCommand = new Command("clear", "Clear the cache");

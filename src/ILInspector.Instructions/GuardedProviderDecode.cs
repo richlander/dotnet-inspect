@@ -185,20 +185,16 @@ internal static class GuardedProviderDecode
         TContext context,
         out T decoded)
     {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
         {
             decoded = default!;
             return false;
         }
 
-        try
+        using (scope)
         {
             decoded = reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
             return true;
-        }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
         }
     }
 
