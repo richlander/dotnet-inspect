@@ -482,6 +482,302 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesThisConstructorChainOpcodes()
+    {
+        // Issue #2678: RTS used to reconstruct target constructors with empty
+        // bodies, dropping the `: this(...)` chain call. The recompiled ctor then
+        // emitted `ldarg call ret` instead of the original `ldarg ldarg call call
+        // ret`, producing an OpcodeDiff. The chain must be preserved so the ctor
+        // round-trips Exact.
+        var assemblyPath = CompileFixture("""
+            public class Versioned
+            {
+                public Versioned(string text) : this(Parse(text))
+                {
+                }
+
+                public Versioned(int value)
+                {
+                    Value = value;
+                }
+
+                public int Value { get; }
+
+                private static int Parse(string text) => text.Length;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Versioned", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainedConstructorUnreconstructable()
+    {
+        // Issue #2678 guard: when the chained-to constructor has an unsupported
+        // signature (a function pointer), the planner drops it from the shell. A
+        // same-arity sibling ctor pulled in by another dependency must NOT be
+        // mistaken for the chained-to ctor: emitting `: this(args)` would bind to
+        // the wrong overload and fail with CS1503. The initializer must be
+        // stripped, falling back to an (empty) body that still compiles.
+        var assemblyPath = CompileFixture(
+            """
+            public unsafe class Chained
+            {
+                public Chained(int value) : this((delegate*<void>)value)
+                {
+                    _ = new Chained(true);
+                }
+
+                public Chained(delegate*<void> callback)
+                {
+                }
+
+                public Chained(bool flag)
+                {
+                }
+            }
+            """,
+            allowUnsafe: true);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Chained", ".ctor", 0,
+                    "(corelib:System.Int32) -> corelib:System.Void")]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainedConstructorIsOverloadAmbiguous()
+    {
+        // Issue #2678 guard: the printer can render chain arguments without a
+        // disambiguating cast (a `box` to `object` prints as its inner value), and
+        // C# overload resolution — including the target constructor — can then
+        // re-bind the call. A boxed argument is never faithful, and here three
+        // same-arity constructors (`C(object)`, `C(int)`, the target `C(string)`)
+        // share the callee's arity, so unique-arity binding does not hold either.
+        // The initializer must be stripped rather than emit a wrong-binding chain.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(object x)
+                {
+                }
+
+                public C(int x)
+                {
+                }
+
+                public C(string z) : this((object)1)
+                {
+                    _ = new C(2);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainBindsToTargetConstructor()
+    {
+        // Issue #2678 guard: overload resolution also considers the target
+        // constructor itself. The printer drops the `(object)` cast from
+        // `: this((object)text)`, printing `: this(text)`; with the target
+        // `C(string)` in the shell, `text` (a string) binds back to the target
+        // constructor — `C(string)` calling itself (CS0516). The argument is not
+        // faithful (its printed string type differs from the `object` parameter)
+        // and the callee shares the target's arity, so the initializer must be
+        // stripped.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(object value)
+                {
+                }
+
+                public C(string text) : this((object)text)
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesConstructorChainWhenArityIsUnique()
+    {
+        // Issue #2678: a chain whose arguments the printer cannot type precisely (a
+        // bare `null`) is still safe to emit when exactly one constructor in the
+        // shell has the chain's argument count — a normal-form exact-arity match
+        // has no competing overload, so `: this(1, 2, null)` binds unambiguously to
+        // the sole three-argument constructor. The initializer must be preserved so
+        // the constructor round-trips Exact.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(int a, int b, string s)
+                {
+                    S = s;
+                }
+
+                public C(string z) : this(1, 2, null)
+                {
+                }
+
+                public string S { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenCrossArityParamsSiblingCanBind()
+    {
+        // Issue #2678 guard (Gemini R5): unique *declared* arity is not enough — a
+        // cross-arity `params` (or optional) sibling can absorb an N-argument call
+        // and, for a lossy argument the printer cannot type precisely, offer a
+        // better conversion that steals the bind. Here `C()` chains
+        // `: this((object)null)`; the printer drops the `(object)` cast, printing
+        // `: this(null)`. `C(object)` is the only one-parameter constructor, but
+        // `C(string, params int[])` is also applicable to a one-argument call and
+        // `null` binds to `string` (more derived than `object`) via params
+        // expansion — the wrong overload. The initializer must be stripped.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(object x)
+                {
+                }
+
+                public C(string x, params int[] y)
+                {
+                }
+
+                public C() : this((object)null)
+                {
+                    _ = new C("hello");
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainArgumentIsAmbiguousLambda()
+    {
+        // Issue #2678 guard (Gemini R6): a lambda argument prints typeless
+        // (`() => ...`) and relies on C# target-typing, so its IR result type
+        // matching the parameter does NOT prove an unambiguous bind. Here `C()`
+        // chains `: this((Func<int>)(() => 1))`; the shell also contains
+        // `C(Expression<Func<int>>)` (pulled in by the body). Both constructors
+        // accept `() => 1`, so the printed `: this(() => 1)` is ambiguous (CS0121).
+        // The lambda must not be treated as faithful; with a same-arity sibling in
+        // the shell, unique-arity does not hold either, so the initializer is
+        // stripped and the body (which references the sibling through a typed local,
+        // so it stays unambiguous) still compiles.
+        var assemblyPath = CompileFixture("""
+            using System;
+            using System.Linq.Expressions;
+            public class C
+            {
+                public C(Func<int> x)
+                {
+                }
+
+                public C(Expression<Func<int>> y)
+                {
+                }
+
+                public C() : this((Func<int>)(() => 1))
+                {
+                    Expression<Func<int>> e = () => 2;
+                    _ = new C(e);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""
