@@ -17,7 +17,10 @@ public sealed record MetadataMethodDeclaration(
     bool IsOverride,
     bool IsSealed,
     ApiSignature Signature,
-    IReadOnlyList<string> Attributes);
+    IReadOnlyList<string> Attributes)
+{
+    public SignatureDecodeStatus? SignatureDecodeStatus { get; init; }
+}
 
 public sealed record MetadataPropertyDeclaration(
     string MetadataName,
@@ -32,7 +35,10 @@ public sealed record MetadataPropertyDeclaration(
     ApiSignature Signature,
     IReadOnlyList<string> Attributes,
     MethodDefinitionHandle Getter,
-    MethodDefinitionHandle Setter);
+    MethodDefinitionHandle Setter)
+{
+    public SignatureDecodeStatus? SignatureDecodeStatus { get; init; }
+}
 
 public sealed record MetadataFieldDeclaration(
     string MetadataName,
@@ -42,7 +48,10 @@ public sealed record MetadataFieldDeclaration(
     bool IsReadOnly,
     bool IsConst,
     string? ReturnType,
-    IReadOnlyList<string> Attributes);
+    IReadOnlyList<string> Attributes)
+{
+    public SignatureDecodeStatus? SignatureDecodeStatus { get; init; }
+}
 
 /// <summary>
 /// Handle-based declaration questions over SRM metadata. This layer is safe for
@@ -111,6 +120,7 @@ public static class MetadataDeclarationQuery
                 Kind = "property",
                 SignatureModel = declaration.Signature,
                 Signature = PropertySignatureText(declaration),
+                SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
                 IsVirtual = declaration.IsVirtual,
@@ -143,6 +153,7 @@ public static class MetadataDeclarationQuery
                 Kind = declaration.MetadataName == ".ctor" ? "constructor" : "method",
                 SignatureModel = declaration.Signature,
                 Signature = MethodSignatureText(declaration),
+                SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
@@ -173,6 +184,7 @@ public static class MetadataDeclarationQuery
                 SignatureModel = declaration.ReturnType is null
                     ? null
                     : new ApiSignature { ReturnType = declaration.ReturnType, MemberName = declaration.CSharpName },
+                SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
                 IsReadOnly = declaration.IsReadOnly,
                 IsConst = declaration.IsConst,
@@ -189,8 +201,11 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         MethodDefinition method)
     {
-        var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-        return GetMethod(reader, typeDef, method, signature);
+        var result = GuardedSignatureText.MethodTextResult(reader, method, GenericContext.ForMethod(reader, typeDef, method));
+        return GetMethod(reader, typeDef, method, result.Value) with
+        {
+            SignatureDecodeStatus = DecodeStatus(result.IsDegraded),
+        };
     }
 
     public static string GetMethodReturnType(
@@ -252,7 +267,8 @@ public static class MetadataDeclarationQuery
         PropertyDefinition property)
     {
         var accessors = property.GetAccessors();
-        var signature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, typeDef));
+        var result = GuardedSignatureText.PropertyTextResult(reader, property, GenericContext.ForType(reader, typeDef));
+        var signature = result.Value;
         var getter = accessors.Getter.IsNil ? default : reader.GetMethodDefinition(accessors.Getter);
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
@@ -324,7 +340,10 @@ public static class MetadataDeclarationQuery
             },
             RenderMemberAttributes(reader, property.GetCustomAttributes()),
             accessors.Getter,
-            accessors.Setter);
+            accessors.Setter)
+        {
+            SignatureDecodeStatus = DecodeStatus(result.IsDegraded),
+        };
     }
 
     public static MetadataFieldDeclaration GetField(
@@ -334,6 +353,7 @@ public static class MetadataDeclarationQuery
     {
         var attributes = field.Attributes;
         var access = attributes & FieldAttributes.FieldAccessMask;
+        var result = GuardedSignatureText.FieldTextResult(reader, field, GenericContext.ForType(reader, typeDef));
         return new MetadataFieldDeclaration(
             reader.GetString(field.Name),
             EscapeIdentifier(reader.GetString(field.Name)),
@@ -341,8 +361,11 @@ public static class MetadataDeclarationQuery
             (attributes & FieldAttributes.Static) != 0,
             (attributes & FieldAttributes.InitOnly) != 0,
             (attributes & FieldAttributes.Literal) != 0,
-            GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef)),
-            RenderMemberAttributes(reader, field.GetCustomAttributes()));
+            result.Value,
+            RenderMemberAttributes(reader, field.GetCustomAttributes()))
+        {
+            SignatureDecodeStatus = DecodeStatus(result.IsDegraded),
+        };
     }
 
     /// <summary>
@@ -715,6 +738,9 @@ public static class MetadataDeclarationQuery
 
     static string? NonPublicAccessibility(string accessibility)
         => accessibility == "public" ? null : accessibility;
+
+    static SignatureDecodeStatus? DecodeStatus(bool isDegraded)
+        => isDegraded ? SignatureDecodeStatus.Degraded : null;
 
     static (string? Namespace, string Name) GetApiTypeNameParts(MetadataReader reader, TypeDefinition typeDef)
     {

@@ -83,6 +83,38 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void GetMemberAnchor_DisambiguatesDegradedPlaceholderFromGenuineSignature()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var genuine = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "object M()",
+        };
+        var degraded = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "object M()",
+            SignatureDecodeStatus = SignatureDecodeStatus.Degraded,
+        };
+
+        var genuineAnchor = ApiMemberIdentity.GetMemberAnchor(type, genuine);
+        var degradedAnchor = ApiMemberIdentity.GetMemberAnchor(type, degraded);
+
+        Assert.Equal(genuineAnchor.CanonicalSignature, degradedAnchor.CanonicalSignature);
+        Assert.NotEqual(genuineAnchor.Fingerprint, degradedAnchor.Fingerprint);
+        Assert.NotEqual(genuineAnchor.StableSelector, degradedAnchor.StableSelector);
+        Assert.Equal(
+            MemberAnchor.ComputeFingerprint(genuineAnchor.CanonicalSignature),
+            genuineAnchor.Fingerprint);
+        Assert.Equal(
+            MemberAnchor.ComputeFingerprint(degradedAnchor.CanonicalSignature, isDegraded: true),
+            degradedAnchor.Fingerprint);
+    }
+
+    [Fact]
     public void CreateMethodAnchor_DisambiguatesConversionOperatorsByReturnType()
     {
         using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);

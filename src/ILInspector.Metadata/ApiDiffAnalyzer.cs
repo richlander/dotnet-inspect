@@ -179,6 +179,14 @@ public class ApiDiff
 /// </summary>
 public static class ApiDiffAnalyzer
 {
+    readonly record struct MemberKey(string Signature, SignatureDecodeStatus? DecodeStatus)
+    {
+        public override string ToString()
+            => DecodeStatus is SignatureDecodeStatus.Degraded
+                ? $"{Signature} [decode: degraded]"
+                : Signature;
+    }
+
     public static ApiDiff Compare(ApiSurface oldSurface, ApiSurface newSurface)
         => Compare(oldSurface, newSurface, ApiDiffOptions.Default);
 
@@ -412,25 +420,26 @@ public static class ApiDiffAnalyzer
     {
         var oldMembers = FilterMembers(oldType.Members);
         var newMembers = FilterMembers(newType.Members);
+        bool includeDecodeStatus = IncludesSignature(options);
 
         // Build signature sets for matching
-        var oldBySignature = new Dictionary<string, ApiMember>(StringComparer.Ordinal);
+        var oldBySignature = new Dictionary<MemberKey, ApiMember>();
         foreach (var m in oldMembers)
         {
-            var key = GetMemberKey(m);
+            var key = GetMemberKey(m, includeDecodeStatus);
             oldBySignature.TryAdd(key, m);
         }
 
-        var newBySignature = new Dictionary<string, ApiMember>(StringComparer.Ordinal);
+        var newBySignature = new Dictionary<MemberKey, ApiMember>();
         foreach (var m in newMembers)
         {
-            var key = GetMemberKey(m);
+            var key = GetMemberKey(m, includeDecodeStatus);
             newBySignature.TryAdd(key, m);
         }
 
         // Find matched (by full signature key), unmatched old, unmatched new
-        var matchedOldKeys = new HashSet<string>(StringComparer.Ordinal);
-        var matchedNewKeys = new HashSet<string>(StringComparer.Ordinal);
+        var matchedOldKeys = new HashSet<MemberKey>();
+        var matchedNewKeys = new HashSet<MemberKey>();
 
         foreach (var key in oldBySignature.Keys)
         {
@@ -475,7 +484,7 @@ public static class ApiDiffAnalyzer
 
                         changes.Add(new ApiChange(ChangeKind.MemberSignatureChanged, ChangeClassification.Breaking,
                             $"Member '{oldMember.Name}' signature changed",
-                            GetMemberKey(oldMember), GetMemberKey(newMember),
+                            GetMemberKey(oldMember).ToString(), GetMemberKey(newMember).ToString(),
                             Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
                         break;
                     }
@@ -489,7 +498,7 @@ public static class ApiDiffAnalyzer
                 {
                     changes.Add(new ApiChange(ChangeKind.MemberRemoved, ChangeClassification.Breaking,
                         $"Member '{oldMember.Name}' was removed",
-                        OldValue: GetMemberKey(oldMember),
+                        OldValue: GetMemberKey(oldMember).ToString(),
                         Subject: ApiChangeSubject.Member(oldType, oldMember, null, null)));
                 }
             }
@@ -505,7 +514,7 @@ public static class ApiDiffAnalyzer
 
                     changes.Add(new ApiChange(ChangeKind.MemberAdded, classification,
                         $"Member '{newMember.Name}' was added",
-                        NewValue: GetMemberKey(newMember),
+                        NewValue: GetMemberKey(newMember).ToString(),
                         Subject: ApiChangeSubject.Member(null, null, newType, newMember)));
                 }
             }
@@ -544,8 +553,8 @@ public static class ApiDiffAnalyzer
         {
             changes.Add(new ApiChange(ChangeKind.VirtualRemoved, ChangeClassification.Breaking,
                 $"Member '{oldMember.Name}' is no longer virtual",
-                GetMemberKey(oldMember),
-                GetMemberKey(newMember),
+                GetMemberKey(oldMember).ToString(),
+                GetMemberKey(newMember).ToString(),
                 Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
         }
 
@@ -554,8 +563,8 @@ public static class ApiDiffAnalyzer
         {
             changes.Add(new ApiChange(ChangeKind.AbstractMemberAdded, ChangeClassification.Breaking,
                 $"Member '{oldMember.Name}' was made abstract",
-                GetMemberKey(oldMember),
-                GetMemberKey(newMember),
+                GetMemberKey(oldMember).ToString(),
+                GetMemberKey(newMember).ToString(),
                 Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
         }
 
@@ -584,10 +593,12 @@ public static class ApiDiffAnalyzer
         return filtered;
     }
 
-    private static string GetMemberKey(ApiMember member)
+    private static MemberKey GetMemberKey(ApiMember member, bool includeDecodeStatus = true)
     {
         // Use signature when available (methods, properties), else fall back to kind + name
-        return member.Signature ?? $"{member.Kind}:{member.Name}";
+        return new MemberKey(
+            member.Signature ?? $"{member.Kind}:{member.Name}",
+            includeDecodeStatus ? member.SignatureDecodeStatus : null);
     }
 
     private static void CompareAttributes(

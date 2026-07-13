@@ -14,6 +14,9 @@ internal abstract class TypeNode
     /// <summary>Whether this node is a reference type (can be annotated with ?).</summary>
     public abstract bool IsReferenceType { get; }
 
+    /// <summary>Whether guarded decoding substituted any part of this type tree.</summary>
+    public virtual bool IsDegraded => false;
+
     /// <summary>Set to true when nullability byte is 2.</summary>
     public bool IsNullableAnnotated { get; set; }
 
@@ -34,6 +37,21 @@ internal abstract class TypeNode
         // Single-byte attribute: all positions use the same value
         if (bytes.Length == 1) { position++; return bytes[0]; }
         return position < bytes.Length ? bytes[position++] : defaultByte;
+    }
+}
+
+/// <summary>A visible fail-closed substitute for a rejected signature type.</summary>
+internal sealed class DegradedTypeNode : TypeNode
+{
+    public override bool IsReferenceType => true;
+    public override bool IsDegraded => true;
+
+    public override string Render() => IsNullableAnnotated ? "object?" : "object";
+
+    public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
+    {
+        byte b = ConsumeByte(bytes, ref position, defaultByte);
+        if (b == 2) IsNullableAnnotated = true;
     }
 }
 
@@ -67,9 +85,15 @@ internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNod
 }
 
 /// <summary>Generic instantiations (Dictionary&lt;K,V&gt;, Task&lt;T&gt;, etc.).</summary>
-internal sealed class GenericTypeNode(string baseName, bool isReferenceType, ImmutableArray<TypeNode> arguments, string nestedSuffix = "") : TypeNode
+internal sealed class GenericTypeNode(
+    string baseName,
+    bool isReferenceType,
+    ImmutableArray<TypeNode> arguments,
+    string nestedSuffix = "",
+    bool degradedGenericType = false) : TypeNode
 {
     public override bool IsReferenceType => isReferenceType;
+    public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
 
     public override string Render()
     {
@@ -91,6 +115,7 @@ internal sealed class GenericTypeNode(string baseName, bool isReferenceType, Imm
 internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 {
     public override bool IsReferenceType => true;
+    public override bool IsDegraded => elementType.IsDegraded;
 
     public override string Render()
     {
@@ -110,6 +135,7 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
 {
     public override bool IsReferenceType => true;
+    public override bool IsDegraded => elementType.IsDegraded;
 
     public override string Render()
     {
@@ -129,6 +155,7 @@ internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
 internal sealed class PointerTypeNode(TypeNode elementType) : TypeNode
 {
     public override bool IsReferenceType => false;
+    public override bool IsDegraded => elementType.IsDegraded;
 
     public override string Render() => $"{elementType.Render()}*";
 
@@ -143,6 +170,7 @@ internal sealed class PointerTypeNode(TypeNode elementType) : TypeNode
 internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 {
     public override bool IsReferenceType => false;
+    public override bool IsDegraded => elementType.IsDegraded;
 
     public override string Render() => $"ref {elementType.Render()}";
 
@@ -174,6 +202,8 @@ internal sealed class GenericParameterNode(string name) : TypeNode
 internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signature) : TypeNode
 {
     public override bool IsReferenceType => false;
+    public override bool IsDegraded => signature.ReturnType.IsDegraded
+        || signature.ParameterTypes.Any(parameter => parameter.IsDegraded);
 
     public override string Render()
     {
@@ -208,6 +238,7 @@ internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signatur
 internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 {
     public override bool IsReferenceType => inner.IsReferenceType;
+    public override bool IsDegraded => inner.IsDegraded;
 
     public override string Render() => inner.Render();
 
@@ -223,6 +254,8 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 /// <summary>Custom-modified types pass through for rendering while preserving declaration-site evidence.</summary>
 internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool isRequired) : PassthroughTypeNode(inner)
 {
+    public override bool IsDegraded => modifier.IsDegraded || base.IsDegraded;
+
     public override bool HasRequiredModifier(string ns, string name)
         => (isRequired && ModifierMatches(ns, name)) || base.HasRequiredModifier(ns, name);
 

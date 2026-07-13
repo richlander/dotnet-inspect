@@ -95,6 +95,11 @@ Extract public API surface using metadata:
   original source, and IL
 - Both support package/platform/library sources and section/field projection
 
+Guarded metadata signature rejection remains fail-closed (`object`/empty
+signature shape), but it is not presented as ordinary metadata:
+`ApiMember.SignatureDecodeStatus` is `Degraded`, and member tables add a
+`Decode: degraded` cell only for affected rows.
+
 ### diff
 
 Compares two package, platform, or local-library versions:

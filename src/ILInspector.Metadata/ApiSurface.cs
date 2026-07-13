@@ -217,6 +217,12 @@ public class ApiAccessor
     public List<string> ReturnAttributes { get; set; } = [];
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<SignatureDecodeStatus>))]
+public enum SignatureDecodeStatus
+{
+    Degraded
+}
+
 public class ApiType
 {
     public string? Namespace { get; set; }
@@ -325,6 +331,12 @@ public class ApiMember
 
     [JsonIgnore]
     public ApiSignature? SignatureModel { get; set; }
+
+    /// <summary>
+    /// Set when guarded metadata decoding substituted part of this member's signature.
+    /// Null means the signature decoded completely, including for older serialized surfaces.
+    /// </summary>
+    public SignatureDecodeStatus? SignatureDecodeStatus { get; set; }
 
     /// <summary>
     /// MethodDef metadata token for method-like members when known.

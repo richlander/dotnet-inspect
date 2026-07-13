@@ -388,6 +388,48 @@ public class ApiDiffAnalyzerTests
     }
 
     [Fact]
+    public void DegradedSignature_DoesNotCollideWithGenuineSignature()
+    {
+        var degraded = Method("Bar", "object Bar()");
+        degraded.SignatureDecodeStatus = SignatureDecodeStatus.Degraded;
+        var genuine = Method("Bar", "object Bar()");
+
+        var diff = ApiDiffAnalyzer.Compare(
+            Surface(Type("Foo", members: [degraded])),
+            Surface(Type("Foo", members: [genuine])));
+
+        var change = Assert.Single(diff.TypeDiffs).Changes
+            .Single(c => c.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal("object Bar() [decode: degraded]", change.OldValue);
+        Assert.Equal("object Bar()", change.NewValue);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
+        Assert.Equal("Bar", change.Subject?.MemberName);
+        Assert.NotEqual(change.Subject?.OldIdentity, change.Subject?.NewIdentity);
+        Assert.Equal(
+            change.Subject?.OldMember?.Anchor?.CanonicalSignature,
+            change.Subject?.NewMember?.Anchor?.CanonicalSignature);
+    }
+
+    [Fact]
+    public void DegradedSignature_DoesNotPreventAttributeOnlyComparison()
+    {
+        var degraded = Method("Bar", "object Bar()");
+        degraded.SignatureDecodeStatus = SignatureDecodeStatus.Degraded;
+        degraded.Attributes.Add("OldAttribute");
+        var genuine = Method("Bar", "object Bar()");
+        genuine.Attributes.Add("NewAttribute");
+
+        var diff = ApiDiffAnalyzer.Compare(
+            Surface(Type("Foo", members: [degraded])),
+            Surface(Type("Foo", members: [genuine])),
+            new ApiDiffOptions(ApiDiffScope.Attributes));
+
+        var changes = Assert.Single(diff.TypeDiffs).Changes;
+        Assert.Contains(changes, change => change.Kind == ChangeKind.MemberAttributeRemoved);
+        Assert.Contains(changes, change => change.Kind == ChangeKind.MemberAttributeAdded);
+    }
+
+    [Fact]
     public void VirtualRemoved_IsBreaking()
     {
         var oldSurface = Surface(Type("Foo", members:
