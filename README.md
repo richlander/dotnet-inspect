@@ -191,7 +191,13 @@ method-group delegates, async state-machine setup, loop-invariant
 materialization, and value-type boxing) plus `allocation-hotspot` rows
 for methods that allocate heavily without matching a specific shape. Allocation
 rows also carry `Weight`, a coarse size x multiplicity x reach static prior that
-you can query or sort when choosing pre-profile instrumentation targets. Use
+you can query or sort when choosing pre-profile instrumentation targets. Exact
+allocation and call-site rows also retain a `Candidate` id, their native
+`Finding` descriptor, `Provenance=exact`, `Operation`, and metadata `Token`.
+Aggregate rows are marked `Provenance=aggregate`; `unmatched` identifies an
+instruction-level row that could not be joined to a producer occurrence. Those fields let trace
+and version-diff tooling join a triage row to `analysis.allocation` or
+`analysis.call-site` evidence without parsing `Evidence` prose. Use
 `--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for
 the curated pay-dirt rows directly instead of post-processing. `--top` limits
 the ranked data before rendering; `-n N --rows` remains a renderer cap and is
@@ -207,6 +213,7 @@ dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
 dotnet-inspect library MyLib.dll -S "Performance Triage"
 dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
+dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
 ```

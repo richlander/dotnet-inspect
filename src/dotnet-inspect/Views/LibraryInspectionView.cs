@@ -785,8 +785,13 @@ public class LibraryInspectionView
         _data.OptimizationOpportunities?
             .Select(o => new OptimizationOpportunityRow(
                 MarkoutInline.Code(o.Member),
+                o.Candidate is null ? null : MarkoutInline.Code(o.Candidate),
+                o.Finding,
+                o.Provenance,
                 o.RootReach.ToString(),
                 o.Shape,
+                o.Operation,
+                o.Token is null ? null : MarkoutInline.Code(o.Token),
                 o.Evidence,
                 o.Fix,
                 o.Confidence,
