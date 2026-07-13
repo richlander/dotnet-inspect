@@ -1246,16 +1246,23 @@ public static class CompileBackSourceComposer
             // is fully supported (an unsupported parameter such as a function
             // pointer makes the planner drop it, mirroring MethodRequirement).
             && chainCtor.ParameterTypes.All(type => !IsUnsupportedChainParameterType(type))
-            && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
+            // Exactly one same-arity non-target constructor must be present. The
+            // printer can render chain arguments without disambiguating casts
+            // (e.g. a `box` to `object` prints without the `(object)` cast), so if
+            // two same-arity siblings exist the emitted `: this(args)` could
+            // silently bind to the wrong overload. Requiring a unique same-arity
+            // sibling keeps binding unambiguous; otherwise fall back to an empty
+            // body.
+            && targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Parameters.Count == chainCtor.ParameterTypes.Length);
+                && member.Parameters.Count == chainCtor.ParameterTypes.Length) == 1;
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to sibling constructor was not reconstructed in the
-            // shell, so `: this(args)` would not bind (it would either fail to
-            // resolve or, worse, silently bind to a same-arity sibling of a
-            // different signature and fail with CS1503). Drop the initializer and
-            // keep the body rather than emit an uncompilable chain.
+            // shell (or is ambiguous with another same-arity sibling), so
+            // `: this(args)` might not bind, or could silently bind to the wrong
+            // overload (CS1503 or a semantic mismatch). Drop the initializer and
+            // keep the body rather than emit an uncompilable or wrong chain.
             int targetIndex = targetMembers.FindIndex(member =>
                 member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody == CompileBackStubBodyKind.TargetBody);

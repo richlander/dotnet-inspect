@@ -567,6 +567,48 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainedConstructorIsOverloadAmbiguous()
+    {
+        // Issue #2678 guard: the printer can render chain arguments without a
+        // disambiguating cast (a `box` to `object` prints without `(object)`), so
+        // when two same-arity siblings are reconstructed the emitted
+        // `: this(args)` could silently bind to the wrong overload. The guard
+        // requires a unique same-arity sibling; here `C(object)` and `C(int)` are
+        // both present (the latter pulled in by `new C(2)`), so the initializer
+        // must be stripped rather than emit a wrong-binding chain.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(object x)
+                {
+                }
+
+                public C(int x)
+                {
+                }
+
+                public C(string z) : this((object)1)
+                {
+                    _ = new C(2);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""
