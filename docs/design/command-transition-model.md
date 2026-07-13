@@ -229,7 +229,7 @@ Shape reducers do not revise operation arity. In particular:
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
 - `--print` is exactly-one, not implicit-first: one printable row prints
-  directly, multiple printable rows require `--row N` or `--print-all`, and zero
+  directly, multiple printable rows require `--row N|first|last` or `--print-all`, and zero
   printable rows reject;
 - `--head N` and `--tail N` run after print selection and fetching, so
   `--print --head 1` does not select the first printable row and

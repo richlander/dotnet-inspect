@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Tests;
@@ -15,7 +16,7 @@ public class LibraryTopLeverageTests
             AssemblyName = typeof(LibraryLeverageFixture).Assembly.Location,
             IncludeSections = ["Top Leverage"],
             Markdown = true,
-            Rows = 25,
+            Rows = new RowWindow(25, FromEnd: false),
         }));
 
         Assert.Equal(0, result.ExitCode);

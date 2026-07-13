@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
@@ -14,7 +15,7 @@ public record ProjectOptions
 
     public bool PrintAll { get; init; }
 
-    public int? PrintRow { get; init; }
+    public RowSelector? PrintRow { get; init; }
 
     public bool Value { get; init; }
 
@@ -60,7 +61,7 @@ public record ProjectOptions
 
     public bool Count { get; init; }
 
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
 
     public bool Verbose { get; init; }
 

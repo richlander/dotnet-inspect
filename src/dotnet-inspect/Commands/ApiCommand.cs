@@ -134,7 +134,7 @@ public class ApiCommand
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N to select a projected row.");
+                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return (null!, 1);
             }
         }
@@ -156,7 +156,7 @@ public class ApiCommand
 
         if ((options.Print || options.PrintAll) && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
             return (null!, 1);
         }
 
@@ -1025,14 +1025,14 @@ public class ApiCommand
         {
             if (options.PrintRow is null && printableRows.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N to choose one row or --print-all.");
+                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N|first|last to choose one row or --print-all.");
                 return 1;
             }
 
-            var targetIndex = options.PrintRow ?? 1;
+            var targetIndex = options.PrintRow?.Resolve(printableRows.Count) ?? 1;
             if (targetIndex < 1 || targetIndex > printableRows.Count)
             {
-                Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}.");
+                Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}, first, or last.");
                 return 1;
             }
 

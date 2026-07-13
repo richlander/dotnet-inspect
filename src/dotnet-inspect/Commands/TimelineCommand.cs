@@ -1299,7 +1299,7 @@ public sealed record TimelineOptions
     public bool Jsonl { get; init; }
     public bool NoHeader { get; init; }
     public bool Count { get; init; }
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
     public string[]? Select { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }

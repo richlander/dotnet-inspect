@@ -56,10 +56,10 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--path` | File resolution | Table of package-relative file paths and sizes; repeatable with `--match all` or `--match first` |
 | `--content` | File content | Contents for files selected by `--path`, with separator blocks or `--jsonl` rows |
 | `--readme` | README content | Compatibility alias for best package grounding content (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); supports `--frontmatter`/`--body` |
-| `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N` when multiple rows match |
+| `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Prints one document behind a selected printable section row; use `--row N` to choose the Nth printable row when multiple printable rows exist |
+| `--print` | Row payload | Prints one document behind a selected printable section row; use `--row N\|first\|last` to choose the printable row when multiple printable rows exist |
 | `--print-all` | Row payloads | Prints every printable row from one selected section, using separators for text, JSONL rows, or one JSON array with `--json-array` |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |

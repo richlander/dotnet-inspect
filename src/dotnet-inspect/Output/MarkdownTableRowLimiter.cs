@@ -2,9 +2,9 @@ namespace DotnetInspector.Output;
 
 internal static class MarkdownTableRowLimiter
 {
-    public static string Apply(string markdown, int? maxRows)
+    public static string Apply(string markdown, RowWindow? window)
     {
-        if (maxRows is null or < 0)
+        if (window is not { Count: >= 0 } limit)
             return markdown;
 
         var normalized = markdown.ReplaceLineEndings("\n");
@@ -31,21 +31,28 @@ internal static class MarkdownTableRowLimiter
             output.Add(line);
             output.Add(lines[++i]);
 
-            var rows = 0;
+            // Collect the table body (data rows + any interior separators) in order,
+            // then emit it preserving original positions: separators pass through in
+            // place and only the head/tail window of data rows is kept.
+            List<string> body = [];
             while (i + 1 < lines.Length && MarkdownScan.IsTableLine(lines[i + 1]))
+                body.Add(lines[++i]);
+
+            var dataCount = body.Count(static l => !MarkdownScan.IsSeparatorLine(l));
+            var keepStart = limit.FromEnd ? Math.Max(0, dataCount - limit.Count) : 0;
+            var keepEnd = limit.FromEnd ? dataCount : Math.Min(dataCount, limit.Count);
+            var dataIndex = 0;
+            foreach (var bodyLine in body)
             {
-                i++;
-                if (MarkdownScan.IsSeparatorLine(lines[i]))
+                if (MarkdownScan.IsSeparatorLine(bodyLine))
                 {
-                    output.Add(lines[i]);
+                    output.Add(bodyLine);
                     continue;
                 }
 
-                if (rows < maxRows.Value)
-                {
-                    output.Add(lines[i]);
-                    rows++;
-                }
+                if (dataIndex >= keepStart && dataIndex < keepEnd)
+                    output.Add(bodyLine);
+                dataIndex++;
             }
         }
 
