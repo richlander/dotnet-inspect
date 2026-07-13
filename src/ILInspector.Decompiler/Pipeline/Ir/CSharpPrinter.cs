@@ -3790,7 +3790,7 @@ public sealed partial class CSharpPrinter
         => constant.Value is int or long
             && _function.EnumMembers.TryGetValue(constant.Type, out var members)
             && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
-            ? $"{TypeText(constant.Type)}.{name}"
+            ? $"{TypeQualifierText(constant.Type)}.{name}"
             : null;
 
     /// <summary>
@@ -3969,8 +3969,11 @@ public sealed partial class CSharpPrinter
             text = text[..tick];
         return definition.Namespace.Length == 0
             ? $"global::{text}"
-            : $"global::{definition.Namespace}.{text}";
+            : $"global::{EscapeNamespace(definition.Namespace)}.{text}";
     }
+
+    static string EscapeNamespace(string ns)
+        => string.Join(".", ns.Split('.').Select(CSharpNaming.EscapeIdentifier));
 
     void RecordFrameworkTypeImportDecision(TypeRef type, string rendered)
     {

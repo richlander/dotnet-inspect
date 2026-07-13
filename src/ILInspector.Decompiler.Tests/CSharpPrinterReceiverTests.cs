@@ -214,6 +214,52 @@ public sealed class CSharpPrinterReceiverTests
             "public static class TypeNameShadow { public static int M(int value) => value + 1; }");
     }
 
+    [Fact]
+    public void StaticCall_OnNamespacedKeywordType_WhenTypeQualifierIsShadowed_EscapesNamespace()
+    {
+        var other = TypeRef.Definition("synthetic", "event.Models", "TypeNameShadow");
+        var call = new Call(
+            new MethodRef(other, "M", Int32Type, [Int32Type], HasThis: false),
+            isVirtual: false,
+            [new LoadArgument(0, "M", Int32Type)]);
+
+        string body = RenderReturn(
+            call,
+            Int32Type,
+            [
+                new Parameter("M", Int32Type),
+                new Parameter("TypeNameShadow", Int32Type),
+            ]);
+
+        Assert.Contains("return global::@event.Models.TypeNameShadow.M(M);", body);
+        Assert.DoesNotContain("return global::event.Models.TypeNameShadow.M(M);", body);
+        AssertCompiles(
+            "public static int Uses(int M, int TypeNameShadow)",
+            body,
+            "namespace @event.Models { public static class TypeNameShadow { public static int M(int value) => value + 1; } }");
+    }
+
+    [Fact]
+    public void EnumMember_OnCrossType_WhenTypeQualifierIsShadowed_UsesGlobalAlias()
+    {
+        var color = TypeRef.Definition("synthetic", "", "Color");
+        string body = RenderReturn(
+            new Constant(1, color),
+            color,
+            [new Parameter("Color", color)],
+            enumMembers: new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+            {
+                [color] = new Dictionary<long, string> { [1] = "Red" },
+            });
+
+        Assert.Contains("return global::Color.Red;", body);
+        Assert.DoesNotContain("return Color.Red;", body);
+        AssertCompiles(
+            "public static Color Uses(Color Color)",
+            body,
+            "public enum Color { Red = 1 }");
+    }
+
     static MethodRef Extension(string name, TypeRef receiverType)
         => new(
             TypeRef.Definition("synthetic", "", "Extensions"),
@@ -225,7 +271,11 @@ public sealed class CSharpPrinterReceiverTests
             IsExtension = MetadataFactState.Yes,
         };
 
-    static string RenderReturn(IrExpression value, TypeRef returnType, IReadOnlyList<Parameter>? parameters = null)
+    static string RenderReturn(
+        IrExpression value,
+        TypeRef returnType,
+        IReadOnlyList<Parameter>? parameters = null,
+        IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>>? enumMembers = null)
     {
         var block = new Block(0);
         block.Add(new Return(value));
@@ -233,7 +283,10 @@ public sealed class CSharpPrinterReceiverTests
         container.Add(block);
         var parameterList = parameters is null ? ImmutableArray<Parameter>.Empty : [.. parameters];
         var signature = new MethodSignature(returnType, parameterList, HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
+        {
+            EnumMembers = enumMembers ?? ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty,
+        };
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 

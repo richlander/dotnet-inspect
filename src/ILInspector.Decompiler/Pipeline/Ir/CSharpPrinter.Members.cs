@@ -287,7 +287,7 @@ public sealed partial class CSharpPrinter
             // static abstract member: CS0119/CS0314). The constrained type is the
             // receiver, and the spelling recompiles to the same constrained call.
             if (call.ConstrainedTo is { } staticReceiver)
-                return $"{TypeText(staticReceiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+                return $"{TypeQualifierText(staticReceiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
             // A static call to a member of the current type needs no type
             // qualifier — `M(args)`, not `SelfType.M(args)` — just as a this-
             // receiver instance call drops `this.` and a same-type static method
