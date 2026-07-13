@@ -85,6 +85,43 @@ cross-tabs. Text output caps each bucket with `--top`; JSON keeps all buckets.
 Use it before changing confidence/ranking so the proposal names its measured
 population.
 
+A caller-loop census measures whether an otherwise once-per-call Performance
+Triage row can be repeated by an upstream caller's loop:
+
+```bash
+eng/prepare-performance-triage-corpus.sh /tmp/performance-triage-assemblies.txt
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --caller-loop-census /tmp/performance-triage-assemblies.txt --max-depth 4 --top 20
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --caller-loop-census /tmp/performance-triage-assemblies.txt --max-depth 4 --json
+```
+
+The census is measurement-only and does not alter product rows, ranking, local
+`Loop`, multiplicity, or confidence. It builds one invocation-only graph per
+assembly (`call`, `callvirt`, and `newobj`; function loads and unresolved
+`calli` signatures are excluded), then records the nearest deterministic path
+from a loop invocation to each triage method. Results separate direct,
+transitive, beyond-bound, and no-witness rows and report both row and distinct
+method denominators, provenance, and
+caller-loop/shape/confidence/local-multiplicity cross-tabs. JSON includes every
+row and its exact witness path for classification.
+
+The original Aspire Dashboard acceptance target is separately pinned because it
+ships in the platform-specific Dashboard SDK package rather than
+`Aspire.Hosting`:
+
+```bash
+eng/prepare-aspire-dashboard-corpus.sh /tmp/aspire-dashboard-assemblies.txt
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --caller-loop-census /tmp/aspire-dashboard-assemblies.txt --max-depth 4 --json
+```
+
+That run is also an invocation-edge near miss: the current Caller Graph path to
+`ColorGenerator.GetColorIndex` crosses an in-loop `ldftn` that creates a
+`RenderFragment`; it is not a call. The invocation-only census therefore
+correctly reports no witness. Proving that callback is repeatedly consumed
+requires a separate deferred-callback discriminator.
+
 A 2026-07-01 fixed-corpus run (`14/14` assemblies opened) showed 41,890
 allocation occurrences and 6,587 optimization opportunities. `return-post-dominates`
 was common (29,175 occurrences; 4,817 opportunities), but not selective by
