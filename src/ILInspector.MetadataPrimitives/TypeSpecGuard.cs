@@ -22,10 +22,10 @@ public static class TypeSpecGuard
     static int s_depth;
 
     [ThreadStatic]
-    static uint s_currentToken;
+    static ulong s_currentToken;
 
     [ThreadStatic]
-    static uint s_nextToken;
+    static ulong s_nextToken;
 
     public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
     {
@@ -44,13 +44,13 @@ public static class TypeSpecGuard
 
         s_depth++;
         s_cumulativeBytes += length;
-        uint parentToken = s_currentToken;
-        uint token;
+        ulong parentToken = s_currentToken;
+        ulong token;
         do
         {
             token = unchecked(++s_nextToken);
         }
-        while (token == 0);
+        while (token == 0 || token == parentToken);
         s_currentToken = token;
         scope = new Scope(length, token, parentToken);
         return true;
@@ -65,10 +65,10 @@ public static class TypeSpecGuard
     public readonly ref struct Scope
     {
         readonly int _blobLength;
-        readonly uint _token;
-        readonly uint _parentToken;
+        readonly ulong _token;
+        readonly ulong _parentToken;
 
-        internal Scope(int blobLength, uint token, uint parentToken)
+        internal Scope(int blobLength, ulong token, ulong parentToken)
         {
             _blobLength = blobLength;
             _token = token;

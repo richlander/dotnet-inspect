@@ -128,6 +128,26 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "TypeSpec handle aliased by ref argument before guard",
+            """
+            class C
+            {
+                object GetTypeFromSpecification()
+                {
+                    var alias = MemoryMarshal.CreateSpan(ref handle, 1);
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        alias[0] = otherHandle;
+                        return reader.GetTypeSpecification(handle)
+                            .DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
             "local alias",
             """
             class C
@@ -138,6 +158,24 @@ public class ProviderSignatureDecodeBoundaryTests
                     return SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind)
                         ? alias.DecodeSignature(provider, context)
                         : fallback;
+                }
+            }
+            """
+        },
+        {
+            "receiver mutated by later-declared local function",
+            """
+            class C
+            {
+                object M()
+                {
+                    Task.Run(Mutate);
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    var result = value.DecodeSignature(provider, context);
+                    return result;
+
+                    void Mutate() => value = other;
                 }
             }
             """
@@ -1687,7 +1725,11 @@ public class ProviderSignatureDecodeBoundaryTests
         HashSet<string> identifiers,
         int end)
         => root.DescendantNodes().Any(node =>
-            node.SpanStart < end
+            node is LambdaExpressionSyntax
+                or AnonymousMethodExpressionSyntax
+                or LocalFunctionStatementSyntax
+                && ContainsProtectedIdentity(node, identifiers)
+            || node.SpanStart < end
             && (node is RefExpressionSyntax
                 {
                     Expression: { } reference
@@ -1699,10 +1741,12 @@ public class ProviderSignatureDecodeBoundaryTests
                     Operand: { } address
                 }
                 && ContainsProtectedIdentity(address, identifiers)
-                || node is LambdaExpressionSyntax
-                    or AnonymousMethodExpressionSyntax
-                    or LocalFunctionStatementSyntax
-                && ContainsProtectedIdentity(node, identifiers)));
+                || node is ArgumentSyntax
+                {
+                    Expression: { } argument,
+                    RefKindKeyword.RawKind: not 0
+                }
+                && ContainsProtectedIdentity(argument, identifiers)));
 
     static bool IdentifierMutatedBetween(
         SyntaxNode root,
