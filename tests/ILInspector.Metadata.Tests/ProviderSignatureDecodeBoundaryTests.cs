@@ -21,8 +21,12 @@ namespace ILInspector.Metadata.Tests;
 ///
 /// The classification is performed on the Roslyn syntax tree, not by string or
 /// regex matching, so it cannot be evaded by comments, line splits, whitespace,
-/// aliasing, or spoofed tokens: an invocation is classified purely by its actual
-/// receiver and enclosing guard expression.
+/// aliasing, or spoofed tokens. It enumerates every occurrence of a decode
+/// method name and requires each to be the invoked member of a sanctioned call,
+/// so null-conditional (`x?.Decode...`), method-group, and delegate forms are
+/// flagged rather than skipped. Form 2 additionally binds the prescan to the
+/// decoded blob (same receiver's `.Signature`), so an unrelated or nil-handle
+/// guard cannot launder an unguarded decode past the census.
 /// </summary>
 public class ProviderSignatureDecodeBoundaryTests
 {
@@ -47,22 +51,26 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            foreach (var invocation in DecodeInvocations(file))
+            foreach (var name in DecodeNameOccurrences(file))
             {
-                // Sanctioned form 1: a nested cross-handle TypeSpec re-entry,
-                // `reader.GetTypeSpecification(handle).Decode*Signature(...)`,
-                // bounded by TypeSpecGuard in its enclosing provider file
-                // (asserted by NestedTypeSpecReentry_IsBoundedByTypeSpecGuard).
-                if (IsNestedTypeSpecReentry(invocation))
+                // A decode method name may appear ONLY as the invoked method of a
+                // sanctioned decode call. Any other occurrence — a method-group /
+                // delegate reference, or a call whose name node is not the invoked
+                // member — is an unguarded escape and a violation.
+                if (TryGetInvokedDecode(name, out var invocation)
+                    && (IsNestedTypeSpecReentry(invocation) || IsPrescanGuardedTernary(invocation)))
+                {
+                    // Sanctioned form 1: a nested cross-handle TypeSpec re-entry,
+                    // `reader.GetTypeSpecification(handle).Decode*Signature(...)`,
+                    // bounded by TypeSpecGuard in its enclosing provider file
+                    // (asserted by NestedTypeSpecReentry_IsBoundedByTypeSpecGuard).
+                    // Sanctioned form 2: the decode is the true-branch of a
+                    // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature,
+                    // ...) ? decode : fallback` prescan ternary.
                     continue;
+                }
 
-                // Sanctioned form 2: this decode is the true-branch of a
-                // `SignatureBlobGuard.IsSafeToDecode(...) ? decode : fallback`
-                // prescan ternary.
-                if (IsPrescanGuardedTernary(invocation))
-                    continue;
-
-                var line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                var line = name.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
                 violations.Add($"{Path.GetRelativePath(root, file)}:{line}");
             }
         }
@@ -105,14 +113,46 @@ public class ProviderSignatureDecodeBoundaryTests
             + "TypeSpecGuard.TryEnter:\n  " + string.Join("\n  ", unguarded));
     }
 
-    static IEnumerable<InvocationExpressionSyntax> DecodeInvocations(string file)
-        => AllInvocations(file).Where(IsDecodeInvocation);
+    static IEnumerable<SimpleNameSyntax> DecodeNameOccurrences(string file)
+        => ParseRoot(file).DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Where(name => DecodeMethodNames.Contains(name.Identifier.Text));
 
     static InvocationExpressionSyntax[] AllInvocations(string file)
+        => ParseRoot(file).DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+
+    static SyntaxNode ParseRoot(string file)
     {
         var token = TestContext.Current.CancellationToken;
         var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(file), cancellationToken: token);
-        return tree.GetRoot(token).DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+        return tree.GetRoot(token);
+    }
+
+    // Resolves a decode-method name occurrence to the invocation that invokes it,
+    // handling both `x.Decode*Signature(...)` (MemberAccess) and
+    // `x?.Decode*Signature(...)` (MemberBinding). Returns false when the name is
+    // not the invoked member — e.g. a method-group / delegate reference — which
+    // is itself a violation.
+    static bool TryGetInvokedDecode(SimpleNameSyntax name, out InvocationExpressionSyntax invocation)
+    {
+        switch (name.Parent)
+        {
+            case MemberAccessExpressionSyntax member
+                when member.Name == name
+                && member.Parent is InvocationExpressionSyntax invoked
+                && invoked.Expression == member:
+                invocation = invoked;
+                return true;
+            case MemberBindingExpressionSyntax binding
+                when binding.Name == name
+                && binding.Parent is InvocationExpressionSyntax invoked
+                && invoked.Expression == binding:
+                invocation = invoked;
+                return true;
+            default:
+                invocation = null!;
+                return false;
+        }
     }
 
     static bool IsDecodeInvocation(InvocationExpressionSyntax invocation)
