@@ -128,6 +128,36 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.Contains("return 2;", body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AuthoredMemberSource_PrefersQualifiedExplicitInterfaceMethod()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "int I1.M() { return 1; } int N.I1.M() { return 2; }",
+            "N.I1.M",
+            out string body));
+        Assert.Contains("return 2;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_MatchesGenericExplicitInterfaceProperty()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "int ICustom<int>.Value { get { return 3; } }",
+            "ICustom<System.Int32>.get_Value",
+            out string body));
+        Assert.Contains("return 3;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_ExtractsIndexerBody()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public int this[int index] { get { return index; } }",
+            "get_Item",
+            out string body));
+        Assert.Contains("return index;", body, StringComparison.Ordinal);
+    }
+
     static FindingInspection<CompilationOptionInfo> CompleteOptions(
         params CompilationOptionInfo[] options)
         => MetadataFindings.InspectCompilationOptions(options, Subject);

@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Reflection;
+using System.Text;
 
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
@@ -213,20 +214,32 @@ static class AuthoredRebuildFidelity
             $"class __AuthoredSourceHost {{{Environment.NewLine}{memberSource}{Environment.NewLine}}}")
             .GetCompilationUnitRoot();
         var identity = MetadataMethodIdentity.Parse(metadataMethodName);
+        int bestScore = -1;
+        bool ambiguous = false;
+        body = "";
         foreach (var member in root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
             .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
         {
-            body = MemberBodyText(member, identity);
-            if (body.Length > 0)
-                return true;
+            var candidate = MemberBody(member, identity);
+            if (candidate.Score < bestScore)
+                continue;
+            if (candidate.Score == bestScore)
+            {
+                if (candidate.Score >= 0)
+                    ambiguous = true;
+                continue;
+            }
+
+            bestScore = candidate.Score;
+            body = candidate.Body;
+            ambiguous = false;
         }
 
-        body = "";
-        return false;
+        return bestScore >= 0 && !ambiguous && body.Length > 0;
     }
 
-    static string MemberBodyText(
+    static (int Score, string Body) MemberBody(
         MemberDeclarationSyntax member,
         MetadataMethodIdentity identity)
         => member switch
@@ -236,74 +249,106 @@ static class AuthoredRebuildFidelity
                     method.Identifier.ValueText,
                     identity.SimpleName,
                     StringComparison.Ordinal)
-                    && ExplicitInterfaceMatches(
-                        method.ExplicitInterfaceSpecifier,
-                        identity.ExplicitInterface)
-                => BodyText(method.Body, method.ExpressionBody, ReturnsVoid(method.ReturnType)),
+                => ScoredBody(
+                    method.ExplicitInterfaceSpecifier,
+                    identity,
+                    BodyText(method.Body, method.ExpressionBody, ReturnsVoid(method.ReturnType))),
             ConstructorDeclarationSyntax constructor
                 when identity.SimpleName is ".ctor" or ".cctor"
                     && identity.ExplicitInterface is null
-                => BodyText(constructor.Body, constructor.ExpressionBody, returnsVoid: true),
+                => (2, BodyText(
+                    constructor.Body,
+                    constructor.ExpressionBody,
+                    returnsVoid: true)),
             PropertyDeclarationSyntax property
-                when AccessorMatches(
+                when AccessorNameMatches(
                     identity,
                     "get_",
-                    property.Identifier.ValueText,
-                    property.ExplicitInterfaceSpecifier)
-                => AccessorBodyText(property, SyntaxKind.GetAccessorDeclaration),
+                    property.Identifier.ValueText)
+                => ScoredBody(
+                    property.ExplicitInterfaceSpecifier,
+                    identity,
+                    AccessorBodyText(property, SyntaxKind.GetAccessorDeclaration)),
             PropertyDeclarationSyntax property
-                when AccessorMatches(
+                when AccessorNameMatches(
                     identity,
                     "set_",
-                    property.Identifier.ValueText,
-                    property.ExplicitInterfaceSpecifier)
-                => AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration),
+                    property.Identifier.ValueText)
+                => ScoredBody(
+                    property.ExplicitInterfaceSpecifier,
+                    identity,
+                    AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration)),
+            IndexerDeclarationSyntax indexer
+                when AccessorNameMatches(identity, "get_", "Item")
+                => ScoredBody(
+                    indexer.ExplicitInterfaceSpecifier,
+                    identity,
+                    AccessorBodyText(indexer, SyntaxKind.GetAccessorDeclaration)),
+            IndexerDeclarationSyntax indexer
+                when AccessorNameMatches(identity, "set_", "Item")
+                => ScoredBody(
+                    indexer.ExplicitInterfaceSpecifier,
+                    identity,
+                    AccessorBodyText(indexer, SyntaxKind.SetAccessorDeclaration)),
             EventDeclarationSyntax eventDeclaration
-                when AccessorMatches(
+                when AccessorNameMatches(
                     identity,
                     "add_",
-                    eventDeclaration.Identifier.ValueText,
-                    eventDeclaration.ExplicitInterfaceSpecifier)
-                => AccessorBodyText(eventDeclaration, SyntaxKind.AddAccessorDeclaration),
+                    eventDeclaration.Identifier.ValueText)
+                => ScoredBody(
+                    eventDeclaration.ExplicitInterfaceSpecifier,
+                    identity,
+                    AccessorBodyText(eventDeclaration, SyntaxKind.AddAccessorDeclaration)),
             EventDeclarationSyntax eventDeclaration
-                when AccessorMatches(
+                when AccessorNameMatches(
                     identity,
                     "remove_",
-                    eventDeclaration.Identifier.ValueText,
-                    eventDeclaration.ExplicitInterfaceSpecifier)
-                => AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration),
-            _ => "",
+                    eventDeclaration.Identifier.ValueText)
+                => ScoredBody(
+                    eventDeclaration.ExplicitInterfaceSpecifier,
+                    identity,
+                    AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration)),
+            _ => (-1, ""),
         };
 
-    static bool AccessorMatches(
+    static (int Score, string Body) ScoredBody(
+        ExplicitInterfaceSpecifierSyntax? syntax,
+        MetadataMethodIdentity identity,
+        string body)
+        => (ExplicitInterfaceMatchScore(syntax, identity.ExplicitInterface), body);
+
+    static bool AccessorNameMatches(
         MetadataMethodIdentity identity,
         string prefix,
-        string memberName,
-        ExplicitInterfaceSpecifierSyntax? explicitInterface)
+        string memberName)
         => identity.SimpleName.StartsWith(prefix, StringComparison.Ordinal)
            && string.Equals(
                identity.SimpleName[prefix.Length..],
                memberName,
-               StringComparison.Ordinal)
-           && ExplicitInterfaceMatches(
-               explicitInterface,
-               identity.ExplicitInterface);
+               StringComparison.Ordinal);
 
-    static bool ExplicitInterfaceMatches(
+    static int ExplicitInterfaceMatchScore(
         ExplicitInterfaceSpecifierSyntax? syntax,
         string? metadataInterface)
     {
         if (syntax is null || metadataInterface is null)
-            return syntax is null && metadataInterface is null;
+            return syntax is null && metadataInterface is null ? 2 : -1;
 
         string sourceInterface = MetadataInterfaceName(syntax.Name);
-        return string.Equals(
-                   metadataInterface,
+        string normalizedMetadata = NormalizeMetadataInterfaceName(metadataInterface);
+        if (string.Equals(
+                   normalizedMetadata,
                    sourceInterface,
-                   StringComparison.Ordinal)
-               || metadataInterface.EndsWith(
-                   $".{sourceInterface}",
-                   StringComparison.Ordinal);
+                   StringComparison.Ordinal))
+        {
+            return 2;
+        }
+
+        return normalizedMetadata.EndsWith(
+            $".{sourceInterface}",
+            StringComparison.Ordinal)
+            ? 1
+            : -1;
     }
 
     static string MetadataInterfaceName(NameSyntax name)
@@ -320,6 +365,30 @@ static class AuthoredRebuildFidelity
                 $"{alias.Alias.Identifier.ValueText}.{MetadataInterfaceName(alias.Name)}",
             _ => name.ToString(),
         };
+
+    static string NormalizeMetadataInterfaceName(string metadataInterface)
+    {
+        StringBuilder normalized = new(metadataInterface.Length);
+        int genericDepth = 0;
+        foreach (char value in metadataInterface)
+        {
+            switch (value)
+            {
+                case '<':
+                    genericDepth++;
+                    break;
+                case '>':
+                    genericDepth--;
+                    break;
+                default:
+                    if (genericDepth == 0)
+                        normalized.Append(value);
+                    break;
+            }
+        }
+
+        return normalized.ToString();
+    }
 
     readonly record struct MetadataMethodIdentity(
         string SimpleName,
