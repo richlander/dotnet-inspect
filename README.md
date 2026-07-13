@@ -110,7 +110,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
-| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters. |
+| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
@@ -127,7 +127,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. |
-| `diff X` | Compare API surfaces by default; opt into analysis or C# + IL implementation evidence. |
+| `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
@@ -313,7 +313,7 @@ dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
 dotnet-inspect timeline --package MyLib@1.0.0..2.0.0 --type MyType --member Parse --finding analysis.unsafety --at all
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -m MyType.HotPath
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --authored-source -m MyType.HotPath
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect implements IEquatable --project ./src/App -v:q
 dotnet-inspect extensions string --project ./src/App -v:n

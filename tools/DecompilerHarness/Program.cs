@@ -71,6 +71,7 @@ static class Program
         bool returnToSenderCatalog = false;
         bool returnToSenderMarkout = false;
         bool returnToSenderSourceProbe = false;
+        bool authoredRebuildFidelity = false;
         string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
@@ -179,6 +180,7 @@ static class Program
                     case "--return-to-sender-markout": returnToSenderMarkout = true; break;
                     case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
                     case "--source-correspondence-census": returnToSenderSourceProbe = true; break;
+                    case "--authored-rebuild-fidelity": authoredRebuildFidelity = true; break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
                         returnToSenderCatalog = true;
@@ -293,9 +295,9 @@ static class Program
         }
 
         if (returnToSenderFixtureGroup is not null
-            && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe))
+            && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe || authoredRebuildFidelity))
         {
-            return Fail("--return-to-sender-fixtures requires --return-to-sender, --return-to-sender-ab, --return-to-sender-source-probe, or --source-correspondence-census.");
+            return Fail("--return-to-sender-fixtures requires a ReturnToSender or authored rebuild operation.");
         }
 
         using var packageInputs = ResolvePackageAssemblies(packages, packageVersion, packageTfm, packageAssembly);
@@ -381,6 +383,9 @@ static class Program
 
         if (returnToSenderSourceProbe)
             return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json);
+
+        if (authoredRebuildFidelity)
+            return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1695,6 +1700,11 @@ static class Program
                                 alias for --return-to-sender-source-probe that
                                 emphasizes the Finding-style source-correspondence
                                 projection emitted in --json output.
+          --authored-rebuild-fidelity
+                                checksum-verify authored SourceLink bodies, rebuild
+                                each in the same RTS shell, and compare authored
+                                A->IL beside the independent decompiled B->IL lane;
+                                reports determinism and build-context drift separately.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for

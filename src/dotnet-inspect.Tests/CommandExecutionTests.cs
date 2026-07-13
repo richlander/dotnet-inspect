@@ -1644,6 +1644,51 @@ public class CommandExecutionTests
         Assert.Contains("present", output);
     }
 
+    [Theory]
+    [InlineData("csharp.line", "return 1;", "return 2;")]
+    [InlineData("il.op", "ldc.i4 1", "ldc.i4 2")]
+    public async Task Diff_FindingTransitions_ConfirmsImplementationOccurrenceChanges(
+        string descriptor,
+        string oldEvidence,
+        string newEvidence)
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", "DiffFixtureSample.DiffSample",
+            "-m", "ConstantValue",
+            "--finding", descriptor,
+            "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("PairFinding.Removed", output);
+        Assert.Contains("PairFinding.Added", output);
+        Assert.Contains(descriptor, output);
+        Assert.Contains(oldEvidence, output);
+        Assert.Contains(newEvidence, output);
+    }
+
+    [Theory]
+    [InlineData("csharp.line")]
+    [InlineData("il.op")]
+    public async Task Diff_FindingTransitions_ImplementationFindingsRequireOneMemberBeforeAcquisition(
+        string descriptor)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "--finding", descriptor,
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"--finding {descriptor} requires exactly one --member", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Diff_FindingTransitions_AllocationRequiresOneMemberBeforeAcquisition()
     {

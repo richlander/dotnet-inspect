@@ -16,7 +16,8 @@ public enum ResearchChangeMechanism
     IlBody = 4,
     CSharp = 8,
     ReturnToSender = 16,
-    AllAvailable = Api | BodySignals | IlBody | CSharp | ReturnToSender,
+    Source = 32,
+    AllAvailable = Api | BodySignals | IlBody | CSharp | ReturnToSender | Source,
 }
 
 public enum ResearchSubjectKind
@@ -30,6 +31,7 @@ public enum ResearchChangeKind
     Added,
     Removed,
     Changed,
+    Failed,
 }
 
 public enum ResearchChangeCategory
@@ -40,6 +42,7 @@ public enum ResearchChangeCategory
     BodySignal,
     IlBody,
     CSharp,
+    Source,
     RoundTrip,
 }
 
@@ -290,7 +293,8 @@ public sealed record ResearchSubjectChanges
         => Changes.Any(change =>
             change.Mechanism is ResearchChangeMechanism.BodySignals
                 or ResearchChangeMechanism.IlBody
-                or ResearchChangeMechanism.CSharp);
+                or ResearchChangeMechanism.CSharp
+                or ResearchChangeMechanism.Source);
 
     public bool HasMechanism(ResearchChangeMechanism mechanism)
         => Changes.Any(change => change.Mechanism == mechanism);
@@ -319,6 +323,8 @@ public abstract record RetainedFindingComparison
 
     public ResearchSubjectKey Subject { get; }
     public FindingDescriptor Descriptor { get; }
+    public abstract bool IsExact { get; }
+    public abstract string? Failure { get; }
 }
 
 public sealed record RetainedFindingComparison<T> : RetainedFindingComparison
@@ -334,6 +340,8 @@ public sealed record RetainedFindingComparison<T> : RetainedFindingComparison
     }
 
     public FindingComparison<T> Comparison { get; }
+    public override bool IsExact => Comparison.IsExact;
+    public override string? Failure => Comparison.Failure;
 }
 
 public sealed class RetainedFindingComparisonSet

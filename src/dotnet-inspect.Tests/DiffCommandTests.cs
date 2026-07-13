@@ -2,9 +2,13 @@ using System.CommandLine;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
+using ILInspector.Findings;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
+using ILInspector.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
@@ -436,6 +440,127 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildCSharpFindingTransitions_ChangedLine_UsesNativePairs()
+    {
+        var rows = BuildCSharpFindingTransitions("ConstantValue");
+
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Removed"
+            && row.Finding == "csharp.line"
+            && row.Old == "return 1;"
+            && row.New == "absent");
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Added"
+            && row.Finding == "csharp.line"
+            && row.Old == "absent"
+            && row.New == "return 2;");
+    }
+
+    [Fact]
+    public void BuildIlFindingTransitions_ChangedOperation_UsesNativePairs()
+    {
+        var rows = BuildIlFindingTransitions("ConstantValue");
+
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Removed"
+            && row.Finding == "il.op"
+            && row.Old.Contains("ldc.i4 1", StringComparison.Ordinal)
+            && row.New == "absent");
+        Assert.Contains(rows, row =>
+            row.Transition == "PairFinding.Added"
+            && row.Finding == "il.op"
+            && row.Old == "absent"
+            && row.New.Contains("ldc.i4 2", StringComparison.Ordinal));
+        Assert.Contains(rows, row => row.Transition == "PairFinding.Present");
+    }
+
+    [Fact]
+    public void BuildIlFindingTransitions_RemovedMethods_UseNativePairs()
+    {
+        var rows = BuildIlFindingTransitions(
+            "Removed:1",
+            "DiffFixtureSample.MethodRemovalSample");
+
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal("PairFinding.Removed", row.Transition));
+    }
+
+    [Fact]
+    public void BuildIlFindingTransitions_AbsentBodyToBody_UsesAddedPairs()
+    {
+        var rows = BuildIlFindingTransitions(
+            "BodyState",
+            "DiffFixtureSample.BodyStateSample");
+
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal("PairFinding.Added", row.Transition));
+    }
+
+    [Fact]
+    public void RetainedComparisonRows_EmptyComparison_PreservesInspectionStates()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "member",
+            "Sample.Widget.Empty");
+        var comparison = FindingComparison.Compare<CSharpCanonicalLine>(
+            new FindingInspection<CSharpCanonicalLine>.Complete([]),
+            new FindingInspection<CSharpCanonicalLine>.Absent("no body"));
+        var retained = new RetainedFindingComparison<CSharpCanonicalLine>(
+            subject,
+            CSharpFindings.LineDescriptor,
+            comparison);
+
+        var row = Assert.Single(DiffCommand.RetainedComparisonRows(
+            retained,
+            "v1",
+            "v2",
+            emitEmptyComparison: true,
+            static (_, _, _, _) => throw new InvalidOperationException()));
+
+        Assert.Equal("FindingComparison.Complete", row.Transition);
+        Assert.Equal("complete", row.Old);
+        Assert.Equal("absent", row.New);
+    }
+
+    [Fact]
+    public void RetainedComparisonRows_FailedComparison_PreservesFailure()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "member",
+            "Sample.Widget.Broken");
+        var findingSubject = new FindingSubject(subject.Id, subject.Display);
+        var comparison = FindingComparison.Compare<CSharpCanonicalLine>(
+            new FindingInspection<CSharpCanonicalLine>.Failed(
+                new InspectionError(
+                    findingSubject,
+                    CSharpFindings.InspectionDescriptor,
+                    "render failed")),
+            new FindingInspection<CSharpCanonicalLine>.Complete([]));
+        var retained = new RetainedFindingComparison<CSharpCanonicalLine>(
+            subject,
+            CSharpFindings.LineDescriptor,
+            comparison);
+
+        var row = Assert.Single(DiffCommand.RetainedComparisonRows(
+            retained,
+            "v1",
+            "v2",
+            emitEmptyComparison: true,
+            static (_, _, _, _) => throw new InvalidOperationException()));
+
+        Assert.Equal("FindingComparison.Failed", row.Transition);
+        Assert.Equal("failed", row.Old);
+        Assert.Equal("complete", row.New);
+        Assert.Contains("render failed", row.Detail);
+    }
+
+    [Fact]
     public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
     {
         var view = DiffOutputFormatter.BuildFindingTransitionsView(
@@ -665,6 +790,51 @@ public class DiffCommandTests
             {
                 Finding = AnalysisFindings.UnsafetyDescriptor.Id,
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = [member],
+            });
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildCSharpFindingTransitions(
+        string member)
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+        return DiffCommand.BuildCSharpFindingTransitions(
+            [oldPath],
+            [newPath],
+            oldSurface,
+            newSurface,
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = CSharpFindings.LineDescriptor.Id,
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = [member],
+            });
+    }
+
+    private static IReadOnlyList<FindingTransitionRow> BuildIlFindingTransitions(
+        string member,
+        string type = "DiffFixtureSample.DiffSample")
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        var oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        var newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+        return DiffCommand.BuildIlFindingTransitions(
+            [oldPath],
+            [newPath],
+            oldSurface,
+            newSurface,
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = IlFindings.OperationDescriptor.Id,
+                TypeFilter = [type],
                 MemberFilter = [member],
             });
     }
@@ -1140,6 +1310,138 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildImplementationDiffView_LabelsAuthoredSourceAsIndependentLane()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var oldInspection = new FindingInspection<string>.Complete(
+            [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
+        var newInspection = new FindingInspection<string>.Complete(
+            [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult([], new ResearchComparison([])),
+            [new AuthoredSourceComparisonInput(subject, oldInspection, newInspection)]);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        Assert.Contains(view.Rows!, row =>
+            row.Mechanism == "Source"
+            && row.Evidence.Contains("return 2", StringComparison.Ordinal));
+        Assert.Contains("authored Source", view.Summary, StringComparison.Ordinal);
+        Assert.Contains("C# is decompiled", view.Status.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildImplementationDiffView_RendersAuthoredSourceAbsence()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult([], new ResearchComparison([])),
+            [
+                new AuthoredSourceComparisonInput(
+                    subject,
+                    new FindingInspection<string>.Absent("old PDB unavailable"),
+                    new FindingInspection<string>.Absent("new PDB unavailable"))
+            ]);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("unavailable", row.Change);
+        Assert.Contains("old PDB unavailable", row.Evidence, StringComparison.Ordinal);
+        Assert.Contains("new PDB unavailable", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildImplementationDiffView_RendersAuthoredSourceFailure()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var failure = new FindingInspection<string>.Failed(new InspectionError(
+            new FindingSubject(subject.Id, subject.Display),
+            TextFindings.LineDescriptor,
+            "checksum mismatch"));
+        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+            new ImplementationDiffResult([], new ResearchComparison([])),
+            [
+                new AuthoredSourceComparisonInput(
+                    subject,
+                    failure,
+                    new FindingInspection<string>.Absent("new source unavailable"))
+            ]);
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("failed", row.Change);
+        Assert.Contains("checksum mismatch", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildImplementationDiffView_RendersCSharpFailure()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        var result = new ImplementationDiffResult(
+            [
+                new ImplementationDiffMember(
+                    subject,
+                    [
+                        new ResearchChange(
+                            subject,
+                            ResearchChangeMechanism.CSharp,
+                            CSharpFindings.InspectionDescriptor,
+                            ResearchChangeKind.Failed,
+                            detail: "render failed",
+                            category: ResearchChangeCategory.CSharp)
+                    ])
+            ],
+            new ResearchComparison([]));
+
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "Sample",
+            result,
+            "old",
+            "new");
+
+        var row = Assert.Single(view.Rows!);
+        Assert.Equal("C#", row.Mechanism);
+        Assert.Equal("failed", row.Change);
+        Assert.Equal("render failed", row.Evidence);
+    }
+
+    [Fact]
     public void BuildImplementationDiff_MemberFilter_UsesResolverBackedTarget()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -1224,6 +1526,23 @@ public class DiffCommandTests
         Assert.Contains("C#", output, StringComparison.Ordinal);
         Assert.Contains("IL", output, StringComparison.Ordinal);
         Assert.DoesNotContain("API Diff", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AuthoredSourceWithoutImplementationDiff_ReturnsError()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                IncludeAuthoredSource = true
+            }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--authored-source requires the Implementation Diff section",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

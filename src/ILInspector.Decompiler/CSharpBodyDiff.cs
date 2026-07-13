@@ -224,8 +224,18 @@ public static class CSharpBodyDiff
 {
     internal const int MaxLcsLines = 4096;
 
-    public static CSharpBodyDiffResult CompareAssemblies(string oldPath, string newPath, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
-        => CompareAssemblies([oldPath], [newPath], includeNonPublic, typeFilters);
+    public static CSharpBodyDiffResult CompareAssemblies(
+        string oldPath,
+        string newPath,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null)
+        => CompareAssemblies(
+            [oldPath],
+            [newPath],
+            includeNonPublic,
+            typeFilters,
+            memberTargetIdentities);
 
     public static CSharpBodyDiffResult CompareMembers(
         MetadataSource oldSource,
@@ -287,7 +297,12 @@ public static class CSharpBodyDiff
         }
     }
 
-    public static CSharpBodyDiffResult CompareAssemblies(IReadOnlyList<string> oldPaths, IReadOnlyList<string> newPaths, bool includeNonPublic = false, IReadOnlySet<string>? typeFilters = null)
+    public static CSharpBodyDiffResult CompareAssemblies(
+        IReadOnlyList<string> oldPaths,
+        IReadOnlyList<string> newPaths,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null)
     {
         ArgumentNullException.ThrowIfNull(oldPaths);
         ArgumentNullException.ThrowIfNull(newPaths);
@@ -305,6 +320,13 @@ public static class CSharpBodyDiff
             {
                 oldMethods.TryGetValue(key, out var oldMethod);
                 newMethods.TryGetValue(key, out var newMethod);
+                var representative = newMethod ?? oldMethod!;
+                if (memberTargetIdentities is { Count: > 0 }
+                    && !memberTargetIdentities.Contains(
+                        representative.Anchor.StableSelector))
+                {
+                    continue;
+                }
 
                 if (oldMethod is null)
                 {
@@ -332,7 +354,10 @@ public static class CSharpBodyDiff
         return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
     }
 
-    static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(IReadOnlyList<string> paths, bool includeNonPublic, IReadOnlySet<string>? typeFilters)
+    internal static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(
+        IReadOnlyList<string> paths,
+        bool includeNonPublic,
+        IReadOnlySet<string>? typeFilters)
     {
         var entries = new List<CSharpMethodEntry>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -457,6 +482,7 @@ public static class CSharpBodyDiff
             display,
             typeFullName,
             methodName,
+            methodHandle,
             overloadIndex ?? OverloadIndex(reader, type, methodHandle, methodName),
             method.RelativeVirtualAddress != 0,
             BodyFingerprint(source, method));
@@ -1787,7 +1813,7 @@ public static class CSharpBodyDiff
         return text.Trim();
     }
 
-    sealed record CSharpMethodEntry(
+    internal sealed record CSharpMethodEntry(
         string Path,
         string AssemblyName,
         string StableAssemblyKey,
@@ -1798,13 +1824,14 @@ public static class CSharpBodyDiff
         string Display,
         string TypeFullName,
         string MethodName,
+        MethodDefinitionHandle MethodHandle,
         int OverloadIndex,
         bool HasBody,
         string BodyFingerprint);
 
     sealed record CSharpMethodRender(CSharpRenderState State, string[] Lines, DecompilationFidelity Fidelity);
 
-    sealed class SourceCache : IDisposable
+    internal sealed class SourceCache : IDisposable
     {
         readonly Dictionary<string, MetadataSource> _sources = new(StringComparer.Ordinal);
 

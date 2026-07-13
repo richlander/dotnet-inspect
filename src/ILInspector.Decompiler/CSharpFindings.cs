@@ -3,8 +3,17 @@ using System.Reflection.Metadata;
 
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler;
+
+public sealed record CSharpMemberFindingComparison(
+    string StableMemberKey,
+    MemberAnchor Anchor,
+    string Member,
+    bool OldMemberPresent,
+    bool NewMemberPresent,
+    FindingComparison<CSharpCanonicalLine> Comparison);
 
 /// <summary>
 /// Adapts decompiled C# method bodies onto the domain-free finding substrate. It reuses
@@ -65,6 +74,54 @@ public static class CSharpFindings
         return CompareInspections(oldInspection, newInspection, acceptanceThreshold);
     }
 
+    public static ImmutableArray<CSharpMemberFindingComparison> CompareAssemblies(
+        IReadOnlyList<string> oldPaths,
+        IReadOnlyList<string> newPaths,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldPaths);
+        ArgumentNullException.ThrowIfNull(newPaths);
+
+        var oldMethods = CSharpBodyDiff.BuildMethodIndex(oldPaths, includeNonPublic, typeFilters);
+        var newMethods = CSharpBodyDiff.BuildMethodIndex(newPaths, includeNonPublic, typeFilters);
+        var comparisons = ImmutableArray.CreateBuilder<CSharpMemberFindingComparison>();
+        using var sources = new CSharpBodyDiff.SourceCache();
+
+        foreach (string key in oldMethods.Keys.Union(newMethods.Keys).Order(StringComparer.Ordinal))
+        {
+            oldMethods.TryGetValue(key, out var oldMethod);
+            newMethods.TryGetValue(key, out var newMethod);
+            var representative = newMethod ?? oldMethod!;
+            if (memberTargetIdentities is { Count: > 0 }
+                && !memberTargetIdentities.Contains(representative.Anchor.StableSelector))
+            {
+                continue;
+            }
+
+            var subject = new FindingSubject(
+                representative.Anchor.StableSelector,
+                representative.Display);
+            var oldInspection = oldMethod is null
+                ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
+                : Inspect(sources.Open(oldMethod.Path), oldMethod.MethodHandle, subject);
+            var newInspection = newMethod is null
+                ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
+                : Inspect(sources.Open(newMethod.Path), newMethod.MethodHandle, subject);
+            comparisons.Add(new CSharpMemberFindingComparison(
+                key,
+                representative.Anchor,
+                representative.Display,
+                oldMethod is not null,
+                newMethod is not null,
+                CompareInspections(oldInspection, newInspection, acceptanceThreshold)));
+        }
+
+        return comparisons.ToImmutable();
+    }
+
     internal static FindingComparison<CSharpCanonicalLine> CompareCanonicalized(
         ImmutableArray<CSharpCanonicalLine> oldLines,
         ImmutableArray<CSharpCanonicalLine> newLines,
@@ -82,7 +139,30 @@ public static class CSharpFindings
         => FindingComparison.Compare(
             oldInspection,
             newInspection,
-            acceptanceThreshold: acceptanceThreshold);
+            acceptanceThreshold: acceptanceThreshold)
+            .TransformPairs(PromoteRawTextChanges);
+
+    static ImmutableArray<PairFinding<CSharpCanonicalLine>> PromoteRawTextChanges(
+        ImmutableArray<PairFinding<CSharpCanonicalLine>> pairs)
+    {
+        var builder = ImmutableArray.CreateBuilder<PairFinding<CSharpCanonicalLine>>(
+            pairs.Length);
+        foreach (var pair in pairs)
+        {
+            builder.Add(pair is PairFinding<CSharpCanonicalLine>.Present present
+                && !StringComparer.Ordinal.Equals(
+                    present.Old.Payload.Text,
+                    present.New.Payload.Text)
+                    ? new PairFinding<CSharpCanonicalLine>.Changed(
+                        present.Old,
+                        present.New,
+                        present.Difference,
+                        "Canonical line text changed.")
+                    : pair);
+        }
+
+        return builder.MoveToImmutable();
+    }
 
     static InspectionError CreateInspectionError(FindingSubject subject, string reason)
         => new(subject, InspectionDescriptor, reason);

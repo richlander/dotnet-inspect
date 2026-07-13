@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../ILInspector.Text/ILInspector.Text.csproj" />
     <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
   </ItemGroup>

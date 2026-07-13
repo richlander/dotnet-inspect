@@ -29,6 +29,20 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DeclaredMethods_PreservesMethodsWithoutBodies()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.DiffPair.OldAssemblyPath());
+
+        Assert.Contains(index.DeclaredMethods, method =>
+            method.DeclaringType.Name == "BodyStateSample"
+            && method.Name == "BodyState");
+        Assert.DoesNotContain(index.Methods, method =>
+            method.DeclaringType.Name == "BodyStateSample"
+            && method.Name == "BodyState");
+    }
+
+    [Fact]
     public void CrossAssemblyMetadataResolver_ResolvesFrameworkTypeDefinition()
     {
         string targetPath = typeof(Console).Assembly.Location;

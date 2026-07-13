@@ -97,7 +97,7 @@ public static class ResearchDiff
                 subject,
                 ResearchChangeMechanism.IlBody,
                 Descriptor("il.diff.failed", "IL diff failed"),
-                ResearchChangeKind.Changed,
+                ResearchChangeKind.Failed,
                 detail: failure,
                 category: ResearchChangeCategory.IlBody));
         }
@@ -132,9 +132,11 @@ public static class ResearchDiff
     {
         ArgumentNullException.ThrowIfNull(diff);
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
-        if (!diff.FailureRows.IsDefaultOrEmpty)
+        var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
+        var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
+        if (!failureRows.IsEmpty)
         {
-            changes.AddRange(diff.FailureRows.Select(row =>
+            changes.AddRange(failureRows.Select(row =>
             {
                 string descriptorId = $"csharp.diff.{ToKebabCase(row.Kind.ToString())}";
                 return new ResearchChange(
@@ -153,7 +155,9 @@ public static class ResearchDiff
 
         if (!diff.Rows.IsDefaultOrEmpty)
         {
-            changes.AddRange(diff.Rows.Select(row =>
+            changes.AddRange(diff.Rows
+                .Where(row => !operationalFailureHunks.Contains(row.HunkId))
+                .Select(row =>
             {
                 var kind = Direction(row.Kind);
                 return new ResearchChange(
@@ -223,10 +227,26 @@ public static class ResearchDiff
         }
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.IlBody))
-            AddIlBodyDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
+        {
+            AddIlBodyDiff(
+                builder,
+                oldInput,
+                newInput,
+                options.TypeFilters,
+                options.MemberTargetIdentities,
+                options.RetainedComparisonDescriptorIds);
+        }
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.CSharp))
-            AddCSharpDiff(builder, oldInput, newInput, options.TypeFilters, options.MemberTargetIdentities);
+        {
+            AddCSharpDiff(
+                builder,
+                oldInput,
+                newInput,
+                options.TypeFilters,
+                options.MemberTargetIdentities,
+                options.RetainedComparisonDescriptorIds);
+        }
 
         return builder.ToResult();
     }
@@ -720,8 +740,21 @@ public static class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities)
+        IReadOnlySet<string>? memberTargetIdentities,
+        IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
+        bool retainOperations = retainedComparisonDescriptorIds.Contains(
+            IlFindings.OperationDescriptor.Id);
+        var retainedComparisons = retainOperations
+            ? AddRetainedIlOperationComparisons(
+                builder,
+                oldInput,
+                newInput,
+                typeFilters,
+                memberTargetIdentities)
+            : new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
+                StringComparer.Ordinal);
+
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
             var oldMethods = MethodLookup(pair.Old.Index);
@@ -739,6 +772,11 @@ public static class ResearchDiff
                     continue;
                 if (!MatchesMemberTargets(subject, memberTargetIdentities))
                     continue;
+
+                retainedComparisons.TryGetValue(
+                    RetainedIlComparisonKey(pair.Old.Key, key),
+                    out var findingComparison);
+
                 var oldAvailable = oldBodies.TryDecode(oldMethod.MetadataToken, out var oldBody, out var oldReason);
                 var newAvailable = newBodies.TryDecode(newMethod.MetadataToken, out var newBody, out var newReason);
 
@@ -760,6 +798,17 @@ public static class ResearchDiff
                     oldBody!,
                     newBodies.MetadataReader,
                     newBody!);
+                if (findingComparison is FindingComparison<CanonicalIlOperation>.Complete complete
+                    && ImplementationDiff.FindingDivergenceChange(
+                        subject,
+                        ResearchChangeMechanism.IlBody,
+                        ResearchChangeCategory.IlBody,
+                        ImplementationDiff.IlFindingDivergenceDescriptor,
+                        complete.IsExact,
+                        diff.IsExact) is { } divergence)
+                {
+                    builder.Add(divergence);
+                }
                 if (diff.IsExact)
                     continue;
                 if (!diff.FailureRows.IsDefaultOrEmpty)
@@ -811,14 +860,134 @@ public static class ResearchDiff
         }
     }
 
+    static Dictionary<string, FindingComparison<CanonicalIlOperation>>
+        AddRetainedIlOperationComparisons(
+            ResultBuilder builder,
+            ResearchDiffInput oldInput,
+            ResearchDiffInput newInput,
+            IReadOnlySet<string>? typeFilters,
+            IReadOnlySet<string>? memberTargetIdentities)
+    {
+        var retained = new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
+            StringComparer.Ordinal);
+        foreach (var pair in UnionBodyIndexEntries(oldInput, newInput))
+        {
+            var oldMethods = pair.Old is null
+                ? new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal)
+                : IlRetentionMethodLookup(pair.Old);
+            var newMethods = pair.New is null
+                ? new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal)
+                : IlRetentionMethodLookup(pair.New);
+            using var oldBodies = pair.Old is null
+                ? null
+                : new MethodBodyLookup(pair.Old.Path);
+            using var newBodies = pair.New is null
+                ? null
+                : new MethodBodyLookup(pair.New.Path);
+
+            foreach (string key in oldMethods.Keys
+                .Union(newMethods.Keys, StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal))
+            {
+                oldMethods.TryGetValue(key, out var oldMethod);
+                newMethods.TryGetValue(key, out var newMethod);
+                var representative = newMethod ?? oldMethod!;
+                var subject = representative.Subject;
+                if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters)
+                    || !MatchesMemberTargets(subject, memberTargetIdentities))
+                {
+                    continue;
+                }
+
+                var findingSubject = new FindingSubject(subject.Id, subject.Display);
+                FindingComparison<CanonicalIlOperation> comparison;
+                if (oldMethod is not null && newMethod is not null)
+                {
+                    comparison = IlFindings.Compare(
+                        oldBodies!.PeReader,
+                        oldBodies.MetadataReader,
+                        MethodHandle(oldMethod.MetadataToken),
+                        newBodies!.PeReader,
+                        newBodies.MetadataReader,
+                        MethodHandle(newMethod.MetadataToken),
+                        findingSubject);
+                }
+                else
+                {
+                    var oldInspection = oldMethod is null
+                        ? new FindingInspection<CanonicalIlOperation>.Absent(
+                            "Member is absent.")
+                        : IlFindings.Inspect(
+                            oldBodies!.PeReader,
+                            oldBodies.MetadataReader,
+                            MethodHandle(oldMethod.MetadataToken),
+                            findingSubject);
+                    var newInspection = newMethod is null
+                        ? new FindingInspection<CanonicalIlOperation>.Absent(
+                            "Member is absent.")
+                        : IlFindings.Inspect(
+                            newBodies!.PeReader,
+                            newBodies.MetadataReader,
+                            MethodHandle(newMethod.MetadataToken),
+                            findingSubject);
+                    comparison = IlFindings.Compare(oldInspection, newInspection);
+                }
+
+                AddRetainedComparison(
+                    builder,
+                    subject,
+                    IlFindings.OperationDescriptor,
+                    comparison);
+                retained.Add(
+                    RetainedIlComparisonKey(pair.Key, key),
+                    comparison);
+                if (comparison is FindingComparison<CanonicalIlOperation>.Failed failed)
+                {
+                    AddFindingComparisonFailure(
+                        builder,
+                        subject,
+                        ResearchChangeMechanism.IlBody,
+                        ResearchChangeCategory.IlBody,
+                        IlFindings.InspectionDescriptor,
+                        failed.Failure);
+                }
+            }
+        }
+
+        return retained;
+    }
+
+    static Dictionary<string, IlRetentionMethod> IlRetentionMethodLookup(
+        BodyIndexEntry entry)
+    {
+        var methods = new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal);
+        foreach (var method in entry.Index.DeclaredMethods)
+        {
+            var subject = SubjectFromMethod(method);
+            methods.TryAdd(
+                MethodMatchKey(method),
+                new IlRetentionMethod(subject, method.MetadataToken));
+        }
+
+        return methods;
+    }
+
+    static MethodDefinitionHandle MethodHandle(int metadataToken)
+        => (MethodDefinitionHandle)MetadataTokens.EntityHandle(metadataToken);
+
+    static string RetainedIlComparisonKey(string assemblyKey, string methodKey)
+        => $"{assemblyKey}\u001f{methodKey}";
+
     static void AddIlFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, IlDiffFailureRow failure)
     {
-        var kind = failure.Kind switch
+        var kind = Direction(failure.Kind);
+        if (kind == ResearchChangeKind.Failed)
         {
-            IlDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
-            IlDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
-        };
+            builder.RemoveFailure(
+                subject,
+                ResearchChangeMechanism.IlBody,
+                IlFindings.InspectionDescriptor);
+        }
         string descriptorId = $"il.diff.{ToKebabCase(failure.Kind.ToString())}";
         builder.Add(new ResearchChange(
             subject,
@@ -838,13 +1007,20 @@ public static class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities)
+        IReadOnlySet<string>? memberTargetIdentities,
+        IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
         if (oldInput.AssemblyPaths.Count == 0 || newInput.AssemblyPaths.Count == 0)
             return;
 
-        var diff = CSharpBodyDiff.CompareAssemblies(oldInput.AssemblyPaths, newInput.AssemblyPaths, typeFilters: typeFilters);
-        foreach (var failure in diff.FailureRows.IsDefault ? [] : diff.FailureRows)
+        var diff = CSharpBodyDiff.CompareAssemblies(
+            oldInput.AssemblyPaths,
+            newInput.AssemblyPaths,
+            typeFilters: typeFilters,
+            memberTargetIdentities: memberTargetIdentities);
+        var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
+        var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
+        foreach (var failure in failureRows)
         {
             var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
             if (MatchesMemberTargets(subject, memberTargetIdentities))
@@ -853,6 +1029,9 @@ public static class ResearchDiff
 
         foreach (var row in diff.Rows)
         {
+            if (operationalFailureHunks.Contains(row.HunkId))
+                continue;
+
             var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member);
             if (!MatchesMemberTargets(subject, memberTargetIdentities))
                 continue;
@@ -876,16 +1055,94 @@ public static class ResearchDiff
                 cSharpRow: row,
                 cSharpDisplayRows: [CSharpDiffPrinter.ToDisplayRow(row)]));
         }
+
+        if (!retainedComparisonDescriptorIds.Contains(CSharpFindings.LineDescriptor.Id))
+            return;
+
+        foreach (var retained in CSharpFindings.CompareAssemblies(
+            oldInput.AssemblyPaths,
+            newInput.AssemblyPaths,
+            typeFilters: typeFilters,
+            memberTargetIdentities: memberTargetIdentities))
+        {
+            var subject = ResearchMemberIdentity.SubjectFromAnchor(
+                retained.Anchor,
+                retained.Member);
+            AddRetainedComparison(
+                builder,
+                subject,
+                CSharpFindings.LineDescriptor,
+                retained.Comparison);
+            if (retained.Comparison is FindingComparison<CSharpCanonicalLine>.Failed failed)
+            {
+                if (!builder.HasFailure(subject, ResearchChangeMechanism.CSharp))
+                {
+                    AddFindingComparisonFailure(
+                        builder,
+                        subject,
+                        ResearchChangeMechanism.CSharp,
+                        ResearchChangeCategory.CSharp,
+                        CSharpFindings.InspectionDescriptor,
+                        failed.Failure);
+                }
+                continue;
+            }
+
+            if (!retained.OldMemberPresent || !retained.NewMemberPresent)
+                continue;
+
+            bool semanticExact = !diff.Rows.Any(row =>
+                    string.Equals(
+                        row.Anchor.StableSelector,
+                        retained.Anchor.StableSelector,
+                        StringComparison.Ordinal))
+                && !(diff.FailureRows.IsDefault ? [] : diff.FailureRows).Any(failure =>
+                    string.Equals(
+                        failure.Anchor.StableSelector,
+                        retained.Anchor.StableSelector,
+                        StringComparison.Ordinal));
+            if (ImplementationDiff.FindingDivergenceChange(
+                subject,
+                ResearchChangeMechanism.CSharp,
+                ResearchChangeCategory.CSharp,
+                ImplementationDiff.CSharpFindingDivergenceDescriptor,
+                retained.Comparison.IsExact,
+                semanticExact) is { } divergence)
+            {
+                builder.Add(divergence);
+            }
+        }
     }
+
+    static void AddFindingComparisonFailure(
+        ResultBuilder builder,
+        ResearchSubjectKey subject,
+        ResearchChangeMechanism mechanism,
+        ResearchChangeCategory category,
+        FindingDescriptor descriptor,
+        string failure)
+        => builder.Add(new ResearchChange(
+            subject,
+            mechanism,
+            descriptor,
+            ResearchChangeKind.Failed,
+            detail: failure,
+            category: category));
+
+    static void AddRetainedComparison<T>(
+        ResultBuilder builder,
+        ResearchSubjectKey subject,
+        FindingDescriptor descriptor,
+        FindingComparison<T> comparison)
+        where T : notnull
+        => builder.Add(new RetainedFindingComparison<T>(
+            subject,
+            descriptor,
+            comparison));
 
     static void AddCSharpFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, CSharpDiffFailureRow failure)
     {
-        var kind = failure.Kind switch
-        {
-            CSharpDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
-            CSharpDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
-        };
+        var kind = Direction(failure.Kind);
         string descriptorId = $"csharp.diff.{ToKebabCase(failure.Kind.ToString())}";
         builder.Add(new ResearchChange(
             subject,
@@ -929,6 +1186,26 @@ public static class ResearchDiff
         var newIndexes = BodyIndexEntries(newInput).ToDictionary(entry => entry.Key, StringComparer.Ordinal);
         foreach (var key in oldIndexes.Keys.Intersect(newIndexes.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
             yield return (oldIndexes[key], newIndexes[key]);
+    }
+
+    static IEnumerable<UnionBodyIndexEntry> UnionBodyIndexEntries(
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput)
+    {
+        var oldIndexes = BodyIndexEntries(oldInput).ToDictionary(
+            entry => entry.Key,
+            StringComparer.Ordinal);
+        var newIndexes = BodyIndexEntries(newInput).ToDictionary(
+            entry => entry.Key,
+            StringComparer.Ordinal);
+        foreach (string key in oldIndexes.Keys
+            .Union(newIndexes.Keys, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal))
+        {
+            oldIndexes.TryGetValue(key, out var oldIndex);
+            newIndexes.TryGetValue(key, out var newIndex);
+            yield return new UnionBodyIndexEntry(key, oldIndex, newIndex);
+        }
     }
 
     static IEnumerable<BodyIndexEntry> BodyIndexEntries(ResearchDiffInput input)
@@ -1036,12 +1313,12 @@ public static class ResearchDiff
             _ => ResearchChangeKind.Changed,
         };
 
-    static ResearchChangeKind Direction(IlDiffFailureKind kind)
+    internal static ResearchChangeKind Direction(IlDiffFailureKind kind)
         => kind switch
         {
             IlDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
             IlDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
+            _ => ResearchChangeKind.Failed,
         };
 
     static ResearchChangeKind Direction(CSharpDiffKind kind)
@@ -1052,13 +1329,21 @@ public static class ResearchDiff
             _ => ResearchChangeKind.Changed,
         };
 
-    static ResearchChangeKind Direction(CSharpDiffFailureKind kind)
+    internal static ResearchChangeKind Direction(CSharpDiffFailureKind kind)
         => kind switch
         {
             CSharpDiffFailureKind.OldBodyMissing => ResearchChangeKind.Added,
             CSharpDiffFailureKind.NewBodyMissing => ResearchChangeKind.Removed,
-            _ => ResearchChangeKind.Changed,
+            _ => ResearchChangeKind.Failed,
         };
+
+    internal static ImmutableHashSet<int> OperationalCSharpFailureHunks(
+        ImmutableArray<CSharpDiffFailureRow> failureRows)
+        => failureRows
+            .Where(failure => Direction(failure.Kind) == ResearchChangeKind.Failed
+                && failure.HunkId is not null)
+            .Select(failure => failure.HunkId!.Value)
+            .ToImmutableHashSet();
 
     static ResearchChangeCategory ToResearchCategory(ApiChangeCategory category)
         => category switch
@@ -1194,6 +1479,13 @@ public static class ResearchDiff
         };
 
     sealed record BodyIndexEntry(string Key, string Path, LibraryBodyIndex Index);
+    sealed record UnionBodyIndexEntry(
+        string Key,
+        BodyIndexEntry? Old,
+        BodyIndexEntry? New);
+    sealed record IlRetentionMethod(
+        ResearchSubjectKey Subject,
+        int MetadataToken);
 
     sealed record ResearchAnalysisMethod(
         ResearchSubjectKey Subject,
@@ -1214,6 +1506,24 @@ public static class ResearchDiff
 
         public void Add(RetainedFindingComparison comparison)
             => _retainedComparisons.Add(comparison);
+
+        public bool HasFailure(
+            ResearchSubjectKey subject,
+            ResearchChangeMechanism mechanism)
+            => _changes.Any(change =>
+                change.Subject.Id == subject.Id
+                && change.Mechanism == mechanism
+                && change.Kind == ResearchChangeKind.Failed);
+
+        public void RemoveFailure(
+            ResearchSubjectKey subject,
+            ResearchChangeMechanism mechanism,
+            FindingDescriptor descriptor)
+            => _changes.RemoveAll(change =>
+                change.Subject.Id == subject.Id
+                && change.Mechanism == mechanism
+                && change.Descriptor == descriptor
+                && change.Kind == ResearchChangeKind.Failed);
 
         public ResearchComparison ToResult()
             => new(
@@ -1238,6 +1548,7 @@ public static class ResearchDiff
         }
 
         public MetadataReader MetadataReader => _metadataReader;
+        public PEReader PeReader => _peReader;
 
         public bool TryDecode(int metadataToken, out MethodBodyBlock? body, out string? unavailableReason)
         {

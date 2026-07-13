@@ -23,6 +23,7 @@
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
   </ItemGroup>
 
 </Project>

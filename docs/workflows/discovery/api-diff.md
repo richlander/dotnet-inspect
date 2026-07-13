@@ -183,6 +183,20 @@ only the supplied pair; it does not traverse the version range. Use
 `PairFinding.Present` means the target exists at both endpoints, while
 `PairFinding.Removed` means only the old endpoint contains it.
 
+Select an implementation producer to inspect the exact C# line or IL operation
+census for one method:
+
+```bash
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
+  --type Foo.Parser --member Parse:1 --finding csharp.line
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
+  --type Foo.Parser --member Parse:1 --finding il.op
+```
+
+These lenses preserve complete, absent, and failed inspection outcomes.
+One-sided methods therefore render added or removed native pairs rather than
+disappearing from an intersection-only body diff.
+
 This focused endpoint-confirmation lens must be selected by itself. It does not
 compose with the comparison sections or `-S @All`; select `Changes`,
 `Analysis Diff`, and `Implementation Diff` explicitly when composing those
