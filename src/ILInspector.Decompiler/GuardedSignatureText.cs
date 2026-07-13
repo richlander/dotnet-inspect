@@ -38,10 +38,13 @@ internal static class GuardedSignatureText
 
     public static string TypeSpecText(MetadataReader reader, TypeSpecificationHandle handle, GenericContext? context)
     {
-        var spec = reader.GetTypeSpecification(handle);
-        return SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, SignatureBlobGuard.Kind.TypeSpecification)
-            ? spec.DecodeSignature(SignatureDecoder.Instance, context)
-            : Unresolved;
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return Unresolved;
+        using (scope)
+        {
+            return reader.GetTypeSpecification(handle)
+                .DecodeSignature(SignatureDecoder.Instance, context);
+        }
     }
 
     static readonly MethodSignature<string> UnresolvedMethod = new(default, Unresolved, 0, 0, []);

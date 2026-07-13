@@ -492,6 +492,21 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "TypeSpec decode hoisted into prescan-only helper",
+            """
+            class C
+            {
+                object DecodeTypeSpec()
+                {
+                    var spec = reader.GetTypeSpecification(handle);
+                    return SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind)
+                        ? spec.DecodeSignature(provider, context)
+                        : fallback;
+                }
+            }
+            """
+        },
+        {
             "TypeSpec double local alias with prescan only",
             """
             class C
@@ -1222,18 +1237,25 @@ public class ProviderSignatureDecodeBoundaryTests
                 && (IsPrescanGuardedTernary(invocation)
                     || IsPrescanGuardedIf(invocation)));
 
-    // Every decode inside the provider's GetTypeFromSpecification callback is
-    // a cross-handle re-entry rather than a top-level TypeSpec gateway.
+    // Any decode of a TypeSpecification row can re-enter another row through
+    // a provider callback, regardless of which helper contains the decode.
     static bool IsNestedTypeSpecReentry(InvocationExpressionSyntax invocation)
-        => invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault() is
-            {
-                Identifier.Text: "GetTypeFromSpecification"
-            };
+        => TryGetTypeSpecificationOrigin(
+            invocation,
+            requireImmutableLocals: false,
+            out _,
+            out _);
 
     static bool IsBoundedByTypeSpecGuard(InvocationExpressionSyntax invocation)
     {
-        if (!TryGetTypeSpecificationOrigin(invocation, out var reader, out var handle))
+        if (!TryGetTypeSpecificationOrigin(
+                invocation,
+                requireImmutableLocals: true,
+                out var reader,
+                out var handle))
+        {
             return false;
+        }
 
         foreach (var usingStatement in invocation.Ancestors().OfType<UsingStatementSyntax>())
         {
@@ -1271,6 +1293,7 @@ public class ProviderSignatureDecodeBoundaryTests
 
     static bool TryGetTypeSpecificationOrigin(
         InvocationExpressionSyntax decode,
+        bool requireImmutableLocals,
         out ExpressionSyntax reader,
         out ExpressionSyntax handle)
     {
@@ -1285,7 +1308,10 @@ public class ProviderSignatureDecodeBoundaryTests
         {
             if (!visited.Add(identifier.Identifier.Text))
                 return false;
-            receiver = FindLocalInitializer(decode, identifier.Identifier.Text);
+            receiver = FindLocalInitializer(
+                decode,
+                identifier.Identifier.Text,
+                requireImmutableLocals);
         }
 
         if (receiver is not InvocationExpressionSyntax getTypeSpec)
@@ -1305,7 +1331,8 @@ public class ProviderSignatureDecodeBoundaryTests
 
     static ExpressionSyntax? FindLocalInitializer(
         InvocationExpressionSyntax invocation,
-        string identifier)
+        string identifier,
+        bool requireImmutable)
     {
         var root = invocation.SyntaxTree.GetRoot();
         var variable = root
@@ -1321,11 +1348,12 @@ public class ProviderSignatureDecodeBoundaryTests
         if (variable?.Initializer?.Value is not { } initializer)
             return null;
 
-        return IdentifierMutatedBetween(
-            root,
-            identifier,
-            variable.Span.End,
-            invocation.SpanStart)
+        return requireImmutable
+            && IdentifierMutatedBetween(
+                root,
+                identifier,
+                variable.Span.End,
+                invocation.SpanStart)
             ? null
             : initializer;
     }

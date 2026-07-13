@@ -132,10 +132,12 @@ internal static class GuardedProviderDecode
         TContext context,
         T fallback)
     {
-        var spec = reader.GetTypeSpecification(handle);
-        return SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, SignatureBlobGuard.Kind.TypeSpecification)
-            ? spec.DecodeSignature(provider, context)
-            : fallback;
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return fallback;
+        using (scope)
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+        }
     }
 
     static MethodSignature<T> FallbackSignature<T>(T fallbackReturn)

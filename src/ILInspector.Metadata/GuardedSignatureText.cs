@@ -137,12 +137,12 @@ internal static class GuardedSignatureText
         TypeSpecificationHandle handle,
         GenericContext? context)
     {
-        var specification = reader.GetTypeSpecification(handle);
-        return SignatureBlobGuard.IsSafeToDecode(
-            reader,
-            specification.Signature,
-            SignatureBlobGuard.Kind.TypeSpecification)
-            ? specification.DecodeSignature(SignatureDecoder.Instance, context)
-            : Unresolved;
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return Unresolved;
+        using (scope)
+        {
+            return reader.GetTypeSpecification(handle)
+                .DecodeSignature(SignatureDecoder.Instance, context);
+        }
     }
 }
