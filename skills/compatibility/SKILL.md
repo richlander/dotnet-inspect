@@ -162,3 +162,6 @@ for a type target, no row means it exists at neither. Use `-m Type.Member:1` for
 an API member boundary. Use `--finding analysis.allocation`,
 `--finding analysis.call-site`, or `--finding analysis.unsafety` with exactly
 one method target for the corresponding Analysis boundary.
+Use `--finding csharp.line` or `--finding il.op` with exactly one method target
+to inspect native implementation-census transitions. Those lenses preserve
+complete, absent, and failed outcomes, including added or removed methods.

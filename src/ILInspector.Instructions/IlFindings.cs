@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Findings;
 
@@ -78,6 +79,98 @@ public static class IlFindings
 
         var oldInspection = Inspect(oldBody, oldReader, subject);
         var newInspection = Inspect(newBody, newReader, subject);
+        return CompareInspections(
+            oldInspection,
+            newInspection,
+            oldBody,
+            newBody,
+            acceptanceThreshold);
+    }
+
+    /// <summary>
+    /// Inspects a method definition directly from its PE and metadata readers.
+    /// </summary>
+    public static FindingInspection<CanonicalIlOperation> Inspect(
+        PEReader pe,
+        MetadataReader reader,
+        MethodDefinitionHandle method,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(pe);
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(subject);
+        if (method.IsNil)
+            throw new ArgumentException("Method handle must not be nil.", nameof(method));
+
+        return InspectMethod(pe, reader, method, subject, out _);
+    }
+
+    /// <summary>
+    /// Compares already-acquired inspections. This overload preserves explicit absent sides for
+    /// added and removed methods; branch validation is unnecessary unless both sides have bodies.
+    /// </summary>
+    public static FindingComparison<CanonicalIlOperation> Compare(
+        FindingInspection<CanonicalIlOperation> oldInspection,
+        FindingInspection<CanonicalIlOperation> newInspection,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
+        return CompareInspections(
+            oldInspection,
+            newInspection,
+            oldBody: null,
+            newBody: null,
+            acceptanceThreshold);
+    }
+
+    public static FindingComparison<CanonicalIlOperation> Compare(
+        PEReader oldPe,
+        MetadataReader oldReader,
+        MethodDefinitionHandle oldMethod,
+        PEReader newPe,
+        MetadataReader newReader,
+        MethodDefinitionHandle newMethod,
+        FindingSubject subject,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldPe);
+        ArgumentNullException.ThrowIfNull(oldReader);
+        ArgumentNullException.ThrowIfNull(newPe);
+        ArgumentNullException.ThrowIfNull(newReader);
+        ArgumentNullException.ThrowIfNull(subject);
+        if (oldMethod.IsNil)
+            throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
+        if (newMethod.IsNil)
+            throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
+
+        var oldInspection = InspectMethod(
+            oldPe,
+            oldReader,
+            oldMethod,
+            subject,
+            out var oldBody);
+        var newInspection = InspectMethod(
+            newPe,
+            newReader,
+            newMethod,
+            subject,
+            out var newBody);
+        return CompareInspections(
+            oldInspection,
+            newInspection,
+            oldBody,
+            newBody,
+            acceptanceThreshold);
+    }
+
+    static FindingComparison<CanonicalIlOperation> CompareInspections(
+        FindingInspection<CanonicalIlOperation> oldInspection,
+        FindingInspection<CanonicalIlOperation> newInspection,
+        MethodInstructions? oldBody,
+        MethodInstructions? newBody,
+        int acceptanceThreshold)
+    {
         var comparison = FindingComparison.Compare(
             oldInspection,
             newInspection,
@@ -98,6 +191,33 @@ public static class IlFindings
             [.. complete.OldAtoms.Select(static atom => atom.Payload)],
             newBody.Instructions,
             [.. complete.NewAtoms.Select(static atom => atom.Payload)]));
+    }
+
+    static FindingInspection<CanonicalIlOperation> InspectMethod(
+        PEReader pe,
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        FindingSubject subject,
+        out MethodInstructions? body)
+    {
+        body = null;
+        try
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (method.RelativeVirtualAddress == 0)
+                return Inspect(null, reader, subject);
+
+            body = MethodInstructions.Decode(pe.GetMethodBody(method.RelativeVirtualAddress));
+            return Inspect(body, reader, subject);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or NotSupportedException)
+        {
+            return new FindingInspection<CanonicalIlOperation>.Failed(
+                new InspectionError(subject, InspectionDescriptor, ex.Message));
+        }
     }
 
     // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),

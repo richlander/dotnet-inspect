@@ -46,7 +46,8 @@ public sealed record ImplementationMemberDiffResult(
     ResearchSubjectKey Subject,
     CSharpBodyDiffResult? CSharpDiff,
     IlMemberDiffResult? IlDiff,
-    IReadOnlyList<ResearchChange> Changes)
+    IReadOnlyList<ResearchChange> Changes,
+    RetainedFindingComparisonSet RetainedComparisons)
 {
     public bool HasCSharpChanges
         => Changes.Any(change => change.Mechanism == ResearchChangeMechanism.CSharp);
@@ -57,7 +58,8 @@ public sealed record ImplementationMemberDiffResult(
     public bool IsExact
         => Changes.Count == 0
            && (CSharpDiff is null || CSharpDiff.IsExact)
-           && (IlDiff is null || IlDiff.Diff.IsExact);
+           && (IlDiff is null || IlDiff.Diff.IsExact)
+           && RetainedComparisons.Items.All(comparison => comparison.IsExact);
 }
 
 /// <summary>
@@ -98,11 +100,36 @@ public static class ImplementationDiff
         CSharpBodyDiffResult? csharpDiff = null;
         IlMemberDiffResult? ilDiff = null;
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
+        var retainedComparisons = ImmutableArray.CreateBuilder<RetainedFindingComparison>();
 
         if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
         {
             csharpDiff = CSharpBodyDiff.CompareMembers(oldSource, oldMethod, newSource, newMethod);
             changes.AddRange(ToCSharpChanges(csharpDiff, subject));
+            var comparison = CSharpFindings.Compare(
+                oldSource,
+                oldMethod,
+                newSource,
+                newMethod,
+                new FindingSubject(subject.Id, subject.Display));
+            retainedComparisons.Add(new RetainedFindingComparison<CSharpCanonicalLine>(
+                subject,
+                CSharpFindings.LineDescriptor,
+                comparison));
+            if (comparison is FindingComparison<CSharpCanonicalLine>.Failed failed)
+            {
+                changes.Add(FindingFailureChange(
+                    subject,
+                    ResearchChangeMechanism.CSharp,
+                    ResearchChangeCategory.CSharp,
+                    CSharpFindings.InspectionDescriptor,
+                    failed.Failure));
+            }
+            else if (comparison.IsExact != csharpDiff.IsExact)
+            {
+                throw new InvalidOperationException(
+                    $"C# Finding comparison diverged from the semantic C# diff for '{subject.Display}'.");
+            }
         }
 
         if (mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
@@ -120,9 +147,42 @@ public static class ImplementationDiff
                 oldLabel: label,
                 newLabel: label);
             changes.AddRange(ToIlChanges(ilDiff, subject));
+            var comparison = IlFindings.Compare(
+                oldSource.Pe,
+                oldSource.Reader,
+                oldMethod,
+                newSource.Pe,
+                newSource.Reader,
+                newMethod,
+                new FindingSubject(subject.Id, subject.Display));
+            retainedComparisons.Add(new RetainedFindingComparison<CanonicalIlOperation>(
+                subject,
+                IlFindings.OperationDescriptor,
+                comparison));
+            if (comparison is FindingComparison<CanonicalIlOperation>.Failed failed)
+            {
+                changes.Add(FindingFailureChange(
+                    subject,
+                    ResearchChangeMechanism.IlBody,
+                    ResearchChangeCategory.IlBody,
+                    IlFindings.InspectionDescriptor,
+                    failed.Failure));
+            }
+            else if (MethodHasBody(oldSource, oldMethod)
+                && MethodHasBody(newSource, newMethod)
+                && comparison.IsExact != ilDiff.Diff.IsExact)
+            {
+                throw new InvalidOperationException(
+                    $"IL Finding comparison diverged from the semantic IL diff for '{subject.Display}'.");
+            }
         }
 
-        return new ImplementationMemberDiffResult(subject, csharpDiff, ilDiff, changes.ToImmutable());
+        return new ImplementationMemberDiffResult(
+            subject,
+            csharpDiff,
+            ilDiff,
+            changes.ToImmutable(),
+            new RetainedFindingComparisonSet(retainedComparisons));
     }
 
     public static ImplementationDiffResult Compare(
@@ -336,6 +396,23 @@ public static class ImplementationDiff
         => memberTargetIdentities is null
            || memberTargetIdentities.Count == 0
            || memberTargetIdentities.Contains(subject.Id);
+
+    static ResearchChange FindingFailureChange(
+        ResearchSubjectKey subject,
+        ResearchChangeMechanism mechanism,
+        ResearchChangeCategory category,
+        FindingDescriptor descriptor,
+        string failure)
+        => new(
+            subject,
+            mechanism,
+            descriptor,
+            ResearchChangeKind.Changed,
+            detail: failure,
+            category: category);
+
+    static bool MethodHasBody(MetadataSource source, MethodDefinitionHandle method)
+        => source.Reader.GetMethodDefinition(method).RelativeVirtualAddress != 0;
 
     static ResearchSubjectKey SubjectFromMethod(MetadataSource source, MethodDefinitionHandle methodHandle)
     {

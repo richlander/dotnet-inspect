@@ -925,6 +925,164 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_CSharp_RetainsNativeLineComparison()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.CSharp,
+                TypeFilters: new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "DiffFixtureSample.DiffSample",
+                })
+            {
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    CSharpFindings.LineDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons.Get<CSharpCanonicalLine>(
+                CSharpFindings.LineDescriptor),
+            comparison => comparison.Subject.MemberName == "ConstantValue");
+        var comparison = retained.Comparison switch
+        {
+            FindingComparison<CSharpCanonicalLine>.Complete complete => complete,
+            _ => throw new InvalidOperationException("Expected a complete C# comparison."),
+        };
+        Assert.Contains(comparison.Pairs, pair =>
+            pair is PairFinding<CSharpCanonicalLine>.Removed removed
+            && removed.Old.Payload.Text == "return 1;");
+        Assert.Contains(comparison.Pairs, pair =>
+            pair is PairFinding<CSharpCanonicalLine>.Added added
+            && added.New.Payload.Text == "return 2;");
+        Assert.Contains(diff.Changes, change =>
+            change.Subject.MemberName == "ConstantValue"
+            && change.Mechanism == ResearchChangeMechanism.CSharp);
+    }
+
+    [Fact]
+    public void CompareAssemblies_IlBody_RetainsNativeOperationComparison()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.IlBody,
+                TypeFilters: new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "DiffFixtureSample.DiffSample",
+                })
+            {
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    IlFindings.OperationDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons.Get<CanonicalIlOperation>(
+                IlFindings.OperationDescriptor),
+            comparison => comparison.Subject.MemberName == "ConstantValue");
+        var comparison = retained.Comparison switch
+        {
+            FindingComparison<CanonicalIlOperation>.Complete complete => complete,
+            _ => throw new InvalidOperationException("Expected a complete IL comparison."),
+        };
+        Assert.Contains(comparison.Pairs, pair =>
+            pair is PairFinding<CanonicalIlOperation>.Removed removed
+            && removed.Old.Payload.Display == "ldc.i4 1");
+        Assert.Contains(comparison.Pairs, pair =>
+            pair is PairFinding<CanonicalIlOperation>.Added added
+            && added.New.Payload.Display == "ldc.i4 2");
+        Assert.Contains(diff.Changes, change =>
+            change.Subject.MemberName == "ConstantValue"
+            && change.Mechanism == ResearchChangeMechanism.IlBody);
+    }
+
+    [Theory]
+    [InlineData(false, PairKind.Removed)]
+    [InlineData(true, PairKind.Added)]
+    public void CompareAssemblies_IlBody_RetainsOneSidedMethodComparisons(
+        bool reverse,
+        PairKind expectedKind)
+    {
+        string oldPath = reverse
+            ? FixtureCatalog.DiffPair.NewAssemblyPath()
+            : FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = reverse
+            ? FixtureCatalog.DiffPair.OldAssemblyPath()
+            : FixtureCatalog.DiffPair.NewAssemblyPath();
+        var diff = ResearchDiff.CompareAssemblies(
+            oldPath,
+            newPath,
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.IlBody,
+                TypeFilters: new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "DiffFixtureSample.MethodRemovalSample",
+                })
+            {
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    IlFindings.OperationDescriptor.Id),
+            });
+
+        var retained = diff.RetainedComparisons
+            .Get<CanonicalIlOperation>(IlFindings.OperationDescriptor)
+            .Where(comparison => comparison.Subject.MemberName == "Removed")
+            .ToImmutableArray();
+
+        Assert.Equal(2, retained.Length);
+        Assert.All(retained, comparison =>
+        {
+            var complete = Assert.IsType<
+                FindingComparison<CanonicalIlOperation>.Complete>(
+                comparison.Comparison.Value);
+            Assert.All(
+                complete.Pairs,
+                pair => Assert.Equal(expectedKind, pair.Kind));
+            Assert.True(reverse
+                ? complete.OldInspection
+                    is FindingInspection<CanonicalIlOperation>.Absent
+                : complete.NewInspection
+                    is FindingInspection<CanonicalIlOperation>.Absent);
+        });
+    }
+
+    [Fact]
+    public void CompareAssemblies_IlBody_PreservesAbsentBodyAgainstPresentBody()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.IlBody,
+                TypeFilters: new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "DiffFixtureSample.BodyStateSample",
+                })
+            {
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    IlFindings.OperationDescriptor.Id),
+            });
+
+        var retained = Assert.Single(diff.RetainedComparisons
+            .Get<CanonicalIlOperation>(IlFindings.OperationDescriptor),
+            comparison => comparison.Subject.MemberName == "BodyState");
+        var complete = Assert.IsType<
+            FindingComparison<CanonicalIlOperation>.Complete>(
+            retained.Comparison.Value);
+
+        Assert.True(
+            complete.OldInspection is FindingInspection<CanonicalIlOperation>.Absent);
+        Assert.True(
+            complete.NewInspection is FindingInspection<CanonicalIlOperation>.Complete);
+        Assert.All(complete.Pairs, pair => Assert.Equal(PairKind.Added, pair.Kind));
+    }
+
+    [Fact]
     public void CompareAssemblies_IlBody_QueryImplementationChanges()
     {
         var diff = ResearchDiff.CompareAssemblies(
@@ -1287,6 +1445,10 @@ public class ResearchDiffTests
         Assert.NotNull(diff.IlDiff);
         Assert.True(diff.IlDiff.Diff.IsExact);
         Assert.Empty(diff.Changes);
+        Assert.True(Assert.Single(diff.RetainedComparisons.Get<CSharpCanonicalLine>(
+            CSharpFindings.LineDescriptor)).IsExact);
+        Assert.True(Assert.Single(diff.RetainedComparisons.Get<CanonicalIlOperation>(
+            IlFindings.OperationDescriptor)).IsExact);
     }
 
     [Fact]
@@ -1309,6 +1471,10 @@ public class ResearchDiffTests
         Assert.Contains(diff.Changes, change =>
             change.Mechanism == ResearchChangeMechanism.IlBody
             && ImplementationDiff.UnifiedLines(change).Any(line => line.Contains("ldc.i4 1", StringComparison.Ordinal)));
+        Assert.False(Assert.Single(diff.RetainedComparisons.Get<CSharpCanonicalLine>(
+            CSharpFindings.LineDescriptor)).IsExact);
+        Assert.False(Assert.Single(diff.RetainedComparisons.Get<CanonicalIlOperation>(
+            IlFindings.OperationDescriptor)).IsExact);
     }
 
     [Fact]

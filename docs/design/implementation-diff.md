@@ -20,6 +20,11 @@ family.
   with C# and IL/body mechanisms, groups changes by `ResearchSubjectKey`, and
   exposes typed display rows and unified lines without reformatting producer
   wording.
+- `ResearchComparison.RetainedComparisons` keeps the native
+  `FindingComparison<CSharpCanonicalLine>` and
+  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Research
+  cross-checks their exactness against the richer semantic projections for
+  members present on both sides.
 
 ## Research comparison model
 
@@ -35,11 +40,10 @@ payload needed for typed presentation. It is deliberately not a
 `ResearchComparison.ApiComparison` retains that producer-owned envelope. C#,
 IL/body, body-signal, and ReturnToSender mechanisms do not all expose equivalent
 old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
-must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a
-Research-owned migration projection, not the seed of a parallel generic
-`EvidenceRow` spine. As each mechanism gains honest observations and
-transitions, Research should retain those producer-owned values and retire the
-corresponding projection fields.
+must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a Research-owned migration projection, not the seed of a
+parallel generic `EvidenceRow` spine. C# and IL now have native comparisons;
+their semantic rows remain because they carry richer producer-owned evidence,
+while retained comparisons expose the exact census transitions.
 
 ## Consumer contract
 
@@ -53,6 +57,14 @@ old/new `MethodDefinitionHandle` values in live `MetadataSource` instances. The
 member result keeps the typed C# diff, typed IL diff, joined implementation
 changes, and a single `ResearchSubjectKey`; exact members return an empty
 change list with `IsExact` set.
+
+The `diff --finding csharp.line` and `diff --finding il.op` focused lenses read
+those retained comparisons and render native `PairFinding` cases. Missing
+members and methods without bodies remain distinct inspection states. IL
+retention pairs the union of declared method identities, so added, removed, and
+signature-changed methods are not lost by the semantic body-diff intersection.
+Failed inspections render explicit failure rows instead of becoming empty
+comparisons.
 
 Use `ImplementationDiff.ToIlChanges` when a caller already has a scoped
 `IlMemberDiffResult`, such as ReturnToSender comparing one original method to a

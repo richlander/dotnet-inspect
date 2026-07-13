@@ -319,6 +319,8 @@ public abstract record RetainedFindingComparison
 
     public ResearchSubjectKey Subject { get; }
     public FindingDescriptor Descriptor { get; }
+    public abstract bool IsExact { get; }
+    public abstract string? Failure { get; }
 }
 
 public sealed record RetainedFindingComparison<T> : RetainedFindingComparison
@@ -334,6 +336,8 @@ public sealed record RetainedFindingComparison<T> : RetainedFindingComparison
     }
 
     public FindingComparison<T> Comparison { get; }
+    public override bool IsExact => Comparison.IsExact;
+    public override string? Failure => Comparison.Failure;
 }
 
 public sealed class RetainedFindingComparisonSet

@@ -16,6 +16,7 @@ public sealed class LibraryBodyIndex
 {
     LibraryBodyIndex(
         string path,
+        ImmutableArray<MethodIdentity> declaredMethods,
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
@@ -34,6 +35,7 @@ public sealed class LibraryBodyIndex
         bool opportunitiesComputed)
     {
         Path = path;
+        DeclaredMethods = declaredMethods;
         Methods = methods;
         DirectCalls = directCalls;
         UnsafeEvidence = unsafeEvidence;
@@ -53,6 +55,9 @@ public sealed class LibraryBodyIndex
     }
 
     public string Path { get; }
+    /// <summary>Every decoded method identity, including abstract and extern members.</summary>
+    public ImmutableArray<MethodIdentity> DeclaredMethods { get; }
+    /// <summary>Method identities whose definitions carry IL bodies.</summary>
     public ImmutableArray<MethodIdentity> Methods { get; }
     public ImmutableArray<DirectCall> DirectCalls { get; }
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
@@ -881,7 +886,8 @@ public sealed class LibraryBodyIndex
         IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null)
         => new(
             path: "",
-            methods,
+            declaredMethods: methods,
+            methods: methods,
             directCalls: [],
             unsafeEvidence,
             diagnostics: [],
@@ -923,7 +929,7 @@ public sealed class LibraryBodyIndex
         // hotspots), so requesting opportunities implies computing allocations.
         var index = builder.Build(includeAllocations || includeOpportunities, includeOpportunities, bodyScope, bodyTypeScope);
         return new LibraryBodyIndex(
-            path, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
+            path, index.DeclaredMethods, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.AllocationOccurrences, index.UnsafetyOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
             index.NonHeapNewObjOperandTokens,
@@ -2145,8 +2151,9 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames,         IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
+        public (ImmutableArray<MethodIdentity> DeclaredMethods, ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames,         IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
         {
+            var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
@@ -2224,6 +2231,7 @@ public sealed class LibraryBodyIndex
                     case CallerUnsafeMode.Implicit: impl++; break;
                     default: none++; break;
                 }
+                declaredMethods.Add(r.Caller!);
                 if (!r.UnsafeEvidence.IsDefaultOrEmpty)
                     unsafeEvidence.AddRange(r.UnsafeEvidence);
                 if (r.IsLeverage)
@@ -2248,7 +2256,7 @@ public sealed class LibraryBodyIndex
 
             var directCalls = calls.ToImmutable();
             var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
-            return (methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
+            return (declaredMethods.ToImmutable(), methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences, unsafetyOccurrences,
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
         }

@@ -46,6 +46,23 @@ public class CSharpFindingsTests
     }
 
     [Fact]
+    public void CSharpFindings_WhitespaceOnlyPayloadChange_IsChanged()
+    {
+        var old = Statements("    int value = 1;");
+        var @new = Statements("        int value = 1;");
+
+        var result = CompleteComparison(
+            CSharpFindings.CompareCanonicalized(old, @new, Subject));
+
+        var changed = Assert.Single(result.Pairs);
+        var pair = Assert.IsType<PairFinding<CSharpCanonicalLine>.Changed>(
+            changed.Value);
+        Assert.Equal("    int value = 1;", pair.Old.Payload.Text);
+        Assert.Equal("        int value = 1;", pair.New.Payload.Text);
+        Assert.False(result.IsExact);
+    }
+
+    [Fact]
     public void CSharpFindings_RelocatedBlock_IsDetectedAsMoved()
     {
         var old = Statements(
