@@ -1,4 +1,6 @@
-using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -8,14 +10,19 @@ namespace ILInspector.Metadata.Tests;
 /// stack for every nested element <em>before</em> the first provider callback,
 /// so a single over-deep blob overflows the stack in a way no managed
 /// <c>try/catch</c> can contain. Every top-level provider decode must therefore
-/// be prescanned with <c>SignatureBlobGuard</c>, and every nested cross-handle
-/// TypeSpec re-entry must be bounded by <c>TypeSpecGuard</c>.
+/// be prescanned with <c>SignatureBlobGuard.IsSafeToDecode</c>, and every nested
+/// cross-handle TypeSpec re-entry must be bounded by <c>TypeSpecGuard</c>.
 ///
-/// The assertions below are a deny-list, not an allow-list: any raw
-/// <c>Decode*Signature</c> call that is not one of the sanctioned guarded forms
-/// is a violation. A newly added provider, a decode routed through a local
-/// alias, or an un-gated site fails this test rather than shipping an unguarded
-/// same-mechanism hole. This is the anti-ratchet completeness proof.
+/// This census is a deny-list: any <c>Decode*Signature</c> invocation that is
+/// not one of the two sanctioned guarded forms is a violation. A newly added
+/// provider, an un-gated site, or a decode routed through a local alias fails
+/// this test rather than shipping an unguarded same-mechanism hole. This is the
+/// anti-ratchet closure proof.
+///
+/// The classification is performed on the Roslyn syntax tree, not by string or
+/// regex matching, so it cannot be evaded by comments, line splits, whitespace,
+/// aliasing, or spoofed tokens: an invocation is classified purely by its actual
+/// receiver and enclosing guard expression.
 /// </summary>
 public class ProviderSignatureDecodeBoundaryTests
 {
@@ -25,20 +32,12 @@ public class ProviderSignatureDecodeBoundaryTests
         Path.Combine("src", "ILInspector.MetadataPrimitives"),
     };
 
-    // Files that perform a top-level provider decode behind an inline
-    // SignatureBlobGuard prescan. Each is asserted to actually contain the
-    // prescan by GatewayFiles_PrescanWithSignatureBlobGuard.
-    static readonly string[] PrescanGatewayFiles =
+    static readonly string[] DecodeMethodNames =
     {
-        "GuardedProviderDecode.cs",
-        "GuardedSignatureText.cs",
-        "AttributeDecoder.cs",
+        "DecodeSignature",
+        "DecodeMethodSignature",
+        "DecodeFieldSignature",
     };
-
-    // Whitespace-tolerant so a `.DecodeSignature (` mutation cannot slip past.
-    static readonly Regex RawDecode = new(
-        @"\.Decode(Method|Field)?Signature\s*\(",
-        RegexOptions.Compiled);
 
     [Fact]
     public void EveryProviderDecode_IsGuarded()
@@ -48,58 +47,32 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            var fileName = Path.GetFileName(file);
-            var lines = File.ReadAllLines(file);
-            for (int i = 0; i < lines.Length; i++)
+            foreach (var invocation in DecodeInvocations(file))
             {
-                var line = lines[i];
-                if (!RawDecode.IsMatch(line))
+                // Sanctioned form 1: a nested cross-handle TypeSpec re-entry,
+                // `reader.GetTypeSpecification(handle).Decode*Signature(...)`,
+                // bounded by TypeSpecGuard in its enclosing provider file
+                // (asserted by NestedTypeSpecReentry_IsBoundedByTypeSpecGuard).
+                if (IsNestedTypeSpecReentry(invocation))
                     continue;
 
-                // Sanctioned form 1: an inline-prescanned gateway file.
-                if (PrescanGatewayFiles.Contains(fileName))
+                // Sanctioned form 2: this decode is the true-branch of a
+                // `SignatureBlobGuard.IsSafeToDecode(...) ? decode : fallback`
+                // prescan ternary.
+                if (IsPrescanGuardedTernary(invocation))
                     continue;
 
-                // Sanctioned form 2: a nested cross-handle TypeSpec re-entry,
-                // bounded by TypeSpecGuard in its enclosing provider file.
-                if (line.Contains("GetTypeSpecification(", StringComparison.Ordinal))
-                    continue;
-
-                violations.Add($"{Path.GetRelativePath(root, file)}:{i + 1}");
+                var line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                violations.Add($"{Path.GetRelativePath(root, file)}:{line}");
             }
         }
 
         Assert.True(
             violations.Count == 0,
-            "Every provider signature decode must be prescanned (GuardedProviderDecode / "
-            + "GuardedSignatureText / AttributeDecoder) or a TypeSpecGuard-bounded nested "
-            + "re-entry. Unguarded raw decodes:\n  " + string.Join("\n  ", violations));
-    }
-
-    [Fact]
-    public void GatewayFiles_PrescanWithSignatureBlobGuard()
-    {
-        var root = FindRepoRoot();
-        var present = new HashSet<string>(StringComparer.Ordinal);
-        var missing = new List<string>();
-
-        foreach (var file in EnumerateSourceFiles(root))
-        {
-            var fileName = Path.GetFileName(file);
-            if (!PrescanGatewayFiles.Contains(fileName))
-                continue;
-
-            present.Add(fileName);
-            if (!File.ReadAllText(file).Contains("SignatureBlobGuard.IsSafeToDecode", StringComparison.Ordinal))
-                missing.Add(Path.GetRelativePath(root, file));
-        }
-
-        // Every declared prescan gateway must exist and actually prescan.
-        Assert.Equal(PrescanGatewayFiles.Length, present.Count);
-        Assert.True(
-            missing.Count == 0,
-            "Declared prescan gateways must call SignatureBlobGuard.IsSafeToDecode:\n  "
-            + string.Join("\n  ", missing));
+            "Every top-level provider signature decode must be the true-branch of a "
+            + "SignatureBlobGuard.IsSafeToDecode prescan ternary or a "
+            + "TypeSpecGuard-bounded nested GetTypeSpecification re-entry. "
+            + "Unguarded raw decodes:\n  " + string.Join("\n  ", violations));
     }
 
     [Fact]
@@ -110,13 +83,19 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            var lines = File.ReadAllLines(file);
-            bool hasNestedReentry = lines.Any(line =>
-                RawDecode.IsMatch(line)
-                && line.Contains("GetTypeSpecification(", StringComparison.Ordinal));
+            var invocations = AllInvocations(file);
 
-            if (hasNestedReentry
-                && !File.ReadAllText(file).Contains("TypeSpecGuard.TryEnter", StringComparison.Ordinal))
+            bool hasNestedReentry = invocations.Any(i => IsDecodeInvocation(i) && IsNestedTypeSpecReentry(i));
+            if (!hasNestedReentry)
+                continue;
+
+            bool boundsWithTypeSpecGuard = invocations.Any(i =>
+                i.Expression is MemberAccessExpressionSyntax member
+                && member.Name.Identifier.Text == "TryEnter"
+                && member.Expression is IdentifierNameSyntax id
+                && id.Identifier.Text == "TypeSpecGuard");
+
+            if (!boundsWithTypeSpecGuard)
                 unguarded.Add(Path.GetRelativePath(root, file));
         }
 
@@ -125,6 +104,53 @@ public class ProviderSignatureDecodeBoundaryTests
             "Every file that re-enters a nested TypeSpec decode must bound it with "
             + "TypeSpecGuard.TryEnter:\n  " + string.Join("\n  ", unguarded));
     }
+
+    static IEnumerable<InvocationExpressionSyntax> DecodeInvocations(string file)
+        => AllInvocations(file).Where(IsDecodeInvocation);
+
+    static InvocationExpressionSyntax[] AllInvocations(string file)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(file), cancellationToken: token);
+        return tree.GetRoot(token).DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+    }
+
+    static bool IsDecodeInvocation(InvocationExpressionSyntax invocation)
+        => invocation.Expression is MemberAccessExpressionSyntax member
+            && DecodeMethodNames.Contains(member.Name.Identifier.Text);
+
+    // `<expr>.GetTypeSpecification(...).Decode*Signature(...)`: the decode's
+    // immediate receiver is itself a GetTypeSpecification invocation.
+    static bool IsNestedTypeSpecReentry(InvocationExpressionSyntax invocation)
+        => invocation.Expression is MemberAccessExpressionSyntax member
+            && member.Expression is InvocationExpressionSyntax receiver
+            && receiver.Expression is MemberAccessExpressionSyntax receiverMember
+            && receiverMember.Name.Identifier.Text == "GetTypeSpecification";
+
+    // `SignatureBlobGuard.IsSafeToDecode(...) ? <decode> : <fallback>`: some
+    // enclosing conditional expression guards this decode in its true-branch
+    // with an IsSafeToDecode prescan.
+    static bool IsPrescanGuardedTernary(InvocationExpressionSyntax invocation)
+    {
+        foreach (var ancestor in invocation.Ancestors())
+        {
+            if (ancestor is ConditionalExpressionSyntax conditional
+                && conditional.WhenTrue.Span.Contains(invocation.Span)
+                && ConditionCallsIsSafeToDecode(conditional.Condition))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool ConditionCallsIsSafeToDecode(ExpressionSyntax condition)
+        => condition.DescendantNodesAndSelf()
+            .OfType<InvocationExpressionSyntax>()
+            .Any(i => i.Expression is MemberAccessExpressionSyntax member
+                && member.Name.Identifier.Text == "IsSafeToDecode"
+                && member.Expression is IdentifierNameSyntax id
+                && id.Identifier.Text == "SignatureBlobGuard");
 
     static IEnumerable<string> EnumerateSourceFiles(string root)
     {
