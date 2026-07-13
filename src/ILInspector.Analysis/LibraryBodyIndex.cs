@@ -529,14 +529,13 @@ public sealed class LibraryBodyIndex
             }
             else if (IsLinqLazyProducer(call.Callee, out var lazyOp))
             {
-                // call/callvirt is one opcode byte plus a four-byte metadata token. An
-                // immediately-following terminal therefore consumes the lazy producer's
-                // stack result directly; any store/load or unrelated operation breaks this
-                // exact gate rather than being guessed through. Restrict the composed form
-                // to filtering producers: Select(...).First() can remain O(1), while Where
-                // and OfType must search for a matching element.
-                if (lazyOp is "Where" or "OfType")
-                    immediateLazyProducers.TryAdd((call.Caller.MetadataToken, call.ILOffset + 5), lazyOp);
+                // An immediately-following terminal consumes the lazy producer's stack
+                // result directly; any store/load or unrelated operation breaks this exact
+                // gate rather than being guessed through. Restrict the composed form to
+                // filtering producers: Select(...).First() can remain O(1), while Where and
+                // OfType must search for a matching element.
+                if (lazyOp is "Where" or "OfType" && call.ReturnAddress is { } nextOffset)
+                    immediateLazyProducers.TryAdd((call.Caller.MetadataToken, nextOffset), lazyOp);
                 if (methodByToken.TryGetValue(call.Caller.MetadataToken, out var producer)
                     && ReturnsEnumerableSequence(producer.ReturnType))
                 {
