@@ -72,9 +72,14 @@ internal static class SourceDocumentPath
             return null;
 
         return urlPattern.EndsWith('*')
-            ? urlPattern[..^1] + suffix
+            ? urlPattern[..^1] + EscapeSourceLinkPath(suffix)
             : urlPattern;
     }
+
+    private static string EscapeSourceLinkPath(string path)
+        => string.Join(
+            '/',
+            path.Split('/').Select(static segment => Uri.EscapeDataString(segment)));
 }
 
 internal sealed record SourceDocumentPathResolution(

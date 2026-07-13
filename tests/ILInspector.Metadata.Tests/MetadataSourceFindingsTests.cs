@@ -162,6 +162,27 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentIdentity_EscapesSourceLinkWildcardUrlSuffixBySegment()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "/repo/*": "https://example.test/repository/*"
+              }
+            }
+            """;
+
+        var resolved = SourceDocumentPath.Resolve(
+            "/repo/src/C# Features/My Class.cs",
+            sourceLink);
+
+        Assert.Equal("src/C# Features/My Class.cs", resolved.CanonicalPath);
+        Assert.Equal(
+            "https://example.test/repository/src/C%23%20Features/My%20Class.cs",
+            resolved.ResolvedUrl);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
