@@ -163,6 +163,30 @@ public class AllocationFanoutTests
     }
 
     [Fact]
+    public void Analyze_PropagatesKnownImpactIntoCallersOfRecursiveComponents()
+    {
+        var root = Method(1, "Root");
+        var entry = Method(2, "Entry");
+        var recursive = Method(3, "Recursive");
+
+        var rootSummary = Summary(
+            [root, entry, recursive],
+            [
+                Call(root, entry, 4, AllocationMultiplicity.Once),
+                Call(entry, recursive, 4, AllocationMultiplicity.Once),
+                Call(recursive, recursive, 8, AllocationMultiplicity.Once),
+            ],
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [recursive.MetadataToken] = [Allocation(recursive, AllocationMultiplicity.Once)],
+            },
+            root);
+
+        Assert.Equal(1, rootSummary.OncePaths);
+        Assert.Equal(1, rootSummary.OpaquePaths);
+    }
+
+    [Fact]
     public void Analyze_HandlesDeepCallGraphsWithoutRecursingOnTheNativeStack()
     {
         const int count = 20_000;

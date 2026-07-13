@@ -41,7 +41,7 @@ public static class AllocationFanout
                     .OrderBy(static edge => edge.Call.ILOffset)
                     .ThenBy(static edge => edge.TargetToken)
                     .ToArray());
-        var recursiveTokens = FindRecursiveTokens(methods, edgesByCaller);
+        var recursiveComponents = FindRecursiveComponents(methods, edgesByCaller);
         var impactByToken = new Dictionary<int, Impact>();
 
         Impact ImpactFor(int token)
@@ -66,7 +66,10 @@ public static class AllocationFanout
                             var dependency = dependencies[i];
                             if (dependency.Call.ExactTarget
                                 && dependency.TargetToken != 0
-                                && !recursiveTokens.Contains(dependency.TargetToken)
+                                && !InSameRecursiveComponent(
+                                    item.Token,
+                                    dependency.TargetToken,
+                                    recursiveComponents)
                                 && !impactByToken.ContainsKey(dependency.TargetToken))
                             {
                                 pending.Push((dependency.TargetToken, false));
@@ -87,7 +90,10 @@ public static class AllocationFanout
                     {
                         if (!edge.Call.ExactTarget
                             || edge.TargetToken == 0
-                            || recursiveTokens.Contains(edge.TargetToken))
+                            || InSameRecursiveComponent(
+                                item.Token,
+                                edge.TargetToken,
+                                recursiveComponents))
                         {
                             impact.AddOpaque();
                             continue;
@@ -154,7 +160,7 @@ public static class AllocationFanout
     static bool IsInvocation(DirectCall call)
         => call.Kind is CallKind.Call or CallKind.CallVirtual or CallKind.NewObject or CallKind.CallIndirect;
 
-    static HashSet<int> FindRecursiveTokens(
+    static Dictionary<int, int> FindRecursiveComponents(
         ImmutableArray<MethodIdentity> methods,
         IReadOnlyDictionary<int, Edge[]> edgesByCaller)
     {
@@ -202,7 +208,8 @@ public static class AllocationFanout
             }
         }
 
-        var recursive = new HashSet<int>();
+        var recursiveComponents = new Dictionary<int, int>();
+        int nextComponent = 0;
         visited.Clear();
         for (int i = finishingOrder.Count - 1; i >= 0; i--)
         {
@@ -223,13 +230,25 @@ public static class AllocationFanout
             }
 
             if (component.Count > 1 || HasExactSelfEdge(component[0]))
-                recursive.UnionWith(component);
+            {
+                int componentId = nextComponent++;
+                foreach (int token in component)
+                    recursiveComponents[token] = componentId;
+            }
         }
-        return recursive;
+        return recursiveComponents;
 
         bool HasExactSelfEdge(int token)
             => adjacency[token].Contains(token);
     }
+
+    static bool InSameRecursiveComponent(
+        int callerToken,
+        int targetToken,
+        IReadOnlyDictionary<int, int> recursiveComponents)
+        => recursiveComponents.TryGetValue(callerToken, out int callerComponent)
+            && recursiveComponents.TryGetValue(targetToken, out int targetComponent)
+            && callerComponent == targetComponent;
 
     sealed record Edge(DirectCall Call, int TargetToken);
 
