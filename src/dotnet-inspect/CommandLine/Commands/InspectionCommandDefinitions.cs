@@ -132,7 +132,7 @@ public static class InspectionCommandDefinitions
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
