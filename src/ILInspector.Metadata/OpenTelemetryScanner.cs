@@ -88,7 +88,8 @@ public static class OpenTelemetryScanner
 
                 try
                 {
-                    var signature = GuardedSignatureText.PropertyText(reader, property, context);
+                    var signature = GuardedSignatureText.PropertyText(reader, property, context)
+                        .GetValueOrThrow();
                     if (signature.ReturnType != "bool")
                         continue;
                 }
@@ -132,7 +133,8 @@ public static class OpenTelemetryScanner
                 try
                 {
                     var context = GenericContext.ForMethod(metadataReader, typeDefinition, method);
-                    signature = GuardedSignatureText.MethodText(metadataReader, method, context);
+                    signature = GuardedSignatureText.MethodText(metadataReader, method, context)
+                        .GetValueOrThrow();
                 }
                 catch (BadImageFormatException)
                 {
@@ -256,7 +258,8 @@ public static class OpenTelemetryScanner
 
             try
             {
-                if (GuardedSignatureText.PropertyText(reader, property, context).ReturnType == "bool")
+                if (GuardedSignatureText.PropertyText(reader, property, context)
+                    .GetValueOrThrow().ReturnType == "bool")
                     return true;
             }
             catch (BadImageFormatException)
@@ -292,7 +295,8 @@ public static class OpenTelemetryScanner
             try
             {
                 var context = GenericContext.ForMethod(reader, typeDefinition, method);
-                var signature = GuardedSignatureText.MethodText(reader, method, context);
+                var signature = GuardedSignatureText.MethodText(reader, method, context)
+                    .GetValueOrThrow();
                 if (TryClassifyTelemetryBuilderMethod(signature, out _))
                     return true;
             }

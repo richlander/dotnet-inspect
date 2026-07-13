@@ -6,12 +6,12 @@ using ILInspector.Decompiler;
 namespace ILInspector.Decompiler.Tests;
 
 // GuardedSignatureText routes the compile-back / type-source composers' string-producing signature
-// decodes through SignatureBlobGuard, so a malformed deeply-nested signature degrades to a
-// placeholder type instead of overflowing the native stack inside SRM.
+// decodes through SignatureBlobGuard, so a malformed deeply-nested signature is rejected
+// explicitly instead of overflowing the native stack inside SRM.
 public class GuardedSignatureTextTests
 {
     [Fact]
-    public void DeepFieldSignature_DegradesToPlaceholder()
+    public void DeepFieldSignature_IsRejected()
     {
         // FIELD header then a 600-deep array (over the 512 guard limit).
         var sig = new BlobBuilder();
@@ -21,9 +21,11 @@ public class GuardedSignatureTextTests
         sig.WriteByte(0x08);     // I4
 
         var (reader, handle) = BuildField(sig);
-        var text = GuardedSignatureText.FieldText(reader, reader.GetFieldDefinition(handle), context: null);
-
-        Assert.Equal("object", text);
+        Assert.Throws<BadImageFormatException>(() =>
+            GuardedSignatureText.FieldText(
+                reader,
+                reader.GetFieldDefinition(handle),
+                context: null));
     }
 
     static (MetadataReader Reader, FieldDefinitionHandle Handle) BuildField(BlobBuilder sig)
