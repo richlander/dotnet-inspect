@@ -176,6 +176,21 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "receiver reassigned after blob guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    value = other;
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
             "disjunctive blob guard",
             """
             class C
@@ -379,6 +394,45 @@ public class ProviderSignatureDecodeBoundaryTests
                     using (scope)
                     {
                         return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeSpec handle reassigned inside scope",
+            """
+            class C
+            {
+                object GetTypeFromSpecification()
+                {
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        handle = otherHandle;
+                        return reader.GetTypeSpecification(handle)
+                            .DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeSpec scope copied and disposed before decode",
+            """
+            class C
+            {
+                object GetTypeFromSpecification()
+                {
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        var copy = scope;
+                        copy.Dispose();
+                        return reader.GetTypeSpecification(handle)
+                            .DecodeSignature(provider, context);
                     }
                 }
             }
@@ -837,6 +891,11 @@ public class ProviderSignatureDecodeBoundaryTests
                     scope.Identifier.Text,
                     reader,
                     handle)
+                && !ExpressionMutatedBetween(reader, guard.Span.End, invocation)
+                && !ExpressionMutatedBetween(handle, guard.Span.End, invocation)
+                && !usingStatement.Statement.DescendantNodes()
+                    .OfType<IdentifierNameSyntax>()
+                    .Any(identifier => identifier.Identifier.Text == scope.Identifier.Text)
                 && StatementAlwaysExits(guard.Statement))
             {
                 return true;
@@ -884,7 +943,8 @@ public class ProviderSignatureDecodeBoundaryTests
         InvocationExpressionSyntax invocation,
         string identifier)
     {
-        var variable = invocation.SyntaxTree.GetRoot()
+        var root = invocation.SyntaxTree.GetRoot();
+        var variable = root
             .DescendantNodes()
             .OfType<VariableDeclaratorSyntax>()
             .Where(variable =>
@@ -897,23 +957,13 @@ public class ProviderSignatureDecodeBoundaryTests
         if (variable?.Initializer?.Value is not { } initializer)
             return null;
 
-        bool reassigned = invocation.SyntaxTree.GetRoot()
-            .DescendantNodes()
-            .Any(node =>
-                node.SpanStart > variable.Span.End
-                && node.SpanStart < invocation.SpanStart
-                && (node is AssignmentExpressionSyntax
-                    {
-                        Left: IdentifierNameSyntax left
-                    }
-                    && left.Identifier.Text == identifier
-                    || node is ArgumentSyntax
-                    {
-                        Expression: IdentifierNameSyntax argument,
-                        RefKindKeyword.RawKind: not 0
-                    }
-                    && argument.Identifier.Text == identifier));
-        return reassigned ? null : initializer;
+        return IdentifierMutatedBetween(
+            root,
+            identifier,
+            variable.Span.End,
+            invocation.SpanStart)
+            ? null
+            : initializer;
     }
 
     static bool ConditionRejectsFailedTypeSpecEntry(
@@ -970,6 +1020,10 @@ public class ProviderSignatureDecodeBoundaryTests
             if (ancestor is ConditionalExpressionSyntax conditional
                 && conditional.WhenTrue.Span.Contains(invocation.Span)
                 && !CrossesDeferredExecutionBoundary(invocation, conditional)
+                && !ExpressionMutatedBetween(
+                    decodeMember.Expression,
+                    conditional.Condition.Span.End,
+                    invocation)
                 && ConditionGuardsReceiverSignature(conditional.Condition, decodeReceiver))
             {
                 return true;
@@ -988,6 +1042,10 @@ public class ProviderSignatureDecodeBoundaryTests
         {
             if (ifStatement.Statement.Span.Contains(invocation.Span)
                 && !CrossesDeferredExecutionBoundary(invocation, ifStatement)
+                && !ExpressionMutatedBetween(
+                    decodeMember.Expression,
+                    ifStatement.Condition.Span.End,
+                    invocation)
                 && ConditionGuardsReceiverSignature(ifStatement.Condition, decodeReceiver))
             {
                 return true;
@@ -1008,6 +1066,10 @@ public class ProviderSignatureDecodeBoundaryTests
             foreach (var ifStatement in block.Statements.Take(guardedIndex).OfType<IfStatementSyntax>())
             {
                 if (ConditionRejectsUnsafeReceiverSignature(ifStatement.Condition, decodeReceiver)
+                    && !ExpressionMutatedBetween(
+                        decodeMember.Expression,
+                        ifStatement.Span.End,
+                        invocation)
                     && StatementAlwaysExits(ifStatement.Statement))
                 {
                     return true;
@@ -1021,13 +1083,8 @@ public class ProviderSignatureDecodeBoundaryTests
     static bool ConditionGuardsReceiverSignature(ExpressionSyntax condition, string decodeReceiver)
     {
         condition = StripParentheses(condition);
-        if (condition is InvocationExpressionSyntax invocation)
-            return IsReceiverSignatureGuard(invocation, decodeReceiver);
-
-        return condition is BinaryExpressionSyntax binary
-            && binary.IsKind(SyntaxKind.LogicalAndExpression)
-            && (ConditionGuardsReceiverSignature(binary.Left, decodeReceiver)
-                || ConditionGuardsReceiverSignature(binary.Right, decodeReceiver));
+        return condition is InvocationExpressionSyntax invocation
+            && IsReceiverSignatureGuard(invocation, decodeReceiver);
     }
 
     static bool ConditionRejectsUnsafeReceiverSignature(
@@ -1322,6 +1379,51 @@ public class ProviderSignatureDecodeBoundaryTests
             expression = parenthesized.Expression;
         return expression;
     }
+
+    static bool ExpressionMutatedBetween(
+        ExpressionSyntax expression,
+        int start,
+        SyntaxNode end)
+        => expression is IdentifierNameSyntax identifier
+            && IdentifierMutatedBetween(
+                end.SyntaxTree.GetRoot(),
+                identifier.Identifier.Text,
+                start,
+                end.SpanStart);
+
+    static bool IdentifierMutatedBetween(
+        SyntaxNode root,
+        string identifier,
+        int start,
+        int end)
+        => root.DescendantNodes().Any(node =>
+            node.SpanStart > start
+            && node.SpanStart < end
+            && (node is AssignmentExpressionSyntax
+                {
+                    Left: IdentifierNameSyntax left
+                }
+                && left.Identifier.Text == identifier
+                || node is PrefixUnaryExpressionSyntax
+                {
+                    Operand: IdentifierNameSyntax operand
+                } prefix
+                && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
+                    || prefix.IsKind(SyntaxKind.PreDecrementExpression))
+                && operand.Identifier.Text == identifier
+                || node is PostfixUnaryExpressionSyntax
+                {
+                    Operand: IdentifierNameSyntax postOperand
+                } postfix
+                && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
+                    || postfix.IsKind(SyntaxKind.PostDecrementExpression))
+                && postOperand.Identifier.Text == identifier
+                || node is ArgumentSyntax
+                {
+                    Expression: IdentifierNameSyntax argument,
+                    RefKindKeyword.RawKind: not 0
+                }
+                && argument.Identifier.Text == identifier));
 
     static bool CrossesDeferredExecutionBoundary(SyntaxNode descendant, SyntaxNode ancestor)
     {
