@@ -12,14 +12,19 @@ public sealed class SignatureSpellabilityTests
     {
         using var fixture = OpenFixture();
 
-        Assert.False(fixture.Spellability.CanSpellField(
+        var hidden = fixture.Spellability.InspectField(
             fixture.Reader,
             GetField(fixture.Reader, fixture.Type, "HiddenField"),
-            GenericContext.ForType(fixture.Reader, fixture.Type)));
-        Assert.True(fixture.Spellability.CanSpellField(
+            GenericContext.ForType(fixture.Reader, fixture.Type));
+        var visible = fixture.Spellability.InspectField(
             fixture.Reader,
             GetField(fixture.Reader, fixture.Type, "VisibleField"),
-            GenericContext.ForType(fixture.Reader, fixture.Type)));
+            GenericContext.ForType(fixture.Reader, fixture.Type));
+
+        Assert.False(hidden.CanSpell);
+        Assert.Null(hidden.DecodeStatus);
+        Assert.True(visible.CanSpell);
+        Assert.Null(visible.DecodeStatus);
     }
 
     [Fact]

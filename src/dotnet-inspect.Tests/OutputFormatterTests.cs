@@ -18,6 +18,21 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void UnsafeMembersSection_RendersDegradedSignatureScan()
+    {
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded,
+        });
+
+        Assert.True(view.HasUnsafeMembers);
+        var row = Assert.Single(view.UnsafeMembersSection!);
+        Assert.Equal("Decode degraded", row.Reason);
+        Assert.Contains("unsafe-code presence may be incomplete", row.Detail);
+    }
+
+    [Fact]
     public void WriteTable_WithoutRowLimit_MatchesRenderThenWrite()
     {
         // The uncapped path serializes straight to the writer instead of materializing the

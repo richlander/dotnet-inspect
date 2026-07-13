@@ -98,7 +98,10 @@ Extract public API surface using metadata:
 Guarded metadata signature rejection remains fail-closed (`object`/empty
 signature shape), but it is not presented as ordinary metadata:
 `ApiMember.SignatureDecodeStatus` is `Degraded`, and member tables add a
-`Decode: degraded` cell only for affected rows.
+`Decode: degraded` cell only for affected rows. The same status contract covers
+non-rendering signature inspections: spellability rejects a degraded signature
+instead of treating it as spellable, and unsafe-member discovery emits a
+diagnostic row when its pointer-signature scan is incomplete.
 
 ### diff
 

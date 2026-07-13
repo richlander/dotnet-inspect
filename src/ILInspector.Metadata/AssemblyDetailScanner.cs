@@ -462,12 +462,24 @@ public static class AssemblyDetailScanner
                     {
                         try
                         {
-                            var sig = GuardedProviderDecode.Method(reader, method, PointerDetector.Instance, (object?)null, false);
-                            if (sig.ReturnType || sig.ParameterTypes.Any(p => p))
+                            var decoded = GuardedProviderDecode.MethodResult(
+                                reader,
+                                method,
+                                PointerDetector.Instance,
+                                (object?)null,
+                                PointerDetection.Degraded);
+                            var detection = PointerDetection.Combine(
+                                decoded.Value.ReturnType,
+                                decoded.Value.ParameterTypes);
+                            if (decoded.IsDegraded || detection.IsDegraded)
+                                flags.UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded;
+                            if (detection.HasPointer)
                                 flags.HasUnsafeCode = true;
                         }
-                        // Skip methods with undecodable signatures
-                        catch { }
+                        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                        {
+                            flags.UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded;
+                        }
                     }
 
                     if (considerAsync && (!flags.HasRuntimeAsync || !flags.HasStateMachineAsync)
@@ -509,6 +521,7 @@ public class PresenceFlags
     public bool HasExtensionTypes { get; set; }
     public bool HasPInvokeImports { get; set; }
     public bool HasUnsafeCode { get; set; }
+    public SignatureDecodeStatus? UnsafeSignatureDecodeStatus { get; set; }
     public bool HasMethodBodies { get; set; }
     public bool HasManifestResources { get; set; }
     public bool HasAssemblyAttributes { get; set; }

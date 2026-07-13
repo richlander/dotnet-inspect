@@ -680,6 +680,10 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasUnsafeCode { get; set; }
 
+    /// <summary>Set when unsafe-signature detection could not inspect every signature completely.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SignatureDecodeStatus? UnsafeSignatureDecodeStatus { get; set; }
+
     /// <summary>True when the assembly has at least one method with an IL body (not a pure ref/abstract assembly).</summary>
     [JsonIgnore]
     public bool HasMethodBodies { get; set; }

@@ -492,7 +492,9 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => ScannerUnsafeMembers;
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeMembers is { Count: > 0 } || model.HasUnsafeCode;
+            => model.UnsafeMembers is { Count: > 0 }
+                || model.HasUnsafeCode
+                || model.UnsafeSignatureDecodeStatus is not null;
     }
 
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>
