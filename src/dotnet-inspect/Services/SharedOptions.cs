@@ -149,7 +149,7 @@ public class SharedOptions
     /// <summary>
     /// Adds core output options to a command (verbose, verbosity, tips, limit).
     /// </summary>
-    public void AddOutputOptionsTo(Command command)
+    public void AddOutputOptionsTo(Command command, bool supportsRowWindows = true)
     {
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
@@ -158,6 +158,16 @@ public class SharedOptions
         command.Options.Add(Limit);
         command.Options.Add(Rows);
         command.Options.Add(Tail);
+
+        if (!supportsRowWindows)
+        {
+            command.Validators.Add(result =>
+            {
+                if (result.GetValue(Rows))
+                    result.AddError($"--rows is not supported by the '{command.Name}' command.");
+            });
+            return;
+        }
 
         // Validate the --rows head/tail window at parse time so an invalid combination
         // surfaces as a clean System.CommandLine error (one line on stderr, exit 1)
