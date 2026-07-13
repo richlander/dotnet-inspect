@@ -598,6 +598,38 @@ public sealed class LibraryBodyIndex
         }
     }
 
+    // A parameterless Enumerable terminal can be O(1) on a concrete collection, but it
+    // necessarily enumerates when it consumes an immediately-produced lazy query such as
+    // Where(...).FirstOrDefault(). Keep this separate from IsLinqMembershipScan so a bare
+    // First/Any/Count over a collection remains excluded.
+    static bool IsLinqParameterlessTerminal(MemberRef member, out string op)
+    {
+        op = "";
+        if (member.Kind == MemberKind.Unsupported
+            || !IsEnumerableDefinition(member.DeclaringType)
+            || member.ParameterTypes.Length != 1)
+        {
+            return false;
+        }
+
+        switch (member.Name)
+        {
+            case "Any":
+            case "First":
+            case "FirstOrDefault":
+            case "Last":
+            case "LastOrDefault":
+            case "Single":
+            case "SingleOrDefault":
+            case "Count":
+            case "LongCount":
+                op = member.Name;
+                return true;
+            default:
+                return false;
+        }
+    }
+
     // The method's return type is an enumerable sequence (IEnumerable / IEnumerable<T>),
     // i.e. it can hand back a deferred query for the caller to enumerate.
     static bool ReturnsEnumerableSequence(TypeRef returnType)
@@ -613,10 +645,10 @@ public sealed class LibraryBodyIndex
     // itself invoked at a call site inside a loop, so the scan runs on every iteration even
     // though the scan and the loop live in different methods — the same O(n*m) shape as
     // linq-scan-in-loop, split across a call boundary where a single-method scan would miss
-    // it. "Scans a sequence" covers both a method that performs a membership terminal
-    // (IsLinqMembershipScan) and a method that returns a deferred Where/Select query the
-    // caller enumerates (a lazy producer returning IEnumerable). Reported once per scanning
-    // method, naming a representative looping caller.
+    // it. "Scans a sequence" covers a method that performs a membership terminal, consumes
+    // an immediately-produced lazy query (Where(...).FirstOrDefault()), or returns a deferred
+    // Where/Select query that the caller enumerates. Reported once per scanning method,
+    // naming a representative looping caller.
     IEnumerable<OptimizationOpportunity> ScanMethodsInvokedInLoops(Dictionary<int, int> reachByToken)
     {
         var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
@@ -630,17 +662,34 @@ public sealed class LibraryBodyIndex
         var scanningMethods = new Dictionary<int, string>();
         var inAssemblyCallees = new Dictionary<int, HashSet<int>>();
         var lazyReturning = new Dictionary<int, string>();
+        var immediateLazyProducers = new Dictionary<(int MethodToken, int NextOffset), string>();
         foreach (var call in DirectCalls)
         {
             if (IsLinqMembershipScan(call.Callee, out var membershipOp))
             {
                 scanningMethods.TryAdd(call.Caller.MetadataToken, membershipOp);
             }
-            else if (IsLinqLazyProducer(call.Callee, out var lazyOp)
-                && methodByToken.TryGetValue(call.Caller.MetadataToken, out var producer)
-                && ReturnsEnumerableSequence(producer.ReturnType))
+            else if (IsLinqLazyProducer(call.Callee, out var lazyOp))
             {
-                lazyReturning.TryAdd(call.Caller.MetadataToken, lazyOp);
+                // An immediately-following terminal consumes the lazy producer's stack
+                // result directly; any store/load or unrelated operation breaks this exact
+                // gate rather than being guessed through. Restrict the composed form to
+                // filtering producers: Select(...).First() can remain O(1), while Where and
+                // OfType must search for a matching element.
+                if (lazyOp is "Where" or "OfType" && call.ReturnAddress is { } nextOffset)
+                    immediateLazyProducers.TryAdd((call.Caller.MetadataToken, nextOffset), lazyOp);
+                if (methodByToken.TryGetValue(call.Caller.MetadataToken, out var producer)
+                    && ReturnsEnumerableSequence(producer.ReturnType))
+                {
+                    lazyReturning.TryAdd(call.Caller.MetadataToken, lazyOp);
+                }
+            }
+            else if (IsLinqParameterlessTerminal(call.Callee, out var terminalOp)
+                && immediateLazyProducers.TryGetValue(
+                    (call.Caller.MetadataToken, call.ILOffset),
+                    out var producerOp))
+            {
+                scanningMethods.TryAdd(call.Caller.MetadataToken, $"{producerOp}+{terminalOp}");
             }
 
             // Record in-assembly call edges for transitive lazy-producer propagation.

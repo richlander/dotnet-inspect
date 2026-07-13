@@ -37,6 +37,9 @@ delegates, stateless instance methods — so hot, fixable members surface first.
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance Triage"
 dnx dotnet-inspect -y -- library MyLib.dll --loop --min-confidence high --top 20 --tsv
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop \
+  --top 20 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 ```
 
@@ -50,9 +53,13 @@ curated ranked prefix. Supplying any of those flags selects `Performance Triage`
 automatically on `library`, `type`, and `member`. `--top` narrows the ranked data
 before rendering; `-n N --rows` is a generic rendered-row cap applied afterward.
 Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
-`linq-scan-in-loop`, `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
+`linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
+from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
 that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
-`async-state-machine`, and `allocation-hotspot`.
+`async-state-machine`, and `allocation-hotspot`. Query the algorithmic shapes
+explicitly: `scan-method-in-loop-call` stays low-confidence because static
+analysis cannot prove that the scanned sequence grows with the caller's loop,
+so a `--min-confidence high` pass intentionally excludes it.
 
 Exact rows retain machine-readable provenance from the native Analysis producer:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),

@@ -212,6 +212,7 @@ dotnet-inspect library MyLib.dll -S "Top Leverage"
 dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
 dotnet-inspect library MyLib.dll -S "Performance Triage"
 dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
+dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
 dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
