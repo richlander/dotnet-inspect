@@ -1283,7 +1283,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v10";
+    private const string EffectiveCategory = "effective-v11";
 
     static LibraryCommand()
     {
@@ -1369,90 +1369,26 @@ public class LibraryCommand
         }
         if (targetSections.Count == 0) return schema;
 
+        var filteredSections = new HashSet<string>(
+            targetSections.Where(name =>
+                string.Equals(name, LibrarySections.LibraryInfo.Name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, SectionNames.MemberContext, StringComparison.OrdinalIgnoreCase)),
+            StringComparer.OrdinalIgnoreCase);
+        if (filteredSections.Count == 0)
+            return schema;
+
         var view = new LibraryInspectionView(inspection);
-        var writerOpts = new MarkoutWriterOptions { IncludeSections = targetSections };
-        var rendered = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOpts);
+        var writerOpts = new MarkoutWriterOptions { IncludeSections = filteredSections };
+        var renderManifest = RenderManifestFormatter.Capture(
+            view,
+            InspectionContext.Default,
+            writerOpts);
 
-        var filtered = new DocumentSchema();
-        foreach (var name in effectiveSections)
-        {
-            var section = schema.GetSection(name);
-            if (section == null) { filtered.AddSection(name); continue; }
-
-            // Only filter fields for discovered sections; keep others intact
-            if (!targetSections.Contains(name))
-            {
-                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
-                continue;
-            }
-
-            if (string.Equals(name, "Library Info", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, SectionNames.MemberContext, StringComparison.OrdinalIgnoreCase))
-            {
-                var renderedLabels = GetRenderedFieldLabels(rendered, name);
-                var effectiveItems = section.Items
-                    .Where(item => renderedLabels.Contains(item.Name))
-                    .Select(item => item.Name)
-                    .ToArray();
-                filtered.Add(name, section.ItemKind,
-                    effectiveItems.Length > 0 ? effectiveItems : section.Items.Select(i => i.Name).ToArray());
-            }
-            else if (section.Items.Length > 0)
-                filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
-            else
-                filtered.AddSection(name);
-        }
-        return filtered;
-    }
-
-    internal static HashSet<string> GetRenderedFieldLabelsForTests(string rendered, string sectionName)
-        => GetRenderedFieldLabels(rendered, sectionName);
-
-    private static HashSet<string> GetRenderedFieldLabels(string rendered, string sectionName)
-    {
-        HashSet<string> labels = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var line in ExtractSection(rendered, sectionName))
-        {
-            if (!line.StartsWith('|'))
-                continue;
-
-            var cells = line.Split('|', StringSplitOptions.TrimEntries);
-            if (cells.Length < 3
-                || cells[1].Equals("Field", StringComparison.OrdinalIgnoreCase)
-                || IsMarkdownSeparatorCell(cells[1]))
-                continue;
-
-            labels.Add(cells[1]);
-        }
-
-        return labels;
-    }
-
-    private static IEnumerable<string> ExtractSection(string rendered, string sectionName)
-    {
-        var inSection = false;
-        var heading = "## " + sectionName;
-        foreach (var line in rendered.ReplaceLineEndings("\n").Split('\n'))
-        {
-            if (line.StartsWith("## ", StringComparison.Ordinal))
-            {
-                inSection = line.Equals(heading, StringComparison.Ordinal)
-                    || line.StartsWith(heading + " (", StringComparison.Ordinal);
-                continue;
-            }
-
-            if (inSection)
-                yield return line;
-        }
-    }
-
-    private static bool IsMarkdownSeparatorCell(string cell)
-    {
-        var trimmed = cell.Trim();
-        if (trimmed.Length == 0)
-            return false;
-
-        return trimmed.All(ch => ch is '-' or ':');
+        return DiscoverOutput.FilterSchemaToRenderedFields(
+            effectiveSections,
+            schema,
+            renderManifest,
+            filteredSections);
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,

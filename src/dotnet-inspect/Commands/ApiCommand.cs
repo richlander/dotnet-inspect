@@ -1142,7 +1142,7 @@ public class ApiCommand
     /// sections absent from the active schema, then <see cref="DiscoverOutput.RestrictToRenderedSections"/> drops schema sections that
     /// render no data for this type (e.g. Custom Attributes when the type has no attributes),
     /// so every listed section is queryable via <c>-D &lt;Section&gt;</c> and actually has data.</item>
-    /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedHeaders"/> renders the
+    /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedColumns"/> renders the
     /// type at the active options and keeps only columns that appear, dropping columns the
     /// active options never surface and columns with no data
     /// (e.g. Obsolete when no member is obsolete).</item>
@@ -1163,7 +1163,7 @@ public class ApiCommand
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
-        var rendered = RenderTypeSectionsMarkdown(filteredType, options, discoveryRenderSections);
+        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();
@@ -1172,7 +1172,7 @@ public class ApiCommand
             && options.Discover.Any(name => !name.StartsWith("@", StringComparison.Ordinal));
         if (specificSectionDiscover)
         {
-            var renderedKept = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, rendered);
+            var renderedKept = DiscoverOutput.RestrictToRenderedSections(effective, fullSchema, renderManifest);
             var keep = new HashSet<string>(renderedKept, StringComparer.OrdinalIgnoreCase);
             foreach (var section in effective)
             {
@@ -1183,7 +1183,7 @@ public class ApiCommand
             }
             queryEffective = effective.Where(keep.Contains).ToList();
         }
-        var schema = DiscoverOutput.FilterSchemaToRenderedHeaders(queryEffective, fullSchema, rendered);
+        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(queryEffective, fullSchema, renderManifest);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
@@ -1192,26 +1192,68 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Renders the type's member/enum sections to a markdown string for effective-column
-    /// discovery. Replicates <see cref="WriteTypeOutput"/>'s verbosity branching so the
-    /// rendered table headers reflect exactly which columns the user would actually see
-    /// (e.g. summary columns at Minimal, full member columns at Detailed, and the dedicated
-    /// Member Index section when requested). Projection (--columns/--fields) is intentionally dropped so
-    /// the result reflects all renderable columns, not a user-narrowed subset.
+    /// Renders the type's member/enum sections to Markdown.
     /// </summary>
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
-        if (discoverySections is { Count: > 0 })
+        var documents = BuildTypeRenderDocuments(type, options, discoverySections);
+        var sw = new StringWriter();
+        for (int i = 0; i < documents.Count; i++)
         {
-            var baseText = RenderTypeSectionsMarkdown(type, options with { Discover = null }, discoverySections: null);
-            var explicitText = RenderTypeSectionsMarkdown(type, options with
+            if (i > 0)
+                sw.WriteLine();
+
+            var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), documents[i].WriterOptions);
+            documents[i].Serialize(writer);
+            writer.Flush();
+        }
+
+        return sw.ToString();
+    }
+
+    /// <summary>
+    /// Captures the sections and table columns emitted by the same type-document
+    /// serializer used for normal output. Effective discovery consumes this typed
+    /// manifest instead of recovering structure from rendered Markdown.
+    /// </summary>
+    internal static RenderedSectionManifest BuildTypeRenderManifest(
+        ApiType type,
+        ApiOptions options,
+        IReadOnlyCollection<string>? discoverySections = null)
+    {
+        var formatter = new RenderManifestFormatter();
+        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections))
+        {
+            formatter.BeginDocument();
+            var writer = new MarkoutWriter(TextWriter.Null, formatter, document.WriterOptions);
+            document.Serialize(writer);
+            writer.Flush();
+        }
+
+        return formatter.Manifest;
+    }
+
+    private static IReadOnlyList<TypeRenderDocument> BuildTypeRenderDocuments(
+        ApiType type,
+        ApiOptions options,
+        IReadOnlyCollection<string>? discoverySections)
+    {
+        if (discoverySections is not { Count: > 0 })
+            return [BuildTypeRenderDocument(type, options)];
+
+        return
+        [
+            BuildTypeRenderDocument(type, options with { Discover = null }),
+            BuildTypeRenderDocument(type, options with
             {
                 Discover = null,
                 IncludeSections = new HashSet<string>(discoverySections, StringComparer.OrdinalIgnoreCase),
-            }, discoverySections: null);
-            return string.Concat(baseText, Environment.NewLine, explicitText);
-        }
+            })
+        ];
+    }
 
+    private static TypeRenderDocument BuildTypeRenderDocument(ApiType type, ApiOptions options)
+    {
         var renderOptions = options with
         {
             Columns = null,
@@ -1363,14 +1405,36 @@ public class ApiCommand
             }
         }
 
-        var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, renderOptions);
-        var sw = new StringWriter();
-        var writer = new MarkoutWriter(sw, new Markout.MarkdownFormatter(), writerOptions);
-        ApiOutputFormatter.SerializeTypeDocument(
+        return new TypeRenderDocument(
             view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-            explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-        writer.Flush();
-        return sw.ToString();
+            explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode,
+            ApiOutputFormatter.BuildTypeWriterOptions(type, renderOptions));
+    }
+
+    private sealed record TypeRenderDocument(
+        TypeView View,
+        EventsView? Events,
+        MethodGroupsView? MethodGroups,
+        MethodsView? Methods,
+        MemberIndexView? MemberIndex,
+        OperatorsView? Operators,
+        ExplicitInterfaceImplementationsView? ExplicitInterfaceImplementations,
+        ExtensionMethodsView? ExtensionMethods,
+        MemberCodeView? MemberCode,
+        MarkoutWriterOptions WriterOptions)
+    {
+        internal void Serialize(MarkoutWriter writer)
+            => ApiOutputFormatter.SerializeTypeDocument(
+                View,
+                Events,
+                MethodGroups,
+                Methods,
+                MemberIndex,
+                Operators,
+                ExplicitInterfaceImplementations,
+                ExtensionMethods,
+                MemberCode,
+                writer);
     }
 
     private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
