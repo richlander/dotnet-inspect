@@ -2018,6 +2018,7 @@ public static class ApiOutputFormatter
                 MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
                 opportunity.CandidateId is null ? null : MarkoutInline.Code(opportunity.CandidateId),
                 opportunity.SourceFinding,
+                LibraryMetadataService.FormatProvenance(opportunity.Provenance),
                 opportunity.RootReach.ToString(),
                 opportunity.Shape,
                 opportunity.Operation,

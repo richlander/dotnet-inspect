@@ -193,7 +193,9 @@ for methods that allocate heavily without matching a specific shape. Allocation
 rows also carry `Weight`, a coarse size x multiplicity x reach static prior that
 you can query or sort when choosing pre-profile instrumentation targets. Exact
 allocation and call-site rows also retain a `Candidate` id, their native
-`Finding` descriptor, `Operation`, and metadata `Token`. Those fields let trace
+`Finding` descriptor, `Provenance=exact`, `Operation`, and metadata `Token`.
+Aggregate rows are marked `Provenance=aggregate`; `unmatched` identifies an
+instruction-level row that could not be joined to a producer occurrence. Those fields let trace
 and version-diff tooling join a triage row to `analysis.allocation` or
 `analysis.call-site` evidence without parsing `Evidence` prose. Use
 `--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for

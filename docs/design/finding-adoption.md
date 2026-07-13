@@ -209,10 +209,12 @@ judgment.
 judgments. Exact rows retain the `analysis.allocation` or
 `analysis.call-site` descriptor and identity fingerprint together with the
 version-local MethodDef token, IL offset, occurrence ordinal, operation, and
-operand token. `Candidate` is therefore useful for a runtime/static join within
-one build, while `diff --finding` and `timeline --finding` remain the
-cross-version correspondence paths. Aggregate judgments such as
-`allocation-hotspot` deliberately have no exact source Finding.
+operand token. `Provenance` distinguishes `exact`, `aggregate`, and `unmatched`
+rows rather than relying on empty fields as an implicit signal. `Candidate` is
+therefore useful for a runtime/static join within one build, while
+`diff --finding` and `timeline --finding` remain the cross-version
+correspondence paths. Aggregate judgments such as `allocation-hotspot`
+deliberately have no exact source Finding.
 
 ## Adoption review
 

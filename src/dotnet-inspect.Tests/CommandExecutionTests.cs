@@ -482,8 +482,38 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("\"candidate\":\"pt~", output);
         Assert.Contains("\"finding\":\"analysis.allocation\"", output);
+        Assert.Contains("\"provenance\":\"exact\"", output);
         Assert.Contains("\"operation\":\"box\"", output);
         Assert.Contains("\"token\":\"0x", output);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageWhere_NormalizesMetadataToken()
+    {
+        var baseline = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Finding=analysis.allocation",
+            "--top", "1",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, baseline.Exit);
+        Assert.Empty(baseline.Error);
+        using var document = JsonDocument.Parse(baseline.Output.Trim());
+        string token = document.RootElement.GetProperty("token").GetString()!;
+        string unpaddedToken = $"0x{token[2..].TrimStart('0')}";
+
+        var filtered = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", $"Token={unpaddedToken}",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, filtered.Exit);
+        Assert.Empty(filtered.Error);
+        Assert.Contains($"\"token\":\"{token}\"", filtered.Output);
     }
 
     [Fact]

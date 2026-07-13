@@ -1530,10 +1530,11 @@ public class LibraryBodyIndexTests
             .Where(occurrence => occurrence.ILOffset == opportunity.ILOffset));
 
         Assert.Equal(AnalysisFindings.AllocationDescriptor.Id, opportunity.SourceFinding);
+        Assert.Equal(PerformanceTriageProvenance.Exact, opportunity.Provenance);
         Assert.Equal("box", opportunity.Operation);
         Assert.Equal(occurrence.OperandToken, opportunity.OperandToken);
         Assert.StartsWith("pt~", opportunity.CandidateId, StringComparison.Ordinal);
-        Assert.Equal(13, opportunity.CandidateId!.Length);
+        Assert.Equal(19, opportunity.CandidateId!.Length);
     }
 
     [Fact]
@@ -1548,10 +1549,45 @@ public class LibraryBodyIndexTests
             .Where(call => call.ILOffset == opportunity.ILOffset));
 
         Assert.Equal(AnalysisFindings.CallSiteDescriptor.Id, opportunity.SourceFinding);
+        Assert.Equal(PerformanceTriageProvenance.Exact, opportunity.Provenance);
         Assert.Equal(call.Opcode, opportunity.Operation);
         Assert.Equal(call.OperandToken, opportunity.OperandToken);
         Assert.StartsWith("pt~", opportunity.CandidateId, StringComparison.Ordinal);
-        Assert.Equal(13, opportunity.CandidateId!.Length);
+        Assert.Equal(19, opportunity.CandidateId!.Length);
+    }
+
+    [Theory]
+    [InlineData(nameof(OptimizationOpportunityFixtures.AllocatesManyObjectsInLoop), "allocation-hotspot")]
+    [InlineData(nameof(OptimizationOpportunityFixtures.ContainsKey), "scan-method-in-loop-call")]
+    public void OptimizationOpportunities_MarkAggregateProvenance(string methodName, string shape)
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+            opportunity.Method.Name == methodName
+            && opportunity.Shape == shape));
+
+        Assert.Equal(PerformanceTriageProvenance.Aggregate, opportunity.Provenance);
+        Assert.Null(opportunity.SourceFinding);
+        Assert.Null(opportunity.Operation);
+        Assert.Null(opportunity.OperandToken);
+        Assert.NotNull(opportunity.CandidateId);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_CandidateIdsAreStableAndUnique()
+    {
+        string path = typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        var first = LibraryBodyIndex.Open(path).OptimizationOpportunities
+            .Select(opportunity => opportunity.CandidateId)
+            .ToArray();
+        var second = LibraryBodyIndex.Open(path).OptimizationOpportunities
+            .Select(opportunity => opportunity.CandidateId)
+            .ToArray();
+
+        Assert.Equal(first, second);
+        Assert.DoesNotContain(first, candidate => candidate is null);
+        Assert.Equal(first.Length, first.Distinct(StringComparer.Ordinal).Count());
     }
 
     [Fact]

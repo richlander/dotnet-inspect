@@ -108,8 +108,9 @@ Start with a small field predicate grammar:
 Examples:
 
 ```bash
---where "Candidate=pt~0123456789"
+--where "Candidate=pt~0123456789abcdef"
 --where "Finding=analysis.call-site"
+--where "Provenance=exact"
 --where "Shape=box-value-type"
 --where "Operation=box"
 --where "Allocation=boxed *"
@@ -161,16 +162,21 @@ Default order:
     6. Shape asc
 
 Filterable fields:
-  Member, Candidate, Finding, RootReach, Shape, Operation, Token, Evidence, Fix,
-  Confidence, Loop, Allocation, Path, PathConfidence, PostDominance, IL, Weight
+  Member, Candidate, Finding, Provenance, RootReach, Shape, Operation, Token,
+  Evidence, Fix, Confidence, Loop, Allocation, Path, PathConfidence,
+  PostDominance, IL, Weight
 
 Sortable fields:
-  Triage, RootReach, Confidence, Loop, Member, Candidate, Finding, Shape,
-  Operation, Token, IL, Allocation, Path, PathConfidence, PostDominance, Weight
+  Triage, RootReach, Confidence, Loop, Member, Candidate, Finding, Provenance,
+  Shape, Operation, Token, IL, Allocation, Path, PathConfidence, PostDominance,
+  Weight
 ```
 
 This makes the default sort order visible exactly where users and agents already
-learn columns.
+learn columns. Candidate ordering is fingerprint order: it is useful for stable
+pagination within one build, not as a semantic priority. Exact token predicates
+normalize hexadecimal metadata tokens, so `0x2000001` matches rendered
+`0x02000001`.
 
 `-D <section>` may include a compact form of the same metadata, but `--schema`
 is the authoritative static contract.

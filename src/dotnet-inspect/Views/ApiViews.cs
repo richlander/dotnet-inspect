@@ -907,6 +907,7 @@ public record OptimizationOpportunityRow(
     string Member,
     [property: MarkoutSkipNull] string? Candidate,
     [property: MarkoutSkipNull] string? Finding,
+    [property: MarkoutSkipNull] string? Provenance,
     string RootReach,
     string Shape,
     [property: MarkoutSkipNull] string? Operation,

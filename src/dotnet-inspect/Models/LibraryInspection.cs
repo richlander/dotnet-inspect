@@ -1084,6 +1084,8 @@ public record class OptimizationOpportunitySummary
     public string? Candidate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Finding { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Provenance { get; init; }
     public int RootReach { get; init; }
     public string Shape { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -117,16 +117,23 @@ observation that supports them:
 
 - allocation-backed rows carry `Finding=analysis.allocation`;
 - call-backed rows carry `Finding=analysis.call-site`;
+- `Provenance=exact` marks those producer-backed rows, while `aggregate` marks
+  cross-occurrence judgments and `unmatched` exposes a failed instruction-level
+  producer join;
 - `Operation`, `Token`, and `IL` retain machine-readable occurrence
   coordinates;
-- `Candidate` combines the descriptor, a fingerprint of the producer-owned
-  identity, the MethodDef token + IL offset, the occurrence ordinal, and the
-  triage shape.
+- `Candidate` uses the Performance Triage-owned
+  `dotnet-inspect.performance-triage.v1` namespace and a 16-hex SHA-256 prefix
+  over the descriptor, complete producer-owned `FindingKey`, MethodDef token +
+  IL offset, occurrence ordinal, and triage shape.
 
 This separates two joins that have different stability contracts. `Candidate`
 is exact within one assembly build and is the key for runtime/static trace
 correlation. Cross-version onset still uses the producer-native
 `diff --finding` or `timeline --finding` matcher, where IL offsets and metadata
 tokens remain provenance rather than correspondence identity. Aggregate rows
-such as `allocation-hotspot` have no exact source occurrence and therefore keep
-their `Finding`, `Operation`, and `Token` fields empty.
+such as `allocation-hotspot` have no exact source occurrence and therefore use
+`Provenance=aggregate` while keeping their `Finding`, `Operation`, and `Token`
+fields empty. Candidate IDs are checked for uniqueness when an index is built;
+a truncated-prefix collision is deterministically lengthened rather than
+creating an ambiguous join.

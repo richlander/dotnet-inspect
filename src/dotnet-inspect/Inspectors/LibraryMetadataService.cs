@@ -792,6 +792,7 @@ internal static class LibraryMetadataService
                     Member = FormatMethod(opportunity.Method),
                     Candidate = opportunity.CandidateId,
                     Finding = opportunity.SourceFinding,
+                    Provenance = FormatProvenance(opportunity.Provenance),
                     RootReach = opportunity.RootReach,
                     Shape = opportunity.Shape,
                     Operation = opportunity.Operation,
@@ -961,6 +962,20 @@ internal static class LibraryMetadataService
             };
         }
 
+        if (predicate.Field == "Token"
+            && !predicate.Value.Contains('*')
+            && !predicate.Value.Contains('?')
+            && TryParseMetadataToken(predicate.Value, out int expectedToken))
+        {
+            bool matches = opportunity.OperandToken == expectedToken;
+            return predicate.Operator switch
+            {
+                PerformanceTriageOptions.RowOperator.Equals => matches,
+                PerformanceTriageOptions.RowOperator.NotEquals => !matches,
+                _ => false,
+            };
+        }
+
         var actual = TriageFieldValue(opportunity, predicate.Field) ?? "";
         bool match = WildcardMatch(actual, predicate.Value);
         return predicate.Operator switch
@@ -1005,6 +1020,7 @@ internal static class LibraryMetadataService
             "Member" => FormatMethod(opportunity.Method),
             "Candidate" => opportunity.CandidateId,
             "Finding" => opportunity.SourceFinding,
+            "Provenance" => FormatProvenance(opportunity.Provenance),
             "Shape" => opportunity.Shape,
             "Operation" => opportunity.Operation,
             "Token" => FormatToken(opportunity.OperandToken),
@@ -1024,6 +1040,27 @@ internal static class LibraryMetadataService
 
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
+
+    internal static string? FormatProvenance(Analysis.PerformanceTriageProvenance provenance)
+        => provenance switch
+        {
+            Analysis.PerformanceTriageProvenance.Exact => "exact",
+            Analysis.PerformanceTriageProvenance.Aggregate => "aggregate",
+            Analysis.PerformanceTriageProvenance.Unmatched => "unmatched",
+            _ => null,
+        };
+
+    static bool TryParseMetadataToken(string value, out int token)
+    {
+        token = default;
+        value = value.Trim();
+        return value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(
+                value.AsSpan(2),
+                NumberStyles.AllowHexSpecifier,
+                CultureInfo.InvariantCulture,
+                out token);
+    }
 
     static string ShortMemberSignature(Analysis.MethodIdentity method)
         => $"{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";

@@ -1,5 +1,13 @@
 namespace ILInspector.Analysis;
 
+public enum PerformanceTriageProvenance
+{
+    Unknown,
+    Exact,
+    Aggregate,
+    Unmatched,
+}
+
 public sealed record OptimizationOpportunity(
     MethodIdentity Method,
     string Shape,
@@ -45,4 +53,7 @@ public sealed record OptimizationOpportunity(
 
     /// <summary>The source occurrence's version-local metadata operand token, when present.</summary>
     public int? OperandToken { get; init; }
+
+    /// <summary>Whether this row has exact, aggregate, or unresolved producer provenance.</summary>
+    public PerformanceTriageProvenance Provenance { get; init; }
 }

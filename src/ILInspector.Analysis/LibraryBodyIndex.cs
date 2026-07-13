@@ -8,7 +8,6 @@ using ILInspector.ControlFlow;
 using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
 
@@ -112,6 +111,7 @@ public sealed class LibraryBodyIndex
     {
         var allocationFindings = new Dictionary<int, ImmutableArray<Finding<AllocationOccurrence>>>();
         var callSiteFindings = new Dictionary<int, ImmutableArray<Finding<DirectCall>>>();
+        var candidateIds = new HashSet<string>(StringComparer.Ordinal);
         var builder = ImmutableArray.CreateBuilder<OptimizationOpportunity>(opportunities.Length);
 
         foreach (var opportunity in opportunities)
@@ -130,9 +130,14 @@ public sealed class LibraryBodyIndex
                             FindingSubjectFor(opportunity.Method));
                         allocationFindings[methodToken] = findings;
                     }
-                    allocation = findings.FirstOrDefault(finding => finding.Payload.ILOffset == offset);
+                    allocation = SingleFindingAtOffset(
+                        findings,
+                        offset,
+                        static occurrence => occurrence.ILOffset);
                 }
 
+                // newobj and GetEnumerator calls can appear in both censuses. Their triage
+                // shapes describe the allocation, so the allocation Finding owns provenance.
                 if (allocation is null
                     && GetDirectCallsByCaller().TryGetValue(methodToken, out var calls))
                 {
@@ -143,21 +148,51 @@ public sealed class LibraryBodyIndex
                             FindingSubjectFor(opportunity.Method));
                         callSiteFindings[methodToken] = findings;
                     }
-                    callSite = findings.FirstOrDefault(finding => finding.Payload.ILOffset == offset);
+                    callSite = SingleFindingAtOffset(
+                        findings,
+                        offset,
+                        static call => call.ILOffset);
                 }
             }
 
             string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id;
-            string? identityKey = allocation?.Key.IdentityKey ?? callSite?.Key.IdentityKey;
+            FindingKey? findingKey = allocation?.Key ?? callSite?.Key;
             int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
+            int fingerprintLength = PerformanceTriageCandidateId.InitialFingerprintLength;
+            string candidateId;
+            while (true)
+            {
+                candidateId = PerformanceTriageCandidateId.Create(
+                    opportunity,
+                    sourceFinding,
+                    findingKey,
+                    ordinal,
+                    fingerprintLength);
+                if (candidateIds.Add(candidateId))
+                    break;
+                if (fingerprintLength == PerformanceTriageCandidateId.MaximumFingerprintLength)
+                {
+                    throw new InvalidOperationException(
+                        $"Duplicate Performance Triage candidate identity '{candidateId}'.");
+                }
+                fingerprintLength = Math.Min(
+                    fingerprintLength + 8,
+                    PerformanceTriageCandidateId.MaximumFingerprintLength);
+            }
+
             builder.Add(opportunity with
             {
-                CandidateId = CandidateId(opportunity, sourceFinding, identityKey, ordinal),
+                CandidateId = candidateId,
                 SourceFinding = sourceFinding,
                 Operation = allocation is null
                     ? CallOperation(callSite?.Payload)
                     : AllocationOperation(allocation.Payload),
                 OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
+                Provenance = sourceFinding is not null
+                    ? PerformanceTriageProvenance.Exact
+                    : opportunity.ILOffset is null
+                        ? PerformanceTriageProvenance.Aggregate
+                        : PerformanceTriageProvenance.Unmatched,
             });
         }
 
@@ -169,22 +204,25 @@ public sealed class LibraryBodyIndex
             $"method:0x{method.MetadataToken:X8}",
             $"{method.DeclaringType.ToQualifiedDisplayString()}::{method.Name}");
 
-    static string CandidateId(
-        OptimizationOpportunity opportunity,
-        string? descriptor,
-        string? identityKey,
-        int? ordinal)
+    static Finding<T>? SingleFindingAtOffset<T>(
+        ImmutableArray<Finding<T>> findings,
+        int offset,
+        Func<T, int> getOffset)
+        where T : notnull
     {
-        string coordinate = opportunity.ILOffset is { } offset
-            ? $"0x{opportunity.Method.MetadataToken:X8}+0x{offset:X4}"
-            : $"0x{opportunity.Method.MetadataToken:X8}";
-        string source = descriptor is null || identityKey is null
-            ? "performance"
-            : $"{descriptor}|{identityKey}";
-        string occurrence = ordinal?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
-        string fingerprint = MemberAnchor.ComputeFingerprint(
-            $"{source}|{coordinate}|{occurrence}|{opportunity.Shape}");
-        return $"pt~{fingerprint}";
+        Finding<T>? result = null;
+        foreach (var finding in findings)
+        {
+            if (getOffset(finding.Payload) != offset)
+                continue;
+            if (result is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Finding census '{finding.Descriptor.Id}' contains multiple occurrences at IL_{offset:X4}.");
+            }
+            result = finding;
+        }
+        return result;
     }
 
     static string AllocationOperation(AllocationOccurrence occurrence)

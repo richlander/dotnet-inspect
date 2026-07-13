@@ -112,7 +112,14 @@ public class OutputFormatterTests
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
         Assert.NotEmpty(rows);
-        Assert.Contains(rows, row => row.Shape == "small-array");
+        var row = Assert.Single(rows, row =>
+            row.Shape == "small-array"
+            && row.Member.Contains(nameof(CreateSmallArrayOpportunity), StringComparison.Ordinal));
+        Assert.Contains("pt~", row.Candidate, StringComparison.Ordinal);
+        Assert.Equal("analysis.allocation", row.Finding);
+        Assert.Equal("exact", row.Provenance);
+        Assert.Equal("newarr", row.Operation);
+        Assert.Contains("0x", row.Token, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -142,6 +149,7 @@ public class OutputFormatterTests
 
         Assert.Contains("Performance Triage", markdown);
         Assert.Contains("small-array", markdown);
+        Assert.Contains("| Member | Candidate | Finding | Provenance |", markdown);
     }
 
     [Fact]
@@ -179,6 +187,7 @@ public class OutputFormatterTests
 
         Assert.Contains("Performance Triage", markdown);
         Assert.Contains(nameof(CreateSmallArrayOpportunity), markdown);
+        Assert.Contains("| Member | Candidate | Finding | Provenance |", markdown);
         Assert.DoesNotContain(nameof(CreateTemporaryArray), markdown);
     }
 
