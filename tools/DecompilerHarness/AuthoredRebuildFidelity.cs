@@ -80,7 +80,9 @@ static class AuthoredRebuildFidelity
                 or BadImageFormatException
                 or InvalidOperationException)
             {
-                _ = ex;
+                Console.Error.WriteLine(
+                    $"Warning: authored rebuild skipped '{assemblyPath}' "
+                    + $"({ex.GetType().Name}: {ex.Message}).");
                 continue;
             }
 

@@ -63,6 +63,13 @@ public class DiffCommand
                 options.IncludeSections))
             return 1;
 
+        if (options.IncludeAuthoredSource && !SelectsImplementationDiff(options))
+        {
+            Console.Error.WriteLine(
+                "Error: --authored-source requires the Implementation Diff section.");
+            return 1;
+        }
+
         if (!hasPlatform && !hasPackage && !hasLibrary)
         {
             Console.Error.WriteLine("Error: --package, --platform, or --library with version range required.");
@@ -866,7 +873,7 @@ public class DiffCommand
             options,
             fromSurface,
             toSurface);
-        if (result.Members.Count == 0)
+        if (!options.IncludeAuthoredSource || result.Members.Count == 0)
             return result;
 
         var subjects = result.Members
@@ -2046,6 +2053,7 @@ public record DiffOptions
     public bool Additive { get; init; }
     public bool ChangedOnly { get; init; }
     public bool AllocRegressionsOnly { get; init; }
+    public bool IncludeAuthoredSource { get; init; }
     public string? Finding { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }

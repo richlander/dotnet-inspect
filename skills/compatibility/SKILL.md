@@ -94,7 +94,8 @@ C# lane. Narrow with `-t` and `-m`; use `--table`, `--tsv`, or `--jsonl` for
 columnar output.
 
 ```bash
-dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -t MyType -m HotPath
+dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \
+  -S "Implementation Diff" --authored-source -t MyType -m HotPath
 ```
 
 Treat these rows as implementation evidence, not semantic-equivalence proof.

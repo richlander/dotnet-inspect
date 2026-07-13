@@ -313,7 +313,7 @@ dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
 dotnet-inspect timeline --package MyLib@1.0.0..2.0.0 --type MyType --member Parse --finding analysis.unsafety --at all
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" -m MyType.HotPath
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --authored-source -m MyType.HotPath
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect implements IEquatable --project ./src/App -v:q
 dotnet-inspect extensions string --project ./src/App -v:n

@@ -1492,6 +1492,23 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AuthoredSourceWithoutImplementationDiff_ReturnsError()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                IncludeAuthoredSource = true
+            }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--authored-source requires the Implementation Diff section",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_MultipleSelectedSections_ComposesMarkdown()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -1517,7 +1534,7 @@ public class DiffCommandTests
             output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "C# is decompiled evidence; Source is checksum-verified authored evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility.",
+            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
             output,
             StringComparison.Ordinal);
     }
@@ -1568,7 +1585,7 @@ public class DiffCommandTests
             "Analysis signal changes are body-level evidence, not public API compatibility changes.",
             document.RootElement.GetProperty("analysis_diff_note").GetString());
         Assert.Equal(
-            "C# is decompiled evidence; Source is checksum-verified authored evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility.",
+            "C# and IL implementation evidence is body-level evidence, not public API compatibility.",
             document.RootElement.GetProperty("implementation_diff_note").GetString());
         Assert.DoesNotContain(analysis.EnumerateArray(), row =>
             row.GetProperty("member").GetString()!.Contains("<code>", StringComparison.Ordinal)

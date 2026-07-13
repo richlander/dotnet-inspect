@@ -92,7 +92,8 @@ third implementation-specific row family.
 The `diff` command exposes this component through the explicit-only
 `Implementation Diff` section. The CLI projects one row per producer-owned
 unified line with `Member`, `Mechanism`, `Change`, and `Evidence` columns.
-For changed implementation members, it acquires each endpoint's PDB and
+With `--authored-source`, it acquires each changed implementation member's
+endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled
 `Source` lane. Missing mappings and acquisition failures remain visible rather
 than falling back to decompiled C#.

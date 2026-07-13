@@ -202,6 +202,7 @@ public static class InspectionCommandDefinitions
         var additiveOption = new Option<bool>("--additive") { Description = "Show only additive changes" };
         var changedOption = new Option<bool>("--changed") { Description = "Analysis Diff only: show only in-place changes to members present in both versions (drop added/removed members)" };
         var allocRegressionsOption = new Option<bool>("--alloc-regressions") { Description = "Analysis Diff focus: show only allocation increases on members present in both versions (the file-able set), in-loop (hot) ones first" };
+        var authoredSourceOption = new Option<bool>("--authored-source") { Description = "Implementation Diff only: acquire checksum-verified authored SourceLink evidence" };
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
 
@@ -222,6 +223,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(additiveOption);
         diffCommand.Options.Add(changedOption);
         diffCommand.Options.Add(allocRegressionsOption);
+        diffCommand.Options.Add(authoredSourceOption);
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         opts.AddOutputOptionsTo(diffCommand);
@@ -232,7 +234,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, findingOption, legendOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, authoredSourceOption, findingOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {

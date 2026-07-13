@@ -57,6 +57,7 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff()
     {
         var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
