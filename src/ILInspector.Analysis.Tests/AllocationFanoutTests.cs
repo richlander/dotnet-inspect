@@ -157,8 +157,9 @@ public class AllocationFanoutTests
 
         Assert.All(summaries, summary =>
         {
-            Assert.Equal(1, summary.OncePaths);
-            Assert.Equal(1, summary.OpaquePaths);
+            Assert.Equal(0, summary.OncePaths);
+            Assert.Equal(2, summary.UnknownPaths);
+            Assert.Equal(2, summary.OpaquePaths);
         });
     }
 
@@ -182,8 +183,34 @@ public class AllocationFanoutTests
             },
             root);
 
-        Assert.Equal(1, rootSummary.OncePaths);
+        Assert.Equal(0, rootSummary.OncePaths);
+        Assert.Equal(1, rootSummary.UnknownPaths);
         Assert.Equal(1, rootSummary.OpaquePaths);
+    }
+
+    [Fact]
+    public void Analyze_PropagatesKnownImpactAcrossMutualRecursion()
+    {
+        var root = Method(1, "Root");
+        var first = Method(2, "First");
+        var allocating = Method(3, "Allocating");
+
+        var rootSummary = Summary(
+            [root, first, allocating],
+            [
+                Call(root, first, 4, AllocationMultiplicity.Once),
+                Call(first, allocating, 4, AllocationMultiplicity.Once),
+                Call(allocating, first, 8, AllocationMultiplicity.Once),
+            ],
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [allocating.MetadataToken] = [Allocation(allocating, AllocationMultiplicity.Once)],
+            },
+            root);
+
+        Assert.Equal(0, rootSummary.OncePaths);
+        Assert.Equal(1, rootSummary.UnknownPaths);
+        Assert.Equal(2, rootSummary.OpaquePaths);
     }
 
     [Fact]

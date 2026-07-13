@@ -172,7 +172,9 @@ This is not a runtime allocation count. Exceptions can interrupt a
 normal-return path, the JIT can optimize IL-visible constructions, and opaque
 callees can allocate additional objects. The value is structural: it exposes
 how many allocation-producing paths a design creates and where static analysis
-stops.
+stops. Recursive components are condensed into one graph node: their known
+allocation sites and exact outbound effects remain visible as `Unknown Paths`,
+while intra-component recurrence remains opaque.
 
 The aggregate remains opt-in. In an alternating 20-run process-level timing
 against `ILInspector.Analysis.dll`, the default Performance Triage median was

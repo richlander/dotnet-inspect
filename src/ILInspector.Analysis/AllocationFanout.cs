@@ -42,76 +42,103 @@ public static class AllocationFanout
                     .ThenBy(static edge => edge.TargetToken)
                     .ToArray());
         var recursiveComponents = FindRecursiveComponents(methods, edgesByCaller);
-        var impactByToken = new Dictionary<int, Impact>();
+        int NodeForToken(int token)
+            => recursiveComponents.TryGetValue(token, out int component)
+                ? -component - 1
+                : token;
 
-        Impact ImpactFor(int token)
+        var tokensByNode = methods
+            .GroupBy(method => NodeForToken(method.MetadataToken))
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.Select(static method => method.MetadataToken).ToArray());
+        var edgesByNode = edgesByCaller
+            .SelectMany(static pair => pair.Value)
+            .GroupBy(edge => NodeForToken(edge.Call.Caller.MetadataToken))
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.ToArray());
+        var impactByNode = new Dictionary<int, Impact>();
+
+        Impact ImpactFor(int node)
         {
-            if (impactByToken.TryGetValue(token, out var cached))
+            if (impactByNode.TryGetValue(node, out var cached))
                 return cached;
 
-            var pending = new Stack<(int Token, bool Compose)>();
-            pending.Push((token, false));
+            var pending = new Stack<(int Node, bool Compose)>();
+            pending.Push((node, false));
             while (pending.TryPop(out var item))
             {
-                if (impactByToken.ContainsKey(item.Token))
+                if (impactByNode.ContainsKey(item.Node))
                     continue;
 
                 if (!item.Compose)
                 {
-                    pending.Push((item.Token, true));
-                    if (edgesByCaller.TryGetValue(item.Token, out var dependencies))
+                    pending.Push((item.Node, true));
+                    if (edgesByNode.TryGetValue(item.Node, out var dependencies))
                     {
                         for (int i = dependencies.Length - 1; i >= 0; i--)
                         {
                             var dependency = dependencies[i];
+                            int targetNode = dependency.TargetToken == 0
+                                ? 0
+                                : NodeForToken(dependency.TargetToken);
                             if (dependency.Call.ExactTarget
-                                && dependency.TargetToken != 0
-                                && !InSameRecursiveComponent(
-                                    item.Token,
-                                    dependency.TargetToken,
-                                    recursiveComponents)
-                                && !impactByToken.ContainsKey(dependency.TargetToken))
+                                && targetNode != 0
+                                && targetNode != item.Node
+                                && !impactByNode.ContainsKey(targetNode))
                             {
-                                pending.Push((dependency.TargetToken, false));
+                                pending.Push((targetNode, false));
                             }
                         }
                     }
                     continue;
                 }
 
-                var impact = LocalImpact(
-                    item.Token,
-                    allocationOccurrences.TryGetValue(item.Token, out var occurrences)
-                        ? occurrences
-                        : []);
-                if (edgesByCaller.TryGetValue(item.Token, out var edges))
+                var impact = new Impact();
+                bool recursiveNode = item.Node < 0;
+                foreach (int methodToken in tokensByNode[item.Node])
+                {
+                    var local = LocalImpact(
+                        methodToken,
+                        allocationOccurrences.TryGetValue(methodToken, out var occurrences)
+                            ? occurrences
+                            : []);
+                    impact.Add(
+                        local,
+                        recursiveNode ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Once);
+                }
+
+                if (edgesByNode.TryGetValue(item.Node, out var edges))
                 {
                     foreach (var edge in edges)
                     {
+                        int targetNode = edge.TargetToken == 0
+                            ? 0
+                            : NodeForToken(edge.TargetToken);
                         if (!edge.Call.ExactTarget
-                            || edge.TargetToken == 0
-                            || InSameRecursiveComponent(
-                                item.Token,
-                                edge.TargetToken,
-                                recursiveComponents))
+                            || targetNode == 0
+                            || targetNode == item.Node)
                         {
                             impact.AddOpaque();
                             continue;
                         }
 
-                        impact.Add(impactByToken[edge.TargetToken], edge.Call.Multiplicity);
+                        impact.Add(
+                            impactByNode[targetNode],
+                            recursiveNode ? AllocationMultiplicity.Unknown : edge.Call.Multiplicity);
                     }
                 }
-                impactByToken[item.Token] = impact;
+                impactByNode[item.Node] = impact;
             }
 
-            return impactByToken[token];
+            return impactByNode[node];
         }
 
         var summaries = ImmutableArray.CreateBuilder<AllocationFanoutSummary>();
         foreach (var method in methods.OrderBy(static method => method.MetadataToken))
         {
-            var impact = ImpactFor(method.MetadataToken);
+            var impact = ImpactFor(NodeForToken(method.MetadataToken));
             int directSites = DirectSiteCount(
                 allocationOccurrences.TryGetValue(method.MetadataToken, out var occurrences)
                     ? occurrences
@@ -241,14 +268,6 @@ public static class AllocationFanout
         bool HasExactSelfEdge(int token)
             => adjacency[token].Contains(token);
     }
-
-    static bool InSameRecursiveComponent(
-        int callerToken,
-        int targetToken,
-        IReadOnlyDictionary<int, int> recursiveComponents)
-        => recursiveComponents.TryGetValue(callerToken, out int callerComponent)
-            && recursiveComponents.TryGetValue(targetToken, out int targetComponent)
-            && callerComponent == targetComponent;
 
     sealed record Edge(DirectCall Call, int TargetToken);
 
