@@ -191,6 +191,26 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "member receiver reassigned after blob guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        this.value.Signature,
+                        kind))
+                    {
+                        return fallback;
+                    }
+                    this.value = other;
+                    return this.value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
             "disjunctive blob guard",
             """
             class C
@@ -596,6 +616,40 @@ public class ProviderSignatureDecodeBoundaryTests
                     try
                     {
                         spec = reader.GetTypeSpecification(otherHandle);
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder tuple-mutates protected locals",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        (spec, blobLength) =
+                            (reader.GetTypeSpecification(otherHandle), 0);
                         return spec.DecodeSignature(provider, context);
                     }
                     finally
@@ -1275,30 +1329,37 @@ public class ProviderSignatureDecodeBoundaryTests
         return block.DescendantNodes().Any(node =>
             node is AssignmentExpressionSyntax
             {
-                Left: IdentifierNameSyntax left
+                Left: { } left
             }
-                && protectedIdentifiers.Contains(left.Identifier.Text)
+                && ContainsProtectedIdentifier(left, protectedIdentifiers)
             || node is PrefixUnaryExpressionSyntax
             {
-                Operand: IdentifierNameSyntax operand
+                Operand: { } operand
             } prefix
                 && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
                     || prefix.IsKind(SyntaxKind.PreDecrementExpression))
-                && protectedIdentifiers.Contains(operand.Identifier.Text)
+                && ContainsProtectedIdentifier(operand, protectedIdentifiers)
             || node is PostfixUnaryExpressionSyntax
             {
-                Operand: IdentifierNameSyntax postOperand
+                Operand: { } postOperand
             } postfix
                 && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
                     || postfix.IsKind(SyntaxKind.PostDecrementExpression))
-                && protectedIdentifiers.Contains(postOperand.Identifier.Text)
+                && ContainsProtectedIdentifier(postOperand, protectedIdentifiers)
             || node is ArgumentSyntax
             {
-                Expression: IdentifierNameSyntax argument,
+                Expression: { } argument,
                 RefKindKeyword.RawKind: not 0
             }
-                && protectedIdentifiers.Contains(argument.Identifier.Text));
+                && ContainsProtectedIdentifier(argument, protectedIdentifiers));
     }
+
+    static bool ContainsProtectedIdentifier(
+        SyntaxNode node,
+        HashSet<string> identifiers)
+        => node.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>()
+            .Any(identifier => identifiers.Contains(identifier.Identifier.Text));
 
     static bool HasImmediatelyPrecedingCounterIncrements(TryStatementSyntax guardedTry)
     {
@@ -1384,12 +1445,59 @@ public class ProviderSignatureDecodeBoundaryTests
         ExpressionSyntax expression,
         int start,
         SyntaxNode end)
-        => expression is IdentifierNameSyntax identifier
-            && IdentifierMutatedBetween(
-                end.SyntaxTree.GetRoot(),
+    {
+        var root = end.SyntaxTree.GetRoot();
+        if (expression is IdentifierNameSyntax identifier)
+        {
+            return IdentifierMutatedBetween(
+                root,
                 identifier.Identifier.Text,
                 start,
                 end.SpanStart);
+        }
+
+        return root.DescendantNodes().Any(node =>
+            node.SpanStart > start
+            && node.SpanStart < end.SpanStart
+            && (node is AssignmentExpressionSyntax
+                {
+                    Left: { } left
+                }
+                && AssignmentTargetContains(left, expression)
+                || node is PrefixUnaryExpressionSyntax
+                {
+                    Operand: { } operand
+                } prefix
+                && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
+                    || prefix.IsKind(SyntaxKind.PreDecrementExpression))
+                && Equivalent(operand, expression)
+                || node is PostfixUnaryExpressionSyntax
+                {
+                    Operand: { } postOperand
+                } postfix
+                && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
+                    || postfix.IsKind(SyntaxKind.PostDecrementExpression))
+                && Equivalent(postOperand, expression)
+                || node is ArgumentSyntax
+                {
+                    Expression: { } argument,
+                    RefKindKeyword.RawKind: not 0
+                }
+                && Equivalent(argument, expression)));
+    }
+
+    static bool AssignmentTargetContains(
+        ExpressionSyntax target,
+        ExpressionSyntax expression)
+    {
+        target = StripParentheses(target);
+        if (Equivalent(target, expression))
+            return true;
+
+        return target is TupleExpressionSyntax tuple
+            && tuple.Arguments.Any(argument =>
+                AssignmentTargetContains(argument.Expression, expression));
+    }
 
     static bool IdentifierMutatedBetween(
         SyntaxNode root,
@@ -1401,29 +1509,34 @@ public class ProviderSignatureDecodeBoundaryTests
             && node.SpanStart < end
             && (node is AssignmentExpressionSyntax
                 {
-                    Left: IdentifierNameSyntax left
+                    Left: { } left
                 }
-                && left.Identifier.Text == identifier
+                && ContainsIdentifier(left, identifier)
                 || node is PrefixUnaryExpressionSyntax
                 {
-                    Operand: IdentifierNameSyntax operand
+                    Operand: { } operand
                 } prefix
                 && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
                     || prefix.IsKind(SyntaxKind.PreDecrementExpression))
-                && operand.Identifier.Text == identifier
+                && ContainsIdentifier(operand, identifier)
                 || node is PostfixUnaryExpressionSyntax
                 {
-                    Operand: IdentifierNameSyntax postOperand
+                    Operand: { } postOperand
                 } postfix
                 && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
                     || postfix.IsKind(SyntaxKind.PostDecrementExpression))
-                && postOperand.Identifier.Text == identifier
+                && ContainsIdentifier(postOperand, identifier)
                 || node is ArgumentSyntax
                 {
-                    Expression: IdentifierNameSyntax argument,
+                    Expression: { } argument,
                     RefKindKeyword.RawKind: not 0
                 }
-                && argument.Identifier.Text == identifier));
+                && ContainsIdentifier(argument, identifier)));
+
+    static bool ContainsIdentifier(SyntaxNode node, string identifier)
+        => node.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>()
+            .Any(candidate => candidate.Identifier.Text == identifier);
 
     static bool CrossesDeferredExecutionBoundary(SyntaxNode descendant, SyntaxNode ancestor)
     {
