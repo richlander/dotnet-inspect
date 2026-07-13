@@ -61,6 +61,22 @@ explicitly: `scan-method-in-loop-call` stays low-confidence because static
 analysis cannot prove that the scanned sequence grows with the caller's loop,
 so a `--min-confidence high` pass intentionally excludes it.
 
+For registry, pipeline, or object-graph construction that does not match a local
+rewrite shape, opt into the aggregate allocation fanout:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --triage-shape allocation-fanout \
+  --order-by "OncePaths desc" --top 20 --tsv
+```
+
+`Direct Sites` is local to the method. `Once Paths` composes exact
+intra-assembly callsites and counts repeated callsites separately; conditional,
+repeated, unknown, cached, and opaque paths remain separate columns. Treat this
+as IL-visible normal-return-path quantity, not runtime bytes or observed
+frequency. A high `Opaque Paths` count means virtual, external, delegate,
+recursive, or runtime-library work still needs a drill or profiler.
+
 Exact rows retain machine-readable provenance from the native Analysis producer:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,

@@ -158,6 +158,22 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DirectCalls_ClassifyCallsiteMultiplicity()
+    {
+        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+
+        var straight = Assert.Single(index.DirectCalls.Where(call =>
+            call.Caller.Name == nameof(CallSiteFixtures.CallsExactAllocationLeaf)
+            && call.Callee.Name == nameof(CallSiteFixtures.ExactAllocationLeaf)));
+        Assert.Equal(AllocationMultiplicity.Once, straight.Multiplicity);
+
+        var conditional = Assert.Single(index.DirectCalls.Where(call =>
+            call.Caller.Name == nameof(CallSiteFixtures.ConditionallyCallsExactAllocationLeaf)
+            && call.Callee.Name == nameof(CallSiteFixtures.ExactAllocationLeaf)));
+        Assert.Equal(AllocationMultiplicity.Conditional, conditional.Multiplicity);
+    }
+
+    [Fact]
     public void DirectCalls_MarksCallsInsideLoopRegions()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
@@ -5230,6 +5246,13 @@ public static class CallSiteFixtures
     public static T GenericEcho<T>(T value) => value;
 
     public static int CallsGenericEcho() => GenericEcho(42);
+
+    public static object ExactAllocationLeaf() => new();
+
+    public static object CallsExactAllocationLeaf() => ExactAllocationLeaf();
+
+    public static object? ConditionallyCallsExactAllocationLeaf(bool create)
+        => create ? ExactAllocationLeaf() : null;
 }
 
 public static class GenericDeclaringCallers

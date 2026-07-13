@@ -38,6 +38,14 @@ public sealed record PerformanceTriageOptions
         "PostDominance",
         "IL",
         "Weight",
+        "DirectSites",
+        "OncePaths",
+        "ConditionalPaths",
+        "RepeatedPaths",
+        "UnknownPaths",
+        "CachedSites",
+        "OpaquePaths",
+        "Saturated",
     ];
 
     public static readonly string[] SortableFields =
@@ -59,11 +67,19 @@ public sealed record PerformanceTriageOptions
         "PathConfidence",
         "PostDominance",
         "Weight",
+        "DirectSites",
+        "OncePaths",
+        "ConditionalPaths",
+        "RepeatedPaths",
+        "UnknownPaths",
+        "CachedSites",
+        "OpaquePaths",
     ];
 
     public static readonly string[] KnownShapes =
     [
         "allocation-hotspot",
+        "allocation-fanout",
         "async-state-machine",
         "box-value-type",
         "capturing-delegate",
@@ -93,6 +109,9 @@ public sealed record PerformanceTriageOptions
         || Top.HasValue
         || Where.Length > 0
         || !string.IsNullOrWhiteSpace(OrderBy);
+
+    public bool IncludesAllocationFanout =>
+        Shapes.Contains("allocation-fanout", StringComparer.OrdinalIgnoreCase);
 
     public bool TryGetPredicates(out RowPredicate[] predicates, out string error)
     {
@@ -247,15 +266,16 @@ public sealed record PerformanceTriageOptions
             }
 
             if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
-                && field is not ("RootReach" or "Confidence" or "Weight"))
+                && !IsNumericField(field)
+                && field is not ("Confidence" or "Weight"))
             {
                 error = $"Error: Field '{field}' supports only = and != predicates.";
                 return false;
             }
-            if (field == "RootReach"
-                && !int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
+            if (IsNumericField(field)
+                && !long.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
             {
-                error = $"Error: Field 'RootReach' expects an integer value in --where predicate '{expression}'.";
+                error = $"Error: Field '{field}' expects an integer value in --where predicate '{expression}'.";
                 return false;
             }
             if (field is "Confidence" or "Weight" && !IsKnownConfidence(value))
@@ -301,6 +321,16 @@ public sealed record PerformanceTriageOptions
         => value.Equals("low", StringComparison.OrdinalIgnoreCase)
            || value.Equals("medium", StringComparison.OrdinalIgnoreCase)
            || value.Equals("high", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsNumericField(string field)
+        => field is "RootReach"
+            or "DirectSites"
+            or "OncePaths"
+            or "ConditionalPaths"
+            or "RepeatedPaths"
+            or "UnknownPaths"
+            or "CachedSites"
+            or "OpaquePaths";
 
     static string? NormalizeField(string field, IReadOnlyList<string> knownFields)
     {

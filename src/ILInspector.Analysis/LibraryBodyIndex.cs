@@ -67,6 +67,8 @@ public sealed class LibraryBodyIndex
     readonly bool _opportunitiesComputed;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
+    ImmutableArray<OptimizationOpportunity> _allocationFanoutOpportunities;
+    Dictionary<int, int>? _rootReachByToken;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
 
@@ -84,9 +86,7 @@ public sealed class LibraryBodyIndex
                 return ImmutableArray<OptimizationOpportunity>.Empty;
             if (_opportunities.IsDefault)
             {
-                var reachByToken = new Dictionary<int, int>();
-                foreach (var entry in TopLeverage(int.MaxValue))
-                    reachByToken[entry.Method.MetadataToken] = entry.RootReach;
+                var reachByToken = RootReachByToken;
                 _opportunities = AttachFindingProvenance(
                 [
                     .. _rawOpportunities.Select(opportunity =>
@@ -109,6 +109,111 @@ public sealed class LibraryBodyIndex
             }
             return _opportunities;
         }
+    }
+
+    /// <summary>
+    /// Opt-in allocation fanout rows. Each row carries a sound IL-visible lower bound through
+    /// exact intra-assembly call targets; uncertain, recursive, virtual, and external calls are
+    /// counted as opaque rather than assigned invented targets.
+    /// </summary>
+    public ImmutableArray<OptimizationOpportunity> AllocationFanoutOpportunities
+    {
+        get
+        {
+            if (!_opportunitiesComputed)
+                return ImmutableArray<OptimizationOpportunity>.Empty;
+            if (_allocationFanoutOpportunities.IsDefault)
+            {
+                var reachByToken = RootReachByToken;
+
+                _allocationFanoutOpportunities = AttachFindingProvenance(
+                [
+                    .. AllocationFanout.Analyze(
+                            Methods,
+                            ClassifyExactCallTargets(Path, DirectCalls, Methods),
+                            _allocationOccurrences)
+                        .Select(summary => new OptimizationOpportunity(
+                            summary.Method,
+                            "allocation-fanout",
+                            $"Known IL-visible impact: direct-sites={summary.DirectSites}, once-paths={summary.OncePaths}, conditional-paths={summary.ConditionalPaths}, repeated-paths={summary.RepeatedPaths}, unknown-paths={summary.UnknownPaths}, cached-sites={summary.CachedSites}, opaque-paths={summary.OpaquePaths}.",
+                            "Inspect the exact allocation findings and call paths; consolidate repeated setup or dispatch object construction when lifecycle measurements show it is unnecessary.",
+                            summary.UnknownPaths == 0 && summary.OpaquePaths == 0 && !summary.Saturated ? "high" : "medium",
+                            summary.RepeatedPaths > 0,
+                            ILOffset: null,
+                            "This is a static lower bound over IL-visible allocations. External, virtual, delegate, recursive, and runtime-library allocation effects remain opaque.",
+                            reachByToken.GetValueOrDefault(summary.Method.MetadataToken))
+                        {
+                            CandidateId = null,
+                            Provenance = PerformanceTriageProvenance.Aggregate,
+                            DirectAllocationSites = summary.DirectSites,
+                            OnceAllocationPaths = summary.OncePaths,
+                            ConditionalAllocationPaths = summary.ConditionalPaths,
+                            RepeatedAllocationPaths = summary.RepeatedPaths,
+                            UnknownAllocationPaths = summary.UnknownPaths,
+                            CachedAllocationSites = summary.CachedSites,
+                            OpaqueCallPaths = summary.OpaquePaths,
+                            AllocationCountSaturated = summary.Saturated,
+                        }),
+                ]);
+            }
+            return _allocationFanoutOpportunities;
+        }
+    }
+
+    Dictionary<int, int> RootReachByToken
+    {
+        get
+        {
+            if (_rootReachByToken is null)
+            {
+                var reachByToken = new Dictionary<int, int>();
+                foreach (var entry in TopLeverage(int.MaxValue))
+                    reachByToken[entry.Method.MetadataToken] = entry.RootReach;
+                _rootReachByToken = reachByToken;
+            }
+            return _rootReachByToken;
+        }
+    }
+
+    static ImmutableArray<DirectCall> ClassifyExactCallTargets(
+        string path,
+        ImmutableArray<DirectCall> calls,
+        ImmutableArray<MethodIdentity> methods)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var methodMap = MethodDefinitionMap.Create(methods);
+        return
+        [
+            .. calls.Select(call =>
+            {
+                int targetToken = methodMap.Resolve(call);
+                bool exact = targetToken != 0 && call.Kind switch
+                {
+                    CallKind.Call or CallKind.NewObject => true,
+                    CallKind.CallVirtual => IsExactVirtualTarget(reader, targetToken),
+                    _ => false,
+                };
+                return call with { ExactTarget = exact };
+            }),
+        ];
+    }
+
+    static bool IsExactVirtualTarget(MetadataReader reader, int methodToken)
+    {
+        var handle = MetadataTokens.EntityHandle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+            return false;
+        var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        if ((method.Attributes & MethodAttributes.Virtual) == 0
+            || (method.Attributes & MethodAttributes.Final) != 0)
+        {
+            return true;
+        }
+
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        return (declaringType.Attributes & TypeAttributes.Sealed) != 0;
     }
 
     ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
@@ -160,7 +265,7 @@ public sealed class LibraryBodyIndex
                 }
             }
 
-            string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id;
+            string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id ?? opportunity.SourceFinding;
             FindingKey? findingKey = allocation?.Key ?? callSite?.Key;
             int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
             int fingerprintLength = PerformanceTriageCandidateId.InitialFingerprintLength;
@@ -193,11 +298,13 @@ public sealed class LibraryBodyIndex
                     ? CallOperation(callSite?.Payload)
                     : AllocationOperation(allocation.Payload),
                 OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
-                Provenance = sourceFinding is not null
-                    ? PerformanceTriageProvenance.Exact
-                    : opportunity.ILOffset is null
-                        ? PerformanceTriageProvenance.Aggregate
-                        : PerformanceTriageProvenance.Unmatched,
+                Provenance = opportunity.Provenance != PerformanceTriageProvenance.Unknown
+                    ? opportunity.Provenance
+                    : sourceFinding is not null
+                        ? PerformanceTriageProvenance.Exact
+                        : opportunity.ILOffset is null
+                            ? PerformanceTriageProvenance.Aggregate
+                            : PerformanceTriageProvenance.Unmatched,
             });
         }
 
@@ -2303,9 +2410,10 @@ public sealed class LibraryBodyIndex
                     diagnostics.Add(r.Diagnostic);
             }
 
+            var methodArray = methods.ToImmutable();
             var directCalls = calls.ToImmutable();
             var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
-            return (declaredMethods.ToImmutable(), methods.ToImmutable(), directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
+            return (declaredMethods.ToImmutable(), methodArray, directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences, unsafetyOccurrences,
                 BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
         }
@@ -2412,7 +2520,7 @@ public sealed class LibraryBodyIndex
                     result.Signals = signals;
                     result.HasSignals = true;
                 }
-                ScanBody(decodedBody.Instructions, caller, scope, calls, evidence,
+                ScanBody(decodedBody, caller, scope, calls, evidence,
                     includeIndirectOpcodes: hasUnsafeApiMember || hasUnsafeSignature || hasUnsafeLocals,
                     loopRegions);
             }
@@ -5420,13 +5528,13 @@ public sealed class LibraryBodyIndex
         }
 
 
-        void ScanBody(ImmutableArray<DecodedInstruction> instructions, MethodIdentity caller, GenericScope callerScope,
+        void ScanBody(DecodedBody decodedBody, MethodIdentity caller, GenericScope callerScope,
             ImmutableArray<DirectCall>.Builder calls,
             ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
             bool includeIndirectOpcodes,
             IReadOnlyList<(int Start, int End)> loopRegions)
         {
-            foreach (var instruction in instructions)
+            foreach (var instruction in decodedBody.Instructions)
             {
                 int offset = instruction.Offset;
                 var opcode = instruction.OpCode;
@@ -5451,7 +5559,12 @@ public sealed class LibraryBodyIndex
                             inLoop)
                         {
                             Opcode = FormatCallOpcode(opcode),
-                            ReturnAddress = instruction.NextOffset
+                            ReturnAddress = instruction.NextOffset,
+                            Multiplicity = AllocationMultiplicityFor(
+                                decodedBody,
+                                offset,
+                                loopRegions,
+                                AllocationEscape.Unknown),
                         });
                         if (IsUnsafeCall(callee))
                         {
@@ -5478,7 +5591,12 @@ public sealed class LibraryBodyIndex
                             IsInLoopRegion(offset, loopRegions))
                         {
                             Opcode = FormatCallOpcode(opcode),
-                            ReturnAddress = instruction.NextOffset
+                            ReturnAddress = instruction.NextOffset,
+                            Multiplicity = AllocationMultiplicityFor(
+                                decodedBody,
+                                offset,
+                                loopRegions,
+                                AllocationEscape.Unknown),
                         });
                         unsafeEvidence.Add(new UnsafeEvidence(caller, "Unsafe operation", "calli", "calli", offset, token));
                         break;

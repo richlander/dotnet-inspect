@@ -138,6 +138,34 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PopulateOptimizationOpportunities_AllocationFanoutCountsRepeatedCallSites()
+    {
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class"
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateOptimizationOpportunities(
+            view,
+            type,
+            ApiOutputFormatter.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage },
+            new PerformanceTriageOptions { Shapes = ["allocation-fanout"] });
+
+        var row = Assert.Single(
+            Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows),
+            row => row.Member.Contains(nameof(CreateAllocationFanout), StringComparison.Ordinal));
+        Assert.Equal("allocation-fanout", row.Shape);
+        Assert.Null(row.Finding);
+        Assert.Equal("aggregate", row.Provenance);
+        Assert.Equal("1", row.DirectSites);
+        Assert.Equal("4", row.OncePaths);
+    }
+
+    [Fact]
     public void RenderTypeSectionsMarkdown_PopulatesOptimizationOpportunitiesWhenRequested()
     {
         var type = new ApiType
@@ -217,6 +245,15 @@ public class OutputFormatterTests
         byte[] bytes = new byte[4];
         _ = bytes.Length;
     }
+
+    private static object[] CreateAllocationFanout() =>
+    [
+        CreateFanoutLeaf(),
+        CreateFanoutLeaf(),
+        CreateFanoutLeaf(),
+    ];
+
+    private static object CreateFanoutLeaf() => new();
 
     // The local function compiles to a compiler-generated method (<...>g__Make|...)
     // declared on this type, carrying the small-array opportunity from `new int[3]`.
@@ -388,6 +425,27 @@ public class OutputFormatterTests
             .ToList();
 
         Assert.Equal(["BoxLoop"], filtered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_DoesNotMatchMissingNumericFields()
+    {
+        var opportunities = new[]
+        {
+            Opp("Fanout", inLoop: false, confidence: "high", rootReach: 1, shape: "allocation-fanout") with
+            {
+                OnceAllocationPaths = 4,
+            },
+            Opp("Local", inLoop: false, confidence: "high", rootReach: 1, shape: "allocation-hotspot"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions { Where = ["OncePaths!=5"] })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["Fanout"], filtered);
     }
 
     [Fact]
