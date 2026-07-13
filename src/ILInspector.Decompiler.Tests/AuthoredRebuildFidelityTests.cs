@@ -198,6 +198,30 @@ public sealed class AuthoredRebuildFidelityTests
             out _));
     }
 
+    [Fact]
+    public void AuthoredMemberSource_UsesConstructorArity()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public Sample() { Value = 1; } "
+                + "public Sample(int value) { Value = value; }",
+            ".ctor",
+            expectedParameterCount: 1,
+            out string body));
+        Assert.Contains("Value = value;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_UsesMethodArity()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public int M() { return 1; } "
+                + "public int M(int value) { return value; }",
+            "M",
+            expectedParameterCount: 0,
+            out string body));
+        Assert.Contains("return 1;", body, StringComparison.Ordinal);
+    }
+
     static FindingInspection<CompilationOptionInfo> CompleteOptions(
         params CompilationOptionInfo[] options)
         => MetadataFindings.InspectCompilationOptions(options, Subject);
