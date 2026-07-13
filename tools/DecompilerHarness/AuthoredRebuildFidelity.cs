@@ -286,6 +286,7 @@ static class AuthoredRebuildFidelity
             ConstructorDeclarationSyntax constructor
                 when identity.SimpleName is ".ctor" or ".cctor"
                     && identity.ExplicitInterface is null
+                    && ConstructorKindMatches(constructor, identity.SimpleName)
                     && ParameterCountMatches(
                         constructor.ParameterList.Parameters.Count,
                         expectedParameterCount)
@@ -346,6 +347,13 @@ static class AuthoredRebuildFidelity
 
     static bool ParameterCountMatches(int actual, int? expected)
         => expected is null || actual == expected.Value;
+
+    static bool ConstructorKindMatches(
+        ConstructorDeclarationSyntax constructor,
+        string metadataMethodName)
+        => constructor.Modifiers.Any(SyntaxKind.StaticKeyword)
+            ? metadataMethodName == ".cctor"
+            : metadataMethodName == ".ctor";
 
     static (int Score, string Body) ScoredBody(
         ExplicitInterfaceSpecifierSyntax? syntax,
