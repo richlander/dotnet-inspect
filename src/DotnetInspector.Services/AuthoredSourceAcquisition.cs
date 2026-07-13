@@ -91,8 +91,12 @@ public static class AuthoredSourceAcquisition
                 : "The selected source document has no fetchable SourceLink URL.");
         }
 
-        var bytes = await fetcher.FetchSourceBytesAsync(url, cancellationToken)
-            .ConfigureAwait(false);
+        var bytes = await fetcher.FetchValidatedSourceBytesAsync(
+            url,
+            content => VerifyChecksum(document, content.Span)
+                is SourceChecksumVerification.Exact
+                    or SourceChecksumVerification.LineEndingNormalized,
+            cancellationToken).ConfigureAwait(false);
         if (bytes is null)
         {
             return Failed(

@@ -1,12 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
 
+using DotnetInspector.Core;
+
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(CoreCacheCollection.Name)]
 public class AuthoredSourceAcquisitionTests
 {
     static readonly FindingSubject Subject = new("M~source", "Sample.M");
@@ -101,6 +104,52 @@ public class AuthoredSourceAcquisitionTests
             result.ChecksumVerification);
     }
 
+    [Fact]
+    public async Task FetchValidatedSourceBytes_InvalidCacheRetriesAndRepairsFromNetwork()
+    {
+        string cachePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-source-cache-{Guid.NewGuid():N}");
+        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        byte[] invalid = Encoding.UTF8.GetBytes("invalid");
+        byte[] expected = Encoding.UTF8.GetBytes(Source);
+        var handler = new QueueHandler(invalid, expected);
+        using var client = new HttpClient(handler);
+        const string Url = "https://example.test/Sample.cs";
+
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var firstFetcher = new SourceFetcher(client);
+            Assert.Equal(
+                invalid,
+                await firstFetcher.FetchSourceBytesAsync(Url, cancellationToken));
+
+            var secondFetcher = new SourceFetcher(client);
+            var repaired = await secondFetcher.FetchValidatedSourceBytesAsync(
+                Url,
+                bytes => bytes.Span.SequenceEqual(expected),
+                cancellationToken);
+
+            Assert.Equal(expected, repaired);
+            Assert.Equal(2, handler.RequestCount);
+
+            var thirdFetcher = new SourceFetcher(client);
+            var cached = await thirdFetcher.FetchValidatedSourceBytesAsync(
+                Url,
+                bytes => bytes.Span.SequenceEqual(expected),
+                cancellationToken);
+
+            Assert.Equal(expected, cached);
+            Assert.Equal(2, handler.RequestCount);
+        }
+        finally
+        {
+            if (Directory.Exists(cachePath))
+                Directory.Delete(cachePath, recursive: true);
+        }
+    }
+
     static MemberSourceObservation Mapping()
         => new(
             new MemberAnchor(
@@ -127,4 +176,22 @@ public class AuthoredSourceAcquisitionTests
             ResolvedUrl: "https://example.test/Sample.cs",
             ChecksumAlgorithm: "SHA256",
             Checksum: Convert.ToHexString(SHA256.HashData(content)));
+
+    sealed class QueueHandler(params byte[][] responses) : HttpMessageHandler
+    {
+        readonly Queue<byte[]> _responses = new(responses);
+
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(_responses.Dequeue()),
+            });
+        }
+    }
 }

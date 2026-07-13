@@ -67,9 +67,35 @@ public class SourceFetcher(HttpClient httpClient)
     /// Fetches the exact source bytes. This path has a byte-preserving cache so callers can verify
     /// portable-PDB checksums before treating fetched content as authored-source evidence.
     /// </summary>
-    public async Task<byte[]?> FetchSourceBytesAsync(
+    public Task<byte[]?> FetchSourceBytesAsync(
         string url,
         CancellationToken cancellationToken = default)
+        => FetchSourceBytesCoreAsync(
+            url,
+            cacheValidator: null,
+            cancellationToken);
+
+    /// <summary>
+    /// Fetches exact source bytes while accepting cached bytes only when they satisfy
+    /// <paramref name="cacheValidator"/>. Invalid cached bytes are bypassed and replaced by a
+    /// valid network result; an invalid network result is returned but is not cached.
+    /// </summary>
+    public Task<byte[]?> FetchValidatedSourceBytesAsync(
+        string url,
+        Func<ReadOnlyMemory<byte>, bool> cacheValidator,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cacheValidator);
+        return FetchSourceBytesCoreAsync(
+            url,
+            cacheValidator,
+            cancellationToken);
+    }
+
+    private async Task<byte[]?> FetchSourceBytesCoreAsync(
+        string url,
+        Func<ReadOnlyMemory<byte>, bool>? cacheValidator,
+        CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
@@ -80,7 +106,12 @@ public class SourceFetcher(HttpClient httpClient)
         }
 
         if (_byteMemoryCache.TryGetValue(url, out var memoryBytes))
-            return memoryBytes;
+        {
+            if (cacheValidator is null || cacheValidator(memoryBytes))
+                return memoryBytes;
+
+            _byteMemoryCache.Remove(url);
+        }
 
         string? encoded = CoreCache.TryGet(
             ByteCacheCategory,
@@ -91,8 +122,11 @@ public class SourceFetcher(HttpClient httpClient)
             try
             {
                 var cachedBytes = Convert.FromBase64String(encoded);
-                _byteMemoryCache[url] = cachedBytes;
-                return cachedBytes;
+                if (cacheValidator is null || cacheValidator(cachedBytes))
+                {
+                    _byteMemoryCache[url] = cachedBytes;
+                    return cachedBytes;
+                }
             }
             catch (FormatException)
             {
@@ -110,12 +144,15 @@ public class SourceFetcher(HttpClient httpClient)
             if (bytes is null)
                 return null;
 
-            _byteMemoryCache[url] = bytes;
-            CoreCache.Set(
-                ByteCacheCategory,
-                url,
-                Convert.ToBase64String(bytes),
-                extension: "base64");
+            if (cacheValidator is null || cacheValidator(bytes))
+            {
+                _byteMemoryCache[url] = bytes;
+                CoreCache.Set(
+                    ByteCacheCategory,
+                    url,
+                    Convert.ToBase64String(bytes),
+                    extension: "base64");
+            }
             return bytes;
         }
         catch (HttpRequestException)
