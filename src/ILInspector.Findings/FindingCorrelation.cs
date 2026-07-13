@@ -119,6 +119,16 @@ public sealed record CorrelatedFinding<T>
 
     public FindingCorrelationKey Key { get; }
     public ImmutableArray<VersionedFinding<T>> Occurrences { get; }
+
+    public bool Equals(CorrelatedFinding<T>? other)
+        => other is not null
+            && Key == other.Key
+            && FindingValueEquality.SequenceEqual(Occurrences, other.Occurrences);
+
+    public override int GetHashCode()
+        => HashCode.Combine(
+            Key,
+            FindingValueEquality.SequenceHashCode(Occurrences));
 }
 
 /// <summary>

@@ -44,7 +44,46 @@ public sealed record FindingMoveCandidate(int OldIndex, int NewIndex, int Confid
 /// </param>
 public sealed record FindingMatch(
     ImmutableArray<FindingEdge> Edges,
-    ImmutableArray<FindingMoveCandidate> MoveCandidates);
+    ImmutableArray<FindingMoveCandidate> MoveCandidates)
+{
+    ImmutableArray<FindingEdge> _edges = Validate(Edges, nameof(Edges));
+    ImmutableArray<FindingMoveCandidate> _moveCandidates
+        = Validate(MoveCandidates, nameof(MoveCandidates));
+
+    public ImmutableArray<FindingEdge> Edges
+    {
+        get => _edges;
+        init => _edges = Validate(value, nameof(Edges));
+    }
+
+    public ImmutableArray<FindingMoveCandidate> MoveCandidates
+    {
+        get => _moveCandidates;
+        init => _moveCandidates = Validate(value, nameof(MoveCandidates));
+    }
+
+    public bool Equals(FindingMatch? other)
+        => other is not null
+            && FindingValueEquality.SequenceEqual(Edges, other.Edges)
+            && FindingValueEquality.SequenceEqual(MoveCandidates, other.MoveCandidates);
+
+    public override int GetHashCode()
+        => HashCode.Combine(
+            FindingValueEquality.SequenceHashCode(Edges),
+            FindingValueEquality.SequenceHashCode(MoveCandidates));
+
+    static ImmutableArray<TItem> Validate<TItem>(
+        ImmutableArray<TItem> items,
+        string parameterName)
+        where TItem : class
+    {
+        if (items.IsDefault)
+            throw new ArgumentException("Match arrays must be initialized.", parameterName);
+        if (items.Any(item => item is null))
+            throw new ArgumentException("Match arrays must not contain null values.", parameterName);
+        return items;
+    }
+}
 
 /// <summary>
 /// Whether a finding stream's order carries meaning. The choice is per <see cref="FindingMatcher.Match"/>
