@@ -101,6 +101,8 @@ The producer owns stable observation identity:
 - `FindingDescriptor` identifies the observation vocabulary entry.
 - `FindingKey.IdentityKey` identifies correspondence candidates.
 - `FindingKey.ScopeKey` constrains correspondence when the domain requires it.
+- `FindingKey.SoftKeys` carries producer-owned identity projections for
+  explicitly named non-exact tiers.
 - `Ordinal` optionally retains the producer's source-stream index. Ordered
   producers populate it when consumers need the source location after matching;
   identity-set producers leave it null.
@@ -127,6 +129,22 @@ implement private matchers, folds, summaries, or equivalence policy.
 
 Consumers select equivalence from the emitted transitions. The producer does
 not collapse a rich transition stream into one universal verdict.
+
+Soft projections are additive to exact identity. The matcher commits exact
+matches first, suppresses ambiguous residual projections, and leaves each
+unique soft correspondence as a deferred candidate. The consumer's acceptance
+threshold selects whether that candidate remains `Added` plus `Removed` or
+becomes `Changed`; the default threshold of 100 remains exact-only. Accepted
+matched transitions retain `FindingMatchProvenance`, including tier and
+confidence.
+
+Metadata's first soft tier is `api.member.extension-instance` at confidence 85.
+It projects structured method receiver, name, generic arity, return type, and
+non-receiver parameters while retaining extension/instance as the variant.
+Same-role relocations, signature near misses, ambiguous endpoints, and
+observations lacking structured signatures do not correlate. `ApiDiffAnalyzer`
+remains the compatibility authority even when an exploratory Finding consumer
+accepts this correspondence.
 
 ## 7. Keep higher rungs separate
 

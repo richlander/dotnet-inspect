@@ -34,12 +34,13 @@ public static class FindingFold
 
     static ImmutableArray<FindingEdge> ApplyAcceptance(FindingMatch match, int threshold)
     {
-        if (threshold > 99 || match.MoveCandidates.IsDefaultOrEmpty)
+        if (threshold > 99
+            || (match.MoveCandidates.IsDefaultOrEmpty && match.SoftCandidates.IsDefaultOrEmpty))
             return match.Edges;
 
         var usedOld = new HashSet<int>();
         var usedNew = new HashSet<int>();
-        var accepted = new List<FindingMoveCandidate>();
+        var acceptedMoves = new List<FindingMoveCandidate>();
         foreach (var candidate in match.MoveCandidates
             .OrderByDescending(c => c.Confidence)
             .ThenBy(c => c.OldIndex)
@@ -55,10 +56,29 @@ public static class FindingFold
                 continue;
             }
 
-            accepted.Add(candidate);
+            acceptedMoves.Add(candidate);
         }
 
-        if (accepted.Count == 0)
+        var acceptedSoft = new List<FindingSoftMatchCandidate>();
+        foreach (var candidate in match.SoftCandidates
+            .OrderByDescending(c => c.Match.Confidence)
+            .ThenBy(c => c.OldIndex)
+            .ThenBy(c => c.NewIndex))
+        {
+            if (candidate.Match.Confidence < threshold)
+                continue;
+            if (!usedOld.Add(candidate.OldIndex))
+                continue;
+            if (!usedNew.Add(candidate.NewIndex))
+            {
+                usedOld.Remove(candidate.OldIndex);
+                continue;
+            }
+
+            acceptedSoft.Add(candidate);
+        }
+
+        if (acceptedMoves.Count == 0 && acceptedSoft.Count == 0)
             return match.Edges;
 
         var result = ImmutableArray.CreateBuilder<FindingEdge>();
@@ -72,8 +92,17 @@ public static class FindingFold
             result.Add(edge);
         }
 
-        foreach (var candidate in accepted)
+        foreach (var candidate in acceptedMoves)
             result.Add(new FindingEdge(FindingEdgeKind.Moved, candidate.OldIndex, candidate.NewIndex, candidate.Confidence));
+        foreach (var candidate in acceptedSoft)
+        {
+            result.Add(new FindingEdge(
+                FindingEdgeKind.Changed,
+                candidate.OldIndex,
+                candidate.NewIndex,
+                candidate.Match.Confidence,
+                candidate.Match));
+        }
 
         return result.ToImmutable();
     }
@@ -98,6 +127,17 @@ public static class FindingFold
                     FindingDifferenceKind.Moved,
                     Detail: $"moved {delta:+#;-#;0}");
             }
+
+            case FindingEdgeKind.Changed when edge.Match is { } match:
+                return new PairFinding<T>.Changed(
+                    oldStream[edge.OldIndex],
+                    newStream[edge.NewIndex],
+                    Detail: $"soft match: {match.Tier.Id}",
+                    Match: match);
+
+            case FindingEdgeKind.Changed:
+                throw new InvalidOperationException(
+                    "A changed match edge requires soft-match provenance.");
 
             case FindingEdgeKind.Added:
                 return new PairFinding<T>.Added(newStream[edge.NewIndex]);

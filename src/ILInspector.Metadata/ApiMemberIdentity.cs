@@ -434,6 +434,71 @@ public static class ApiMemberIdentity
         return true;
     }
 
+    internal static bool TryGetExtensionInstanceProjection(
+        ApiType type,
+        ApiMember member,
+        out string identityKey,
+        out string variant)
+    {
+        bool isExtension = member.Kind == "method" && member.IsExtension && member.IsStatic;
+        bool isInstance = member.Kind == "method" && !member.IsExtension && !member.IsStatic;
+        if ((!isExtension && !isInstance)
+            || member.SignatureModel is not { ReturnType: not null } signature)
+        {
+            identityKey = "";
+            variant = "";
+            return false;
+        }
+
+        if (isExtension && signature.Parameters.Count == 0)
+        {
+            identityKey = "";
+            variant = "";
+            return false;
+        }
+        if (signature.Parameters.Any(parameter =>
+                string.IsNullOrWhiteSpace(parameter.TypeWithModifier)))
+        {
+            identityKey = "";
+            variant = "";
+            return false;
+        }
+
+        string receiver = isExtension
+            ? signature.Parameters[0].TypeWithModifier
+            : type.FullName;
+        if (string.IsNullOrWhiteSpace(receiver)
+            || string.IsNullOrWhiteSpace(member.Name)
+            || string.IsNullOrWhiteSpace(signature.ReturnType))
+        {
+            identityKey = "";
+            variant = "";
+            return false;
+        }
+
+        var parameters = isExtension
+            ? signature.Parameters.Skip(1)
+            : signature.Parameters;
+        var facets = new List<string>
+        {
+            NormalizeCorrespondenceType(receiver),
+            member.Name,
+            signature.TypeParameters.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            NormalizeCorrespondenceType(signature.ReturnType),
+        };
+        facets.AddRange(parameters.Select(parameter =>
+            NormalizeCorrespondenceType(parameter.TypeWithModifier)));
+
+        identityKey = string.Concat(facets.Select(facet => $"{facet.Length}:{facet}"));
+        variant = isExtension ? "extension" : "instance";
+        return true;
+    }
+
+    static string NormalizeCorrespondenceType(string type)
+        => type.Trim()
+            .Replace("+", ".", StringComparison.Ordinal)
+            .Replace(", ", ",", StringComparison.Ordinal);
+
     // Preserve the v1 Member Index digest contract for members that already have
     // compatibility signature text. The legacy parser had edge-case behavior
     // around method names inside generic parameter names, and published stable

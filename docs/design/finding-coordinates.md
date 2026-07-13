@@ -10,8 +10,10 @@ different questions and do not share one generic string slot.
 | Subject | `FindingSubject.Key` | The stable thing being inspected, such as one method, member, or document. Sibling producers agree here when Research joins their results. |
 | Correspondence | `FindingKey.IdentityKey` | The exact cross-version candidate identity within one producer stream. |
 | Corroboration | `FindingKey.ScopeKey` | Optional structural evidence used to strengthen an otherwise ambiguous correspondence. It is not identity or provenance. |
+| Soft correspondence | `FindingKey.SoftKeys` | Named producer-owned projections used only after exact matching leaves residual observations. |
 | Producer order | `Finding<T>.Ordinal` | Optional zero-based location retained by an ordered producer for presentation and producer-owned follow-up work. |
 | Provenance | Typed producer payload | Domain coordinates such as `AllocationOccurrence.ILOffset` or `MemberAnchor` retain their native semantics and validation. |
+| Match provenance | `IMatchedPairFinding.Match` | The tier and confidence that established a non-exact old/new correspondence. Null means exact correspondence. |
 
 `FindingMatcher` uses the enumeration order of the collections it receives.
 `Ordinal` does not control alignment or move classification. It lets an ordered
@@ -49,15 +51,18 @@ cross-stream joins should retain an explicit typed provenance relation when a
 producer needs one. A shared anchor belongs on the leaf only after at least two
 producers require the same validated semantics.
 
-## Soft-matching prerequisite
+## Soft-matching contract
 
-Soft matching extends correspondence, not coordinates. Its design must add:
+Soft matching extends correspondence, not coordinates. The shared substrate
+provides:
 
 - structured producer-owned identity projections;
-- typed facet or similarity deltas;
 - explicit match-tier provenance;
-- deterministic tie resolution from input order or a producer's stable sort.
+- exact-first matching and global suppression of ambiguous residual endpoints;
+- consumer-selected acceptance with an exact-only default.
 
 Hard matches remain authoritative and run first. A generic anchor is not a
 substitute for structured identity, and cross-stream provenance must not be
-scored as though it were fuzzy cross-version correspondence.
+scored as though it were fuzzy cross-version correspondence. Producer-owned
+facet details remain typed or explicitly named in the resulting transition;
+future similarity tiers require their own typed delta contract.

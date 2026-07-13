@@ -24,6 +24,8 @@ the concepts:
 
 - `IFinding` carries observations with different payload types.
 - `IPairFinding` carries transitions with different payload types.
+- `IMatchedPairFinding` exposes optional non-exact match provenance on
+  `Present` and `Changed`; null means exact correspondence.
 
 Neither inspection failures nor transitions implement `IFinding`. Repeated
 properties such as subject, descriptor, or detail do not create an `is-a`
@@ -98,6 +100,12 @@ The governing invariant is:
 
 > An empty match is evidence of a trivial alignment; a manufactured match is a
 > costume.
+
+Exact correspondence is committed before soft correspondence. A soft projection
+is producer-owned identity data on the observation key, while acceptance is a
+consumer fold. At threshold 100, soft candidates remain one `Added` and one
+`Removed`; an accepted soft candidate becomes `Changed` and retains its named
+tier and confidence through `FindingMatchProvenance`.
 
 ## Sparse correlation and onset
 
@@ -217,8 +225,8 @@ coordinates remain typed in their payloads. See
 
 These require explicit design before dependent producers rely on them:
 
-- define structured soft-match projections, typed deltas, and match-tier
-  provenance;
+- define similarity-based soft tiers and typed similarity deltas beyond the
+  landed structured projection contract;
 - define value equality for envelopes containing `ImmutableArray` or
   `ImmutableHashSet` before using them as cache keys or change detectors.
 

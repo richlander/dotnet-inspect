@@ -20,6 +20,8 @@ public class FindingPilotTests
 
     // Matcher-only tests need just the alignment keys.
     static FindingKey[] Keys(params string[] keys) => [.. keys.Select(k => new FindingKey(k))];
+    static FindingKey SoftKey(string exact, string projected, string variant)
+        => new(exact, null, [new FindingSoftKey(SoftTier, projected, variant)]);
 
     // Fold tests need atoms: payload is the key string, ordinal is retained observation metadata.
     static ImmutableArray<Finding<string>> Atoms(params string[] keys)
@@ -282,6 +284,45 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void FindingComparison_TransformationMustPreserveSoftMatchProvenance()
+    {
+        FindingInspection<string> oldInspection =
+            new FindingInspection<string>.Complete(
+            [
+                new Finding<string>(
+                    Subject,
+                    Descriptor,
+                    SoftKey("old", "same", "extension"),
+                    "old"),
+            ]);
+        FindingInspection<string> newInspection =
+            new FindingInspection<string>.Complete(
+            [
+                new Finding<string>(
+                    Subject,
+                    Descriptor,
+                    SoftKey("new", "same", "instance"),
+                    "new"),
+            ]);
+        var comparison = FindingComparison.Compare(
+            oldInspection,
+            newInspection,
+            acceptanceThreshold: 85);
+
+        Assert.Throws<ArgumentException>(() => comparison.TransformPairs(
+            pairs =>
+            [
+                pairs[0] is PairFinding<string>.Changed changed
+                    ? new PairFinding<string>.Changed(
+                        changed.Old,
+                        changed.New,
+                        changed.Difference,
+                        changed.Detail)
+                    : throw new Xunit.Sdk.XunitException("Expected a changed pair."),
+            ]));
+    }
+
+    [Fact]
     public void FindingComparison_FailedDerivesBothInspectionErrors()
     {
         FindingInspection<string> oldFailed =
@@ -496,6 +537,7 @@ public class FindingPilotTests
         => Assert.Throws<ArgumentNullException>(() => FindingMatcher.Match(null!, Keys("a")));
 
     static readonly FindingMatchOptions IdentitySet = new() { MatchMode = FindingMatchMode.IdentitySet };
+    static readonly FindingMatchTier SoftTier = new("test.role-change", 85);
 
     [Fact]
     public void IdentitySet_Permutation_IsAllMatched_NoAddRemoveOrMove()
@@ -538,6 +580,83 @@ public class FindingPilotTests
         Assert.Equal(2, Count(match, FindingEdgeKind.Matched));
         Assert.Equal(1, Count(match, FindingEdgeKind.Removed));
         Assert.Equal(0, Count(match, FindingEdgeKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_SoftTier_DoesNotMatchSameVariant()
+    {
+        var match = FindingMatcher.Match(
+            [SoftKey("old", "shared", "extension")],
+            [SoftKey("new", "shared", "extension")],
+            IdentitySet);
+
+        Assert.Empty(match.SoftCandidates);
+        Assert.Equal(1, Count(match, FindingEdgeKind.Removed));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_SoftTier_SuppressesAmbiguousEndpoints()
+    {
+        var match = FindingMatcher.Match(
+            [
+                SoftKey("old-a", "shared", "extension"),
+                SoftKey("old-b", "shared", "extension"),
+            ],
+            [SoftKey("new", "shared", "instance")],
+            IdentitySet);
+
+        Assert.Empty(match.SoftCandidates);
+        Assert.Equal(2, Count(match, FindingEdgeKind.Removed));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_ExactMatchCannotBeDisplacedBySoftTier()
+    {
+        var match = FindingMatcher.Match(
+            [
+                SoftKey("exact", "shared", "instance"),
+                SoftKey("extension", "shared", "extension"),
+            ],
+            [SoftKey("exact", "shared", "instance")],
+            IdentitySet);
+
+        Assert.Empty(match.SoftCandidates);
+        Assert.Equal(1, Count(match, FindingEdgeKind.Matched));
+        Assert.Equal(1, Count(match, FindingEdgeKind.Removed));
+        Assert.Equal(0, Count(match, FindingEdgeKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_SoftTier_IsDeferredAndRetainsProvenanceWhenAccepted()
+    {
+        var old = ImmutableArray.Create(
+            new Finding<string>(
+                Subject,
+                Descriptor,
+                SoftKey("old", "shared", "extension"),
+                "old"));
+        var @new = ImmutableArray.Create(
+            new Finding<string>(
+                Subject,
+                Descriptor,
+                SoftKey("new", "shared", "instance"),
+                "new"));
+        var match = FindingMatcher.Match(old.Keys(), @new.Keys(), IdentitySet);
+
+        var candidate = Assert.Single(match.SoftCandidates);
+        Assert.Equal(SoftTier, candidate.Match.Tier);
+        Assert.Equal(85, candidate.Match.Confidence);
+
+        var strict = FindingFold.ToPairs(match, old, @new);
+        Assert.Contains(strict, pair => pair.Kind == PairKind.Removed);
+        Assert.Contains(strict, pair => pair.Kind == PairKind.Added);
+
+        var accepted = Assert.IsType<PairFinding<string>.Changed>(
+            Assert.Single(FindingFold.ToPairs(match, old, @new, acceptanceThreshold: 85)).Value);
+        Assert.Equal(SoftTier, accepted.Match?.Tier);
+        Assert.Equal(85, accepted.Match?.Confidence);
     }
 
     [Fact]
@@ -616,6 +735,31 @@ public class FindingPilotTests
 
         // Value equality holds across the union (record class over its case).
         Assert.Equal((PairFinding<string>)new PairFinding<string>.Present(a, b), new PairFinding<string>.Present(a, b));
+    }
+
+    [Fact]
+    public void MatchedPairCases_PreserveFourParameterConstructors()
+    {
+        foreach (var type in (Type[])
+        [
+            typeof(PairFinding<string>.Present),
+            typeof(PairFinding<string>.Changed),
+            typeof(FindingEdge),
+        ])
+        {
+            var parameterCounts = type.GetConstructors()
+                .Select(constructor => constructor.GetParameters().Length)
+                .ToHashSet();
+            Assert.Contains(4, parameterCounts);
+            Assert.Contains(5, parameterCounts);
+
+            var deconstructParameterCounts = type.GetMethods()
+                .Where(method => method.Name == "Deconstruct")
+                .Select(method => method.GetParameters().Length)
+                .ToHashSet();
+            Assert.Contains(4, deconstructParameterCounts);
+            Assert.Contains(5, deconstructParameterCounts);
+        }
     }
 
     [Fact]

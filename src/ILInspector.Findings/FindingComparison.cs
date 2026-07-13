@@ -84,7 +84,9 @@ public sealed record FindingComparison<T> where T : notnull
             if (pairs.IsDefault)
                 throw new ArgumentException("Pairs must be initialized.", nameof(pairs));
             ArgumentNullException.ThrowIfNull(match);
-            if (match.Edges.IsDefault || match.MoveCandidates.IsDefault)
+            if (match.Edges.IsDefault
+                || match.MoveCandidates.IsDefault
+                || match.SoftCandidates.IsDefault)
                 throw new ArgumentException("Match arrays must be initialized.", nameof(match));
             ArgumentNullException.ThrowIfNull(oldInspection);
             ArgumentNullException.ThrowIfNull(newInspection);
@@ -198,6 +200,14 @@ public sealed record FindingComparison<T> where T : notnull
             {
                 throw new ArgumentException(
                     $"Transformed pair {i} must preserve its old and new atoms.",
+                    nameof(transformed));
+            }
+            if (original[i].Value is IMatchedPairFinding { Match: not null } matchedBefore
+                && (transformed[i].Value is not IMatchedPairFinding matchedAfter
+                    || matchedAfter.Match != matchedBefore.Match))
+            {
+                throw new ArgumentException(
+                    $"Transformed pair {i} must preserve its match provenance.",
                     nameof(transformed));
             }
         }

@@ -1,3 +1,6 @@
+extern alias extensionnew;
+extern alias extensionold;
+
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using ILInspector.Findings;
@@ -174,6 +177,357 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void SameRoleExtensionRelocation_DoesNotSoftMatch()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("OldExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(
+            Type("Widget"),
+            Type("NewExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.Contains(Pairs(comparison), pair => pair.Kind == PairKind.Added);
+        Assert.Contains(Pairs(comparison), pair => pair.Kind == PairKind.Removed);
+    }
+
+    [Fact]
+    public void ExtensionInstanceParameterMismatch_DoesNotSoftMatch()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(string count)",
+                "System.Void",
+                [Parameter("System.String")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.DoesNotContain(Pairs(comparison), pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
+    public void MalformedExtensionInstanceParameter_DoesNotSoftMatch()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, object value)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(object value)",
+                "System.Void",
+                [Parameter("")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.DoesNotContain(Pairs(comparison), pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
+    public void ExtensionReceiverRefnessMismatch_DoesNotSoftMatch()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(ref TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [
+                        Parameter("TestNamespace.Widget", "ref"),
+                        Parameter("System.Int32"),
+                    ],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.DoesNotContain(Pairs(comparison), pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
+    public void ExtensionMethodGenericArityMismatch_DoesNotSoftMatch()
+    {
+        var extension = StructuredMethod(
+            "Run",
+            "void Run<T>(TestNamespace.Widget value, int count)",
+            "System.Void",
+            [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+            isStatic: true,
+            isExtension: true,
+            extendedType: "TestNamespace.Widget");
+        extension.SignatureModel!.TypeParameters.Add(new TypeParameter { Name = "T" });
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members: [extension]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.DoesNotContain(Pairs(comparison), pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
+    public void AmbiguousExtensionInstanceEndpoints_DoNotSoftMatch()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(3, Pairs(comparison).Length);
+        Assert.DoesNotContain(Pairs(comparison), pair => pair.Kind == PairKind.Changed);
+    }
+
+    [Fact]
+    public void ExtensionSoftMatch_CannotDisplaceExactMemberMatch()
+    {
+        var instance = StructuredMethod(
+            "Run",
+            "void Run(int count)",
+            "System.Void",
+            [Parameter("System.Int32")]);
+        var oldSurface = Surface(
+            Type("Widget", members: [instance]),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        Assert.Equal(2, Pairs(comparison).Length);
+        Assert.Single(Pairs(comparison), pair => pair.Kind == PairKind.Present);
+        Assert.Single(Pairs(comparison), pair => pair.Kind == PairKind.Removed);
+    }
+
+    [Fact]
+    public void ExtensionToInstance_DefaultIsConservativeAndOptInIsChanged()
+    {
+        var oldSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+        ]));
+
+        var conservative = MetadataFindings.CompareApiMembers(oldSurface, newSurface, Subject);
+        Assert.Equal(2, Pairs(conservative).Length);
+        Assert.Contains(Pairs(conservative), pair => pair.Kind == PairKind.Added);
+        Assert.Contains(Pairs(conservative), pair => pair.Kind == PairKind.Removed);
+
+        var accepted = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        var changed = Assert.IsType<PairFinding<ApiMemberHandle>.Changed>(
+            Assert.Single(Pairs(accepted)).Value);
+        Assert.NotNull(changed.Match);
+        Assert.Equal(MetadataFindings.ExtensionInstanceMatchTier, changed.Match.Tier);
+        Assert.Equal(85, changed.Match.Confidence);
+        Assert.Contains("soft match: api.member.extension-instance", changed.Detail, StringComparison.Ordinal);
+        Assert.Contains("signature:", changed.Detail, StringComparison.Ordinal);
+        Assert.Contains("static: true -> false", changed.Detail, StringComparison.Ordinal);
+        Assert.Contains("extension: true -> false", changed.Detail, StringComparison.Ordinal);
+        Assert.Contains(
+            "declaring type: TestNamespace.WidgetExtensions -> TestNamespace.Widget",
+            changed.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstanceToExtension_SoftMatchIsSymmetric()
+    {
+        var oldSurface = Surface(Type("Widget", members:
+        [
+            StructuredMethod(
+                "Run",
+                "void Run(int count)",
+                "System.Void",
+                [Parameter("System.Int32")]),
+        ]));
+        var newSurface = Surface(
+            Type("Widget"),
+            Type("WidgetExtensions", members:
+            [
+                StructuredMethod(
+                    "Run",
+                    "void Run(TestNamespace.Widget value, int count)",
+                    "System.Void",
+                    [Parameter("TestNamespace.Widget"), Parameter("System.Int32")],
+                    isStatic: true,
+                    isExtension: true,
+                    extendedType: "TestNamespace.Widget"),
+            ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        var changed = Assert.IsType<PairFinding<ApiMemberHandle>.Changed>(
+            Assert.Single(Pairs(comparison)).Value);
+        Assert.Contains("extension: false -> true", changed.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ApiSurfaceMembersAreNotFilteredByNameHeuristics()
     {
         var oldSurface = Surface(Type("Widget"));
@@ -284,6 +638,29 @@ public class MetadataFindingsTests
         Assert.True(Pairs(result.Members).Length > 50);
     }
 
+    [Fact]
+    public void CompiledExtensionToInstance_ProducesSoftChangedCandidate()
+    {
+        var oldSurface = ExtractSurface(typeof(extensionold::ExtensionInstanceFixture.Widget).Assembly.Location);
+        var newSurface = ExtractSurface(typeof(extensionnew::ExtensionInstanceFixture.Widget).Assembly.Location);
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            acceptanceThreshold: 85);
+
+        var changed = Assert.Single(
+            Pairs(comparison),
+            pair => pair is PairFinding<ApiMemberHandle>.Changed
+            {
+                Old.Payload.Member.Name: "Measure",
+                New.Payload.Member.Name: "Measure",
+            });
+        var matched = Assert.IsAssignableFrom<IMatchedPairFinding>(changed.Value);
+        Assert.Equal(MetadataFindings.ExtensionInstanceMatchTier, matched.Match?.Tier);
+    }
+
     static ImmutableArray<PairFinding<T>> Pairs<T>(FindingComparison<T> comparison)
         where T : notnull
         => comparison is FindingComparison<T>.Complete complete
@@ -334,6 +711,13 @@ public class MetadataFindingsTests
     static ApiSurface Surface(params ApiType[] types)
         => new() { Types = [.. types] };
 
+    static ApiSurface ExtractSurface(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var reader = new PEReader(stream);
+        return ApiSurfaceExtractor.Extract(reader);
+    }
+
     static ApiType Type(
         string name,
         string kind = "class",
@@ -369,6 +753,33 @@ public class MetadataFindingsTests
 
     static ApiMember Property(string name, string signature)
         => new() { Name = name, Kind = "property", Signature = signature };
+
+    static ApiMember StructuredMethod(
+        string name,
+        string signature,
+        string returnType,
+        List<ApiParameter> parameters,
+        bool isStatic = false,
+        bool isExtension = false,
+        string? extendedType = null)
+        => new()
+        {
+            Name = name,
+            Kind = "method",
+            Signature = signature,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = returnType,
+                Parameters = parameters,
+            },
+            IsStatic = isStatic,
+            IsExtension = isExtension,
+            ExtendedType = extendedType,
+        };
+
+    static ApiParameter Parameter(string type, string? modifier = null)
+        => new() { Type = type, Modifier = modifier };
 
     sealed record ExpectedMembers(string[] Added, string[] Removed);
 }

@@ -170,6 +170,15 @@ public interface IPairFinding
 }
 
 /// <summary>
+/// A matched transition that can retain non-exact correspondence provenance. Null
+/// <see cref="Match"/> means the exact hard tier established correspondence.
+/// </summary>
+public interface IMatchedPairFinding : IPairFinding
+{
+    FindingMatchProvenance? Match { get; }
+}
+
+/// <summary>
 /// A classified transition between two <see cref="Finding{T}"/> atoms — the diff row, modeled as a
 /// discriminated union (.NET 11 <c>[Union]</c>) over four nested cases (<see cref="Added"/>,
 /// <see cref="Removed"/>, <see cref="Present"/>, <see cref="Changed"/>). Because each case carries
@@ -253,10 +262,28 @@ public sealed record PairFinding<T> : IPairFinding
         Finding<T> Old,
         Finding<T> New,
         FindingDifferenceKind Difference = FindingDifferenceKind.None,
-        string? Detail = null) : IPairFinding
+        string? Detail = null,
+        FindingMatchProvenance? Match = null) : IMatchedPairFinding
     {
+        public Present(
+            Finding<T> Old,
+            Finding<T> New,
+            FindingDifferenceKind Difference,
+            string? Detail)
+            : this(Old, New, Difference, Detail, Match: null)
+        {
+        }
+
         public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
         public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public void Deconstruct(
+            out Finding<T> Old,
+            out Finding<T> New,
+            out FindingDifferenceKind Difference,
+            out string? Detail)
+            => (Old, New, Difference, Detail)
+                = (this.Old, this.New, this.Difference, this.Detail);
 
         public PairKind Kind => PairKind.Present;
         public FindingSubject Subject => New.Subject;
@@ -270,10 +297,28 @@ public sealed record PairFinding<T> : IPairFinding
         Finding<T> Old,
         Finding<T> New,
         FindingDifferenceKind Difference = FindingDifferenceKind.None,
-        string? Detail = null) : IPairFinding
+        string? Detail = null,
+        FindingMatchProvenance? Match = null) : IMatchedPairFinding
     {
+        public Changed(
+            Finding<T> Old,
+            Finding<T> New,
+            FindingDifferenceKind Difference,
+            string? Detail)
+            : this(Old, New, Difference, Detail, Match: null)
+        {
+        }
+
         public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
         public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public void Deconstruct(
+            out Finding<T> Old,
+            out Finding<T> New,
+            out FindingDifferenceKind Difference,
+            out string? Detail)
+            => (Old, New, Difference, Detail)
+                = (this.Old, this.New, this.Difference, this.Detail);
 
         public PairKind Kind => PairKind.Changed;
         public FindingSubject Subject => New.Subject;
