@@ -577,7 +577,15 @@ public static class IlBodyDiff
         string FormatMethodDefinition(MethodDefinitionHandle handle)
         {
             var method = reader.GetMethodDefinition(handle);
-            var signature = method.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            var signature = GuardedProviderDecode.TryMethod(
+                reader,
+                method,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.FallbackSignature(
+                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
             return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs: null);
         }
 
@@ -587,14 +595,29 @@ public static class IlBodyDiff
             if (member.GetKind() != MemberReferenceKind.Method)
                 throw new BadImageFormatException("Expected method member reference.");
 
-            var signature = member.DecodeMethodSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            var signature = GuardedProviderDecode.TryMemberRefMethod(
+                reader,
+                member,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.FallbackSignature(
+                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
             return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs: null);
         }
 
         string FormatMethodSpecification(MethodSpecificationHandle handle)
         {
             var spec = reader.GetMethodSpecification(handle);
-            var typeArguments = spec.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            var typeArguments = GuardedProviderDecode.TryMethodSpec(
+                reader,
+                spec,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : [GuardedProviderDecode.RejectedIdentity(reader, spec.Signature)];
             string genericArgs = $"<{string.Join(", ", typeArguments)}>";
 
             return spec.Method.Kind switch
@@ -608,21 +631,44 @@ public static class IlBodyDiff
         string FormatMethodSpecificationDefinition(MethodDefinitionHandle handle, string genericArgs)
         {
             var method = reader.GetMethodDefinition(handle);
-            var signature = method.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            var signature = GuardedProviderDecode.TryMethod(
+                reader,
+                method,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.FallbackSignature(
+                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
             return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs);
         }
 
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
         {
             var member = reader.GetMemberReference(handle);
-            var signature = member.DecodeMethodSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            var signature = GuardedProviderDecode.TryMemberRefMethod(
+                reader,
+                member,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.FallbackSignature(
+                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
             return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs);
         }
 
         string FormatFieldDefinition(FieldDefinitionHandle handle)
         {
             var field = reader.GetFieldDefinition(handle);
-            string fieldType = field.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            string fieldType = GuardedProviderDecode.TryField(
+                reader,
+                field,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
             return $"{fieldType} {FormatType(field.GetDeclaringType())}::{reader.GetString(field.Name)}";
         }
 
@@ -632,7 +678,14 @@ public static class IlBodyDiff
             if (member.GetKind() != MemberReferenceKind.Field)
                 throw new BadImageFormatException("Expected field member reference.");
 
-            string fieldType = member.DecodeFieldSignature(SignatureIdentityProvider.Instance, genericContext: null);
+            string fieldType = GuardedProviderDecode.TryMemberRefField(
+                reader,
+                member,
+                SignatureIdentityProvider.Instance,
+                context: null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
             return $"{fieldType} {FormatMemberParent(member.Parent)}::{reader.GetString(member.Name)}";
         }
 
@@ -659,10 +712,22 @@ public static class IlBodyDiff
             {
                 HandleKind.TypeDefinition => FormatTypeDefinition((TypeDefinitionHandle)handle),
                 HandleKind.TypeReference => FormatTypeReference((TypeReferenceHandle)handle),
-                HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle)
-                    .DecodeSignature(SignatureIdentityProvider.Instance, null),
+                HandleKind.TypeSpecification => FormatTypeSpecification((TypeSpecificationHandle)handle),
                 _ => throw new BadImageFormatException($"Unsupported type handle {handle.Kind}."),
             };
+
+        string FormatTypeSpecification(TypeSpecificationHandle handle)
+        {
+            var specification = reader.GetTypeSpecification(handle);
+            return GuardedProviderDecode.TryTypeSpec(
+                reader,
+                handle,
+                SignatureIdentityProvider.Instance,
+                null,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
+        }
 
         string FormatTypeDefinition(TypeDefinitionHandle handle)
         {
@@ -707,6 +772,7 @@ public static class IlBodyDiff
 
         static string Escape(string value)
             => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
@@ -752,7 +818,17 @@ public static class IlBodyDiff
             => TypeName(reader, handle);
 
         public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-            => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        {
+            var specification = reader.GetTypeSpecification(handle);
+            return GuardedProviderDecode.TryTypeSpec(
+                reader,
+                handle,
+                this,
+                genericContext,
+                out var decoded)
+                ? decoded
+                : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
+        }
 
         public string GetSZArrayType(string elementType) => $"{elementType}[]";
         public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";

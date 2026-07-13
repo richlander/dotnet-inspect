@@ -39,6 +39,11 @@ public sealed record IlMemberDiffResult(
 /// </summary>
 public static class IlAssemblyDiff
 {
+    readonly record struct MethodMapKey(string Identity, int Occurrence)
+    {
+        public string Display => Occurrence == 1 ? Identity : $"{Identity}#occurrence:{Occurrence}";
+    }
+
     public static IlAssemblyDiffPairResult CompareFiles(
         string oldPath,
         string newPath,
@@ -86,7 +91,11 @@ public static class IlAssemblyDiff
 
         var oldMethods = MethodMap(oldReader);
         var newMethods = MethodMap(newReader);
-        var keys = oldMethods.Keys.Union(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var keys = oldMethods.Keys
+            .Union(newMethods.Keys)
+            .OrderBy(key => key.Identity, StringComparer.Ordinal)
+            .ThenBy(key => key.Occurrence)
+            .ToArray();
         var failures = new Dictionary<string, int>(StringComparer.Ordinal);
         var hunkKinds = new Dictionary<string, int>(StringComparer.Ordinal);
         var opcodeFamilies = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -97,7 +106,7 @@ public static class IlAssemblyDiff
         int changed = 0;
         int selfDiffExact = 0;
 
-        foreach (string key in keys)
+        foreach (var key in keys)
         {
             if (!oldMethods.TryGetValue(key, out var oldHandle))
             {
@@ -173,7 +182,7 @@ public static class IlAssemblyDiff
             }
 
             if (examples.Count < maxExamples)
-                examples.Add(new IlAssemblyDiffExample(key, diff));
+                examples.Add(new IlAssemblyDiffExample(key.Display, diff));
         }
 
         return new IlAssemblyDiffResult(
@@ -244,14 +253,17 @@ public static class IlAssemblyDiff
         }
     }
 
-    static Dictionary<string, MethodDefinitionHandle> MethodMap(MetadataReader reader)
+    static Dictionary<MethodMapKey, MethodDefinitionHandle> MethodMap(MetadataReader reader)
     {
-        var methods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
+        var methods = new Dictionary<MethodMapKey, MethodDefinitionHandle>();
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var handle in reader.MethodDefinitions)
         {
             var method = reader.GetMethodDefinition(handle);
-            string key = MethodKey(reader, method);
-            methods.TryAdd(key, handle);
+            string identity = MethodKey(reader, method);
+            int occurrence = occurrences.TryGetValue(identity, out int count) ? count + 1 : 1;
+            occurrences[identity] = occurrence;
+            methods.Add(new MethodMapKey(identity, occurrence), handle);
         }
 
         return methods;
@@ -261,7 +273,15 @@ public static class IlAssemblyDiff
     {
         string type = TypeName(reader, method.GetDeclaringType());
         string name = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(SignatureIdentityProvider.Instance, genericContext: null);
+        if (!GuardedProviderDecode.TryMethod(
+            reader,
+            method,
+            SignatureIdentityProvider.Instance,
+            context: null,
+            out var signature))
+        {
+            return $"{type}::{name}#{GuardedProviderDecode.RejectedIdentity(reader, method.Signature)}";
+        }
         string instance = signature.Header.IsInstance ? "instance" : "static";
         string genericArity = signature.GenericParameterCount > 0 ? $"<{signature.GenericParameterCount}>" : "";
         string signatureText = $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
@@ -349,7 +369,17 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     }
 
     public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        var specification = reader.GetTypeSpecification(handle);
+        return GuardedProviderDecode.TryTypeSpec(
+            reader,
+            handle,
+            this,
+            genericContext,
+            out var decoded)
+            ? decoded
+            : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
+    }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
     public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', Math.Max(shape.Rank - 1, 0))}]";

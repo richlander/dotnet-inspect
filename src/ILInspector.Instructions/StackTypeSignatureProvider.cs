@@ -44,7 +44,7 @@ internal sealed class StackTypeSignatureProvider : ISignatureTypeProvider<SigTyp
         => SigType.Of(StackType.ObjectReference);
 
     public SigType GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        => GuardedProviderDecode.TypeSpec(reader, handle, this, genericContext, SigType.Of(StackType.Unknown));
 
     public SigType GetSZArrayType(SigType elementType) => SigType.Of(StackType.ObjectReference);
     public SigType GetArrayType(SigType elementType, ArrayShape shape) => SigType.Of(StackType.ObjectReference);
@@ -62,7 +62,12 @@ internal sealed class StackTypeSignatureProvider : ISignatureTypeProvider<SigTyp
     {
         HandleKind.TypeDefinition => ClassifyDefinition((TypeDefinitionHandle)handle),
         HandleKind.TypeReference => StackType.ObjectReference,
-        HandleKind.TypeSpecification => _reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(this, null).Stack,
+        HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+            _reader,
+            (TypeSpecificationHandle)handle,
+            this,
+            null,
+            SigType.Of(StackType.Unknown)).Stack,
         _ => StackType.Unknown,
     };
 

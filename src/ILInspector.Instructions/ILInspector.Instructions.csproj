@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.ControlFlow\ILInspector.ControlFlow.csproj" />
+    <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
   </ItemGroup>
 
 </Project>

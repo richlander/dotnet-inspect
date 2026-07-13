@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Freezes the signature-provider closure contract for issue #2575 across both
+/// Freezes the signature-provider closure contract for issue #2575 across the
 /// SRM-only assemblies. SRM's <c>DecodeSignature</c> recurses on the native
 /// stack for every nested element <em>before</em> the first provider callback,
 /// so a single over-deep blob overflows the stack in a way no managed
@@ -34,6 +34,7 @@ public class ProviderSignatureDecodeBoundaryTests
     {
         Path.Combine("src", "ILInspector.Metadata"),
         Path.Combine("src", "ILInspector.MetadataPrimitives"),
+        Path.Combine("src", "ILInspector.Instructions"),
     };
 
     // The complete set of SRM top-level signature-blob decoders that recurse on
