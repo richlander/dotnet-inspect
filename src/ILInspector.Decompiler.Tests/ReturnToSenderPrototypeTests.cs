@@ -570,12 +570,12 @@ public class ReturnToSenderPrototypeTests
     public void CompileBackTargets_DropsInitializerWhenChainedConstructorIsOverloadAmbiguous()
     {
         // Issue #2678 guard: the printer can render chain arguments without a
-        // disambiguating cast (a `box` to `object` prints without `(object)`), so
-        // any second reconstructed constructor could silently hijack the
-        // `: this(args)` binding. The guard emits the initializer only when the
-        // chained-to constructor is the sole reconstructed sibling; here
-        // `C(object)` and `C(int)` are both present (the latter pulled in by
-        // `new C(2)`), so the initializer must be stripped.
+        // disambiguating cast (a `box` to `object` prints as its inner value), and
+        // C# overload resolution — including the target constructor — can then
+        // re-bind the call. A boxed argument is never faithful, and here three
+        // same-arity constructors (`C(object)`, `C(int)`, the target `C(string)`)
+        // share the callee's arity, so unique-arity binding does not hold either.
+        // The initializer must be stripped rather than emit a wrong-binding chain.
         var assemblyPath = CompileFixture("""
             public class C
             {
@@ -609,28 +609,25 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsInitializerWhenSiblingConstructorCrossesArity()
+    public void CompileBackTargets_DropsInitializerWhenChainBindsToTargetConstructor()
     {
-        // Issue #2678 guard: overload resolution can bind a chain-call argument
-        // list to a constructor of a DIFFERENT IL arity (a `params` array absorbs
-        // extra arguments). A same-arity check alone would miss this, so the guard
-        // requires the chained-to constructor to be the sole reconstructed
-        // sibling. Here `C(params int[])` and `C(int, int)` are both present, so
-        // `: this(1, 2)` could bind to either; the initializer must be stripped.
+        // Issue #2678 guard: overload resolution also considers the target
+        // constructor itself. The printer drops the `(object)` cast from
+        // `: this((object)text)`, printing `: this(text)`; with the target
+        // `C(string)` in the shell, `text` (a string) binds back to the target
+        // constructor — `C(string)` calling itself (CS0516). The argument is not
+        // faithful (its printed string type differs from the `object` parameter)
+        // and the callee shares the target's arity, so the initializer must be
+        // stripped.
         var assemblyPath = CompileFixture("""
             public class C
             {
-                public C(params int[] xs)
+                public C(object value)
                 {
                 }
 
-                public C(int a, int b)
+                public C(string text) : this((object)text)
                 {
-                }
-
-                public C(string z) : this(1, 2)
-                {
-                    _ = new C(9);
                 }
             }
             """);
@@ -638,10 +635,49 @@ public class ReturnToSenderPrototypeTests
         {
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesConstructorChainWhenArityIsUnique()
+    {
+        // Issue #2678: a chain whose arguments the printer cannot type precisely (a
+        // bare `null`) is still safe to emit when exactly one constructor in the
+        // shell has the chain's argument count — a normal-form exact-arity match
+        // has no competing overload, so `: this(1, 2, null)` binds unambiguously to
+        // the sole three-argument constructor. The initializer must be preserved so
+        // the constructor round-trips Exact.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(int a, int b, string s)
+                {
+                    S = s;
+                }
+
+                public C(string z) : this(1, 2, null)
+                {
+                }
+
+                public string S { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(": this(", result.Source);
         }
         finally
         {
