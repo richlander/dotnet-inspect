@@ -1,3 +1,5 @@
+using System.Reflection;
+
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -12,7 +14,8 @@ namespace ILInspector.Metadata.Tests;
 /// <c>try/catch</c> can contain. Every top-level provider decode must therefore
 /// be prescanned with <c>SignatureBlobGuard.IsSafeToDecode</c> or enter through
 /// <c>GuardedSignatureDecoder</c>, and every nested cross-handle TypeSpec
-/// re-entry must be bounded by <c>TypeSpecGuard</c>.
+/// re-entry must be bounded by the disposable scope returned for that invocation
+/// by <c>TypeSpecGuard</c>.
 ///
 /// This census is a deny-list: any <c>Decode*Signature</c> invocation that is
 /// not one of the three sanctioned guarded forms is a violation. A newly added
@@ -22,12 +25,15 @@ namespace ILInspector.Metadata.Tests;
 ///
 /// The classification is performed on the Roslyn syntax tree, not by string or
 /// regex matching, so it cannot be evaded by comments, line splits, whitespace,
-/// aliasing, or spoofed tokens. It enumerates every occurrence of a decode
+/// aliasing, or spoofed tokens. Negative self-tests freeze those three reviewer
+/// evasions. The census enumerates every occurrence of a decode
 /// method name and requires each to be the invoked member of a sanctioned call,
 /// so null-conditional (`x?.Decode...`), method-group, and delegate forms are
 /// flagged rather than skipped. Form 2 additionally binds the prescan to the
 /// decoded blob (same receiver's `.Signature`), so an unrelated or nil-handle
-/// guard cannot launder an unguarded decode past the census.
+/// guard cannot launder an unguarded decode past the census. Nested TypeSpec
+/// re-entry is likewise bound to a matching TryEnter handle and disposable
+/// scope per invocation; a guard elsewhere in the file proves nothing.
 /// </summary>
 public class ProviderSignatureDecodeBoundaryTests
 {
@@ -54,6 +60,40 @@ public class ProviderSignatureDecodeBoundaryTests
         "DecodeMethodSpecificationSignature",
     };
 
+    public static TheoryData<string, string> ReviewerEvasions => new()
+    {
+        {
+            "provider local alias",
+            """
+            object Decode()
+            {
+                var provider = TypeNodeProvider.Instance;
+                return method.DecodeSignature(provider, context);
+            }
+            """
+        },
+        {
+            "newline-split invocation",
+            """
+            object Decode()
+            {
+                return method.
+                    DecodeSignature(TypeNodeProvider.Instance, context);
+            }
+            """
+        },
+        {
+            "guard token in comment",
+            """
+            object Decode()
+            {
+                // SignatureBlobGuard.IsSafeToDecode(reader, method.Signature)
+                return method.DecodeSignature(TypeNodeProvider.Instance, context);
+            }
+            """
+        },
+    };
+
     [Fact]
     public void EveryProviderDecode_IsGuarded()
     {
@@ -62,30 +102,8 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            foreach (var name in DecodeNameOccurrences(file))
+            foreach (var name in FindDecodeViolations(ParseFileRoot(file)))
             {
-                // A decode method name may appear ONLY as the invoked method of a
-                // sanctioned decode call. Any other occurrence — a method-group /
-                // delegate reference, or a call whose name node is not the invoked
-                // member — is an unguarded escape and a violation.
-                if (TryGetInvokedDecode(name, out var invocation)
-                    && (IsNestedTypeSpecReentry(invocation)
-                        || IsPrescanGuardedTernary(invocation)
-                        || IsGuardedSignatureDecoderGateway(invocation)))
-                {
-                    // Sanctioned form 1: a nested cross-handle TypeSpec re-entry,
-                    // `reader.GetTypeSpecification(handle).Decode*Signature(...)`,
-                    // bounded by TypeSpecGuard in its enclosing provider file
-                    // (asserted by NestedTypeSpecReentry_IsBoundedByTypeSpecGuard).
-                    // Sanctioned form 2: the decode is the true-branch of a
-                    // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature,
-                    // ...) ? decode : fallback` prescan ternary.
-                    // Sanctioned form 3: the decode is the value factory of
-                    // `GuardedSignatureDecoder.Decode(reader, <recv>.Signature,
-                    // ..., () => decode)`, bound to the same signature blob.
-                    continue;
-                }
-
                 var line = name.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
                 violations.Add($"{Path.GetRelativePath(root, file)}:{line}");
             }
@@ -100,49 +118,109 @@ public class ProviderSignatureDecodeBoundaryTests
             + "Unguarded raw decodes:\n  " + string.Join("\n  ", violations));
     }
 
+    [Theory]
+    [MemberData(nameof(ReviewerEvasions))]
+    public void Census_RejectsReviewerEvasion(string evasion, string source)
+    {
+        var violations = FindDecodeViolations(ParseSourceRoot(source));
+
+        Assert.True(violations.Count == 1, $"{evasion}: expected one violation, found {violations.Count}");
+    }
+
     [Fact]
-    public void NestedTypeSpecReentry_IsBoundedByTypeSpecGuard()
+    public void NestedTypeSpecReentry_IsBoundedPerInvocation()
     {
         var root = FindRepoRoot();
         var unguarded = new List<string>();
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            var invocations = AllInvocations(file);
-
-            bool hasNestedReentry = invocations.Any(i => IsDecodeInvocation(i) && IsNestedTypeSpecReentry(i));
-            if (!hasNestedReentry)
-                continue;
-
-            bool boundsWithTypeSpecGuard = invocations.Any(i =>
-                i.Expression is MemberAccessExpressionSyntax member
-                && member.Name.Identifier.Text == "TryEnter"
-                && member.Expression is IdentifierNameSyntax id
-                && id.Identifier.Text == "TypeSpecGuard");
-
-            if (!boundsWithTypeSpecGuard)
-                unguarded.Add(Path.GetRelativePath(root, file));
+            foreach (var invocation in AllInvocations(ParseFileRoot(file))
+                         .Where(i => IsDecodeInvocation(i)
+                             && IsNestedTypeSpecReentry(i)
+                             && !IsBoundedByTypeSpecGuardScope(i)))
+            {
+                var line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                unguarded.Add($"{Path.GetRelativePath(root, file)}:{line}");
+            }
         }
 
         Assert.True(
             unguarded.Count == 0,
-            "Every file that re-enters a nested TypeSpec decode must bound it with "
-            + "TypeSpecGuard.TryEnter:\n  " + string.Join("\n  ", unguarded));
+            "Every nested TypeSpec decode must be inside the disposable scope from "
+            + "a matching TypeSpecGuard.TryEnter invocation:\n  "
+            + string.Join("\n  ", unguarded));
     }
 
-    static IEnumerable<SimpleNameSyntax> DecodeNameOccurrences(string file)
-        => ParseRoot(file).DescendantNodes()
+    [Fact]
+    public void NestedTypeSpecFact_RejectsGuardElsewhereInFile()
+    {
+        var root = ParseSourceRoot("""
+            object Guarded()
+            {
+                if (!TypeSpecGuard.TryEnter(reader, first, out var scope))
+                    return null;
+                using (scope)
+                {
+                    return reader.GetTypeSpecification(first).DecodeSignature(provider, context);
+                }
+            }
+
+            object Unguarded()
+                => reader.GetTypeSpecification(second).DecodeSignature(provider, context);
+            """);
+
+        var violation = Assert.Single(FindDecodeViolations(root));
+        Assert.Equal("DecodeSignature", violation.Identifier.Text);
+        Assert.Contains("second", violation.Parent!.Parent!.ToString());
+    }
+
+    [Fact]
+    public void TypeSpecGuard_ExposesDisposableScopeInsteadOfUnpairedExit()
+    {
+        Assert.Null(typeof(TypeSpecGuard).GetMethod(
+            "Exit",
+            BindingFlags.Public | BindingFlags.Static));
+
+        var tryEnter = Assert.Single(
+            typeof(TypeSpecGuard).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            method => method.Name == nameof(TypeSpecGuard.TryEnter));
+        Assert.Equal(
+            typeof(TypeSpecGuard.Scope).MakeByRefType(),
+            tryEnter.GetParameters()[2].ParameterType);
+        Assert.NotNull(typeof(TypeSpecGuard.Scope).GetMethod(
+            nameof(TypeSpecGuard.Scope.Dispose),
+            BindingFlags.Public | BindingFlags.Instance));
+    }
+
+    static IReadOnlyList<SimpleNameSyntax> FindDecodeViolations(SyntaxNode root)
+        => DecodeNameOccurrences(root)
+            .Where(name => !TryGetInvokedDecode(name, out var invocation)
+                || !(IsPrescanGuardedTernary(invocation)
+                    || IsGuardedSignatureDecoderGateway(invocation)
+                    || (IsNestedTypeSpecReentry(invocation)
+                        && IsBoundedByTypeSpecGuardScope(invocation))))
+            .ToArray();
+
+    static IEnumerable<SimpleNameSyntax> DecodeNameOccurrences(SyntaxNode root)
+        => root.DescendantNodes()
             .OfType<SimpleNameSyntax>()
             .Where(name => DecodeMethodNames.Contains(name.Identifier.Text));
 
-    static InvocationExpressionSyntax[] AllInvocations(string file)
-        => ParseRoot(file).DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+    static InvocationExpressionSyntax[] AllInvocations(SyntaxNode root)
+        => root.DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
 
-    static SyntaxNode ParseRoot(string file)
+    static SyntaxNode ParseFileRoot(string file)
     {
         var token = TestContext.Current.CancellationToken;
         var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(file), cancellationToken: token);
         return tree.GetRoot(token);
+    }
+
+    static SyntaxNode ParseSourceRoot(string source)
+    {
+        var token = TestContext.Current.CancellationToken;
+        return CSharpSyntaxTree.ParseText(source, cancellationToken: token).GetRoot(token);
     }
 
     // Resolves a decode-method name occurrence to the invocation that invokes it,
@@ -179,10 +257,100 @@ public class ProviderSignatureDecodeBoundaryTests
     // `<expr>.GetTypeSpecification(...).Decode*Signature(...)`: the decode's
     // immediate receiver is itself a GetTypeSpecification invocation.
     static bool IsNestedTypeSpecReentry(InvocationExpressionSyntax invocation)
-        => invocation.Expression is MemberAccessExpressionSyntax member
-            && member.Expression is InvocationExpressionSyntax receiver
-            && receiver.Expression is MemberAccessExpressionSyntax receiverMember
-            && receiverMember.Name.Identifier.Text == "GetTypeSpecification";
+        => TryGetNestedTypeSpecReceiver(invocation, out _);
+
+    static bool TryGetNestedTypeSpecReceiver(
+        InvocationExpressionSyntax invocation,
+        out InvocationExpressionSyntax receiver)
+    {
+        if (invocation.Expression is MemberAccessExpressionSyntax member
+            && member.Expression is InvocationExpressionSyntax typeSpecReceiver
+            && typeSpecReceiver.Expression is MemberAccessExpressionSyntax receiverMember
+            && receiverMember.Name.Identifier.Text == "GetTypeSpecification")
+        {
+            receiver = typeSpecReceiver;
+            return true;
+        }
+
+        receiver = null!;
+        return false;
+    }
+
+    static bool IsBoundedByTypeSpecGuardScope(InvocationExpressionSyntax invocation)
+    {
+        if (!TryGetNestedTypeSpecReceiver(invocation, out var receiver)
+            || receiver.ArgumentList.Arguments.Count == 0)
+        {
+            return false;
+        }
+
+        var handle = receiver.ArgumentList.Arguments[0].Expression;
+        foreach (var usingStatement in invocation.Ancestors().OfType<UsingStatementSyntax>())
+        {
+            if (usingStatement.Expression is not IdentifierNameSyntax scope
+                || usingStatement.Parent is not BlockSyntax block)
+            {
+                continue;
+            }
+
+            int usingIndex = block.Statements.IndexOf(usingStatement);
+            if (usingIndex <= 0
+                || block.Statements[usingIndex - 1] is not IfStatementSyntax guard
+                || !GuardReturnsWhenEntryFails(guard, scope.Identifier.Text, handle))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool GuardReturnsWhenEntryFails(
+        IfStatementSyntax guard,
+        string scopeName,
+        ExpressionSyntax handle)
+    {
+        var condition = UnwrapParentheses(guard.Condition);
+        if (condition is not PrefixUnaryExpressionSyntax
+            {
+                OperatorToken.RawKind: (int)SyntaxKind.ExclamationToken
+            } negation
+            || UnwrapParentheses(negation.Operand) is not InvocationExpressionSyntax tryEnter
+            || tryEnter.Expression is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax { Identifier.Text: "TypeSpecGuard" },
+                Name.Identifier.Text: "TryEnter",
+            }
+            || tryEnter.ArgumentList.Arguments.Count < 3
+            || !SyntaxFactory.AreEquivalent(
+                tryEnter.ArgumentList.Arguments[1].Expression,
+                handle)
+            || tryEnter.ArgumentList.Arguments[2].Expression is not DeclarationExpressionSyntax
+            {
+                Designation: SingleVariableDesignationSyntax designation,
+            }
+            || designation.Identifier.Text != scopeName)
+        {
+            return false;
+        }
+
+        return guard.Statement switch
+        {
+            ReturnStatementSyntax or ThrowStatementSyntax => true,
+            BlockSyntax block when block.Statements.LastOrDefault()
+                is ReturnStatementSyntax or ThrowStatementSyntax => true,
+            _ => false,
+        };
+    }
+
+    static ExpressionSyntax UnwrapParentheses(ExpressionSyntax expression)
+    {
+        while (expression is ParenthesizedExpressionSyntax parentheses)
+            expression = parentheses.Expression;
+        return expression;
+    }
 
     // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature, ...) ?
     // <recv>.Decode*Signature(...) : <fallback>`: some enclosing conditional
@@ -194,7 +362,7 @@ public class ProviderSignatureDecodeBoundaryTests
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember)
             return false;
-        var decodeReceiver = decodeMember.Expression.ToString();
+        var decodeReceiver = decodeMember.Expression;
 
         foreach (var ancestor in invocation.Ancestors())
         {
@@ -208,7 +376,9 @@ public class ProviderSignatureDecodeBoundaryTests
         return false;
     }
 
-    static bool ConditionGuardsReceiverSignature(ExpressionSyntax condition, string decodeReceiver)
+    static bool ConditionGuardsReceiverSignature(
+        ExpressionSyntax condition,
+        ExpressionSyntax decodeReceiver)
         => condition.DescendantNodesAndSelf()
             .OfType<InvocationExpressionSyntax>()
             .Any(i => i.Expression is MemberAccessExpressionSyntax member
@@ -218,7 +388,7 @@ public class ProviderSignatureDecodeBoundaryTests
                 && i.ArgumentList.Arguments.Any(a =>
                     a.Expression is MemberAccessExpressionSyntax blob
                     && blob.Name.Identifier.Text == "Signature"
-                    && blob.Expression.ToString() == decodeReceiver));
+                    && SyntaxFactory.AreEquivalent(blob.Expression, decodeReceiver)));
 
     // `GuardedSignatureDecoder.Decode(reader, <recv>.Signature, ..., () =>
     // <recv>.Decode*Signature(...))`: the decode must be inside the supplied
@@ -227,7 +397,7 @@ public class ProviderSignatureDecodeBoundaryTests
     {
         if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember)
             return false;
-        var decodeReceiver = decodeMember.Expression.ToString();
+        var decodeReceiver = decodeMember.Expression;
 
         var valueFactory = invocation.Ancestors()
             .OfType<AnonymousFunctionExpressionSyntax>()
@@ -235,17 +405,17 @@ public class ProviderSignatureDecodeBoundaryTests
         if (valueFactory?.Parent is not ArgumentSyntax valueArgument
             || valueArgument.Parent?.Parent is not InvocationExpressionSyntax gateway
             || gateway.Expression is not MemberAccessExpressionSyntax gatewayMember
-            || gatewayMember.Name.Identifier.Text != "Decode"
+            || gatewayMember.Name.Identifier.ValueText != "Decode"
             || gatewayMember.Expression is not IdentifierNameSyntax gatewayType
-            || gatewayType.Identifier.Text != "GuardedSignatureDecoder")
+            || gatewayType.Identifier.ValueText != "GuardedSignatureDecoder")
         {
             return false;
         }
 
         return gateway.ArgumentList.Arguments.Any(a =>
             a.Expression is MemberAccessExpressionSyntax blob
-            && blob.Name.Identifier.Text == "Signature"
-            && blob.Expression.ToString() == decodeReceiver);
+            && blob.Name.Identifier.ValueText == "Signature"
+            && SyntaxFactory.AreEquivalent(blob.Expression, decodeReceiver));
     }
 
     static IEnumerable<string> EnumerateSourceFiles(string root)

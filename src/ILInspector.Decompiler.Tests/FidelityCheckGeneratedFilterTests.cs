@@ -445,6 +445,53 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void ExtensionRootSelection_DistinguishesReceiverTypesByGenericArity()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverArityFixture;
+
+            public class NonGenericBase { }
+            public class GenericBase { }
+            public class Result : NonGenericBase { }
+            public class Result<T> : GenericBase { }
+
+            public static class NonGenericExtensions
+            {
+                public static void Add(this NonGenericBase receiver, string value) { }
+            }
+
+            public static class GenericExtensions
+            {
+                public static void Add(this GenericBase receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var nonGeneric = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverArityFixture.Result");
+            var generic = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverArityFixture.Result<int>");
+
+            Assert.Equal(
+                ["ExtensionReceiverArityFixture.NonGenericExtensions"],
+                nonGeneric.Roots);
+            Assert.False(nonGeneric.UsedFallback, nonGeneric.FallbackReason);
+            Assert.Equal(
+                ["ExtensionReceiverArityFixture.GenericExtensions"],
+                generic.Roots);
+            Assert.False(generic.UsedFallback, generic.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""
