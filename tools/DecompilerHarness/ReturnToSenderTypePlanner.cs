@@ -1254,6 +1254,9 @@ public static class CompileBackSourceComposer
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
         IReadOnlyList<CompileBackMemberRequirement> chainTargetMembers = [];
         TypeDefinitionHandle? chainTargetType = null;
+        TypeDefinitionHandle? directBaseType = isBaseChain
+            ? ResolveSameAssemblyType(reader, targetTypeDef.BaseType)
+            : null;
         if (chainCallee is { } chainTarget)
         {
             chainTargetType = ResolveSameAssemblyType(reader, chainTarget.DeclaringType);
@@ -1263,8 +1266,7 @@ public static class CompileBackSourceComposer
             }
             else if (isBaseChain
                 && chainTargetType is { } baseHandle
-                && targetTypeDef.BaseType.Kind == HandleKind.TypeDefinition
-                && (TypeDefinitionHandle)targetTypeDef.BaseType == baseHandle
+                && directBaseType == baseHandle
                 && closureMemberRequirements.TryGetValue(baseHandle, out var baseMembers))
             {
                 chainTargetMembers = baseMembers;
@@ -1885,6 +1887,28 @@ public static class CompileBackSourceComposer
             return null;
         return TypeDefinitionsByTypeRefIdentity(reader)
             .GetValueOrDefault(TypeRefIdentityKey(definition.Namespace, definition.Name));
+    }
+
+    static TypeDefinitionHandle? ResolveSameAssemblyType(MetadataReader reader, EntityHandle handle)
+    {
+        if (handle.Kind == HandleKind.TypeDefinition)
+            return (TypeDefinitionHandle)handle;
+        if (handle.Kind != HandleKind.TypeSpecification)
+            return null;
+
+        try
+        {
+            var type = TypeRefDecoder.Instance.GetTypeFromSpecification(
+                reader,
+                GenericScope.Empty,
+                (TypeSpecificationHandle)handle,
+                0);
+            return ResolveSameAssemblyType(reader, type);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
@@ -2787,11 +2811,18 @@ public static class CompileBackSourceComposer
         IReadOnlyList<(string Field, string Value)> initializers)
     {
         var members = new List<CompileBackMemberRequirement>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var fieldOrder = new List<string>();
+        var valuesByField = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (fieldName, value) in initializers)
         {
-            if (!seen.Add(fieldName)
-                || FindField(reader, typeDef, fieldName) is not { } fieldHandle)
+            if (!valuesByField.ContainsKey(fieldName))
+                fieldOrder.Add(fieldName);
+            valuesByField[fieldName] = value;
+        }
+
+        foreach (string fieldName in fieldOrder)
+        {
+            if (FindField(reader, typeDef, fieldName) is not { } fieldHandle)
                 continue;
 
             var field = reader.GetFieldDefinition(fieldHandle);
@@ -2820,7 +2851,7 @@ public static class CompileBackSourceComposer
                 CompileBackTypeSignature.Display(fieldType),
                 TypeParameters: [],
                 CompileBackStubBodyKind.FieldInitializer,
-                value,
+                valuesByField[fieldName],
                 [new CompileBackFact("metadata", "target-field-initializer", fieldName)]));
         }
 
@@ -3651,19 +3682,26 @@ public static class CompileBackSourceComposer
             string? baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
             if (baseType is "System.Attribute")
                 return CompileBackTypeSignature.Display(baseType);
+            if (baseType is null)
+                return null;
 
-            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition
-                || !requirement.SourceFacts.Any(fact =>
-                    fact.Id == "target-base-constructor-chain"
-                    && fact.Detail == baseType))
+            if (ResolveSameAssemblyType(reader, typeDef.BaseType) is not { } baseHandle)
                 return null;
 
             var baseIdentity = CompileBackTypeIdentity.FromDefinition(
                 reader,
-                reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType));
-            return requirementsByMetadataName.ContainsKey(baseIdentity.MetadataFullName)
+                reader.GetTypeDefinition(baseHandle));
+            if (!requirement.SourceFacts.Any(fact =>
+                    fact.Id == "target-base-constructor-chain"
+                    && fact.Detail == baseIdentity.MetadataFullName))
+                return null;
+
+            if (!requirementsByMetadataName.ContainsKey(baseIdentity.MetadataFullName))
+                return null;
+
+            return typeDef.BaseType.Kind == HandleKind.TypeDefinition
                 ? CompileBackTypeSignature.Definition(baseIdentity)
-                : null;
+                : CompileBackTypeSignature.Display(baseType);
         }
 
         static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(MetadataReader reader, TypeDefinition typeDef)

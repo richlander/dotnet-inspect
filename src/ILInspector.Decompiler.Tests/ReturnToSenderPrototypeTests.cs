@@ -637,6 +637,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesGenericBaseConstructorChainOpcodes()
+    {
+        var assemblyPath = CompileFixture("""
+            public class B<T>
+            {
+                protected B(T value)
+                {
+                }
+            }
+
+            public sealed class C<T> : B<T>
+            {
+                public C(T value) : base(value)
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C`1", ".ctor", 0)]));
+
+            Assert.Contains("class C<T> : B<T>", result.Source);
+            Assert.Contains(": base(value)", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesUniqueArrayToEnumerableConstructorChain()
     {
         var assemblyPath = CompileFixture("""
