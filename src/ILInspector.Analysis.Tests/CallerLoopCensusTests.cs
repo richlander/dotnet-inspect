@@ -167,7 +167,9 @@ public class CallerLoopCensusTests
     {
         var report = CallerLoopCensus.Measure(["/not/a/real/assembly.dll"]);
 
+        Assert.Equal(0, report.Opened);
         Assert.Equal(1, report.Failed);
+        Assert.Equal(report.Assemblies, report.Opened + report.Failed);
         Assert.Single(report.Failures);
         Assert.Contains("assembly.dll", report.Failures[0].AssemblyPath, StringComparison.Ordinal);
     }

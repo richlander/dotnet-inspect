@@ -79,13 +79,13 @@ public static class CallerLoopCensus
             try
             {
                 var index = LibraryBodyIndex.Open(path);
-                opened++;
                 rows.AddRange(Analyze(
                     Path.GetFileName(path),
                     index.Methods,
                     index.DirectCalls,
                     index.OptimizationOpportunities,
                     maxDepth));
+                opened++;
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException)
             {
@@ -269,7 +269,7 @@ public static class CallerLoopCensus
             maxDepth,
             assemblies,
             opened,
-            assemblies - opened,
+            failures.Count,
             rows.Count,
             candidateRows.Length,
             methodRows.Length,
