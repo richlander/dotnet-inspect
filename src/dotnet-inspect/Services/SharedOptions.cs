@@ -324,8 +324,13 @@ public class SharedOptions
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
         ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
-        if (ShouldSuppressEnvironmentTabularFormat(parseResult, tableFlag || tsvFlag || jsonlFlag))
+        if (ShouldSuppressEnvironmentTabularFormat(
+            parseResult,
+            tableFlag || tsvFlag || jsonlFlag,
+            jsonFlag || markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity))
+        {
             return defaultFormat;
+        }
 
         return OutputFormatResolver.Resolve(jsonFlag, markdownFlag, verbosity, plainTextFlag, mermaidFlag, tableFlag, tsvFlag, jsonlFlag, defaultFormat);
     }
@@ -475,8 +480,12 @@ public class SharedOptions
         || IsExplicit(parseResult, Bare)
         || parseResult.GetResult(Verbosity) is { Implicit: false };
 
-    private bool ShouldSuppressEnvironmentTabularFormat(ParseResult parseResult, bool tabularFlag) =>
+    private bool ShouldSuppressEnvironmentTabularFormat(
+        ParseResult parseResult,
+        bool tabularFlag,
+        bool explicitNonTabularFormat) =>
         !tabularFlag
+        && !explicitNonTabularFormat
         && IsExplicit(parseResult, Bare)
         && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
 

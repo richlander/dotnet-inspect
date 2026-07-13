@@ -281,6 +281,26 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public void ResolveFormat_WithBareJsonAndEnvironmentTable_UsesExplicitJson()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var (root, opts, _) = CreateTestCommand();
+            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--bare", "--json"]);
+
+            Assert.Empty(parseResult.Errors);
+            Assert.Equal(OutputFormat.Json, opts.ResolveFormat(parseResult));
+            Assert.False(opts.ResolveTabular(parseResult));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithImplicitOutput_KeepsTipsEnabled()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
