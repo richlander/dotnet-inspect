@@ -437,18 +437,24 @@ is deferred, but the architecture permits it.
 ### Sparse timeline and bisect
 
 A sparse traversal evaluates only caller-selected cells. It preserves the
-Finding correlation semantics:
+Finding census-correlation semantics:
 
-- `Present`: a completed census contains the exact identity;
-- `Missing`: a completed census does not contain it;
+- `Complete`: the focused census completed, including when it contains zero
+  observations;
 - `SubjectAbsent`: the producer has no applicable subject input;
 - `Failed`: inspection did not complete;
 - `Unevaluated`: the address exists in the resolved vector but was not supplied
-  to `FindingCorrelation`.
+  to `FindingCensusCorrelation`.
 
 `Unevaluated` is a presentation state formed by joining the version vector with
 the sparse correlation. It is not fabricated as a Finding or inspection
 outcome.
+
+When a projection selects one exact observation identity,
+`FindingCensusCorrelation.Correlate` produces its `FindingCorrelation` track:
+`Present` means the completed census contains that identity and `Missing` means
+it does not. Whole-census and exact-identity states must not be combined into
+one shadow cell-state model.
 
 Probe order does not define timeline order. Positions come from the resolved
 version vector in the caller's range direction; evaluated inspections retain

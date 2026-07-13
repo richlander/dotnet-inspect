@@ -74,12 +74,100 @@ public static class TimelineCommand
         string descriptor,
         IReadOnlyList<TimelineEvaluation> evaluated,
         HashSet<string> selectedSections)
+        => descriptor switch
+        {
+            var id when id == MetadataFindings.TypeDescriptor.Id =>
+                BuildView(
+                    vector,
+                    typeFullName,
+                    MetadataFindings.TypeDescriptor,
+                    evaluated,
+                    selectedSections,
+                    new FindingCorrelationKey(
+                        Subject(typeFullName),
+                        MetadataFindings.TypeDescriptor,
+                        new FindingKey(typeFullName)),
+                    surface => MetadataFindings.InspectApiType(
+                        surface,
+                        Subject(typeFullName),
+                        typeFullName),
+                    (oldSurface, newSurface) => MetadataFindings.CompareApiType(
+                        oldSurface,
+                        newSurface,
+                        Subject(typeFullName),
+                        typeFullName)),
+            var id when id == MetadataFindings.MemberDescriptor.Id =>
+                BuildView(
+                    vector,
+                    typeFullName,
+                    MetadataFindings.MemberDescriptor,
+                    evaluated,
+                    selectedSections,
+                    null,
+                    surface => MetadataFindings.InspectApiMembers(
+                        surface,
+                        Subject(typeFullName),
+                        typeFullName),
+                    (oldSurface, newSurface) => MetadataFindings.CompareApiMembers(
+                        oldSurface,
+                        newSurface,
+                        Subject(typeFullName),
+                        typeFullName)),
+            var id when id == MetadataFindings.AttributeDescriptor.Id =>
+                BuildView(
+                    vector,
+                    typeFullName,
+                    MetadataFindings.AttributeDescriptor,
+                    evaluated,
+                    selectedSections,
+                    null,
+                    surface => MetadataFindings.InspectApiAttributes(
+                        surface,
+                        Subject(typeFullName),
+                        typeFullName),
+                    (oldSurface, newSurface) => MetadataFindings.CompareApiAttributes(
+                        oldSurface,
+                        newSurface,
+                        Subject(typeFullName),
+                        typeFullName)),
+            _ => throw new InvalidOperationException(
+                $"Unsupported Finding descriptor '{descriptor}'."),
+        };
+
+    static TimelineDocumentView BuildView<T>(
+        PackageVersionVector vector,
+        string typeFullName,
+        FindingDescriptor descriptor,
+        IReadOnlyList<TimelineEvaluation> evaluated,
+        HashSet<string> selectedSections,
+        FindingCorrelationKey? identityKey,
+        Func<ApiSurface?, FindingInspection<T>> inspect,
+        Func<ApiSurface?, ApiSurface?, FindingComparison<T>> compare)
+        where T : notnull
     {
-        var evaluatedByPosition = evaluated.ToDictionary(item => item.Address.Position);
+        var correlation = FindingCensusCorrelation<T>.Create(
+            evaluated.Select(evaluation => new VersionedFindingInspection<T>(
+                new FindingVersion(
+                    evaluation.Address.Selector,
+                    evaluation.Address.Version.ToNormalizedString(),
+                    evaluation.Address.Position),
+                evaluation.Error is null
+                    ? inspect(evaluation.Surface)
+                    : new FindingInspection<T>.Failed(
+                        new InspectionError(
+                            Subject(typeFullName),
+                            descriptor,
+                            evaluation.Error)))));
+        var inspectionsByPosition = correlation.Inspections.ToDictionary(
+            item => item.Version.Position);
+        var identityByPosition = identityKey is null
+            ? null
+            : correlation.Correlate(identityKey).Timeline.ToDictionary(
+                item => GetVersion(item).Position);
         List<TimelineEvaluationRow>? evaluationRows = selectedSections.Contains(EvaluationsSection)
             ? vector.Addresses.Select(address =>
             {
-                if (!evaluatedByPosition.TryGetValue(address.Position, out var evaluation))
+                if (!inspectionsByPosition.TryGetValue(address.Position, out var evaluation))
                 {
                     return new TimelineEvaluationRow(
                         address.Selector,
@@ -89,12 +177,19 @@ public static class TimelineCommand
                         null);
                 }
 
-                return BuildEvaluationRow(evaluation, descriptor, typeFullName);
+                return identityByPosition is null
+                    ? BuildCensusEvaluationRow(evaluation)
+                    : BuildIdentityEvaluationRow(identityByPosition[address.Position]);
             }).ToList()
             : null;
 
         List<TimelineTransitionRow>? transitionRows = selectedSections.Contains(TransitionsSection)
-            ? BuildTransitionRows(evaluated, descriptor, typeFullName)
+            ? BuildTransitionRows(
+                correlation,
+                evaluated,
+                descriptor.Id,
+                typeFullName,
+                compare)
             : null;
 
         return new TimelineDocumentView
@@ -102,106 +197,158 @@ public static class TimelineCommand
             Title = $"Timeline: {vector.PackageId}",
             Range = $"{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}",
             Type = typeFullName,
-            Finding = descriptor,
-            Recommendation = RecommendProbe(vector, evaluated),
+            Finding = descriptor.Id,
+            Recommendation = RecommendProbe(vector, typeFullName, descriptor.Id, evaluated),
             Evaluations = evaluationRows,
             Transitions = transitionRows,
         };
     }
 
-    static TimelineEvaluationRow BuildEvaluationRow(
-        TimelineEvaluation evaluation,
-        string descriptor,
-        string typeFullName)
-    {
-        if (evaluation.Error is not null)
+    static TimelineEvaluationRow BuildCensusEvaluationRow<T>(
+        VersionedFindingInspection<T> evaluation)
+        where T : notnull
+        => evaluation.Inspection switch
         {
-            return new TimelineEvaluationRow(
-                evaluation.Address.Selector,
-                evaluation.Address.Version.ToNormalizedString(),
-                "Failed",
-                null,
-                evaluation.Error);
-        }
-
-        var inspection = Inspect(evaluation.Surface, descriptor, typeFullName);
-        return inspection switch
-        {
-            InspectionProjection.Complete complete => new TimelineEvaluationRow(
-                evaluation.Address.Selector,
-                evaluation.Address.Version.ToNormalizedString(),
-                descriptor == MetadataFindings.TypeDescriptor.Id
-                    ? complete.Count == 0 ? "Missing" : "Present"
-                    : "Complete",
-                complete.Count,
+            FindingInspection<T>.Complete complete => new TimelineEvaluationRow(
+                evaluation.Version.Key,
+                evaluation.Version.Display,
+                "Complete",
+                complete.Findings.Length,
                 null),
-            InspectionProjection.Absent absent => new TimelineEvaluationRow(
-                evaluation.Address.Selector,
-                evaluation.Address.Version.ToNormalizedString(),
+            FindingInspection<T>.Absent absent => new TimelineEvaluationRow(
+                evaluation.Version.Key,
+                evaluation.Version.Display,
                 "SubjectAbsent",
                 0,
                 absent.Detail),
-            InspectionProjection.Failed failed => new TimelineEvaluationRow(
-                evaluation.Address.Selector,
-                evaluation.Address.Version.ToNormalizedString(),
+            FindingInspection<T>.Failed failed => new TimelineEvaluationRow(
+                evaluation.Version.Key,
+                evaluation.Version.Display,
                 "Failed",
                 null,
-                failed.Error),
-            _ => throw new InvalidOperationException("Unknown inspection state."),
+                failed.Error.Reason),
         };
-    }
 
-    static List<TimelineTransitionRow> BuildTransitionRows(
+    static TimelineEvaluationRow BuildIdentityEvaluationRow<T>(
+        FindingCorrelationPoint<T> point)
+        where T : notnull
+        => point.Value switch
+        {
+            FindingCorrelationPoint<T>.Present present => new TimelineEvaluationRow(
+                present.Version.Key,
+                present.Version.Display,
+                "Present",
+                1,
+                null),
+            FindingCorrelationPoint<T>.Missing missing => new TimelineEvaluationRow(
+                missing.Version.Key,
+                missing.Version.Display,
+                "Missing",
+                0,
+                null),
+            FindingCorrelationPoint<T>.SubjectAbsent absent => new TimelineEvaluationRow(
+                absent.Version.Key,
+                absent.Version.Display,
+                "SubjectAbsent",
+                0,
+                absent.Detail),
+            FindingCorrelationPoint<T>.Failed failed => new TimelineEvaluationRow(
+                failed.Version.Key,
+                failed.Version.Display,
+                "Failed",
+                null,
+                failed.Error.Reason),
+            _ => throw new InvalidOperationException(
+                "Finding correlation returned an unknown point."),
+        };
+
+    static FindingVersion GetVersion<T>(FindingCorrelationPoint<T> point)
+        where T : notnull
+        => point.Value switch
+        {
+            FindingCorrelationPoint<T>.Present present => present.Version,
+            FindingCorrelationPoint<T>.Missing missing => missing.Version,
+            FindingCorrelationPoint<T>.SubjectAbsent absent => absent.Version,
+            FindingCorrelationPoint<T>.Failed failed => failed.Version,
+            _ => throw new InvalidOperationException(
+                "Finding correlation returned an unknown point."),
+        };
+
+    static List<TimelineTransitionRow> BuildTransitionRows<T>(
+        FindingCensusCorrelation<T> correlation,
         IReadOnlyList<TimelineEvaluation> evaluations,
         string descriptor,
-        string typeFullName)
+        string typeFullName,
+        Func<ApiSurface?, ApiSurface?, FindingComparison<T>> compare)
+        where T : notnull
     {
-        var ordered = evaluations.OrderBy(item => item.Address.Position).ToArray();
+        var ordered = correlation.Inspections;
+        var evaluationsByPosition = evaluations.ToDictionary(item => item.Address.Position);
         List<TimelineTransitionRow> rows = [];
         for (int i = 1; i < ordered.Length; i++)
         {
-            var oldEvaluation = ordered[i - 1];
-            var newEvaluation = ordered[i];
-            bool exact = newEvaluation.Address.Position - oldEvaluation.Address.Position == 1;
+            var oldInspection = ordered[i - 1];
+            var newInspection = ordered[i];
+            bool exact = newInspection.Version.Position - oldInspection.Version.Position == 1;
             string span = exact
                 ? "Adjacent"
-                : $"Gap ({newEvaluation.Address.Position - oldEvaluation.Address.Position - 1})";
+                : $"Gap ({newInspection.Version.Position - oldInspection.Version.Position - 1})";
 
-            if (oldEvaluation.Error is not null || newEvaluation.Error is not null)
+            FindingComparison<T> comparison;
+            if (oldInspection.Inspection is FindingInspection<T>.Failed
+                || newInspection.Inspection is FindingInspection<T>.Failed)
+            {
+                comparison = correlation.Compare(
+                    oldInspection.Version.Key,
+                    newInspection.Version.Key);
+            }
+            else
+            {
+                if (!evaluationsByPosition.TryGetValue(
+                        oldInspection.Version.Position,
+                        out var oldEvaluation)
+                    || !evaluationsByPosition.TryGetValue(
+                        newInspection.Version.Position,
+                        out var newEvaluation))
+                {
+                    throw new InvalidOperationException(
+                        $"Timeline correlation lost an evaluated cell for {descriptor} "
+                        + $"{oldInspection.Version.Key}..{newInspection.Version.Key}.");
+                }
+
+                comparison = compare(oldEvaluation.Surface, newEvaluation.Surface);
+            }
+
+            if (comparison.OldInspection != oldInspection.Inspection
+                || comparison.NewInspection != newInspection.Inspection)
+            {
+                throw new InvalidOperationException(
+                    $"Producer comparison for {descriptor} returned inspections that differ "
+                    + $"from the correlated censuses at "
+                    + $"{oldInspection.Version.Key}..{newInspection.Version.Key}.");
+            }
+
+            if (comparison.Value is FindingComparison<T>.Failed failure)
             {
                 rows.Add(new TimelineTransitionRow(
-                    oldEvaluation.Address.Selector,
-                    newEvaluation.Address.Selector,
+                    oldInspection.Version.Key,
+                    newInspection.Version.Key,
                     span,
                     "Failed",
                     descriptor,
                     typeFullName,
-                    oldEvaluation.Error ?? newEvaluation.Error));
+                    failure.Failure));
                 continue;
             }
 
-            var oldInspection = Inspect(oldEvaluation.Surface, descriptor, typeFullName);
-            var newInspection = Inspect(newEvaluation.Surface, descriptor, typeFullName);
-            if (oldInspection is InspectionProjection.Failed
-                || newInspection is InspectionProjection.Failed)
+            var completeComparison = comparison.Value as FindingComparison<T>.Complete
+                ?? throw new InvalidOperationException(
+                    $"Producer comparison for {descriptor} returned an unknown outcome at "
+                    + $"{oldInspection.Version.Key}..{newInspection.Version.Key}.");
+            string? subjectTransition = (oldInspection.Inspection, newInspection.Inspection) switch
             {
-                var failure = oldInspection as InspectionProjection.Failed
-                    ?? (InspectionProjection.Failed)newInspection;
-                rows.Add(new TimelineTransitionRow(
-                    oldEvaluation.Address.Selector,
-                    newEvaluation.Address.Selector,
-                    span,
-                    "Failed",
-                    descriptor,
-                    typeFullName,
-                    failure.Error));
-                continue;
-            }
-
-            string? subjectTransition = (oldInspection, newInspection) switch
-            {
-                (InspectionProjection.Absent, InspectionProjection.Complete) => "SubjectAvailable",
-                (InspectionProjection.Complete, InspectionProjection.Absent) => "SubjectUnavailable",
+                (FindingInspection<T>.Absent, FindingInspection<T>.Complete) => "SubjectAvailable",
+                (FindingInspection<T>.Complete, FindingInspection<T>.Absent) => "SubjectUnavailable",
                 _ => null,
             };
             if (subjectTransition is not null)
@@ -210,8 +357,8 @@ public static class TimelineCommand
                     ? "The focused type became available to this census."
                     : "The focused type ceased to be available to this census.";
                 rows.Add(new TimelineTransitionRow(
-                    oldEvaluation.Address.Selector,
-                    newEvaluation.Address.Selector,
+                    oldInspection.Version.Key,
+                    newInspection.Version.Key,
                     span,
                     subjectTransition,
                     descriptor,
@@ -219,30 +366,15 @@ public static class TimelineCommand
                     exact ? detail : AppendGapQualification(detail)));
             }
 
-            var pairs = Compare(
-                oldEvaluation.Surface,
-                newEvaluation.Surface,
-                descriptor,
-                typeFullName);
-            if (pairs is null)
-            {
-                rows.Add(new TimelineTransitionRow(
-                    oldEvaluation.Address.Selector,
-                    newEvaluation.Address.Selector,
-                    span,
-                    "Failed",
-                    descriptor,
-                    typeFullName,
-                    "Finding comparison failed."));
-                continue;
-            }
-
-            var changes = pairs.Where(pair => pair.Kind != PairKind.Present).ToArray();
+            var changes = completeComparison.Pairs
+                .Where(pair => pair.Kind != PairKind.Present)
+                .Cast<IPairFinding>()
+                .ToArray();
             if (changes.Length == 0 && subjectTransition is null)
             {
                 rows.Add(new TimelineTransitionRow(
-                    oldEvaluation.Address.Selector,
-                    newEvaluation.Address.Selector,
+                    oldInspection.Version.Key,
+                    newInspection.Version.Key,
                     span,
                     "None",
                     descriptor,
@@ -252,8 +384,8 @@ public static class TimelineCommand
             }
 
             rows.AddRange(changes.Select(pair => new TimelineTransitionRow(
-                oldEvaluation.Address.Selector,
-                newEvaluation.Address.Selector,
+                oldInspection.Version.Key,
+                newInspection.Version.Key,
                 span,
                 pair.Kind.ToString(),
                 descriptor,
@@ -268,53 +400,6 @@ public static class TimelineCommand
         => string.IsNullOrEmpty(detail)
             ? "Observed across a gap; the exact transition version is unknown."
             : $"{detail}; observed across a gap; the exact transition version is unknown.";
-
-    static IReadOnlyList<IPairFinding>? Compare(
-        ApiSurface? oldSurface,
-        ApiSurface? newSurface,
-        string descriptor,
-        string typeFullName)
-        => descriptor switch
-        {
-            "api.type" => GetPairs(
-                MetadataFindings.CompareApiType(oldSurface, newSurface, Subject(typeFullName), typeFullName)),
-            "api.member" => GetPairs(
-                MetadataFindings.CompareApiMembers(oldSurface, newSurface, Subject(typeFullName), typeFullName)),
-            "api.attribute" => GetPairs(
-                MetadataFindings.CompareApiAttributes(oldSurface, newSurface, Subject(typeFullName), typeFullName)),
-            _ => throw new InvalidOperationException($"Unsupported Finding descriptor '{descriptor}'."),
-        };
-
-    static IReadOnlyList<IPairFinding>? GetPairs<T>(FindingComparison<T> comparison)
-        where T : notnull
-        => comparison.Value is FindingComparison<T>.Complete complete
-            ? complete.Pairs.Cast<IPairFinding>().ToArray()
-            : null;
-
-    static InspectionProjection Inspect(
-        ApiSurface? surface,
-        string descriptor,
-        string typeFullName)
-        => descriptor switch
-        {
-            "api.type" => Project(
-                MetadataFindings.InspectApiType(surface, Subject(typeFullName), typeFullName)),
-            "api.member" => Project(
-                MetadataFindings.InspectApiMembers(surface, Subject(typeFullName), typeFullName)),
-            "api.attribute" => Project(
-                MetadataFindings.InspectApiAttributes(surface, Subject(typeFullName), typeFullName)),
-            _ => throw new InvalidOperationException($"Unsupported Finding descriptor '{descriptor}'."),
-        };
-
-    static InspectionProjection Project<T>(FindingInspection<T> inspection)
-        where T : notnull
-        => inspection.Value switch
-        {
-            FindingInspection<T>.Complete complete => new InspectionProjection.Complete(complete.Findings.Length),
-            FindingInspection<T>.Absent absent => new InspectionProjection.Absent(absent.Detail),
-            FindingInspection<T>.Failed failed => new InspectionProjection.Failed(failed.Error.Reason),
-            _ => throw new InvalidOperationException("Unknown inspection state."),
-        };
 
     static FindingSubject Subject(string typeFullName)
         => new($"api.type:{typeFullName}", typeFullName);
@@ -336,9 +421,7 @@ public static class TimelineCommand
         string packageId,
         ImmutableArray<PackageVersionAddress> addresses,
         TimelineOptions options)
-    {
-        List<TimelineEvaluation> evaluations = [];
-        foreach (var address in addresses)
+        => await EvaluateCellsAsync(addresses, async address =>
         {
             context.Logger.Log($"Evaluating {packageId}@{address.Version.ToNormalizedString()} ({address.Selector})");
             var result = await ApiSurfaceEndpointResolver.ResolveAsync(
@@ -354,33 +437,68 @@ public static class TimelineCommand
                 options.IncludeAll,
                 context.Logger);
             if (result.Error is not null)
-            {
-                evaluations.Add(new TimelineEvaluation(address, null, result.Error));
-                continue;
-            }
+                return (null, result.Error);
 
             using var endpoint = result.Endpoint!;
-            evaluations.Add(new TimelineEvaluation(address, endpoint.Surface, null));
+            return (endpoint.Surface, null);
+        });
+
+    internal static async Task<List<TimelineEvaluation>> EvaluateCellsAsync(
+        ImmutableArray<PackageVersionAddress> addresses,
+        Func<PackageVersionAddress, Task<(ApiSurface? Surface, string? Error)>> evaluate)
+    {
+        ArgumentNullException.ThrowIfNull(evaluate);
+        List<TimelineEvaluation> evaluations = [];
+        foreach (var address in addresses)
+        {
+            try
+            {
+                var result = await evaluate(address);
+                evaluations.Add(new TimelineEvaluation(address, result.Surface, result.Error));
+            }
+            catch (Exception ex)
+            {
+                evaluations.Add(new TimelineEvaluation(
+                    address,
+                    null,
+                    $"{ex.GetType().Name}: {ex.Message}"));
+            }
         }
 
         return evaluations;
     }
 
-    static bool TryResolveTypeName(
+    internal static bool TryResolveTypeName(
         string requested,
         IReadOnlyList<TimelineEvaluation> evaluations,
         out string? typeFullName,
         out string? error)
     {
-        var matches = evaluations
+        var types = evaluations
             .Where(evaluation => evaluation.Surface is not null)
             .SelectMany(evaluation => evaluation.Surface!.Types)
+            .ToArray();
+        var exactMatches = types
+            .Where(type => string.Equals(
+                type.FullName,
+                requested,
+                StringComparison.OrdinalIgnoreCase))
+            .Select(type => type.FullName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (exactMatches.Length == 1)
+        {
+            typeFullName = exactMatches[0];
+            error = null;
+            return true;
+        }
+
+        var matches = types
             .Where(type =>
-                string.Equals(type.FullName, requested, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(type.Name, requested, StringComparison.OrdinalIgnoreCase)
+                string.Equals(type.Name, requested, StringComparison.OrdinalIgnoreCase)
                 || type.FullName.EndsWith($".{requested}", StringComparison.OrdinalIgnoreCase))
             .Select(type => type.FullName)
-            .Distinct(StringComparer.Ordinal)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         if (matches.Length > 1)
@@ -441,6 +559,8 @@ public static class TimelineCommand
 
     static string? RecommendProbe(
         PackageVersionVector vector,
+        string typeFullName,
+        string descriptor,
         IReadOnlyList<TimelineEvaluation> evaluations)
     {
         var evaluated = evaluations.Select(item => item.Address.Position).ToHashSet();
@@ -469,8 +589,16 @@ public static class TimelineCommand
 
         int probe = bestStart + ((bestLength - 1) / 2);
         var address = vector.Addresses[probe];
-        return $"Probe {address.Selector} ({address.Version.ToNormalizedString()}) with --at {address.Selector}.";
+        string range = $"{vector.PackageId}@{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}";
+        return $"Probe {address.Selector} ({address.Version.ToNormalizedString()}): "
+            + $"dotnet-inspect timeline --package {ShellQuote(range)} "
+            + $"--type {ShellQuote(typeFullName)} "
+            + $"--finding {ShellQuote(descriptor)} "
+            + $"--at {ShellQuote(address.Selector)}";
     }
+
+    static string ShellQuote(string value)
+        => $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
 
     static bool TryValidate(
         TimelineOptions options,
@@ -629,13 +757,6 @@ public static class TimelineCommand
         PackageVersionAddress Address,
         ApiSurface? Surface,
         string? Error);
-
-    abstract record InspectionProjection
-    {
-        public sealed record Complete(int Count) : InspectionProjection;
-        public sealed record Absent(string? Detail) : InspectionProjection;
-        public sealed record Failed(string Error) : InspectionProjection;
-    }
 }
 
 public sealed record TimelineOptions

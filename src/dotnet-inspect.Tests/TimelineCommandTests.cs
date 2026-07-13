@@ -21,7 +21,14 @@ public sealed class TimelineCommandTests
         Assert.Equal(3, view.Evaluations!.Count);
         Assert.All(view.Evaluations, row => Assert.Equal("Unevaluated", row.State));
         Assert.Empty(view.Transitions!);
-        Assert.Contains("--at #2", view.Recommendation, StringComparison.Ordinal);
+        Assert.Contains(
+            "dotnet-inspect timeline --package 'Sample@1.0.0..1.0.2'",
+            view.Recommendation,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--type 'Sample.Widget' --finding 'api.member' --at '#2'",
+            view.Recommendation,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -187,6 +194,101 @@ public sealed class TimelineCommandTests
             });
     }
 
+    [Fact]
+    public void ProbeOrder_DoesNotChangeTimelineOrder()
+    {
+        var vector = Vector("1.0.0", "1.0.1", "1.0.2");
+        var first = Evaluation(vector, 0, Surface(Type("Widget")));
+        var middle = Evaluation(
+            vector,
+            1,
+            Surface(Type("Widget", members: [Method("Run", "void Run()")])));
+        var last = Evaluation(
+            vector,
+            2,
+            Surface(Type("Widget", members:
+            [
+                Method("Run", "void Run()"),
+                Method("Stop", "void Stop()"),
+            ])));
+
+        var forward = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [first, last, middle],
+            Sections());
+        var reverse = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [middle, first, last],
+            Sections());
+
+        Assert.Equal(forward.Evaluations, reverse.Evaluations);
+        Assert.Equal(forward.Transitions, reverse.Transitions);
+        Assert.Equal(forward.Recommendation, reverse.Recommendation);
+    }
+
+    [Fact]
+    public async Task CellException_BecomesFailureAndLaterCellsStillEvaluate()
+    {
+        var vector = Vector("1.0.0", "1.0.1", "1.0.2");
+
+        var evaluations = await TimelineCommand.EvaluateCellsAsync(
+            vector.Addresses,
+            address => address.Position == 1
+                ? Task.FromException<(ApiSurface?, string?)>(
+                    new InvalidOperationException("package exploded"))
+                : Task.FromResult<(ApiSurface?, string?)>((
+                    Surface(Type("Widget")),
+                    null)));
+
+        Assert.Equal(3, evaluations.Count);
+        Assert.Null(evaluations[0].Error);
+        Assert.Equal(
+            "InvalidOperationException: package exploded",
+            evaluations[1].Error);
+        Assert.Null(evaluations[2].Error);
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            evaluations,
+            Sections());
+        Assert.Equal("Failed", view.Evaluations![1].State);
+        Assert.Equal("Complete", view.Evaluations[2].State);
+        Assert.Collection(
+            view.Transitions!,
+            row => Assert.Equal("Failed", row.Transition),
+            row => Assert.Equal("Failed", row.Transition));
+    }
+
+    [Fact]
+    public void ExactFullTypeName_TakesPrecedenceOverSuffixMatch()
+    {
+        var vector = Vector("1.0.0");
+        var evaluations = new[]
+        {
+            Evaluation(
+                vector,
+                0,
+                Surface(
+                    Type("Widget", @namespace: "Other.Sample"),
+                    Type("Widget"))),
+        };
+
+        bool resolved = TimelineCommand.TryResolveTypeName(
+            "Sample.Widget",
+            evaluations,
+            out var typeFullName,
+            out var error);
+
+        Assert.True(resolved, error);
+        Assert.Equal("Sample.Widget", typeFullName);
+    }
+
     static TimelineCommand.TimelineEvaluation Evaluation(
         PackageVersionVector vector,
         int position,
@@ -217,10 +319,11 @@ public sealed class TimelineCommandTests
     static ApiType Type(
         string name,
         List<ApiMember>? members = null,
-        List<string>? attributes = null)
+        List<string>? attributes = null,
+        string @namespace = "Sample")
         => new()
         {
-            Namespace = "Sample",
+            Namespace = @namespace,
             Name = name,
             Kind = "class",
             Members = members ?? [],

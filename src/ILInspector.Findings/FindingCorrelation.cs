@@ -39,6 +39,62 @@ public sealed record VersionedFindingInspection<T>(
 }
 
 /// <summary>
+/// A caller-assembled sparse correlation of whole censuses. Unlike
+/// <see cref="FindingCorrelation{T}"/>, this outcome does not select one exact finding identity:
+/// it preserves each evaluated <see cref="FindingInspection{T}"/> so successful empty censuses,
+/// subject absence, and failure remain distinguishable.
+/// </summary>
+public sealed class FindingCensusCorrelation<T>
+    where T : notnull
+{
+    readonly ImmutableDictionary<string, FindingInspection<T>> _inspections;
+
+    FindingCensusCorrelation(ImmutableArray<VersionedFindingInspection<T>> inspections)
+    {
+        Inspections = inspections;
+        _inspections = inspections.ToImmutableDictionary(
+            item => item.Version.Key,
+            item => item.Inspection);
+    }
+
+    public ImmutableArray<VersionedFindingInspection<T>> Inspections { get; }
+
+    public static FindingCensusCorrelation<T> Create(
+        IEnumerable<VersionedFindingInspection<T>> inspections)
+        => new(FindingCorrelationValidation.Order(inspections));
+
+    /// <summary>
+    /// Projects any two evaluated censuses through the shared pair fold.
+    /// </summary>
+    public FindingComparison<T> Compare(
+        string oldVersionKey,
+        string newVersionKey,
+        FindingMatchOptions? matchOptions = null,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(oldVersionKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newVersionKey);
+
+        if (!_inspections.TryGetValue(oldVersionKey, out var oldInspection))
+            throw new ArgumentException($"Version '{oldVersionKey}' has not been evaluated.", nameof(oldVersionKey));
+        if (!_inspections.TryGetValue(newVersionKey, out var newInspection))
+            throw new ArgumentException($"Version '{newVersionKey}' has not been evaluated.", nameof(newVersionKey));
+
+        return FindingComparison.Compare(
+            oldInspection,
+            newInspection,
+            matchOptions,
+            acceptanceThreshold);
+    }
+
+    /// <summary>
+    /// Selects one exact finding identity from the correlated censuses.
+    /// </summary>
+    public FindingCorrelation<T> Correlate(FindingCorrelationKey key)
+        => FindingCorrelation<T>.Create(key, Inspections);
+}
+
+/// <summary>
 /// One occurrence labelled with the address where it was observed.
 /// </summary>
 public sealed record VersionedFinding<T>(
@@ -204,23 +260,22 @@ public sealed record FindingCorrelationPoint<T>
 public sealed class FindingCorrelation<T>
     where T : notnull
 {
-    readonly ImmutableDictionary<string, FindingInspection<T>> _inspections;
+    readonly FindingCensusCorrelation<T> _census;
 
     FindingCorrelation(
         FindingCorrelationKey key,
-        ImmutableArray<VersionedFindingInspection<T>> inspections,
+        FindingCensusCorrelation<T> census,
         ImmutableArray<FindingCorrelationPoint<T>> timeline,
         CorrelatedFinding<T> finding)
     {
         Key = key;
-        Inspections = inspections;
+        _census = census;
         Timeline = timeline;
         Finding = finding;
-        _inspections = inspections.ToImmutableDictionary(item => item.Version.Key, item => item.Inspection);
     }
 
     public FindingCorrelationKey Key { get; }
-    public ImmutableArray<VersionedFindingInspection<T>> Inspections { get; }
+    public ImmutableArray<VersionedFindingInspection<T>> Inspections => _census.Inspections;
     public ImmutableArray<FindingCorrelationPoint<T>> Timeline { get; }
     public CorrelatedFinding<T> Finding { get; }
 
@@ -229,25 +284,8 @@ public sealed class FindingCorrelation<T>
         IEnumerable<VersionedFindingInspection<T>> inspections)
     {
         ArgumentNullException.ThrowIfNull(key);
-        ArgumentNullException.ThrowIfNull(inspections);
-
-        var evaluated = inspections.ToImmutableArray();
-        if (evaluated.Any(item => item is null))
-            throw new ArgumentException("Inspections must not contain null values.", nameof(inspections));
-
-        var duplicateKey = evaluated
-            .GroupBy(item => item.Version.Key, StringComparer.Ordinal)
-            .FirstOrDefault(group => group.Count() > 1);
-        if (duplicateKey is not null)
-            throw new ArgumentException($"Version key '{duplicateKey.Key}' is duplicated.", nameof(inspections));
-
-        var duplicatePosition = evaluated
-            .GroupBy(item => item.Version.Position)
-            .FirstOrDefault(group => group.Count() > 1);
-        if (duplicatePosition is not null)
-            throw new ArgumentException($"Version position {duplicatePosition.Key} is duplicated.", nameof(inspections));
-
-        var ordered = evaluated.OrderBy(item => item.Version.Position).ToImmutableArray();
+        var census = FindingCensusCorrelation<T>.Create(inspections);
+        var ordered = census.Inspections;
         var timeline = ImmutableArray.CreateBuilder<FindingCorrelationPoint<T>>(ordered.Length);
         var occurrences = ImmutableArray.CreateBuilder<VersionedFinding<T>>();
 
@@ -287,7 +325,7 @@ public sealed class FindingCorrelation<T>
 
         return new FindingCorrelation<T>(
             key,
-            ordered,
+            census,
             timeline.MoveToImmutable(),
             new CorrelatedFinding<T>(key, occurrences.ToImmutable()));
     }
@@ -298,18 +336,38 @@ public sealed class FindingCorrelation<T>
         FindingMatchOptions? matchOptions = null,
         int acceptanceThreshold = 100)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(oldVersionKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(newVersionKey);
-
-        if (!_inspections.TryGetValue(oldVersionKey, out var oldInspection))
-            throw new ArgumentException($"Version '{oldVersionKey}' has not been evaluated.", nameof(oldVersionKey));
-        if (!_inspections.TryGetValue(newVersionKey, out var newInspection))
-            throw new ArgumentException($"Version '{newVersionKey}' has not been evaluated.", nameof(newVersionKey));
-
-        return FindingComparison.Compare(
-            oldInspection,
-            newInspection,
+        return _census.Compare(
+            oldVersionKey,
+            newVersionKey,
             matchOptions,
             acceptanceThreshold);
+    }
+}
+
+static class FindingCorrelationValidation
+{
+    internal static ImmutableArray<VersionedFindingInspection<T>> Order<T>(
+        IEnumerable<VersionedFindingInspection<T>> inspections)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(inspections);
+
+        var evaluated = inspections.ToImmutableArray();
+        if (evaluated.Any(item => item is null))
+            throw new ArgumentException("Inspections must not contain null values.", nameof(inspections));
+
+        var duplicateKey = evaluated
+            .GroupBy(item => item.Version.Key, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateKey is not null)
+            throw new ArgumentException($"Version key '{duplicateKey.Key}' is duplicated.", nameof(inspections));
+
+        var duplicatePosition = evaluated
+            .GroupBy(item => item.Version.Position)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicatePosition is not null)
+            throw new ArgumentException($"Version position {duplicatePosition.Key} is duplicated.", nameof(inspections));
+
+        return evaluated.OrderBy(item => item.Version.Position).ToImmutableArray();
     }
 }

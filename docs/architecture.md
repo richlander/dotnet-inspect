@@ -118,9 +118,11 @@ vector:
 - `--finding api.attribute` observes applied attribute occurrences.
 - No `--at` evaluates zero package payloads; repeated `--at` selectors perform
   sparse probes; `--at all` explicitly authorizes dense traversal.
-- `Evaluations` preserves `Present`/`Missing` self-presence and
-  `Complete`/`SubjectAbsent` owned censuses, plus `Failed` and `Unevaluated`
-  cells. `Transitions` compares adjacent evaluated cells; a
+- `Evaluations` preserves `Present`/`Missing` self-presence through an exact
+  `FindingCorrelation<T>` and `Complete`/`SubjectAbsent` owned censuses through
+  `FindingCensusCorrelation<T>`, plus `Failed` and `Unevaluated` cells. Exact
+  identity tracks derive from the census correlation rather than bypassing it.
+  `Transitions` compares adjacent evaluated cells; a
   gap-spanning row is qualified and never claims an exact transition version.
 
 ### find
