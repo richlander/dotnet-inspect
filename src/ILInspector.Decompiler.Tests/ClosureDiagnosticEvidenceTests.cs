@@ -97,6 +97,129 @@ public class ClosureDiagnosticEvidenceTests
     }
 
     [Fact]
+    public void Extract_ReportsReceiverBaseAndGenericInterfaceCompatibility()
+    {
+        const string source = """
+            namespace ReceiverEvidence;
+            interface IReceiver<T> { }
+            class Base { }
+            class Derived : Base, IReceiver<int> { }
+            class C { void M(Derived value) { value.Missing(); } }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(candidate => candidate.Id == "CS1061"));
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Equal(
+            [
+                "ReceiverEvidence.Derived",
+                "ReceiverEvidence.Base",
+                "System.Object",
+                "ReceiverEvidence.IReceiver",
+            ],
+            reference.CompatibleReceiverTypes);
+        Assert.True(reference.CompatibleReceiverTypesComplete);
+    }
+
+    [Fact]
+    public void Extract_MarksReceiverCompatibilityIncompleteWhenBaseTypeIsUnresolved()
+    {
+        const string source = """
+            class Derived : MissingBase { }
+            class C { void M(Derived value) { value.Missing(); } }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-incomplete-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            candidate => candidate.Id == "CS1061");
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Contains("Derived", reference.CompatibleReceiverTypes!);
+        Assert.False(reference.CompatibleReceiverTypesComplete);
+    }
+
+    [Theory]
+    [InlineData("class C { void M<T>(T value) { value.Missing(); } }", "T")]
+    [InlineData("class C { void M(int[] value) { value.Missing(); } }", "System.Int32[]")]
+    public void Extract_MarksNonNamedReceiverCompatibilityIncomplete(
+        string source,
+        string receiverType)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-non-named-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            candidate => candidate.Id == "CS1061");
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Contains(receiverType, reference.CompatibleReceiverTypes!);
+        Assert.False(reference.CompatibleReceiverTypesComplete);
+    }
+
+    [Fact]
+    public void Extract_IncludesObjectForCompleteInterfaceReceiverCompatibility()
+    {
+        const string source = """
+            interface IReceiver { }
+            class C { void M(IReceiver value) { value.Missing(); } }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-interface-receiver-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var diagnostic = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+            candidate => candidate.Id == "CS1061");
+
+        var reference = Assert.IsType<ClosureDiagnosticReference>(
+            ClosureDiagnosticEvidence.Extract(
+                diagnostic,
+                compilation.GetSemanticModel(tree)));
+
+        Assert.Contains("IReceiver", reference.CompatibleReceiverTypes!);
+        Assert.Contains("System.Object", reference.CompatibleReceiverTypes!);
+        Assert.True(reference.CompatibleReceiverTypesComplete);
+    }
+
+    [Fact]
     public void FailureReason_ReportsSortedUnextractedDiagnosticIds()
         => Assert.Equal(
             "closure-stalled-unextracted[CS0117,CS1061]",

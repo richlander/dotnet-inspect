@@ -41,6 +41,17 @@ public sealed class UnionSwitchExpressionPass : IIrPass
                 continue;
             }
 
+            if (container.Blocks is [var classNotBlock]
+                && TryMatchClassUnionConditionalNotTypeTest(function, classNotBlock, out var classNotExpression))
+            {
+                var ret = (Return)classNotBlock.Children[0];
+                var replacement = new Return(classNotExpression);
+                replacement.InheritSourceOffset(ret);
+                classNotBlock.SetChild(0, replacement);
+                context.Stepper.StepOver("raise class union conditional not-type test", classNotBlock);
+                continue;
+            }
+
             if (container.Blocks is [var block] && TryMatch(function, block, out var match))
             {
                 block.SetChild(match.StartIndex, new Return(match.SwitchExpression));
@@ -1109,6 +1120,47 @@ public sealed class UnionSwitchExpressionPass : IIrPass
         }
 
         expression = rewrittenCondition;
+        return true;
+    }
+
+    static bool TryMatchClassUnionConditionalNotTypeTest(
+        IrFunction function,
+        Block block,
+        out IrExpression expression)
+    {
+        expression = null!;
+        if (block.Children is not
+            [
+                Return
+                {
+                    Value: LogicalNot
+                    {
+                        Operand: Conditional
+                        {
+                            Condition: LogicalNot { Operand: var receiver },
+                            WhenTrue: Constant { Value: false },
+                            WhenFalse: Comparison
+                            {
+                                Kind: ComparisonKind.GreaterThan,
+                                IsUnsigned: true,
+                                Left: IsInstance { Operand: LoadProperty unionValue } typeTest,
+                                Right: Constant { Value: null }
+                            }
+                        }
+                    } outerNot
+                }
+            ]
+            || !IsUnionValueProperty(function, unionValue)
+            || !PlaceIdentity.SameVariable(unionValue.Instance, receiver))
+        {
+            return false;
+        }
+
+        var raisedTypeTest = new IsInstance(typeTest.Type, (IrExpression)receiver.Clone());
+        raisedTypeTest.InheritSourceOffset(typeTest);
+        expression = new LogicalNot(raisedTypeTest);
+        expression.InheritSourceOffset(outerNot);
+        expression.InheritSourceOffset(typeTest);
         return true;
     }
 

@@ -1602,6 +1602,61 @@ public class TypeSourceComposerUnionTests
     }
 
     [Fact]
+    public void ClassUnionConditionalNotTypeShape_RaisesWithProvenance()
+    {
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var @object = TypeRef.CoreLib("System", "Object");
+        var union = TypeRef.Definition("fixture", "UnionFixtures", "Pet");
+        var cat = TypeRef.Definition("fixture", "UnionFixtures", "Cat");
+        var receiver = new LoadArgument(0, "pet", union);
+        var valueGetter = new MethodRef(
+            union,
+            "get_Value",
+            @object,
+            ImmutableArray<TypeRef>.Empty,
+            HasThis: true);
+        var typeTest = new IsInstance(
+            cat,
+            new LoadProperty(valueGetter, (IrExpression)receiver.Clone(), []));
+        typeTest.SetSourceOffset(0x10);
+        var conditional = new Conditional(
+            new LogicalNot((IrExpression)receiver.Clone()),
+            new Constant(false, boolean),
+            new Comparison(
+                ComparisonKind.GreaterThan,
+                isUnsigned: true,
+                typeTest,
+                new Constant(null, @object)));
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(conditional)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            union,
+            new MethodSignature(
+                boolean,
+                [new Parameter("pet", union)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            UnionTypes = ImmutableHashSet.Create(union),
+        };
+
+        new UnionSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var ret = Assert.IsType<Return>(Assert.Single(block.Children));
+        var raised = Assert.IsType<LogicalNot>(ret.Value);
+        var raisedTypeTest = Assert.IsType<IsInstance>(raised.Operand);
+        Assert.Equal(0x10, raised.SourceOffset);
+        Assert.Equal(0x10, raisedTypeTest.SourceOffset);
+        Assert.IsType<LoadArgument>(raisedTypeTest.Operand);
+    }
+
+    [Fact]
     public void NonUnionValuePropertyTypeTest_KeepsValueAccess()
     {
         using var assembly = Compile("""
@@ -1620,6 +1675,7 @@ public class TypeSourceComposerUnionTests
                 public static class Matcher
                 {
                     public static bool IsCat(PetLike pet) => pet.Value is Cat;
+                    public static bool IsNotCat(PetLike pet) => pet.Value is not Cat;
                     public static bool IsCatOrDog(PetLike pet) => pet.Value is Cat or Dog;
                     public static bool IsNull(PetLike pet) => pet.Value is null;
                     public static bool HasCat(PetLike pet)
@@ -1652,6 +1708,7 @@ public class TypeSourceComposerUnionTests
             """);
 
         Assert.Equal("return pet.Value is Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCat"));
+        Assert.Equal("return pet.Value is not Cat;", RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsNotCat"));
         var nonUnionOr = RenderMember(assembly.Path, "UnionFixtures.Matcher", "IsCatOrDog");
         Assert.Contains("pet.Value", nonUnionOr);
         Assert.DoesNotContain("return pet is Cat || pet is Dog", nonUnionOr);

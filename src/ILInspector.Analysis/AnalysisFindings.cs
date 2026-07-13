@@ -90,7 +90,10 @@ public static class AnalysisFindings
             ?? occurrence.RuntimeAllocationType
             ?? occurrence.Detail
             ?? "?";
-        return $"{(int)occurrence.Source}:{(int)occurrence.Kind}:{allocatedType}";
+        return CompositeKey(
+            ((int)occurrence.Source).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ((int)occurrence.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            allocatedType);
     }
 
     /// <summary>

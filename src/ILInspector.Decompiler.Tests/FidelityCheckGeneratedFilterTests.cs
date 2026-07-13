@@ -244,6 +244,207 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void ExtensionRootSelection_UsesInheritedAndGenericReceiverCompatibility()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverFixture;
+
+            public interface IBag<T> { }
+            public class BaseBag : IBag<int> { }
+            public class DerivedBag : BaseBag { }
+            public class Other { }
+
+            public static class RelevantExtensions
+            {
+                public static void Add(this BaseBag receiver, int value) { }
+                public static Awaiter GetAwaiter(this IBag<int> receiver) => new();
+            }
+
+            public static class UnrelatedExtensions
+            {
+                public static void Add(this Other receiver, int value) { }
+                public static Awaiter GetAwaiter(this Other receiver) => new();
+            }
+
+            public static class SameNameNonExtensions
+            {
+                public static void Add(Other receiver, int value) { }
+                public static Awaiter GetAwaiter(Other receiver) => new();
+            }
+
+            public struct Awaiter
+            {
+                public bool IsCompleted => true;
+                public void OnCompleted(System.Action continuation) { }
+                public void GetResult() { }
+            }
+            """);
+        try
+        {
+            var add = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverFixture.DerivedBag",
+                ["ExtensionReceiverFixture.DerivedBag"],
+                compatibleReceiverTypesComplete: false);
+            var getAwaiter = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "GetAwaiter",
+                "ExtensionReceiverFixture.DerivedBag",
+                ["ExtensionReceiverFixture.DerivedBag"],
+                compatibleReceiverTypesComplete: false);
+
+            Assert.Equal(["ExtensionReceiverFixture.RelevantExtensions"], add.Roots);
+            Assert.False(add.UsedFallback, add.FallbackReason);
+            Assert.Equal(["ExtensionReceiverFixture.RelevantExtensions"], getAwaiter.Roots);
+            Assert.False(getAwaiter.UsedFallback, getAwaiter.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ExtensionRootSelection_FallsBackWithExplicitProvenanceWhenReceiverIsUnknown()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverFallbackFixture;
+
+            public class First { }
+            public class Second { }
+
+            public static class FirstExtensions
+            {
+                public static void Add(this First receiver, int value) { }
+            }
+
+            public static class SecondExtensions
+            {
+                public static void Add(this Second receiver, int value) { }
+            }
+            """);
+        try
+        {
+                var metadataOnlySelection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                    "External.MissingReceiver");
+                var selection = FidelityCheck.SelectExtensionRootsForTest(
+                    assemblyPath,
+                    "Add",
+                "External.MissingReceiver",
+                ["External.MissingReceiver"],
+                compatibleReceiverTypesComplete: false);
+
+            Assert.Equal(
+                [
+                    "ExtensionReceiverFallbackFixture.FirstExtensions",
+                    "ExtensionReceiverFallbackFixture.SecondExtensions",
+                ],
+                selection.Roots);
+            Assert.Equal(selection.Roots, metadataOnlySelection.Roots);
+            Assert.True(metadataOnlySelection.UsedFallback);
+            Assert.Equal(
+                "receiver metadata unavailable for External.MissingReceiver",
+                metadataOnlySelection.FallbackReason);
+            Assert.True(selection.UsedFallback);
+            Assert.Equal(
+                "receiver hierarchy incomplete for External.MissingReceiver",
+                selection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ExtensionRootSelection_IncludesUnknownRootsAlongsideCompatibleGenericRoot()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverMixedFixture;
+
+            public static class GenericExtensions
+            {
+                public static void Add<T>(this T receiver, string value) { }
+            }
+
+            public static class ArrayExtensions
+            {
+                public static void Add(this System.Array receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var selection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "System.Int32[]",
+                ["System.Int32[]"],
+                compatibleReceiverTypesComplete: false);
+
+            Assert.Equal(
+                [
+                    "ExtensionReceiverMixedFixture.ArrayExtensions",
+                    "ExtensionReceiverMixedFixture.GenericExtensions",
+                ],
+                selection.Roots);
+            Assert.True(selection.UsedFallback);
+            Assert.Equal(
+                "receiver hierarchy incomplete for System.Int32[]",
+                selection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ExtensionRootSelection_IncludesObjectExtensionForInterfaceReceiver()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverInterfaceFixture;
+
+            public interface IReceiver { }
+
+            public static class ObjectExtensions
+            {
+                public static void Add(this object receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var metadataSelection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverInterfaceFixture.IReceiver");
+            var semanticSelection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverInterfaceFixture.IReceiver",
+                [
+                    "ExtensionReceiverInterfaceFixture.IReceiver",
+                    "System.Object",
+                ],
+                compatibleReceiverTypesComplete: true);
+
+            Assert.Equal(
+                ["ExtensionReceiverInterfaceFixture.ObjectExtensions"],
+                metadataSelection.Roots);
+            Assert.False(metadataSelection.UsedFallback, metadataSelection.FallbackReason);
+            Assert.Equal(metadataSelection.Roots, semanticSelection.Roots);
+            Assert.False(semanticSelection.UsedFallback, semanticSelection.FallbackReason);
+            Assert.Equal(metadataSelection.FallbackReason, semanticSelection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""

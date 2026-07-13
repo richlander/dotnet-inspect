@@ -606,9 +606,17 @@ static class Program
                 // The residual control-flow a fully-raised method never keeps; a
                 // Partial import with no residual node falls to its stop reason.
                 string id = $"{typeName}::{methodName}";
+                var fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
+                if (!fidelityCensus.Succeeded)
+                {
+                    crashes++;
+                    Console.Error.WriteLine(
+                        $"{fidelityCensus.ErrorCode}: {id}: {fidelityCensus.Detail}");
+                    continue;
+                }
                 string? bucket = Completeness.Residual(function)
-                    ?? (function.Fidelity != DecompilationFidelity.Full
-                        ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(function, id)}"
+                    ?? (!fidelityCensus.Causes.IsEmpty
+                        ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(fidelityCensus)}"
                         : null);
 
                 if (bucket is null)
@@ -707,20 +715,20 @@ static class Program
                     Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message}");
                     continue;
                 }
-                if (function.Fidelity == DecompilationFidelity.Full)
+                var fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
+                if (!fidelityCensus.Succeeded)
+                {
+                    crashes++;
+                    Console.Error.WriteLine(
+                        $"{fidelityCensus.ErrorCode}: {id}: {fidelityCensus.Detail}");
+                    continue;
+                }
+                if (fidelityCensus.Causes.IsEmpty)
                 {
                     full++;
                     continue;
                 }
-                var diagnostic = function.Diagnostics.FirstOrDefault(static diagnostic =>
-                    diagnostic.Id == DiagnosticIds.InternalError);
-                if (diagnostic.Id is not null)
-                {
-                    crashes++;
-                    Console.Error.WriteLine($"IMPORTER BUG: {diagnostic.Message}");
-                    continue;
-                }
-                string bucket = FidelityCauseBuckets.PrimaryBucket(function, id);
+                string bucket = FidelityCauseBuckets.PrimaryBucket(fidelityCensus);
                 stops[bucket] = stops.GetValueOrDefault(bucket) + 1;
             }
         }
@@ -1196,7 +1204,7 @@ static class Program
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var census = FidelityCauseBuckets.Inspect(function, dumpMethod);
             if (!census.Succeeded)
-                return Fail($"Fidelity-cause inspection failed: {census.Failure}");
+                return Fail($"Fidelity-cause inspection failed: {census.ErrorCode}: {census.Detail}");
             var remarks = census.Causes;
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, fidelity remarks)");

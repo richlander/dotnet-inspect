@@ -12,11 +12,26 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 internal static class FidelityCauseBuckets
 {
+    internal enum CensusState
+    {
+        Complete,
+        Absent,
+        Failed,
+    }
+
     internal readonly record struct Census(
         ImmutableArray<DecompilerFidelityCause> Causes,
-        string? Failure)
+        CensusState State,
+        string? Detail)
     {
-        internal bool Succeeded => Failure is null;
+        internal bool Succeeded => State == CensusState.Complete;
+
+        internal string? ErrorCode => State switch
+        {
+            CensusState.Absent => "fidelity-inspection-absent",
+            CensusState.Failed => "fidelity-inspection-failed",
+            _ => null,
+        };
     }
 
     internal static Census Inspect(
@@ -26,38 +41,37 @@ internal static class FidelityCauseBuckets
         ArgumentNullException.ThrowIfNull(function);
         ArgumentException.ThrowIfNullOrWhiteSpace(subjectKey);
 
-        return DecompilerFindings.InspectFidelityCauses(
+        return FromInspection(DecompilerFindings.InspectFidelityCauses(
             function,
-            new FindingSubject(subjectKey, subjectKey)) switch
+            new FindingSubject(subjectKey, subjectKey)));
+    }
+
+    internal static Census FromInspection(
+        FindingInspection<DecompilerFidelityCause> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+
+        return inspection switch
         {
             FindingInspection<DecompilerFidelityCause>.Complete complete =>
                 new Census(
                     [.. complete.Findings.Select(static finding => finding.Payload)],
+                    CensusState.Complete,
                     null),
             FindingInspection<DecompilerFidelityCause>.Absent absent =>
-                new Census([], absent.Detail ?? "Decompiler IR was absent."),
+                new Census(
+                    [],
+                    CensusState.Absent,
+                    absent.Detail ?? "Decompiler IR was absent."),
             FindingInspection<DecompilerFidelityCause>.Failed failed =>
-                new Census([], failed.Error.Reason),
+                new Census([], CensusState.Failed, failed.Error.Reason),
         };
     }
 
-    internal static string PrimaryBucket(IrFunction function, string subjectKey)
+    internal static string PrimaryBucket(Census census)
     {
-        ArgumentNullException.ThrowIfNull(function);
-        ArgumentException.ThrowIfNullOrWhiteSpace(subjectKey);
-
-        var census = Inspect(function, subjectKey);
         if (!census.Succeeded)
-        {
-            return
-                function.Diagnostics
-                    .FirstOrDefault(static diagnostic =>
-                        diagnostic.Id is DiagnosticIds.InternalError
-                            or DiagnosticIds.ContextUnavailable
-                            or DiagnosticIds.EmptyOutput)
-                    .Id
-                    ?? "inspection-failed";
-        }
+            throw new InvalidOperationException("A failed or absent inspection has no fidelity-cause bucket.");
 
         return census.Causes.Length > 0
             ? BucketFor(census.Causes[0])

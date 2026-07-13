@@ -103,7 +103,15 @@ internal static class LibraryReport
                     continue;
                 }
 
-                bool full = function.Fidelity == DecompilationFidelity.Full;
+                var fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
+                if (!fidelityCensus.Succeeded)
+                {
+                    report.PassBugs++;
+                    Record(buckets, $"pass-bug: {fidelityCensus.ErrorCode}", id, maxExamples);
+                    continue;
+                }
+
+                bool full = fidelityCensus.Causes.IsEmpty;
                 if (full)
                 {
                     report.FullMethods++;
@@ -114,7 +122,7 @@ internal static class LibraryReport
                 }
 
                 string? residual = Completeness.Residual(function)
-                    ?? (!full ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(function, id)}" : null);
+                    ?? (!full ? $"fidelity: {FidelityCauseBuckets.PrimaryBucket(fidelityCensus)}" : null);
                 if (residual is null)
                 {
                     report.FullyRaisedMethods++;
