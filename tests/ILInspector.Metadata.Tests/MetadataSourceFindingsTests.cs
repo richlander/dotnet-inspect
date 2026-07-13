@@ -206,6 +206,22 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentIdentity_IgnoresMalformedSourceLinkDocumentMappings()
+    {
+        const string sourceLink = """
+            {
+              "documents": []
+            }
+            """;
+
+        var resolved = SourceDocumentPath.Resolve("/repo/src/Widget.cs", sourceLink);
+
+        Assert.False(resolved.IsMapped);
+        Assert.Equal("/repo/src/Widget.cs", resolved.CanonicalPath);
+        Assert.Null(resolved.ResolvedUrl);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(

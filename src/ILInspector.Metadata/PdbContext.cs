@@ -123,6 +123,7 @@ public class PdbContext : IDisposable
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
     private SourceLinkResolver? _resolver;
+    private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
 
     /// <summary>
@@ -281,6 +282,7 @@ public class PdbContext : IDisposable
             SymbolServer = symbolServer;
 
             SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);
+            _sourceDocumentPathResolver = SourceDocumentPath.CreateResolver(SourceLinkJson);
             _resolver = _pdbReader != null ? SourceLinkResolver.Create(_pdbReader) : null;
 
             _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
@@ -899,7 +901,7 @@ public class PdbContext : IDisposable
                 }
             }
 
-            var sourceLink = SourceDocumentPath.Resolve(filePath, SourceLinkJson);
+            var sourceLink = _sourceDocumentPathResolver.Resolve(filePath);
 
             byte[]? checksum = null;
             string? checksumAlgorithm = null;
@@ -976,7 +978,7 @@ public class PdbContext : IDisposable
             {
                 var document = _pdbReader.GetDocument(documentHandle);
                 string filePath = _pdbReader.GetString(document.Name);
-                var sourceLink = SourceDocumentPath.Resolve(filePath, SourceLinkJson);
+                var sourceLink = _sourceDocumentPathResolver.Resolve(filePath);
                 yield return new MemberSourceInfo(
                     anchor,
                     metadataToken,
@@ -1168,6 +1170,7 @@ public class PdbContext : IDisposable
                 HasPdb = true;
 
                 SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);
+                _sourceDocumentPathResolver = SourceDocumentPath.CreateResolver(SourceLinkJson);
                 _resolver = SourceLinkResolver.Create(_pdbReader);
 
                 _log?.Invoke("Using embedded PDB");
