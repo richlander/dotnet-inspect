@@ -332,20 +332,30 @@ static class AuthoredRebuildFidelity
         string? metadataInterface)
     {
         if (syntax is null || metadataInterface is null)
-            return syntax is null && metadataInterface is null ? 2 : -1;
+            return syntax is null && metadataInterface is null ? 4 : -1;
 
         string sourceInterface = MetadataInterfaceName(syntax.Name);
-        string normalizedMetadata = NormalizeMetadataInterfaceName(metadataInterface);
         if (string.Equals(
-                   normalizedMetadata,
+                   metadataInterface,
                    sourceInterface,
                    StringComparison.Ordinal))
         {
-            return 2;
+            return 4;
+        }
+        if (metadataInterface.EndsWith(
+            $".{sourceInterface}",
+            StringComparison.Ordinal))
+        {
+            return 3;
         }
 
-        return normalizedMetadata.EndsWith(
-            $".{sourceInterface}",
+        string erasedSource = EraseGenericArguments(sourceInterface);
+        string erasedMetadata = EraseGenericArguments(metadataInterface);
+        if (string.Equals(erasedMetadata, erasedSource, StringComparison.Ordinal))
+            return 2;
+
+        return erasedMetadata.EndsWith(
+            $".{erasedSource}",
             StringComparison.Ordinal)
             ? 1
             : -1;
@@ -355,22 +365,55 @@ static class AuthoredRebuildFidelity
         => name switch
         {
             IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
-            GenericNameSyntax generic => generic.Identifier.ValueText,
+            GenericNameSyntax generic =>
+                $"{generic.Identifier.ValueText}<"
+                + $"{string.Join(",", generic.TypeArgumentList.Arguments.Select(MetadataTypeName))}>",
             QualifiedNameSyntax qualified =>
                 $"{MetadataInterfaceName(qualified.Left)}.{MetadataInterfaceName(qualified.Right)}",
             AliasQualifiedNameSyntax alias
                 when alias.Alias.Identifier.ValueText == "global"
                 => MetadataInterfaceName(alias.Name),
-            AliasQualifiedNameSyntax alias =>
-                $"{alias.Alias.Identifier.ValueText}.{MetadataInterfaceName(alias.Name)}",
+            AliasQualifiedNameSyntax alias => MetadataInterfaceName(alias.Name),
             _ => name.ToString(),
         };
 
-    static string NormalizeMetadataInterfaceName(string metadataInterface)
+    static string MetadataTypeName(TypeSyntax type)
+        => type switch
+        {
+            PredefinedTypeSyntax predefined => predefined.Keyword.Kind() switch
+            {
+                SyntaxKind.BoolKeyword => "System.Boolean",
+                SyntaxKind.ByteKeyword => "System.Byte",
+                SyntaxKind.SByteKeyword => "System.SByte",
+                SyntaxKind.ShortKeyword => "System.Int16",
+                SyntaxKind.UShortKeyword => "System.UInt16",
+                SyntaxKind.IntKeyword => "System.Int32",
+                SyntaxKind.UIntKeyword => "System.UInt32",
+                SyntaxKind.LongKeyword => "System.Int64",
+                SyntaxKind.ULongKeyword => "System.UInt64",
+                SyntaxKind.CharKeyword => "System.Char",
+                SyntaxKind.FloatKeyword => "System.Single",
+                SyntaxKind.DoubleKeyword => "System.Double",
+                SyntaxKind.DecimalKeyword => "System.Decimal",
+                SyntaxKind.StringKeyword => "System.String",
+                SyntaxKind.ObjectKeyword => "System.Object",
+                _ => predefined.Keyword.ValueText,
+            },
+            NullableTypeSyntax nullable =>
+                $"System.Nullable<{MetadataTypeName(nullable.ElementType)}>",
+            ArrayTypeSyntax array =>
+                MetadataTypeName(array.ElementType)
+                + string.Concat(array.RankSpecifiers.Select(rank =>
+                    rank.Rank == 1 ? "[]" : $"[{new string(',', rank.Rank - 1)}]")),
+            NameSyntax name => MetadataInterfaceName(name),
+            _ => type.WithoutTrivia().ToString(),
+        };
+
+    static string EraseGenericArguments(string name)
     {
-        StringBuilder normalized = new(metadataInterface.Length);
+        StringBuilder normalized = new(name.Length);
         int genericDepth = 0;
-        foreach (char value in metadataInterface)
+        foreach (char value in name)
         {
             switch (value)
             {

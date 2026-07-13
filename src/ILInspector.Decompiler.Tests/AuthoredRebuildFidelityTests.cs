@@ -149,6 +149,27 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public void AuthoredMemberSource_DistinguishesConstructedGenericInterfaces()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "int ICustom<int>.Value { get { return 1; } } "
+                + "int ICustom<string>.Value { get { return 2; } }",
+            "ICustom<System.String>.get_Value",
+            out string body));
+        Assert.Contains("return 2;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_AllowsUnresolvedNamespaceAlias()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "int Alias::I1.Value { get { return 4; } }",
+            "N.I1.get_Value",
+            out string body));
+        Assert.Contains("return 4;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AuthoredMemberSource_ExtractsIndexerBody()
     {
         Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
