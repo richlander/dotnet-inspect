@@ -123,6 +123,7 @@ public class PdbContext : IDisposable
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
     private SourceLinkResolver? _resolver;
+    private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
 
     /// <summary>
@@ -281,6 +282,7 @@ public class PdbContext : IDisposable
             SymbolServer = symbolServer;
 
             SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);
+            _sourceDocumentPathResolver = SourceDocumentPath.CreateResolver(SourceLinkJson);
             _resolver = _pdbReader != null ? SourceLinkResolver.Create(_pdbReader) : null;
 
             _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
@@ -900,7 +902,7 @@ public class PdbContext : IDisposable
                 }
             }
 
-            string? resolvedUrl = _resolver?.ApplySourceLinkMapping(filePath);
+            var sourceLink = _sourceDocumentPathResolver.Resolve(filePath);
 
             byte[]? checksum = null;
             string? checksumAlgorithm = null;
@@ -913,11 +915,11 @@ public class PdbContext : IDisposable
             yield return new SourceDocument(
                 filePath,
                 isEmbedded,
-                resolvedUrl,
+                sourceLink.ResolvedUrl,
                 checksum,
                 checksumAlgorithm,
                 MetadataTokens.GetRowNumber(docHandle),
-                SourceDocumentPath.Canonicalize(filePath, SourceLinkJson));
+                sourceLink.CanonicalPath);
         }
     }
 
@@ -977,13 +979,14 @@ public class PdbContext : IDisposable
             {
                 var document = _pdbReader.GetDocument(documentHandle);
                 string filePath = _pdbReader.GetString(document.Name);
+                var sourceLink = _sourceDocumentPathResolver.Resolve(filePath);
                 yield return new MemberSourceInfo(
                     anchor,
                     metadataToken,
                     MetadataTokens.GetRowNumber(documentHandle),
                     filePath,
-                    SourceDocumentPath.Canonicalize(filePath, SourceLinkJson),
-                    _resolver?.ApplySourceLinkMapping(filePath),
+                    sourceLink.CanonicalPath,
+                    sourceLink.ResolvedUrl,
                     range.StartLine,
                     range.EndLine,
                     IsPrimaryDocument: documentHandle == primaryDocument);
@@ -1168,6 +1171,7 @@ public class PdbContext : IDisposable
                 HasPdb = true;
 
                 SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);
+                _sourceDocumentPathResolver = SourceDocumentPath.CreateResolver(SourceLinkJson);
                 _resolver = SourceLinkResolver.Create(_pdbReader);
 
                 _log?.Invoke("Using embedded PDB");

@@ -1368,7 +1368,7 @@ static class FidelityCheck
         Dictionary<string, List<TypeDefinitionHandle>> Types,
         Dictionary<string, List<ExtensionMethodRoot>> Methods,
         Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
-        Dictionary<string, TypeDefinitionHandle> ReceiverTypes);
+        Dictionary<string, List<TypeDefinitionHandle>> ReceiverTypes);
 
     /// <summary>
     /// Name -> top-level-root maps for the compile-driven cluster: type leaf
@@ -1382,7 +1382,7 @@ static class FidelityCheck
         Dictionary<string, List<TypeDefinitionHandle>> Types,
         Dictionary<string, List<ExtensionMethodRoot>> Methods,
         Dictionary<string, List<TypeDefinitionHandle>> Namespaces,
-        Dictionary<string, TypeDefinitionHandle> ReceiverTypes) ClusterIndexes(MetadataReader reader)
+        Dictionary<string, List<TypeDefinitionHandle>> ReceiverTypes) ClusterIndexes(MetadataReader reader)
     {
         if (s_clusterIndexCache.TryGetValue(reader, out var cached))
             return (cached.Types, cached.Methods, cached.Namespaces, cached.ReceiverTypes);
@@ -1390,7 +1390,7 @@ static class FidelityCheck
         var types = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         var methods = new Dictionary<string, List<ExtensionMethodRoot>>(StringComparer.Ordinal);
         var namespaces = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
-        var receiverTypes = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
+        var receiverTypes = new Dictionary<string, List<TypeDefinitionHandle>>(StringComparer.Ordinal);
         static void Add(Dictionary<string, List<TypeDefinitionHandle>> index, string key, TypeDefinitionHandle root)
         {
             if (key.Length == 0)
@@ -1406,9 +1406,7 @@ static class FidelityCheck
             var typeDef = reader.GetTypeDefinition(handle);
             var root = TopLevelRootOf(reader, handle);
             Add(types, NormalizeTypeName(reader.GetString(typeDef.Name)), root);
-            receiverTypes.TryAdd(
-                NormalizeReceiverTypeName(reader.GetFullTypeName(typeDef)),
-                handle);
+            Add(receiverTypes, NormalizeReceiverTypeName(reader.GetFullTypeName(typeDef)), handle);
             // A top-level type's namespace maps to its own root, so a missing
             // namespace segment can pull in every root declared directly in it.
             if (typeDef.GetDeclaringType().IsNil)
@@ -1464,7 +1462,7 @@ static class FidelityCheck
     static ExtensionRootSelection SelectExtensionRoots(
         MetadataReader reader,
         IReadOnlyDictionary<string, List<ExtensionMethodRoot>> methodIndex,
-        IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> receiverTypes,
         string methodName,
         string? receiverType,
         IReadOnlyList<string>? compatibleReceiverTypes,
@@ -1539,19 +1537,26 @@ static class FidelityCheck
 
     static HashSet<string>? BuildReceiverClosure(
         MetadataReader reader,
-        IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> receiverTypes,
         string receiver,
         out bool complete)
     {
         complete = false;
-        if (!receiverTypes.TryGetValue(receiver, out var receiverHandle))
+        if (!receiverTypes.TryGetValue(receiver, out var receiverHandles))
             return null;
+        if (receiverHandles.Count != 1)
+        {
+            // Keep unexpected receiver-key collisions incomplete so extension roots
+            // flow through visible fallback instead of first-wins exclusion.
+            complete = false;
+            return new HashSet<string>(StringComparer.Ordinal) { receiver };
+        }
 
         bool hierarchyComplete = true;
         var closure = new HashSet<string>(StringComparer.Ordinal) { receiver };
         var pending = new Queue<TypeDefinitionHandle>();
         var visited = new HashSet<TypeDefinitionHandle>();
-        pending.Enqueue(receiverHandle);
+        pending.Enqueue(receiverHandles[0]);
         while (pending.TryDequeue(out var handle))
         {
             if (!visited.Add(handle))
@@ -1603,8 +1608,8 @@ static class FidelityCheck
 
             string normalized = NormalizeReceiverTypeName(name);
             closure.Add(normalized);
-            if (receiverTypes.TryGetValue(normalized, out var localHandle))
-                pending.Enqueue(localHandle);
+            if (receiverTypes.TryGetValue(normalized, out var localHandles) && localHandles.Count == 1)
+                pending.Enqueue(localHandles[0]);
             else if (normalized != "System.Object")
                 hierarchyComplete = false;
         }
@@ -1662,7 +1667,7 @@ static class FidelityCheck
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
         IReadOnlyDictionary<string, List<ExtensionMethodRoot>> methodIndex,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> namespaceIndex,
-        IReadOnlyDictionary<string, TypeDefinitionHandle> receiverTypes,
+        IReadOnlyDictionary<string, List<TypeDefinitionHandle>> receiverTypes,
         FidelityPhaseTimings? timings,
         out string? captureDetail)
     {

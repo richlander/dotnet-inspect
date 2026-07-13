@@ -141,6 +141,87 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentIdentity_AndResolvedUrlUseSameSourceLinkMatch()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "c:/repo/*": "https://example.test/repository/*",
+                "c:/repo/src/generated/*": "https://example.test/generated/*"
+              }
+            }
+            """;
+
+        var resolved = SourceDocumentPath.Resolve(
+            "C:/Repo/src/Generated/Widget.cs",
+            sourceLink);
+
+        Assert.True(resolved.IsMapped);
+        Assert.Equal("Widget.cs", resolved.CanonicalPath);
+        Assert.Equal("https://example.test/generated/Widget.cs", resolved.ResolvedUrl);
+    }
+
+    [Fact]
+    public void SourceDocumentIdentity_EscapesSourceLinkWildcardUrlSuffixBySegment()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "/repo/*": "https://example.test/repository/*"
+              }
+            }
+            """;
+
+        var resolved = SourceDocumentPath.Resolve(
+            "/repo/src/C# Features/My Class.cs",
+            sourceLink);
+
+        Assert.Equal("src/C# Features/My Class.cs", resolved.CanonicalPath);
+        Assert.Equal(
+            "https://example.test/repository/src/C%23%20Features/My%20Class.cs",
+            resolved.ResolvedUrl);
+    }
+
+    [Fact]
+    public void SourceDocumentIdentity_IgnoresMalformedSourceLinkUrlValues()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "/repo/*": 123,
+                "/exact/Widget.cs": true
+              }
+            }
+            """;
+
+        var wildcard = SourceDocumentPath.Resolve("/repo/src/Widget.cs", sourceLink);
+        var exact = SourceDocumentPath.Resolve("/exact/Widget.cs", sourceLink);
+
+        Assert.True(wildcard.IsMapped);
+        Assert.Equal("src/Widget.cs", wildcard.CanonicalPath);
+        Assert.Null(wildcard.ResolvedUrl);
+        Assert.True(exact.IsMapped);
+        Assert.Equal("/exact/Widget.cs", exact.CanonicalPath);
+        Assert.Null(exact.ResolvedUrl);
+    }
+
+    [Fact]
+    public void SourceDocumentIdentity_IgnoresMalformedSourceLinkDocumentMappings()
+    {
+        const string sourceLink = """
+            {
+              "documents": []
+            }
+            """;
+
+        var resolved = SourceDocumentPath.Resolve("/repo/src/Widget.cs", sourceLink);
+
+        Assert.False(resolved.IsMapped);
+        Assert.Equal("/repo/src/Widget.cs", resolved.CanonicalPath);
+        Assert.Null(resolved.ResolvedUrl);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
@@ -274,6 +355,27 @@ public sealed class MetadataSourceFindingsTests
             .ToArray();
 
         Assert.Equal(tokens.Order(), actualTokens);
+    }
+
+    [Fact]
+    public void MemberSourceProducer_UsesSameSourceLinkMatchForCanonicalPathAndUrl()
+    {
+        using var source = SourceLinkService.Open(typeof(MetadataSourceFindingsTests).Assembly.Location);
+        int token = typeof(MetadataSourceFindingsTests)
+            .GetMethod(
+                nameof(SourceMappedMethod),
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .MetadataToken;
+
+        var mapping = Assert.Single(Findings(MetadataFindings.InspectMemberSources(
+                source,
+                Subject,
+                new MemberSourceQuery(new HashSet<int> { token })))
+            .Select(static finding => finding.Payload));
+        var expected = SourceDocumentPath.Resolve(mapping.OriginalPath, source.SourceLinkJson);
+
+        Assert.Equal(expected.CanonicalPath, mapping.CanonicalPath);
+        Assert.Equal(expected.ResolvedUrl, mapping.ResolvedUrl);
     }
 
     [Fact]

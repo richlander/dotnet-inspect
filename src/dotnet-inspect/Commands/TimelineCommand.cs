@@ -9,7 +9,6 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
-using ILInspector.Research;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -406,14 +405,14 @@ public static class TimelineCommand
         foreach (var evaluation in evaluated)
         {
             FindingInspection<T> inspection;
-            if (evaluation.Error is not null)
+            try
             {
-                inspection = new FindingInspection<T>.Failed(
-                    new InspectionError(subject, descriptor, evaluation.Error));
-            }
-            else
-            {
-                try
+                if (evaluation.Error is not null)
+                {
+                    inspection = new FindingInspection<T>.Failed(
+                        new InspectionError(subject, descriptor, evaluation.Error));
+                }
+                else
                 {
                     inspection = InspectAnalysisEndpoint(
                         evaluation,
@@ -424,14 +423,18 @@ public static class TimelineCommand
                         subject,
                         inspect);
                 }
-                catch (Exception ex)
-                {
-                    inspection = new FindingInspection<T>.Failed(
-                        new InspectionError(
-                            subject,
-                            descriptor,
-                            $"{ex.GetType().Name}: {ex.Message}"));
-                }
+            }
+            catch (Exception ex)
+            {
+                inspection = new FindingInspection<T>.Failed(
+                    new InspectionError(
+                        subject,
+                        descriptor,
+                        $"{ex.GetType().Name}: {ex.Message}"));
+            }
+            finally
+            {
+                evaluation.Dispose();
             }
 
             results.Add(new TimelineFindingEvaluation<T>(evaluation.Address, inspection));
