@@ -179,31 +179,34 @@ Representative result on .NET 11 preview 5, macOS arm64:
 
 | Scenario | Current ns/op | Typed ns/op | Time delta | Current B/op | Typed B/op | Allocation delta |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Registry construction | 844.7 | 5031.8 | +495.7% | 1416 | 6784 | +379.1% |
-| Plan one section | 130.7 | 6.9 | -94.7% | 176 | 0 | -100.0% |
-| Plan shared sections | 38.6 | 302.0 | +683.1% | 176 | 1040 | +490.9% |
-| Execute one section | 69.7 | 55.6 | -20.2% | 96 | 80 | -16.7% |
-| Execute shared sections | 109.5 | 24.4 | -77.7% | 96 | 80 | -16.7% |
+| Registry construction | 801.3 | 4844.3 | +504.6% | 1416 | 6784 | +379.1% |
+| Plan one section | 122.2 | 6.6 | -94.6% | 176 | 0 | -100.0% |
+| Plan shared sections | 97.0 | 280.2 | +188.9% | 176 | 1040 | +490.9% |
+| Execute one section | 64.7 | 51.3 | -20.7% | 0 | 0 | 0.0% |
+| Execute shared sections | 91.3 | 33.9 | -62.9% | 0 | 0 | 0.0% |
 
 These are microbenchmarks of registry mechanics, not product throughput. They
-use nine post-warmup samples and report the median. Execution rows use
-precompiled plans and include each design's model/context allocation.
+use nine post-warmup samples and report the median. Execution rows reuse and
+reset model/context objects so the measurement isolates dispatch rather than
+different context object sizes.
 
 The same executable published with NativeAOT preserved the direction:
 
 | Scenario | Current ns/op | Typed ns/op | Time delta | Allocation delta |
 | --- | ---: | ---: | ---: | ---: |
-| Registry construction | 326.2 | 1566.5 | +380.3% | +390.6% |
-| Plan one section | 45.5 | 15.0 | -67.0% | -100.0% |
-| Plan shared sections | 51.8 | 385.7 | +645.2% | +513.6% |
-| Execute one section | 36.5 | 22.2 | -39.3% | -16.7% |
-| Execute shared sections | 42.8 | 31.1 | -27.3% | -16.7% |
+| Registry construction | 326.6 | 1542.2 | +372.2% | +390.6% |
+| Plan one section | 45.1 | 14.9 | -67.1% | -100.0% |
+| Plan shared sections | 51.0 | 360.9 | +608.2% | +513.6% |
+| Execute one section | 32.0 | 19.1 | -40.3% | 0.0% |
+| Execute shared sections | 36.3 | 31.1 | -14.5% | 0.0% |
 
 The result is mixed and useful:
 
 - A precompiled plan dispatches direct static delegates instead of scanning a
-  string registry and probing a `HashSet`; representative execution is faster
-  and allocates 16 bytes less per run.
+  string registry and probing a `HashSet`; representative dispatch is faster.
+- Both dispatch paths allocate zero bytes on their success paths. The earlier
+  16-byte delta came from different context object sizes, not registry
+  dispatch, and was removed from the benchmark.
 - A single section returns its precompiled plan with no allocation.
 - Combining multiple arbitrary sections still pays a cold graph-merge cost:
   about 0.28 microseconds and 1 KB in this five-section spike.
@@ -216,6 +219,43 @@ The registry should not migrate unless production integration preserves the
 execution gain and removes repeated construction. A source-generated singleton
 or command-level cached registry is the expected production shape.
 
+## dotnet-inspect allocation A/B
+
+Performance Triage and exact allocation evidence answer a different question
+from the runtime microbenchmark:
+
+- Performance Triage returned no focused row for either the current
+  `CurrentScannerRegistry.RunScanners` or revised
+  `CapabilityPlan.ExecuteAsync`. Neither contains a ranked actionable
+  allocation shape on its successful dispatch path.
+- `member ... -S Facts` reported zero allocation facts for
+  `CurrentScannerRegistry.RunScanners`.
+- The original spike's `CapabilitySession.ExecutePlanAsync` had one
+  straight-line `alloc.enumerator` fact:
+  `IEnumerator<CapabilityKey>`.
+- The revised `CapabilityPlan.ExecuteAsync` has no successful-path allocation
+  fact. Its three facts are conditional error-path allocations: boxing the mode
+  for an invalid-mode diagnostic, `ArgumentOutOfRangeException`, and
+  `CapabilityNotAuthorizedException`.
+
+The local-library allocation diff makes that transition explicit:
+
+```bash
+dotnet-inspect diff --library "before.dll..after.dll" \
+  -t CapabilitySession -m ExecutePlanAsync \
+  --finding analysis.allocation
+```
+
+reports `PairFinding.Removed` for the enumerator allocation. The corresponding
+`CapabilityPlan.ExecuteAsync` diff reports the three added diagnostic
+allocations, all classified by `Facts` as error-path work.
+
+This product-dogfood evidence supports the design claim that replacing the
+mutable session removed its successful-path enumerator allocation. It does not
+produce elapsed time or allocated-byte totals; the `Stopwatch` /
+`GC.GetAllocatedBytesForCurrentThread` benchmark remains the runtime
+measurement.
+
 ## Code-quality evaluation
 
 The representative current baseline and typed core were counted with blank and
@@ -223,7 +263,7 @@ comment-only lines excluded:
 
 | Measure | Current shape | Typed shape | Delta |
 | --- | ---: | ---: | ---: |
-| Core non-comment lines | 148 | 234 | +86 |
+| Core non-comment lines | 155 | 234 | +79 |
 | Per-section execution declarations across five descriptors | 10 | 5 | -50% |
 | Execution dispatch paths | Scanner registry + network branch | One compiled plan | Consolidated |
 | Probe decision source | Section Boolean | Full capability closure | Derived |
@@ -231,7 +271,7 @@ comment-only lines excluded:
 | Per-capability runtime objects | Not applicable | 0 | No new objects |
 | Reusable failed execution state | Not applicable | 0 | No session cache |
 
-The typed core is 86 lines larger in the small example. The design is not a
+The typed core is 79 lines larger in the small example. The design is not a
 line-count win by itself. Its code-quality improvement is narrower and
 structural:
 

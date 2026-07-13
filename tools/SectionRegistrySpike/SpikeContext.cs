@@ -9,4 +9,11 @@ public sealed class SpikeContext
     public required SpikeModel Model { get; init; }
     public int BodyIndex { get; set; }
     public int WorkCount { get; set; }
+
+    public void Reset()
+    {
+        Model.Reset();
+        BodyIndex = 0;
+        WorkCount = 0;
+    }
 }

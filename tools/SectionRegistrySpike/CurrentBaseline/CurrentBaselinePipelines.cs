@@ -29,6 +29,14 @@ public sealed class CurrentScannerContext
         WorkCount++;
         Trace?.Invoke($"execute {name}");
     }
+
+    public void Reset()
+    {
+        Model.Reset();
+        WorkCount = 0;
+        BodyIndexBuilds = 0;
+        _bodyIndex = null;
+    }
 }
 
 public sealed class CurrentScannerRegistry

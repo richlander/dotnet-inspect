@@ -26,6 +26,10 @@ public static class Performance
         var currentSharedPlan = currentPipeline.GetRequiredScanners(Verbosity.Quiet, sharedInclude);
         var typedMetadataPlan = typed.PlanFor(metadataSelection);
         var typedSharedPlan = typed.PlanFor(sharedSelection);
+        var currentMetadataContext = new CurrentScannerContext { Model = new SpikeModel() };
+        var currentSharedContext = new CurrentScannerContext { Model = new SpikeModel() };
+        var typedMetadataContext = new SpikeContext { Model = new SpikeModel() };
+        var typedSharedContext = new SpikeContext { Model = new SpikeModel() };
 
         var rows = new[]
         {
@@ -59,32 +63,32 @@ public static class Performance
                 200_000,
                 () =>
                 {
-                    var context = new CurrentScannerContext { Model = new SpikeModel() };
-                    currentScanners.RunScanners(currentMetadataPlan, context);
-                    s_sink = context.WorkCount;
+                    currentMetadataContext.Reset();
+                    currentScanners.RunScanners(currentMetadataPlan, currentMetadataContext);
+                    s_sink = currentMetadataContext.WorkCount;
                 },
                 () =>
                 {
-                    var context = new SpikeContext { Model = new SpikeModel() };
-                    typedMetadataPlan.ExecuteAsync(context, CapabilityExecutionModes.Explicit)
+                    typedMetadataContext.Reset();
+                    typedMetadataPlan.ExecuteAsync(typedMetadataContext, CapabilityExecutionModes.Explicit)
                         .GetAwaiter().GetResult();
-                    s_sink = context.WorkCount;
+                    s_sink = typedMetadataContext.WorkCount;
                 }),
             Compare(
                 "Execute shared sections",
                 200_000,
                 () =>
                 {
-                    var context = new CurrentScannerContext { Model = new SpikeModel() };
-                    currentScanners.RunScanners(currentSharedPlan, context);
-                    s_sink = context.WorkCount;
+                    currentSharedContext.Reset();
+                    currentScanners.RunScanners(currentSharedPlan, currentSharedContext);
+                    s_sink = currentSharedContext.WorkCount;
                 },
                 () =>
                 {
-                    var context = new SpikeContext { Model = new SpikeModel() };
-                    typedSharedPlan.ExecuteAsync(context, CapabilityExecutionModes.Explicit)
+                    typedSharedContext.Reset();
+                    typedSharedPlan.ExecuteAsync(typedSharedContext, CapabilityExecutionModes.Explicit)
                         .GetAwaiter().GetResult();
-                    s_sink = context.WorkCount;
+                    s_sink = typedSharedContext.WorkCount;
                 }),
         };
 
@@ -155,7 +159,7 @@ public static class Performance
         }
 
         lines.Add("");
-        lines.Add("Median of 9 samples after warmup; execution rows use precompiled plans and include each design's model/context allocation.");
+        lines.Add("Median of 9 samples after warmup; execution rows reuse and reset model/context objects to isolate dispatch.");
         lines.Add("Planning rows measure selection-to-work-plan overhead only; registry construction is one-time setup.");
         return string.Join('\n', lines) + "\n";
     }

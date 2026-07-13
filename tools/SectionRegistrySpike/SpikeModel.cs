@@ -24,4 +24,14 @@ public sealed class SpikeModel
     public int Facts { get; set; }
     public bool DeepScanRan { get; set; }
 
+    public void Reset()
+    {
+        MetadataLoaded = false;
+        DecompiledSource = null;
+        PdbAcquired = false;
+        OriginalSource = null;
+        Calls = 0;
+        Facts = 0;
+        DeepScanRan = false;
+    }
 }
