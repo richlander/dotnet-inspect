@@ -212,64 +212,132 @@ static class AuthoredRebuildFidelity
         var root = CSharpSyntaxTree.ParseText(
             $"class __AuthoredSourceHost {{{Environment.NewLine}{memberSource}{Environment.NewLine}}}")
             .GetCompilationUnitRoot();
-        var member = root.DescendantNodes()
+        var identity = MetadataMethodIdentity.Parse(metadataMethodName);
+        foreach (var member in root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
-            .FirstOrDefault(candidate => candidate.Parent is ClassDeclarationSyntax);
-        string simpleMethodName = SimpleMetadataMethodName(metadataMethodName);
-        body = member switch
+            .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
+        {
+            body = MemberBodyText(member, identity);
+            if (body.Length > 0)
+                return true;
+        }
+
+        body = "";
+        return false;
+    }
+
+    static string MemberBodyText(
+        MemberDeclarationSyntax member,
+        MetadataMethodIdentity identity)
+        => member switch
         {
             MethodDeclarationSyntax method
                 when string.Equals(
                     method.Identifier.ValueText,
-                    simpleMethodName,
+                    identity.SimpleName,
                     StringComparison.Ordinal)
+                    && ExplicitInterfaceMatches(
+                        method.ExplicitInterfaceSpecifier,
+                        identity.ExplicitInterface)
                 => BodyText(method.Body, method.ExpressionBody, ReturnsVoid(method.ReturnType)),
             ConstructorDeclarationSyntax constructor
-                when metadataMethodName is ".ctor" or ".cctor"
+                when identity.SimpleName is ".ctor" or ".cctor"
+                    && identity.ExplicitInterface is null
                 => BodyText(constructor.Body, constructor.ExpressionBody, returnsVoid: true),
             PropertyDeclarationSyntax property
-                when AccessorMatches(simpleMethodName, "get_", property.Identifier.ValueText)
+                when AccessorMatches(
+                    identity,
+                    "get_",
+                    property.Identifier.ValueText,
+                    property.ExplicitInterfaceSpecifier)
                 => AccessorBodyText(property, SyntaxKind.GetAccessorDeclaration),
             PropertyDeclarationSyntax property
-                when AccessorMatches(simpleMethodName, "set_", property.Identifier.ValueText)
+                when AccessorMatches(
+                    identity,
+                    "set_",
+                    property.Identifier.ValueText,
+                    property.ExplicitInterfaceSpecifier)
                 => AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration),
             EventDeclarationSyntax eventDeclaration
                 when AccessorMatches(
-                    simpleMethodName,
+                    identity,
                     "add_",
-                    eventDeclaration.Identifier.ValueText)
+                    eventDeclaration.Identifier.ValueText,
+                    eventDeclaration.ExplicitInterfaceSpecifier)
                 => AccessorBodyText(eventDeclaration, SyntaxKind.AddAccessorDeclaration),
             EventDeclarationSyntax eventDeclaration
                 when AccessorMatches(
-                    simpleMethodName,
+                    identity,
                     "remove_",
-                    eventDeclaration.Identifier.ValueText)
+                    eventDeclaration.Identifier.ValueText,
+                    eventDeclaration.ExplicitInterfaceSpecifier)
                 => AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration),
             _ => "",
         };
-        return body.Length > 0;
-    }
-
-    static string SimpleMetadataMethodName(string metadataMethodName)
-    {
-        if (metadataMethodName is ".ctor" or ".cctor")
-            return metadataMethodName;
-
-        int separator = metadataMethodName.LastIndexOf('.');
-        return separator >= 0
-            ? metadataMethodName[(separator + 1)..]
-            : metadataMethodName;
-    }
 
     static bool AccessorMatches(
-        string methodName,
+        MetadataMethodIdentity identity,
         string prefix,
-        string memberName)
-        => methodName.StartsWith(prefix, StringComparison.Ordinal)
+        string memberName,
+        ExplicitInterfaceSpecifierSyntax? explicitInterface)
+        => identity.SimpleName.StartsWith(prefix, StringComparison.Ordinal)
            && string.Equals(
-               methodName[prefix.Length..],
+               identity.SimpleName[prefix.Length..],
                memberName,
-               StringComparison.Ordinal);
+               StringComparison.Ordinal)
+           && ExplicitInterfaceMatches(
+               explicitInterface,
+               identity.ExplicitInterface);
+
+    static bool ExplicitInterfaceMatches(
+        ExplicitInterfaceSpecifierSyntax? syntax,
+        string? metadataInterface)
+    {
+        if (syntax is null || metadataInterface is null)
+            return syntax is null && metadataInterface is null;
+
+        string sourceInterface = MetadataInterfaceName(syntax.Name);
+        return string.Equals(
+                   metadataInterface,
+                   sourceInterface,
+                   StringComparison.Ordinal)
+               || metadataInterface.EndsWith(
+                   $".{sourceInterface}",
+                   StringComparison.Ordinal);
+    }
+
+    static string MetadataInterfaceName(NameSyntax name)
+        => name switch
+        {
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            GenericNameSyntax generic => generic.Identifier.ValueText,
+            QualifiedNameSyntax qualified =>
+                $"{MetadataInterfaceName(qualified.Left)}.{MetadataInterfaceName(qualified.Right)}",
+            AliasQualifiedNameSyntax alias
+                when alias.Alias.Identifier.ValueText == "global"
+                => MetadataInterfaceName(alias.Name),
+            AliasQualifiedNameSyntax alias =>
+                $"{alias.Alias.Identifier.ValueText}.{MetadataInterfaceName(alias.Name)}",
+            _ => name.ToString(),
+        };
+
+    readonly record struct MetadataMethodIdentity(
+        string SimpleName,
+        string? ExplicitInterface)
+    {
+        public static MetadataMethodIdentity Parse(string metadataMethodName)
+        {
+            if (metadataMethodName is ".ctor" or ".cctor")
+                return new(metadataMethodName, ExplicitInterface: null);
+
+            int separator = metadataMethodName.LastIndexOf('.');
+            return separator >= 0
+                ? new(
+                    metadataMethodName[(separator + 1)..],
+                    metadataMethodName[..separator])
+                : new(metadataMethodName, ExplicitInterface: null);
+        }
+    }
 
     static string AccessorBodyText(
         BasePropertyDeclarationSyntax declaration,

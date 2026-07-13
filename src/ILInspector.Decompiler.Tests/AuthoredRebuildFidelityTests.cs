@@ -108,6 +108,26 @@ public sealed class AuthoredRebuildFidelityTests
             out _));
     }
 
+    [Fact]
+    public void AuthoredMemberSource_FindsTargetAfterNeighboringProperty()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public int Other { get { return 1; } } public int Value { get { return 2; } }",
+            "get_Value",
+            out string body));
+        Assert.Contains("return 2;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_DistinguishesExplicitInterfaceMethod()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public int M() { return 1; } int IFoo.M() { return 2; }",
+            "Sample.IFoo.M",
+            out string body));
+        Assert.Contains("return 2;", body, StringComparison.Ordinal);
+    }
+
     static FindingInspection<CompilationOptionInfo> CompleteOptions(
         params CompilationOptionInfo[] options)
         => MetadataFindings.InspectCompilationOptions(options, Subject);
