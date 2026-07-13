@@ -289,6 +289,30 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "TypeSpec local reassigned after guarded origin",
+            """
+            class C
+            {
+                object GetTypeFromSpecification()
+                {
+                    var spec = reader.GetTypeSpecification(handle);
+                    spec = reader.GetTypeSpecification(otherHandle);
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        return SignatureBlobGuard.IsSafeToDecode(
+                            reader,
+                            spec.Signature,
+                            kind)
+                            ? spec.DecodeSignature(provider, context)
+                            : fallback;
+                    }
+                }
+            }
+            """
+        },
+        {
             "TypeSpec deferred local function",
             """
             class C
@@ -450,6 +474,74 @@ public class ProviderSignatureDecodeBoundaryTests
                     s_recursionDepth++;
                     try
                     {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder with unreachable bounds",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (false)
+                    {
+                        if (s_recursionDepth >= MaxRecursionDepth)
+                            return fallback;
+                        if (blobLength > MaxSignatureBlobLength)
+                            return fallback;
+                        if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                            return fallback;
+                    }
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder reassigns spec inside try",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        spec = reader.GetTypeSpecification(otherHandle);
                         return spec.DecodeSignature(provider, context);
                     }
                     finally
@@ -712,13 +804,10 @@ public class ProviderSignatureDecodeBoundaryTests
                 && (IsPrescanGuardedTernary(invocation)
                     || IsPrescanGuardedIf(invocation)));
 
-    // `<expr>.GetTypeSpecification(...).Decode*Signature(...)`: the decode's
-    // receiver is a GetTypeSpecification invocation, directly or through a
-    // local initialized from one, inside the provider callback where it is a
-    // cross-handle re-entry rather than a top-level TypeSpec gateway.
+    // Every decode inside the provider's GetTypeFromSpecification callback is
+    // a cross-handle re-entry rather than a top-level TypeSpec gateway.
     static bool IsNestedTypeSpecReentry(InvocationExpressionSyntax invocation)
-        => TryGetTypeSpecificationOrigin(invocation, out _, out _)
-            && invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault() is
+        => invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault() is
             {
                 Identifier.Text: "GetTypeFromSpecification"
             };
@@ -794,7 +883,8 @@ public class ProviderSignatureDecodeBoundaryTests
     static ExpressionSyntax? FindLocalInitializer(
         InvocationExpressionSyntax invocation,
         string identifier)
-        => invocation.SyntaxTree.GetRoot()
+    {
+        var variable = invocation.SyntaxTree.GetRoot()
             .DescendantNodes()
             .OfType<VariableDeclaratorSyntax>()
             .Where(variable =>
@@ -803,8 +893,28 @@ public class ProviderSignatureDecodeBoundaryTests
                 && variable.Ancestors().OfType<BlockSyntax>().FirstOrDefault() is { } block
                 && block.Span.Contains(invocation.Span))
             .OrderByDescending(variable => variable.SpanStart)
-            .Select(variable => variable.Initializer?.Value)
-            .FirstOrDefault(value => value is not null);
+            .FirstOrDefault(variable => variable.Initializer is not null);
+        if (variable?.Initializer?.Value is not { } initializer)
+            return null;
+
+        bool reassigned = invocation.SyntaxTree.GetRoot()
+            .DescendantNodes()
+            .Any(node =>
+                node.SpanStart > variable.Span.End
+                && node.SpanStart < invocation.SpanStart
+                && (node is AssignmentExpressionSyntax
+                    {
+                        Left: IdentifierNameSyntax left
+                    }
+                    && left.Identifier.Text == identifier
+                    || node is ArgumentSyntax
+                    {
+                        Expression: IdentifierNameSyntax argument,
+                        RefKindKeyword.RawKind: not 0
+                    }
+                    && argument.Identifier.Text == identifier));
+        return reassigned ? null : initializer;
+    }
 
     static bool ConditionRejectsFailedTypeSpecEntry(
         ExpressionSyntax condition,
@@ -966,11 +1076,117 @@ public class ProviderSignatureDecodeBoundaryTests
             return false;
         }
 
-        if (!TryGetTypeSpecificationOrigin(invocation, out var reader, out _))
+        var guardedTry = invocation.Ancestors().OfType<TryStatementSyntax>()
+            .FirstOrDefault(statement => statement.Block.Span.Contains(invocation.Span));
+        if (guardedTry?.Parent != body
+            || guardedTry.Finally?.Block is not { } finallyBlock
+            || CrossesDeferredExecutionBoundary(invocation, guardedTry))
             return false;
 
-        bool blobLengthIsBoundToReceiver =
-            FindLocalInitializer(invocation, "blobLength") is MemberAccessExpressionSyntax
+        int tryIndex = body.Statements.IndexOf(guardedTry);
+        if (tryIndex is not (7 or 8)
+            || !IsRejectingComparisonStatement(
+                body.Statements[0],
+                SyntaxKind.GreaterThanOrEqualExpression,
+                "s_recursionDepth",
+                "MaxRecursionDepth")
+            || !TryGetTypeSpecDeclaration(
+                body.Statements[1],
+                receiver.Identifier.Text,
+                out var reader)
+            || !IsBlobLengthDeclaration(
+                body.Statements[2],
+                reader,
+                receiver.Identifier.Text)
+            || !IsRejectingComparisonStatement(
+                body.Statements[3],
+                SyntaxKind.GreaterThanExpression,
+                "blobLength",
+                "MaxSignatureBlobLength")
+            || !IsRejectingComparisonStatement(
+                body.Statements[4],
+                SyntaxKind.GreaterThanExpression,
+                "s_cumulativeSignatureBytes + blobLength",
+                "MaxCumulativeSignatureBytes")
+            || tryIndex == 8
+                && !IsRejectingPrescanStatement(
+                    body.Statements[5],
+                    receiver.Identifier.Text)
+            || !HasImmediatelyPrecedingCounterIncrements(guardedTry)
+            || !HasExactCounterCleanup(finallyBlock)
+            || HasProtectedMutation(
+                guardedTry.Block,
+                receiver.Identifier.Text,
+                "blobLength",
+                "s_recursionDepth",
+                "s_cumulativeSignatureBytes"))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool IsRejectingComparisonStatement(
+        StatementSyntax statement,
+        SyntaxKind kind,
+        string left,
+        string right)
+        => statement is IfStatementSyntax ifStatement
+            && StripParentheses(ifStatement.Condition) is BinaryExpressionSyntax comparison
+            && comparison.IsKind(kind)
+            && Equivalent(
+                StripParentheses(comparison.Left),
+                SyntaxFactory.ParseExpression(left))
+            && Equivalent(
+                StripParentheses(comparison.Right),
+                SyntaxFactory.ParseExpression(right))
+            && StatementAlwaysExits(ifStatement.Statement);
+
+    static bool TryGetTypeSpecDeclaration(
+        StatementSyntax statement,
+        string receiver,
+        out ExpressionSyntax reader)
+    {
+        reader = null!;
+        if (statement is not LocalDeclarationStatementSyntax
+            {
+                Declaration.Variables.Count: 1
+            } declaration)
+        {
+            return false;
+        }
+
+        var variable = declaration.Declaration.Variables[0];
+        if (variable.Identifier.Text != receiver
+            || variable.Initializer?.Value is not InvocationExpressionSyntax getTypeSpec
+            || getTypeSpec.Expression is not MemberAccessExpressionSyntax access
+            || access.Name.Identifier.Text != "GetTypeSpecification"
+            || getTypeSpec.ArgumentList.Arguments.Count != 1)
+        {
+            return false;
+        }
+
+        reader = access.Expression;
+        return true;
+    }
+
+    static bool IsBlobLengthDeclaration(
+        StatementSyntax statement,
+        ExpressionSyntax reader,
+        string receiver)
+    {
+        if (statement is not LocalDeclarationStatementSyntax
+            {
+                Declaration.Variables.Count: 1
+            } declaration)
+        {
+            return false;
+        }
+
+        var variable = declaration.Declaration.Variables[0];
+        return variable.Identifier.Text == "blobLength"
+            && variable.Initializer?.Value is MemberAccessExpressionSyntax
             {
                 Name.Identifier.Text: "Length",
                 Expression: InvocationExpressionSyntax
@@ -986,61 +1202,46 @@ public class ProviderSignatureDecodeBoundaryTests
                 Expression: IdentifierNameSyntax spec,
                 Name.Identifier.Text: "Signature"
             }
-            && spec.Identifier.Text == receiver.Identifier.Text;
-        if (!blobLengthIsBoundToReceiver
-            || !HasRejectingComparisonBefore(
-                body,
-                invocation,
-                SyntaxKind.GreaterThanOrEqualExpression,
-                "s_recursionDepth",
-                "MaxRecursionDepth")
-            || !HasRejectingComparisonBefore(
-                body,
-                invocation,
-                SyntaxKind.GreaterThanExpression,
-                "blobLength",
-                "MaxSignatureBlobLength")
-            || !HasRejectingComparisonBefore(
-                body,
-                invocation,
-                SyntaxKind.GreaterThanExpression,
-                "s_cumulativeSignatureBytes + blobLength",
-                "MaxCumulativeSignatureBytes"))
-        {
-            return false;
-        }
-
-        var guardedTry = invocation.Ancestors().OfType<TryStatementSyntax>()
-            .FirstOrDefault(statement => statement.Block.Span.Contains(invocation.Span));
-        if (guardedTry?.Finally?.Block is not { } finallyBlock
-            || !HasImmediatelyPrecedingCounterIncrements(guardedTry)
-            || !HasExactCounterCleanup(finallyBlock))
-        {
-            return false;
-        }
-
-        return true;
+            && spec.Identifier.Text == receiver;
     }
 
-    static bool HasRejectingComparisonBefore(
-        BlockSyntax body,
-        InvocationExpressionSyntax invocation,
-        SyntaxKind kind,
-        string left,
-        string right)
-        => body.DescendantNodes()
-            .OfType<IfStatementSyntax>()
-            .Any(statement =>
-                statement.SpanStart < invocation.SpanStart
-                && StripParentheses(statement.Condition) is BinaryExpressionSyntax comparison
-                && comparison.IsKind(kind)
-                && Equivalent(
-                    StripParentheses(comparison.Left),
-                    SyntaxFactory.ParseExpression(left))
-                && Equivalent(
-                    StripParentheses(comparison.Right),
-                    SyntaxFactory.ParseExpression(right))
-                && StatementAlwaysExits(statement.Statement));
+    static bool IsRejectingPrescanStatement(
+        StatementSyntax statement,
+        string receiver)
+        => statement is IfStatementSyntax ifStatement
+            && ConditionRejectsUnsafeReceiverSignature(ifStatement.Condition, receiver)
+            && StatementAlwaysExits(ifStatement.Statement);
+
+    static bool HasProtectedMutation(BlockSyntax block, params string[] identifiers)
+    {
+        var protectedIdentifiers = identifiers.ToHashSet(StringComparer.Ordinal);
+        return block.DescendantNodes().Any(node =>
+            node is AssignmentExpressionSyntax
+            {
+                Left: IdentifierNameSyntax left
+            }
+                && protectedIdentifiers.Contains(left.Identifier.Text)
+            || node is PrefixUnaryExpressionSyntax
+            {
+                Operand: IdentifierNameSyntax operand
+            } prefix
+                && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
+                    || prefix.IsKind(SyntaxKind.PreDecrementExpression))
+                && protectedIdentifiers.Contains(operand.Identifier.Text)
+            || node is PostfixUnaryExpressionSyntax
+            {
+                Operand: IdentifierNameSyntax postOperand
+            } postfix
+                && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
+                    || postfix.IsKind(SyntaxKind.PostDecrementExpression))
+                && protectedIdentifiers.Contains(postOperand.Identifier.Text)
+            || node is ArgumentSyntax
+            {
+                Expression: IdentifierNameSyntax argument,
+                RefKindKeyword.RawKind: not 0
+            }
+                && protectedIdentifiers.Contains(argument.Identifier.Text));
+    }
 
     static bool HasImmediatelyPrecedingCounterIncrements(TryStatementSyntax guardedTry)
     {
