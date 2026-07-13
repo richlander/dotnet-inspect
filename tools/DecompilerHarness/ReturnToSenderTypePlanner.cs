@@ -1756,11 +1756,12 @@ public static class CompileBackSourceComposer
     /// arity with the sibling that defeats the unique-arity path, so neither of the
     /// two existing conditions accepts it. This returns true only when the chain is
     /// provably unambiguous: every argument is identity-equal or array-covariant to
-    /// its chained-to parameter, and every OTHER same-arity constructor of the
-    /// target type is provably inapplicable at an array-covariant argument
-    /// position. The model is bounded and fail-closed: it bails (strips) on
-    /// <c>params</c>/optional constructors and on any argument or competitor it
-    /// cannot fully reason about, so it never emits an ambiguous or wrong chain.
+    /// its chained-to parameter, and every OTHER constructor of the target type
+    /// that could bind the argument list by arity (accounting for
+    /// <c>params</c>/optional expansion) is provably inapplicable at an
+    /// array-covariant argument position. The model is bounded and fail-closed: it
+    /// strips on any argument or competitor it cannot rule out, so it never emits
+    /// an ambiguous or wrong chain.
     /// </summary>
     static bool ChainArgumentsBindViaArrayCovariance(
         MetadataReader reader,
@@ -1800,12 +1801,13 @@ public static class CompileBackSourceComposer
         if (!anyArrayCovariant)
             return false;
 
-        // Enumerate the target type's instance constructors from metadata. Keep the
-        // model bounded: a `params` array or an optional parameter lets a
-        // constructor bind calls of other arities, so competitor applicability can
-        // no longer be decided position-by-position. Bail (strip) rather than risk
-        // an ambiguous chain.
-        var constructors = new List<IReadOnlyList<TypeRef>>();
+        // Enumerate the target type's instance constructors from metadata, each
+        // with the arity range it can bind (a `params` array or optional parameters
+        // let a constructor absorb calls of other declared arities). The metadata
+        // set is a superset of the reconstructed shell, so ruling out every
+        // arity-applicable metadata constructor conservatively rules out every
+        // shell competitor the recompiled `: this(args)` could bind to.
+        var constructors = new List<CtorShape>();
         foreach (var methodHandle in targetTypeDef.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
@@ -1815,35 +1817,36 @@ public static class CompileBackSourceComposer
                 continue;
             }
 
-            if (ConstructorHasParamsOrOptional(reader, method))
-                return false;
-            constructors.Add(MethodParameterTypes(reader, targetTypeDef, method));
+            constructors.Add(GetConstructorShape(reader, targetTypeDef, method));
         }
 
-        // Competitor exclusion. For every OTHER same-arity constructor, require it
-        // is provably inapplicable at an array-covariant argument position.
-        // `ArrayCanConvertTo` OVER-approximates real convertibility (true = maybe
-        // convertible), so a `false` result PROVES the competitor cannot accept
-        // that array argument. If a same-arity competitor cannot be excluded, the
-        // printed `: this(args)` may be ambiguous (CS0121) or bind elsewhere —
-        // strip. The chained-to constructor must itself appear among the metadata
-        // constructors, so an unresolved chain target never emits.
+        // Competitor exclusion. For every constructor other than the chained-to
+        // that could bind the argument count by arity, require it is provably
+        // inapplicable at an array-covariant argument position. `ArrayCanConvertTo`
+        // OVER-approximates real convertibility (true = maybe convertible), so a
+        // `false` result PROVES the competitor cannot accept that array argument. A
+        // competitor that cannot bind the argument count is not a candidate and is
+        // skipped; one that could bind but cannot be excluded strips the chain. The
+        // chained-to constructor must itself appear among the metadata constructors,
+        // so an unresolved chain target never emits.
         bool sawChainCtor = false;
-        foreach (var ctorParams in constructors)
+        foreach (var shape in constructors)
         {
-            if (ctorParams.Count != paramCount)
-                continue;
-            if (ParameterTypesEqual(ctorParams, chainParams))
+            if (ParameterTypesEqual(shape.ParamTypes, chainParams))
             {
                 sawChainCtor = true;
                 continue;
             }
 
+            int maxArgs = shape.HasParams ? int.MaxValue : shape.ParamTypes.Count;
+            if (paramCount < shape.RequiredMin || paramCount > maxArgs)
+                continue;
+
             bool excluded = false;
             for (int i = 0; i < paramCount; i++)
             {
                 if (argTypes[i].Kind == TypeRefKind.SzArray
-                    && !ArrayCanConvertTo(argTypes[i], ctorParams[i]))
+                    && CompetitorExcludedAtPosition(argTypes[i], shape, i))
                 {
                     excluded = true;
                     break;
@@ -1855,6 +1858,81 @@ public static class CompileBackSourceComposer
         }
 
         return sawChainCtor;
+    }
+
+    /// <summary>
+    /// A target constructor's parameter types plus the arity information needed to
+    /// decide whether it could bind an N-argument chain call: the minimum required
+    /// argument count (leading non-optional, non-<c>params</c> parameters) and
+    /// whether the final parameter is a <c>params</c> array.
+    /// </summary>
+    readonly record struct CtorShape(IReadOnlyList<TypeRef> ParamTypes, int RequiredMin, bool HasParams);
+
+    static CtorShape GetConstructorShape(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    {
+        var paramTypes = MethodParameterTypes(reader, typeDef, method);
+        int count = paramTypes.Count;
+        var optional = new bool[count];
+        bool hasParams = false;
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            int sequence = parameter.SequenceNumber;
+            if (sequence < 1 || sequence > count)
+                continue;
+            int index = sequence - 1;
+            if (parameter.Attributes.HasFlag(ParameterAttributes.Optional))
+                optional[index] = true;
+            if (index == count - 1)
+            {
+                var attributes = parameter.GetCustomAttributes();
+                if (AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                    || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.ParamCollectionAttribute"))
+                {
+                    hasParams = true;
+                }
+            }
+        }
+
+        int required = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (hasParams && i == count - 1)
+                continue;
+            if (optional[i])
+                continue;
+            required++;
+        }
+
+        return new CtorShape(paramTypes, required, hasParams);
+    }
+
+    /// <summary>
+    /// Whether a competing constructor is provably inapplicable to an
+    /// array-covariant argument (<paramref name="arrayArg"/>) at
+    /// <paramref name="position"/>: the argument cannot convert to the parameter
+    /// that would receive it. For a <c>params</c> slot, the argument could bind
+    /// either as a single element (expanded) or as the whole array (non-expanded),
+    /// so exclusion requires ruling out both. Uses <see cref="ArrayCanConvertTo"/>,
+    /// which over-approximates convertibility, so a <c>true</c> result here proves
+    /// non-applicability.
+    /// </summary>
+    static bool CompetitorExcludedAtPosition(TypeRef arrayArg, CtorShape shape, int position)
+    {
+        var paramTypes = shape.ParamTypes;
+        int count = paramTypes.Count;
+        if (shape.HasParams && position >= count - 1)
+        {
+            var paramsArray = paramTypes[count - 1];
+            bool toElement = paramsArray.ElementType is { } element && ArrayCanConvertTo(arrayArg, element);
+            bool toArray = ArrayCanConvertTo(arrayArg, paramsArray);
+            return !toElement && !toArray;
+        }
+
+        if (position < count)
+            return !ArrayCanConvertTo(arrayArg, paramTypes[position]);
+
+        return true;
     }
 
     /// <summary>
@@ -1966,26 +2044,6 @@ public static class CompileBackSourceComposer
         }
 
         return true;
-    }
-
-    static bool ConstructorHasParamsOrOptional(MetadataReader reader, MethodDefinition method)
-    {
-        foreach (var parameterHandle in method.GetParameters())
-        {
-            var parameter = reader.GetParameter(parameterHandle);
-            if (parameter.SequenceNumber < 1)
-                continue;
-            if (parameter.Attributes.HasFlag(ParameterAttributes.Optional))
-                return true;
-            var attributes = parameter.GetCustomAttributes();
-            if (AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
-                || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.ParamCollectionAttribute"))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
