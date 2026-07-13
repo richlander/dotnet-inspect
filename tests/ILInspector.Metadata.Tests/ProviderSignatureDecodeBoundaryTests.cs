@@ -60,7 +60,7 @@ public class ProviderSignatureDecodeBoundaryTests
         "DecodeMethodSpecificationSignature",
     };
 
-    public static TheoryData<string, string> ReviewerEvasions => new()
+    public static TheoryData<string, string> CensusEvasions => new()
     {
         {
             "provider local alias",
@@ -92,6 +92,38 @@ public class ProviderSignatureDecodeBoundaryTests
             }
             """
         },
+        {
+            "verbatim decode identifier",
+            """
+            object Decode()
+            {
+                return method.@DecodeSignature(TypeNodeProvider.Instance, context);
+            }
+            """
+        },
+        {
+            "unicode-escaped decode identifier",
+            """
+            object Decode()
+            {
+                return method.\u0044ecodeSignature(TypeNodeProvider.Instance, context);
+            }
+            """
+        },
+        {
+            "short-circuited prescan",
+            """
+            object Decode()
+            {
+                return SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        method.Signature,
+                        SignatureBlobGuard.Kind.Method) || true
+                    ? method.DecodeSignature(TypeNodeProvider.Instance, context)
+                    : fallback;
+            }
+            """
+        },
     };
 
     [Fact]
@@ -119,7 +151,7 @@ public class ProviderSignatureDecodeBoundaryTests
     }
 
     [Theory]
-    [MemberData(nameof(ReviewerEvasions))]
+    [MemberData(nameof(CensusEvasions))]
     public void Census_RejectsReviewerEvasion(string evasion, string source)
     {
         var violations = FindDecodeViolations(ParseSourceRoot(source));
@@ -205,7 +237,7 @@ public class ProviderSignatureDecodeBoundaryTests
     static IEnumerable<SimpleNameSyntax> DecodeNameOccurrences(SyntaxNode root)
         => root.DescendantNodes()
             .OfType<SimpleNameSyntax>()
-            .Where(name => DecodeMethodNames.Contains(name.Identifier.Text));
+            .Where(name => DecodeMethodNames.Contains(name.Identifier.ValueText));
 
     static InvocationExpressionSyntax[] AllInvocations(SyntaxNode root)
         => root.DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
@@ -252,7 +284,7 @@ public class ProviderSignatureDecodeBoundaryTests
 
     static bool IsDecodeInvocation(InvocationExpressionSyntax invocation)
         => invocation.Expression is MemberAccessExpressionSyntax member
-            && DecodeMethodNames.Contains(member.Name.Identifier.Text);
+            && DecodeMethodNames.Contains(member.Name.Identifier.ValueText);
 
     // `<expr>.GetTypeSpecification(...).Decode*Signature(...)`: the decode's
     // immediate receiver is itself a GetTypeSpecification invocation.
@@ -266,7 +298,7 @@ public class ProviderSignatureDecodeBoundaryTests
         if (invocation.Expression is MemberAccessExpressionSyntax member
             && member.Expression is InvocationExpressionSyntax typeSpecReceiver
             && typeSpecReceiver.Expression is MemberAccessExpressionSyntax receiverMember
-            && receiverMember.Name.Identifier.Text == "GetTypeSpecification")
+            && receiverMember.Name.Identifier.ValueText == "GetTypeSpecification")
         {
             receiver = typeSpecReceiver;
             return true;
@@ -296,7 +328,7 @@ public class ProviderSignatureDecodeBoundaryTests
             int usingIndex = block.Statements.IndexOf(usingStatement);
             if (usingIndex <= 0
                 || block.Statements[usingIndex - 1] is not IfStatementSyntax guard
-                || !GuardReturnsWhenEntryFails(guard, scope.Identifier.Text, handle))
+                || !GuardReturnsWhenEntryFails(guard, scope.Identifier.ValueText, handle))
             {
                 continue;
             }
@@ -320,8 +352,8 @@ public class ProviderSignatureDecodeBoundaryTests
             || UnwrapParentheses(negation.Operand) is not InvocationExpressionSyntax tryEnter
             || tryEnter.Expression is not MemberAccessExpressionSyntax
             {
-                Expression: IdentifierNameSyntax { Identifier.Text: "TypeSpecGuard" },
-                Name.Identifier.Text: "TryEnter",
+                Expression: IdentifierNameSyntax { Identifier.ValueText: "TypeSpecGuard" },
+                Name.Identifier.ValueText: "TryEnter",
             }
             || tryEnter.ArgumentList.Arguments.Count < 3
             || !SyntaxFactory.AreEquivalent(
@@ -331,7 +363,7 @@ public class ProviderSignatureDecodeBoundaryTests
             {
                 Designation: SingleVariableDesignationSyntax designation,
             }
-            || designation.Identifier.Text != scopeName)
+            || designation.Identifier.ValueText != scopeName)
         {
             return false;
         }
@@ -379,16 +411,25 @@ public class ProviderSignatureDecodeBoundaryTests
     static bool ConditionGuardsReceiverSignature(
         ExpressionSyntax condition,
         ExpressionSyntax decodeReceiver)
-        => condition.DescendantNodesAndSelf()
-            .OfType<InvocationExpressionSyntax>()
-            .Any(i => i.Expression is MemberAccessExpressionSyntax member
-                && member.Name.Identifier.Text == "IsSafeToDecode"
+    {
+        condition = UnwrapParentheses(condition);
+        if (condition is BinaryExpressionSyntax binary
+            && binary.IsKind(SyntaxKind.LogicalAndExpression))
+        {
+            return ConditionGuardsReceiverSignature(binary.Left, decodeReceiver)
+                || ConditionGuardsReceiverSignature(binary.Right, decodeReceiver);
+        }
+
+        return condition is InvocationExpressionSyntax i
+            && i.Expression is MemberAccessExpressionSyntax member
+                && member.Name.Identifier.ValueText == "IsSafeToDecode"
                 && member.Expression is IdentifierNameSyntax id
-                && id.Identifier.Text == "SignatureBlobGuard"
+                && id.Identifier.ValueText == "SignatureBlobGuard"
                 && i.ArgumentList.Arguments.Any(a =>
                     a.Expression is MemberAccessExpressionSyntax blob
-                    && blob.Name.Identifier.Text == "Signature"
-                    && SyntaxFactory.AreEquivalent(blob.Expression, decodeReceiver)));
+                    && blob.Name.Identifier.ValueText == "Signature"
+                    && SyntaxFactory.AreEquivalent(blob.Expression, decodeReceiver));
+    }
 
     // `GuardedSignatureDecoder.Decode(reader, <recv>.Signature, ..., () =>
     // <recv>.Decode*Signature(...))`: the decode must be inside the supplied
