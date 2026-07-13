@@ -17,7 +17,7 @@ using Decompiler = ILInspector.Decompiler;
 namespace DotnetInspector.Commands;
 
 /// <summary>
-/// Discovers types in a package or library (terse, no docs by default).
+/// Discovers types in a package or library (compact table, no docs by default).
 /// </summary>
 public static class TypeCommand
 {
