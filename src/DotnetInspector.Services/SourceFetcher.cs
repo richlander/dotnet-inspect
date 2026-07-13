@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -8,8 +10,8 @@ namespace DotnetInspector.Services;
 /// </summary>
 public class SourceFetcher(HttpClient httpClient)
 {
-    private readonly Dictionary<string, string> _memoryCache = new();
-    private readonly Dictionary<string, byte[]> _byteMemoryCache = new();
+    private readonly ConcurrentDictionary<string, string> _memoryCache = new();
+    private readonly ConcurrentDictionary<string, byte[]> _byteMemoryCache = new();
     private readonly HttpClient _httpClient = httpClient;
     private const string ByteCacheCategory = "source-bytes-v1";
 
@@ -110,7 +112,7 @@ public class SourceFetcher(HttpClient httpClient)
             if (cacheValidator is null || cacheValidator(memoryBytes))
                 return memoryBytes;
 
-            _byteMemoryCache.Remove(url);
+            _byteMemoryCache.TryRemove(url, out _);
         }
 
         string? encoded = CoreCache.TryGet(

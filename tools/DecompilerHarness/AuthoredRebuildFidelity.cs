@@ -215,33 +215,61 @@ static class AuthoredRebuildFidelity
         var member = root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
             .FirstOrDefault(candidate => candidate.Parent is ClassDeclarationSyntax);
+        string simpleMethodName = SimpleMetadataMethodName(metadataMethodName);
         body = member switch
         {
             MethodDeclarationSyntax method
                 when string.Equals(
                     method.Identifier.ValueText,
-                    metadataMethodName,
+                    simpleMethodName,
                     StringComparison.Ordinal)
                 => BodyText(method.Body, method.ExpressionBody, ReturnsVoid(method.ReturnType)),
             ConstructorDeclarationSyntax constructor
                 when metadataMethodName is ".ctor" or ".cctor"
                 => BodyText(constructor.Body, constructor.ExpressionBody, returnsVoid: true),
             PropertyDeclarationSyntax property
-                when metadataMethodName.StartsWith("get_", StringComparison.Ordinal)
+                when AccessorMatches(simpleMethodName, "get_", property.Identifier.ValueText)
                 => AccessorBodyText(property, SyntaxKind.GetAccessorDeclaration),
             PropertyDeclarationSyntax property
-                when metadataMethodName.StartsWith("set_", StringComparison.Ordinal)
+                when AccessorMatches(simpleMethodName, "set_", property.Identifier.ValueText)
                 => AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration),
             EventDeclarationSyntax eventDeclaration
-                when metadataMethodName.StartsWith("add_", StringComparison.Ordinal)
+                when AccessorMatches(
+                    simpleMethodName,
+                    "add_",
+                    eventDeclaration.Identifier.ValueText)
                 => AccessorBodyText(eventDeclaration, SyntaxKind.AddAccessorDeclaration),
             EventDeclarationSyntax eventDeclaration
-                when metadataMethodName.StartsWith("remove_", StringComparison.Ordinal)
+                when AccessorMatches(
+                    simpleMethodName,
+                    "remove_",
+                    eventDeclaration.Identifier.ValueText)
                 => AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration),
             _ => "",
         };
         return body.Length > 0;
     }
+
+    static string SimpleMetadataMethodName(string metadataMethodName)
+    {
+        if (metadataMethodName is ".ctor" or ".cctor")
+            return metadataMethodName;
+
+        int separator = metadataMethodName.LastIndexOf('.');
+        return separator >= 0
+            ? metadataMethodName[(separator + 1)..]
+            : metadataMethodName;
+    }
+
+    static bool AccessorMatches(
+        string methodName,
+        string prefix,
+        string memberName)
+        => methodName.StartsWith(prefix, StringComparison.Ordinal)
+           && string.Equals(
+               methodName[prefix.Length..],
+               memberName,
+               StringComparison.Ordinal);
 
     static string AccessorBodyText(
         BasePropertyDeclarationSyntax declaration,

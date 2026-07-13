@@ -85,6 +85,8 @@ public sealed class AuthoredRebuildFidelityTests
     [InlineData("public int Value { get { return 1; } }", "get_Value", "return 1;")]
     [InlineData("public int Value => 2;", "get_Value", "return 2;")]
     [InlineData("public int M() { return 3; }", "M", "return 3;")]
+    [InlineData("int IFoo.Value { get { return 4; } }", "Sample.IFoo.get_Value", "return 4;")]
+    [InlineData("int IFoo.M() { return 5; }", "Sample.IFoo.M", "return 5;")]
     public void AuthoredMemberSource_ExtractsRtsTargetBody(
         string memberSource,
         string methodName,
@@ -95,6 +97,15 @@ public sealed class AuthoredRebuildFidelityTests
             methodName,
             out string body));
         Assert.Contains(expected, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_DoesNotUseDifferentPropertyBody()
+    {
+        Assert.False(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public int Value { get { return 1; } }",
+            "get_Other",
+            out _));
     }
 
     static FindingInspection<CompilationOptionInfo> CompleteOptions(
