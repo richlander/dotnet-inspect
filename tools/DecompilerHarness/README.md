@@ -269,7 +269,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --emit-corpus-snapshot /tmp/corpus-snapshot.json \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
   --quality-diff-card \
-  --compile-cap 25 \
+  --compile-cap 4000 \
   --corpus-fidelity-cap 3 \
   --max-examples 3
 ```
@@ -288,8 +288,11 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 Add `--quality-diff-card` to emit a Markdown PR block generated directly from
 the baseline/current snapshots. The card includes a correctness-coverage line
 and per-row sampled denominators for semantic validity and compile-back fidelity
-so reviewers can tell when evidence is strong or thin. Paste that block as the
-PR's aggregate corpus evidence; do not re-key the table by hand.
+so reviewers can tell when evidence is strong or thin. Semantic validity and
+compile-back fidelity samples are hash-stable, so zero-tolerance rows such as
+RTS parity compare the same target population when the corpus and caps match.
+Paste that block as the PR's aggregate corpus evidence; do not re-key the table
+by hand.
 
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
 oracle for raise and printer changes. The first run writes a method-keyed JSON

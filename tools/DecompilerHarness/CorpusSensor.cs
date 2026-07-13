@@ -370,13 +370,13 @@ internal static class CorpusSensor
             foreach (var assembly in assemblies)
             {
                 var portablePath = PortablePath(assembly);
+                var targetAttempts = DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap);
                 FidelityOracleEvaluation evaluation;
                 try
                 {
                     evaluation = fidelityOracle == CorpusFidelityOracle.CompileBack
-                        ? new FidelityOracleEvaluation(
-                            FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: false, workers, sequential))
-                        : EvaluateReturnToSender(assembly, cap, workers, sequential);
+                        ? EvaluateCompileBackTargets([assembly], targetAttempts, cap)
+                        : EvaluateReturnToSender(assembly, targetAttempts, cap);
                 }
                 catch (Exception ex) when (
                     fidelityOracle == CorpusFidelityOracle.ReturnToSender
@@ -411,9 +411,7 @@ internal static class CorpusSensor
                         }
                     }
                 }
-                allResults.AddRange(fidelityOracle == CorpusFidelityOracle.CompileBack
-                    ? FidelityCheck.Evaluate([assembly], cap, lowered: false, includeAllResults: true, workers, sequential)
-                    : assemblyUsefulResults);
+                allResults.AddRange(evaluation.AllResults);
             }
             var metrics = new FidelitySensorMetrics(
                 usefulResults.Count,
@@ -450,16 +448,36 @@ internal static class CorpusSensor
         int cap,
         int? workers,
         bool sequential)
+        => EvaluateReturnToSender(
+            assemblyPath,
+            DeterministicCompileBackTargetAttemptsForAssembly(assemblyPath, cap),
+            cap);
+
+    static FidelityOracleEvaluation EvaluateCompileBackTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
+        int cap)
     {
-        var targetSample = FidelityCheck.Evaluate(
-            [assemblyPath],
-            cap,
-            lowered: false,
-            includeAllResults: false,
-            workers,
-            sequential);
-        if (targetSample.Count == 0)
-            return new FidelityOracleEvaluation([]);
+        var evaluatedResults = EvaluateTargetsInAttemptOrderUntilUseful(assemblies, targetAttempts, cap);
+        var usefulResults = evaluatedResults
+            .Where(FidelityCheck.IsUsefulCorpusSample)
+            .Take(cap)
+            .ToArray();
+        return new FidelityOracleEvaluation(usefulResults, AllResults: evaluatedResults);
+    }
+
+    static FidelityOracleEvaluation EvaluateReturnToSender(
+        string assemblyPath,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
+        int cap)
+    {
+        var evaluatedResults = EvaluateTargetsInAttemptOrderUntilUseful([assemblyPath], targetAttempts, cap);
+        var targetSample = evaluatedResults
+            .Where(FidelityCheck.IsUsefulCorpusSample)
+            .Take(cap)
+            .ToArray();
+        if (targetSample.Length == 0)
+            return new FidelityOracleEvaluation([], AllResults: targetSample);
 
         var requestedTargets = targetSample
             .Select(result => new ReturnToSender.RequestedTarget(
@@ -476,11 +494,53 @@ internal static class CorpusSensor
         var alignedResults = AlignReturnToSenderResults(targetSample, returnToSenderResults);
         return new FidelityOracleEvaluation(
             alignedResults,
+            AllResults: alignedResults,
             targetSample.ToDictionary(
                 FidelityResultKey,
                 result => result.Status,
                 StringComparer.Ordinal),
             SummarizeReturnToSenderParity(targetSample, alignedResults));
+    }
+
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrderUntilUseful(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
+        int cap)
+    {
+        if (cap <= 0 || targetAttempts.Count == 0)
+            return [];
+
+        int batchSize = cap == int.MaxValue
+            ? targetAttempts.Count
+            : Math.Min(targetAttempts.Count, Math.Max(cap, 100));
+        var results = new List<FidelityCheck.CompileBackResult>();
+        int useful = 0;
+        for (int offset = 0; offset < targetAttempts.Count && useful < cap; offset += batchSize)
+        {
+            var batch = targetAttempts.Skip(offset).Take(batchSize).ToArray();
+            foreach (var result in EvaluateTargetsInAttemptOrder(assemblies, batch))
+            {
+                results.Add(result);
+                if (FidelityCheck.IsUsefulCorpusSample(result) && ++useful >= cap)
+                    break;
+            }
+        }
+
+        return results;
+    }
+
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrder(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts)
+    {
+        var resultsByTarget = FidelityCheck.EvaluateTargets(assemblies, targetAttempts, lowered: false)
+            .GroupBy(FidelityResultKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        return targetAttempts
+            .Select(CompileBackTargetKey)
+            .Where(resultsByTarget.ContainsKey)
+            .Select(key => resultsByTarget[key])
+            .ToArray();
     }
 
     internal static IReadOnlyList<FidelityCheck.CompileBackResult> AlignReturnToSenderResultsForTesting(
@@ -566,13 +626,99 @@ internal static class CorpusSensor
     static string FidelityResultKey(FidelityCheck.CompileBackResult result)
         => $"{result.Type}::{result.Method}::{result.Overload}::{result.Signature}";
 
+    static string CompileBackTargetKey(FidelityCheck.CompileBackTarget target)
+        => $"{target.Type}::{target.Method}::{target.Overload}::{target.Signature}";
+
     static string ReturnToSenderKey(ReturnToSender.Result result)
         => $"{result.Plan.TargetMethod.Type}::{result.Plan.TargetMethod.Method}::{result.Plan.TargetMethod.Overload}::{result.Plan.TargetMethod.Signature}";
 
     sealed record FidelityOracleEvaluation(
         IReadOnlyList<FidelityCheck.CompileBackResult> Results,
+        IReadOnlyList<FidelityCheck.CompileBackResult> AllResults,
         IReadOnlyDictionary<string, FidelityCheck.CompileBackStatus>? ReferenceStatuses = null,
         ReturnToSenderParityMetrics? Parity = null);
+
+    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForTesting(
+        IReadOnlyList<CorpusMethodSnapshot> methods,
+        string assemblyPath,
+        int cap)
+        => DeterministicCompileBackTargetAttempts(methods, assemblyPath, cap);
+
+    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
+        string assemblyPath,
+        int cap)
+    {
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        string portablePath = PortablePath(assemblyPath);
+        var methods = IrImporter.GetStableSampleCandidates(source, DeterministicAttemptCap(cap))
+            .Select(candidate =>
+            {
+                var function = candidate.Build(source);
+                return new CorpusMethodSnapshot(
+                    source.AssemblyName,
+                    portablePath,
+                    candidate.TypeName,
+                    candidate.MethodName,
+                    candidate.Overload,
+                    CorpusMethodIdentity.SignatureText(function.Signature),
+                    function.Fidelity.ToString(),
+                    FullyRaised: function.Fidelity == DecompilationFidelity.Full,
+                    Residual: null,
+                    PassBug: null,
+                    Validity: "not-sampled",
+                    FidelityCheck: "not-sampled");
+            })
+            .ToArray();
+        return DeterministicCompileBackTargetAttempts(methods, assemblyPath, cap);
+    }
+
+    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttempts(
+        IEnumerable<CorpusMethodSnapshot> methods,
+        string assemblyPath,
+        int cap)
+    {
+        if (cap <= 0)
+            return [];
+
+        string portablePath = PortablePath(assemblyPath);
+        return methods
+            .Where(method => string.Equals(method.AssemblyPath, portablePath, StringComparison.Ordinal)
+                && !FidelityCheck.IsSynthesizedMember(method.Type, method.Method))
+            .OrderBy(StableMethodHash)
+            .ThenBy(MethodKey, StringComparer.Ordinal)
+            .Take(DeterministicAttemptCap(cap))
+            .Select(method => new FidelityCheck.CompileBackTarget(
+                assemblyPath,
+                method.Type,
+                method.Method,
+                method.Overload,
+                method.Signature))
+            .ToArray();
+    }
+
+    static int DeterministicAttemptCap(int cap)
+        => cap > int.MaxValue / 10
+            ? int.MaxValue
+            : Math.Max(cap * 10, 100);
+
+    static ulong StableMethodHash(CorpusMethodSnapshot method)
+        => StableHash(MethodKey(method));
+
+    static ulong StableHash(string text)
+    {
+        const ulong offset = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        ulong hash = offset;
+        foreach (char ch in text)
+        {
+            hash ^= (byte)ch;
+            hash *= prime;
+            hash ^= (byte)(ch >> 8);
+            hash *= prime;
+        }
+        return hash;
+    }
 
     static string MethodKey(CorpusMethodSnapshot method)
         => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Signature);

@@ -223,6 +223,26 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void DeterministicCompileBackTargetAttempts_UsesStableSampleRegardlessOfInputOrder()
+    {
+        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
+        var methods = Enumerable.Range(0, 105)
+            .Select(i => SnapshotMethod($"M{i:000}", assemblyPath: "pinned.dll", fidelityCheck: "not-sampled"))
+            .Append(SnapshotMethod("<Generated>", assemblyPath: "pinned.dll", fidelityCheck: "not-sampled"))
+            .ToArray();
+
+        var forward = CorpusSensor.DeterministicCompileBackTargetAttemptsForTesting(methods, assemblyPath, cap: 1);
+        var reversed = CorpusSensor.DeterministicCompileBackTargetAttemptsForTesting(methods.Reverse().ToArray(), assemblyPath, cap: 1);
+
+        Assert.Equal(100, forward.Count);
+        Assert.Equal(
+            forward.Select(target => $"{target.Type}::{target.Method}{target.Signature}"),
+            reversed.Select(target => $"{target.Type}::{target.Method}{target.Signature}"));
+        Assert.DoesNotContain(forward, target => target.Method.Contains('<', StringComparison.Ordinal));
+        Assert.All(forward, target => Assert.Equal(assemblyPath, target.AssemblyPath));
+    }
+
+    [Fact]
     public void Compare_DoesNotGateSemanticCountsWhenPinnedSamplesDiffer()
     {
         var baseline = Snapshot(
@@ -525,25 +545,32 @@ public class CorpusSensorComparisonTests
         return methods.ToImmutable();
     }
 
+    static CorpusMethodSnapshot SnapshotMethod(
+        string method,
+        string assemblyPath = "nuget:pinned/lib.dll",
+        string validity = "not-sampled",
+        string fidelityCheck = "not-sampled")
+        => new(
+            Assembly: "Pinned",
+            AssemblyPath: assemblyPath,
+            Type: "T",
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: "Full",
+            FullyRaised: true,
+            Residual: null,
+            PassBug: null,
+            Validity: validity,
+            FidelityCheck: fidelityCheck);
+
     static IReadOnlyList<CorpusMethodSnapshot> ValidityMethods(
         params (string Method, string Validity)[] values)
     {
         var methods = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(values.Length);
         foreach (var value in values)
         {
-            methods.Add(new CorpusMethodSnapshot(
-                Assembly: "Pinned",
-                AssemblyPath: "nuget:pinned/lib.dll",
-                Type: "T",
-                Method: value.Method,
-                Overload: 0,
-                Signature: "()",
-                Fidelity: "Full",
-                FullyRaised: true,
-                Residual: null,
-                PassBug: null,
-                Validity: value.Validity,
-                FidelityCheck: "not-sampled"));
+            methods.Add(SnapshotMethod(value.Method, validity: value.Validity));
         }
         return methods.ToImmutable();
     }
@@ -554,19 +581,7 @@ public class CorpusSensorComparisonTests
         var methods = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(values.Length);
         foreach (var value in values)
         {
-            methods.Add(new CorpusMethodSnapshot(
-                Assembly: "Pinned",
-                AssemblyPath: "nuget:pinned/lib.dll",
-                Type: "T",
-                Method: value.Method,
-                Overload: 0,
-                Signature: "()",
-                Fidelity: "Full",
-                FullyRaised: true,
-                Residual: null,
-                PassBug: null,
-                Validity: "not-sampled",
-                FidelityCheck: value.FidelityCheck));
+            methods.Add(SnapshotMethod(value.Method, fidelityCheck: value.FidelityCheck));
         }
         return methods.ToImmutable();
     }
