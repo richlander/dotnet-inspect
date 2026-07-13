@@ -7,15 +7,13 @@ namespace DotnetInspector.Output;
 /// rows of each rendered table, preserving headings and table headers. A
 /// negative <see cref="Count"/> is treated as "no limit" by the row limiters.
 /// </summary>
-public readonly record struct RowWindow(int Count, bool FromEnd)
-{
-    /// <summary>
-    /// A bare row count is a leading (head) window: <c>--rows --head N</c>. This
-    /// keeps count-only call sites (and tests) concise while <c>--tail N</c> uses
-    /// the explicit <see cref="FromEnd"/> constructor.
-    /// </summary>
-    public static implicit operator RowWindow(int count) => new(count, FromEnd: false);
-}
+public readonly record struct RowWindow(int Count, bool FromEnd);
+
+/// <summary>
+/// Thrown when <c>--rows</c> is combined with an invalid head/tail window
+/// (both or neither). Surfaced as a one-line CLI error by the entry point.
+/// </summary>
+public sealed class RowWindowValidationException(string message) : Exception(message);
 
 /// <summary>
 /// A printable/projected-row selector parsed from <c>--row</c>: an explicit

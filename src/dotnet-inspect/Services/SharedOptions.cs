@@ -233,14 +233,26 @@ public class SharedOptions
     }
 
     public RowWindow? ParseRows(ParseResult parseResult)
+        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Limit), parseResult.GetValue(Tail));
+
+    /// <summary>
+    /// Resolves the <c>--rows</c> data-row window from the parsed head/tail values.
+    /// Validation lives here (not in the arg preprocessor) so it sees the real
+    /// System.CommandLine parse — including <c>=</c>-syntax and concatenated forms
+    /// the token scanner misses. Throws <see cref="RowWindowValidationException"/>
+    /// when <c>--rows</c> is given both windows or neither.
+    /// </summary>
+    public static RowWindow? BuildRowWindow(bool rows, int? head, int? tail)
     {
-        if (!parseResult.GetValue(Rows))
+        if (!rows)
             return null;
-        if (parseResult.GetValue(Limit) is int head)
-            return new RowWindow(head, FromEnd: false);
-        if (parseResult.GetValue(Tail) is int tail)
-            return new RowWindow(tail, FromEnd: true);
-        return null;
+        if (head is not null && tail is not null)
+            throw new RowWindowValidationException("--rows cannot combine -n/--head with --tail; choose one row window.");
+        if (head is int h)
+            return new RowWindow(h, FromEnd: false);
+        if (tail is int t)
+            return new RowWindow(t, FromEnd: true);
+        throw new RowWindowValidationException("--rows requires -n/--head N or --tail N.");
     }
 
     public RowSelector? ParsePrintRow(ParseResult parseResult)

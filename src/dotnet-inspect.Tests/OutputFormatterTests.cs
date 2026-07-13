@@ -36,10 +36,10 @@ public class OutputFormatterTests
         Action<TextWriter, Markout.Formatting.IMarkoutFormatter> serialize = (writer, _) => writer.Write("Name\tValue\nA\t1\nB\t2\n");
 
         var capped = new StringWriter();
-        OutputFormatter.WriteTable(capped, showHeader: true, serialize, maxRows: 1);
+        OutputFormatter.WriteTable(capped, showHeader: true, serialize, maxRows: new RowWindow(1, FromEnd: false));
 
         Assert.Equal(
-            OutputFormatter.LimitRenderedTableRows(OutputFormatter.RenderTable(true, serialize), 1, hasHeader: true),
+            OutputFormatter.LimitRenderedTableRows(OutputFormatter.RenderTable(true, serialize), new RowWindow(1, FromEnd: false), hasHeader: true),
             capped.ToString());
     }
 
@@ -1053,7 +1053,7 @@ public class OutputFormatterTests
     {
         var tsv = "name\tcount\nA\t1\nB\t2\nC\t3\n";
 
-        var output = OutputFormatter.LimitRenderedTableRows(tsv, 2, hasHeader: true).ReplaceLineEndings("\n");
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, new RowWindow(2, FromEnd: false), hasHeader: true).ReplaceLineEndings("\n");
 
         Assert.Equal("name\tcount\nA\t1\nB\t2\n", output);
     }
@@ -1063,7 +1063,7 @@ public class OutputFormatterTests
     {
         var tsv = "A\t1\nB\t2\nC\t3\n";
 
-        var output = OutputFormatter.LimitRenderedTableRows(tsv, 2, hasHeader: false).ReplaceLineEndings("\n");
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, new RowWindow(2, FromEnd: false), hasHeader: false).ReplaceLineEndings("\n");
 
         Assert.Equal("A\t1\nB\t2\n", output);
     }
@@ -1074,7 +1074,7 @@ public class OutputFormatterTests
         var jsonl = "{\"name\":\"A\"}\n{\"name\":\"B\"}\n{\"name\":\"C\"}\n";
 
         // hasHeader is true (callers pass !--no-header) but jsonl rows are self-describing.
-        var output = OutputFormatter.LimitRenderedTableRows(jsonl, 2, hasHeader: true).ReplaceLineEndings("\n");
+        var output = OutputFormatter.LimitRenderedTableRows(jsonl, new RowWindow(2, FromEnd: false), hasHeader: true).ReplaceLineEndings("\n");
 
         Assert.Equal("{\"name\":\"A\"}\n{\"name\":\"B\"}\n", output);
     }
@@ -1084,7 +1084,7 @@ public class OutputFormatterTests
     {
         var markdown = "| Name |\n| ---- |\n| A |\n| B |\n| C |\n";
 
-        var output = OutputFormatter.LimitRenderedTableRows(markdown, 2, hasHeader: true).ReplaceLineEndings("\n");
+        var output = OutputFormatter.LimitRenderedTableRows(markdown, new RowWindow(2, FromEnd: false), hasHeader: true).ReplaceLineEndings("\n");
 
         Assert.Contains("| A |", output);
         Assert.Contains("| B |", output);
@@ -1121,7 +1121,7 @@ public class OutputFormatterTests
         | 2 |
         """;
 
-        var output = MarkdownTableRowLimiter.Apply(markdown, 2);
+        var output = MarkdownTableRowLimiter.Apply(markdown, new RowWindow(2, FromEnd: false));
 
         Assert.Contains("| A |", output);
         Assert.Contains("| B |", output);
@@ -1147,7 +1147,7 @@ public class OutputFormatterTests
         | B |
         """;
 
-        var output = MarkdownTableRowLimiter.Apply(markdown, 1);
+        var output = MarkdownTableRowLimiter.Apply(markdown, new RowWindow(1, FromEnd: false));
 
         Assert.Contains("| B |\n```", output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain("| B |\n", output.ReplaceLineEndings("\n").Split("```")[2]);
@@ -1258,6 +1258,56 @@ public class OutputFormatterTests
         Assert.Equal(1, RowSelector.First.Resolve(7));
         Assert.Equal(7, RowSelector.Last.Resolve(7));
         Assert.Equal(3, RowSelector.FromIndex(3).Resolve(7));
+    }
+
+    [Fact]
+    public void BuildRowWindow_HeadOnlyIsLeadingWindow()
+    {
+        var window = SharedOptions.BuildRowWindow(rows: true, head: 3, tail: null);
+        Assert.Equal(new RowWindow(3, FromEnd: false), window);
+    }
+
+    [Fact]
+    public void BuildRowWindow_TailOnlyIsTrailingWindow()
+    {
+        var window = SharedOptions.BuildRowWindow(rows: true, head: null, tail: 3);
+        Assert.Equal(new RowWindow(3, FromEnd: true), window);
+    }
+
+    [Fact]
+    public void BuildRowWindow_WithoutRowsIsNull()
+    {
+        Assert.Null(SharedOptions.BuildRowWindow(rows: false, head: 3, tail: null));
+        Assert.Null(SharedOptions.BuildRowWindow(rows: false, head: null, tail: 3));
+    }
+
+    [Fact]
+    public void BuildRowWindow_RejectsBothHeadAndTail()
+    {
+        var ex = Assert.Throws<RowWindowValidationException>(
+            () => SharedOptions.BuildRowWindow(rows: true, head: 3, tail: 2));
+        Assert.Equal("--rows cannot combine -n/--head with --tail; choose one row window.", ex.Message);
+    }
+
+    [Fact]
+    public void BuildRowWindow_RejectsNeitherHeadNorTail()
+    {
+        var ex = Assert.Throws<RowWindowValidationException>(
+            () => SharedOptions.BuildRowWindow(rows: true, head: null, tail: null));
+        Assert.Equal("--rows requires -n/--head N or --tail N.", ex.Message);
+    }
+
+    [Fact]
+    public void LimitMarkdownTableRows_KeepsInteriorSeparatorInPlace()
+    {
+        // A pathological table with an interior separator: the separator must stay in
+        // its original position rather than being hoisted after the windowed rows.
+        var markdown = "| Name |\n| ---- |\n| A |\n| ---- |\n| B |\n| C |\n";
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, new RowWindow(2, FromEnd: false)).ReplaceLineEndings("\n");
+
+        // Head window of 2 data rows keeps A and B; the interior separator sits between them.
+        Assert.Equal("| Name |\n| ---- |\n| A |\n| ---- |\n| B |\n", output);
     }
 
     [Fact]

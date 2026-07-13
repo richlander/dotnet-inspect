@@ -31,32 +31,31 @@ internal static class MarkdownTableRowLimiter
             output.Add(line);
             output.Add(lines[++i]);
 
-            // Collect the table's data rows (separator lines pass through), then
-            // keep the leading or trailing window before emitting.
-            List<string> dataRows = [];
-            List<string> separators = [];
+            // Collect the table body (data rows + any interior separators) in order,
+            // then emit it preserving original positions: separators pass through in
+            // place and only the head/tail window of data rows is kept.
+            List<string> body = [];
             while (i + 1 < lines.Length && MarkdownScan.IsTableLine(lines[i + 1]))
+                body.Add(lines[++i]);
+
+            var dataCount = body.Count(static l => !MarkdownScan.IsSeparatorLine(l));
+            var keepStart = limit.FromEnd ? Math.Max(0, dataCount - limit.Count) : 0;
+            var keepEnd = limit.FromEnd ? dataCount : Math.Min(dataCount, limit.Count);
+            var dataIndex = 0;
+            foreach (var bodyLine in body)
             {
-                i++;
-                if (MarkdownScan.IsSeparatorLine(lines[i]))
+                if (MarkdownScan.IsSeparatorLine(bodyLine))
                 {
-                    separators.Add(lines[i]);
+                    output.Add(bodyLine);
                     continue;
                 }
 
-                dataRows.Add(lines[i]);
+                if (dataIndex >= keepStart && dataIndex < keepEnd)
+                    output.Add(bodyLine);
+                dataIndex++;
             }
-
-            foreach (var kept in Window(dataRows, limit))
-                output.Add(kept);
-            output.AddRange(separators);
         }
 
         return string.Join('\n', output);
     }
-
-    private static IEnumerable<string> Window(List<string> rows, RowWindow limit) =>
-        limit.FromEnd
-            ? rows.Skip(Math.Max(0, rows.Count - limit.Count))
-            : rows.Take(limit.Count);
 }

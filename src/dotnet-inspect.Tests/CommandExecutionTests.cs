@@ -399,7 +399,16 @@ public class CommandExecutionTests
         {
             args = CommandLineBuilder.PreprocessArgs(args);
             var root = CommandLineBuilder.CreateRootCommand();
-            return await root.Parse(args).InvokeAsync();
+            try
+            {
+                return await root.Parse(args).InvokeAsync();
+            }
+            catch (RowWindowValidationException ex)
+            {
+                // Mirror Program.cs so --rows window validation surfaces as exit 1 + stderr.
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                return 1;
+            }
         });
     }
 
@@ -1332,6 +1341,67 @@ public class CommandExecutionTests
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
         Assert.Contains("`Match:1`", output);
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Rows_TailWindowDiffersFromHeadWindow()
+    {
+        // A real command must wire ParseRows and honor the tail branch: the last-N
+        // window selects a different endpoint than the first-N window.
+        var head = await RunAppAsync(
+            "type", "System.String", "-S", "Member Index", "--rows", "-n", "2", "--tsv", "--tips", "q");
+        var tail = await RunAppAsync(
+            "type", "System.String", "-S", "Member Index", "--rows", "--tail", "2", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, head.Exit);
+        Assert.Equal(0, tail.Exit);
+        Assert.Empty(head.Error);
+        Assert.Empty(tail.Error);
+        var headLines = head.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var tailLines = tail.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        // header + exactly 2 data rows in each.
+        Assert.Equal(3, headLines.Length);
+        Assert.Equal(3, tailLines.Length);
+        // Same header row, different data rows.
+        Assert.Equal(headLines[0], tailLines[0]);
+        Assert.NotEqual(headLines[1], tailLines[1]);
+    }
+
+    [Fact]
+    public async Task Rows_TailEqualsSyntaxAppliesTailWindow()
+    {
+        // Regression: --tail=2 (=-syntax) used to falsely error "requires -n/--head N
+        // or --tail N" because the token scanner missed it. It now applies a tail window.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "-S", "Member Index", "--rows", "--tail=2", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(3, output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public async Task Rows_RejectsBothHeadAndTailWithEqualsSyntax()
+    {
+        // Regression: --head=3 (=-syntax) used to slip past the both-set gate and
+        // silently apply a head window. It now conflicts with --tail as expected.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "-S", "Member Index", "--rows", "--head=3", "--tail", "2", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--rows cannot combine -n/--head with --tail", error);
+    }
+
+    [Fact]
+    public async Task Rows_RequiresHeadOrTailWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "-S", "Member Index", "--rows", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--rows requires -n/--head N or --tail N", error);
     }
 
     [Fact]
@@ -2438,6 +2508,36 @@ public class CommandExecutionTests
         Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("url").GetString());
         Assert.Contains("ReadAsInt32Async", document.RootElement.GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRowFirstFetchesFirstSource()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--row", "first", "--jsonl", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", document.RootElement.GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_PrintRowLastFetchesLastSource()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--row", "last", "--jsonl", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("url").GetString());
     }
 
     [Fact]
