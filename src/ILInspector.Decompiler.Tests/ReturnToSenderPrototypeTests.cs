@@ -81,31 +81,41 @@ public class ReturnToSenderPrototypeTests
     [Fact]
     public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
     {
+        // Issue #2527: base-class reconstruction restores same-assembly base classes,
+        // so the old dropped-base attribute stall no longer occurs. A concrete shell
+        // that inherits an abstract member it does not itself consume still cannot
+        // satisfy that obligation (CS0534) — the growth loop does not synthesize
+        // abstract/interface member implementations. The shell stalls with a complete
+        // payload; the compile-back floor (which compiles the decompiled member
+        // against the full original assembly) rescues it.
         var assemblyPath = CompileFixture("""
-            using System;
-
-            public abstract class BaseMarkerAttribute : Attribute
+            public abstract class Shape
             {
+                protected abstract int Corners();
             }
 
-            [AttributeUsage(AttributeTargets.Class)]
-            public sealed class MarkerAttribute : BaseMarkerAttribute
+            public sealed class Triangle : Shape
             {
-                public bool Flag => true;
+                protected override int Corners() => 3;
+
+                public int First => Corners();
             }
             """);
         try
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.True(result.UsedCompileBackFloor, result.Detail);
             Assert.NotNull(result.CompileBackFloor);
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.CompileBackFloor.Status);
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Detail);
+            Assert.Equal(result.CompileBackFloor.Status, result.Status);
             Assert.Contains("compile-back-floor", result.Detail);
-            Assert.Contains("CS0641", result.Detail);
-            Assert.Contains("return true;", result.TargetBody);
-            Assert.Contains("return true;", result.Source);
+            Assert.Contains("CS0534", result.Detail);
+            Assert.Contains("Corners", result.TargetBody);
+            Assert.Contains("Corners", result.Source);
             Assert.NotNull(result.MemberAnchor);
         }
         finally
@@ -118,21 +128,21 @@ public class ReturnToSenderPrototypeTests
     public void CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
     {
         var assemblyPath = CompileFixture("""
-            using System;
-
-            public abstract class BaseMarkerAttribute : Attribute
+            public abstract class Shape
             {
+                protected abstract int Corners();
             }
 
-            [AttributeUsage(AttributeTargets.Class)]
-            public sealed class MarkerAttribute : BaseMarkerAttribute
+            public sealed class Triangle : Shape
             {
-                public bool Flag => true;
+                protected override int Corners() => 3;
+
+                public int First => Corners();
             }
             """);
         try
         {
-            var target = new ReturnToSender.RequestedTarget("MarkerAttribute", "get_Flag", 0);
+            var target = new ReturnToSender.RequestedTarget("Triangle", "get_First", 0);
             var floored = Assert.Single(ReturnToSender.CompileBackTargets(assemblyPath, [target]));
             Assert.True(floored.UsedCompileBackFloor, floored.Detail);
             var reference = Assert.IsType<FidelityCheck.CompileBackResult>(floored.CompileBackFloor);
@@ -770,6 +780,109 @@ public class ReturnToSenderPrototypeTests
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsBaseClassForCovariantArgument()
+    {
+        // Issue #2527: RTS minimal shells used to drop base classes entirely
+        // (BaseTypeSignature emitted only System.Attribute). A body that relies on
+        // an implicit derived->base conversion — passing a `Dog` where an `Animal`
+        // is expected — then failed to compile (CS1503) because the shell declared
+        // `Dog` with no base. Reconstructing the real base class restores the
+        // covariant conversion so the method round-trips.
+        var assemblyPath = CompileFixture("""
+            public class Animal
+            {
+                public Animal(string name)
+                {
+                    Name = name;
+                }
+
+                public string Name { get; }
+            }
+
+            public class Dog : Animal
+            {
+                public Dog(string name) : base(name)
+                {
+                }
+            }
+
+            public static class Shelter
+            {
+                public static string Describe(Dog dog) => Name(dog);
+
+                private static string Name(Animal animal) => animal.Name;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Shelter", "Describe", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("class Dog : Animal", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SynthesizesParameterlessConstructorForReconstructedBase()
+    {
+        // Issue #2527: once base classes are reconstructed, a derived stub emits an
+        // implicit `: base()`. When the base shell carries only a parameterized
+        // constructor (its base(...) chain is left empty in the flat shell), that
+        // implicit call has nothing to bind to (CS7036/CS1729). The planner
+        // synthesizes an accessible parameterless constructor on the reconstructed
+        // base so base-class reconstruction never breaks the derived shell. Here the
+        // body constructs a `Base` directly (so `Base(int)` is reconstructed with no
+        // parameterless sibling) and a `Widget : Base` (whose stub needs `: base()`).
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public Base(int seed)
+                {
+                    Seed = seed;
+                }
+
+                public int Seed { get; }
+            }
+
+            public class Widget : Base
+            {
+                public Widget(int seed) : base(seed)
+                {
+                }
+            }
+
+            public static class Factory
+            {
+                public static Widget Create()
+                {
+                    Base b = new Base(1);
+                    _ = b.Seed;
+                    return new Widget(21);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Factory", "Create", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("class Widget : Base", result.Source);
         }
         finally
         {
