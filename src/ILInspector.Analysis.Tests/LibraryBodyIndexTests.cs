@@ -1604,6 +1604,45 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_FlagsImmediateLazyQueryTerminalInvokedInCallerLoop()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // A parameterless terminal is a real scan when it directly consumes a lazy Where
+        // iterator. This is the Aspire OtlpSpan.GetParentSpan shape from the acceptance case.
+        var op = Assert.Single(index.OptimizationOpportunities.Where(o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.FilterThenFirstOrDefault)
+            && o.Shape == "scan-method-in-loop-call"));
+        Assert.Equal("low", op.Confidence);
+        Assert.Contains("Where+FirstOrDefault", op.Evidence, StringComparison.Ordinal);
+        Assert.Contains(nameof(OptimizationOpportunityFixtures.CallsComposedScanHelperInLoop), op.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotJoinUnrelatedLazyQueryAndTerminal()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Where is stored and the terminal consumes a different source. The intervening
+        // store/load breaks the immediate stack-chain gate, even when this helper is loop-called.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.UnrelatedLazyAndTerminal)
+            && o.Shape == "scan-method-in-loop-call");
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_DoesNotFlagProjectedFirstAsLinearScan()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        // Select(...).First() only projects the first element; unlike Where(...).First(),
+        // it does not search through the sequence.
+        Assert.DoesNotContain(index.OptimizationOpportunities, o =>
+            o.Method.Name == nameof(OptimizationOpportunityFixtures.ProjectThenFirst)
+            && o.Shape == "scan-method-in-loop-call");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DoesNotFlagParameterlessTerminalsInLoop()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
@@ -3751,6 +3790,58 @@ public class OptimizationOpportunityFixtures
             {
                 n++;
             }
+        }
+        return n;
+    }
+
+    // A lazy producer immediately consumed by a parameterless terminal still scans the
+    // source. This is the compiled shape of Where(...).FirstOrDefault().
+    public static int FilterThenFirstOrDefault(System.Collections.Generic.IEnumerable<int> source, int key)
+        => System.Linq.Enumerable.FirstOrDefault(
+            System.Linq.Enumerable.Where(source, x => x == key));
+
+    public static int CallsComposedScanHelperInLoop(System.Collections.Generic.IEnumerable<int> source, int[] keys)
+    {
+        var n = 0;
+        foreach (var key in keys)
+        {
+            n += FilterThenFirstOrDefault(source, key);
+        }
+        return n;
+    }
+
+    // The lazy result is stored, and First consumes another source. Merely having both calls
+    // in one method is not enough evidence that the lazy query is scanned.
+    public static int UnrelatedLazyAndTerminal(System.Collections.Generic.IEnumerable<int> source, int[] other)
+    {
+        var filtered = System.Linq.Enumerable.Where(source, x => x > 0);
+        return filtered is null ? 0 : System.Linq.Enumerable.First(other);
+    }
+
+    public static int CallsUnrelatedLazyAndTerminalInLoop(
+        System.Collections.Generic.IEnumerable<int> source,
+        int[] other)
+    {
+        var n = 0;
+        foreach (var _ in other)
+        {
+            n += UnrelatedLazyAndTerminal(source, other);
+        }
+        return n;
+    }
+
+    public static int ProjectThenFirst(System.Collections.Generic.IEnumerable<int> source)
+        => System.Linq.Enumerable.First(
+            System.Linq.Enumerable.Select(source, x => x + 1));
+
+    public static int CallsProjectedFirstInLoop(
+        System.Collections.Generic.IEnumerable<int> source,
+        int[] values)
+    {
+        var n = 0;
+        foreach (var _ in values)
+        {
+            n += ProjectThenFirst(source);
         }
         return n;
     }
