@@ -17,9 +17,13 @@ namespace ILInspector.CSharp;
 public static class CompileBackTypeSkeleton
 {
     /// <summary>
-    /// True when a signature string cannot be represented on a compile-back shell
-    /// surface (function pointers, compiler-generated <c>&lt;&gt;</c> names, or
-    /// anonymous/tuple <c>{</c> shapes). Consumers drop such members/bases.
+    /// True when a C# type display name cannot be represented on a compile-back
+    /// shell surface (function pointers, compiler-generated <c>&lt;&gt;</c> names, or
+    /// anonymous/tuple <c>{</c> shapes). Consumers drop such members.
+    ///
+    /// Callers must pass an already-normalized C# display name (e.g. the harness
+    /// applies its <c>CompileBackTypeSignature.Display</c>/<c>Clean</c> pass first);
+    /// this method is a pure substring heuristic and does not itself normalize.
     /// </summary>
     public static bool IsUnsupportedSurfaceSignature(string signature)
         => signature.Contains("delegate*", StringComparison.Ordinal)
@@ -78,12 +82,14 @@ public static class CompileBackTypeSkeleton
         if (baseType is "System.Object" or "System.ValueType" or "System.Enum"
             or "System.Delegate" or "System.MulticastDelegate")
             return null;
-        // Defensive parity with the member-surface gate. Reached only for a
-        // same-assembly TypeDefinition name, which cannot carry function-pointer,
-        // generated `<>`, or anonymous/tuple `{` shapes, so this is never hit for a
-        // base type; it is retained to keep the base and member gates symmetric.
-        if (IsUnsupportedSurfaceSignature(baseType))
-            return null;
+        // No surface-representability gate here. origin/main applied it to the C#
+        // display form (CompileBackCSharpNames.Clean) of the base, and Clean strips
+        // the compiler-generated `<>` segments and modreq/modopt that the heuristic
+        // looks for, so for a same-assembly TypeDefinition name the check could never
+        // fire. Running the pure heuristic on the RAW metadata name instead would
+        // wrongly drop a generated `<>`-named base that origin/main kept, so the gate
+        // is omitted to stay byte-identical. The downstream C# printer sanitizes the
+        // emitted base name.
         return baseType;
     }
 }
