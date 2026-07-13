@@ -393,7 +393,7 @@ public static class InspectionCommandDefinitions
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 Markdown = parseResult.GetValue(opts.Markdown),
                 PlainText = parseResult.GetValue(opts.PlainText),
                 Tabular = opts.ResolveTabular(parseResult),

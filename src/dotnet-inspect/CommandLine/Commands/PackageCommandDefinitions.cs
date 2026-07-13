@@ -191,7 +191,7 @@ public static class PackageCommandDefinitions
                 Query = query,
                 Take = parseResult.GetValue(takeOption),
                 Prerelease = parseResult.GetValue(prereleaseOption),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose)
             };

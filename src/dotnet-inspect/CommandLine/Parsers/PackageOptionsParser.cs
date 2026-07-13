@@ -150,7 +150,7 @@ public static class PackageOptionsParser
             OutputPath = parseResult.GetValue(args.OutOption),
             Limit = (bareVersion || showLatestVersion) ? 1 : versionsValue,
             ForceLatest = showLatestVersion,
-            JsonOutput = parseResult.GetValue(opts.Json),
+            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             Bare = bareOutput,
             Tabular = suppressImplicitRowFormat ? false : opts.ResolveTabular(parseResult),
             Tsv = suppressImplicitRowFormat ? false : opts.ResolveTsv(parseResult),

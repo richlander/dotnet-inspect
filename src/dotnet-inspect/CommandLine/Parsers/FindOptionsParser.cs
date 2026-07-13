@@ -96,7 +96,7 @@ public static class FindOptionsParser
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
             Rows = opts.ParseRows(parseResult),
             Count = parseResult.GetValue(opts.Count),
-            JsonOutput = parseResult.GetValue(opts.Json),
+            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = opts.ResolveTabular(parseResult),
             Tsv = opts.ResolveTsv(parseResult),

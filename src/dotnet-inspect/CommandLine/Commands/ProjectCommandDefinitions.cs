@@ -86,7 +86,7 @@ public static class ProjectCommandDefinitions
                 FrontmatterRequested = frontmatterRequested,
                 BodyRequested = bodyRequested,
                 OutputPath = parseResult.GetValue(outOption),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
