@@ -342,6 +342,27 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void MemberSourceProducer_UsesSameSourceLinkMatchForCanonicalPathAndUrl()
+    {
+        using var source = SourceLinkService.Open(typeof(MetadataSourceFindingsTests).Assembly.Location);
+        int token = typeof(MetadataSourceFindingsTests)
+            .GetMethod(
+                nameof(SourceMappedMethod),
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .MetadataToken;
+
+        var mapping = Assert.Single(Findings(MetadataFindings.InspectMemberSources(
+                source,
+                Subject,
+                new MemberSourceQuery(new HashSet<int> { token })))
+            .Select(static finding => finding.Payload));
+        var expected = SourceDocumentPath.Resolve(mapping.OriginalPath, source.SourceLinkJson);
+
+        Assert.Equal(expected.CanonicalPath, mapping.CanonicalPath);
+        Assert.Equal(expected.ResolvedUrl, mapping.ResolvedUrl);
+    }
+
+    [Fact]
     public void BuildContextComparisons_PromoteOptionAndReferenceChanges()
     {
         var option = Assert.Single(Pairs(MetadataFindings.CompareCompilationOptions(

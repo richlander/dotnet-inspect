@@ -976,13 +976,14 @@ public class PdbContext : IDisposable
             {
                 var document = _pdbReader.GetDocument(documentHandle);
                 string filePath = _pdbReader.GetString(document.Name);
+                var sourceLink = SourceDocumentPath.Resolve(filePath, SourceLinkJson);
                 yield return new MemberSourceInfo(
                     anchor,
                     metadataToken,
                     MetadataTokens.GetRowNumber(documentHandle),
                     filePath,
-                    SourceDocumentPath.Canonicalize(filePath, SourceLinkJson),
-                    _resolver?.ApplySourceLinkMapping(filePath),
+                    sourceLink.CanonicalPath,
+                    sourceLink.ResolvedUrl,
                     range.StartLine,
                     range.EndLine,
                     IsPrimaryDocument: documentHandle == primaryDocument);
