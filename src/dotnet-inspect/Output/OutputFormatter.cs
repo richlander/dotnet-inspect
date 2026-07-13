@@ -81,6 +81,11 @@ public static class OutputFormatter
             ? dataRows.Skip(Math.Max(0, (lines.Length - headerLines) - limit.Count))
             : dataRows.Take(limit.Count);
         var kept = string.Join('\n', header.Concat(windowed));
+        // A zero-width window over a headerless format (JSONL, --no-header TSV) keeps
+        // nothing; return empty rather than re-adding the trailing newline, which would
+        // emit a phantom blank row / invalid empty JSONL record.
+        if (kept.Length == 0)
+            return string.Empty;
         return trailingNewline ? kept + "\n" : kept;
     }
 

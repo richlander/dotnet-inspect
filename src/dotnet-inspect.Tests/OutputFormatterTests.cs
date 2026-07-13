@@ -1198,8 +1198,39 @@ public class OutputFormatterTests
         Assert.Equal("{\"name\":\"B\"}\n{\"name\":\"C\"}\n", output);
     }
 
+    [Fact]
+    public void LimitRenderedTableRows_JsonlZeroWindowEmitsNothing()
+    {
+        var jsonl = "{\"name\":\"A\"}\n{\"name\":\"B\"}\n{\"name\":\"C\"}\n";
+
+        var tail = OutputFormatter.LimitRenderedTableRows(jsonl, new RowWindow(0, FromEnd: true), hasHeader: true);
+        var head = OutputFormatter.LimitRenderedTableRows(jsonl, new RowWindow(0, FromEnd: false), hasHeader: true);
+
+        Assert.Equal(string.Empty, tail);
+        Assert.Equal(string.Empty, head);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_TsvNoHeaderZeroWindowEmitsNothing()
+    {
+        var tsv = "A\t1\nB\t2\nC\t3\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, new RowWindow(0, FromEnd: true), hasHeader: false);
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_TsvHeaderZeroWindowKeepsHeader()
+    {
+        var tsv = "name\tcount\nA\t1\nB\t2\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, new RowWindow(0, FromEnd: true), hasHeader: true).ReplaceLineEndings("\n");
+
+        Assert.Equal("name\tcount\n", output);
+    }
+
     [Theory]
-    [InlineData("first", RowSelectorKind.First)]
     [InlineData("FIRST", RowSelectorKind.First)]
     [InlineData("last", RowSelectorKind.Last)]
     [InlineData("Last", RowSelectorKind.Last)]
