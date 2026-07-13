@@ -31,6 +31,11 @@ const string Usage =
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
           cross-tabs. Text output prints the top-N buckets per dimension; JSON emits every bucket.
 
+      --caller-loop-census <file> [--max-depth N] [--top N] [--json]
+          Measurement-only census of Performance Triage rows reachable downstream from a caller's
+          loop invocation. Reports direct/transitive/none/beyond-bound populations, nearest depth,
+          deterministic witness paths, provenance, and shape/confidence/local-multiplicity cross-tabs.
+
       --allocation-parity <expected-annotations.json> <actual-annotations.json> [--json]
           Compare allocation annotations from the legacy decompiler classifier and a candidate
           occurrence-derived projection. The gate is exact on id, IL offset, detail, and
@@ -86,6 +91,7 @@ string? recallAssembly = null;
 string? referenceFile = null;
 string? precisionAssembly = null;
 string? allocationReadoutList = null;
+string? callerLoopCensusList = null;
 string? allocationParityExpected = null;
 string? allocationParityActual = null;
 string? annotationParityCategory = null;
@@ -97,6 +103,7 @@ string? memoryPoolLifecycleList = null;
 bool tsv = false;
 bool jsonl = false;
 int top = 20;
+int maxDepth = 4;
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -124,6 +131,9 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--allocation-readout":
             allocationReadoutList = NextValue(args, ref i);
+            break;
+        case "--caller-loop-census":
+            callerLoopCensusList = NextValue(args, ref i);
             break;
         case "--allocation-parity":
             allocationParityExpected = NextPathValue(args, ref i);
@@ -154,6 +164,15 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--top":
             if (NextValue(args, ref i) is { } t && int.TryParse(t, out int n)) top = n;
+            break;
+        case "--max-depth":
+            if (NextValue(args, ref i) is not { } depth
+                || !int.TryParse(depth, out maxDepth)
+                || maxDepth < 1)
+            {
+                Console.Error.WriteLine("--max-depth requires a positive integer.");
+                return 2;
+            }
             break;
         case "list":
             list = true;
@@ -190,6 +209,9 @@ if (precisionAssembly is not null)
 
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
+
+if (callerLoopCensusList is not null)
+    return RunCallerLoopCensus(callerLoopCensusList, maxDepth, top, json);
 
 if (allocationParityExpected is not null)
     return RunAnnotationParity("Allocation", allocationParityExpected, allocationParityActual, json);
@@ -263,6 +285,31 @@ static int RunAllocationReadout(string corpusList, int top, bool json)
     if (json)
         Console.WriteLine();
     return 0;
+}
+
+static int RunCallerLoopCensus(string corpusList, int maxDepth, int top, bool json)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = CallerLoopCensus.Measure(paths, maxDepth);
+    Console.Write(json ? CallerLoopCensus.ToJson(report) : CallerLoopCensus.FormatCard(report, top));
+    if (json)
+        Console.WriteLine();
+    return report.Failed == 0 ? 0 : 1;
 }
 
 static int RunLeakTriage(string corpusList, int top, bool tsv, bool jsonl)
