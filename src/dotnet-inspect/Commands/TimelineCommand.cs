@@ -6,8 +6,10 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using Markout;
 
 namespace DotnetInspector.Commands;
@@ -46,20 +48,30 @@ public static class TimelineCommand
                 vector.PackageId,
                 selectedAddresses,
                 options);
-            if (!TryResolveTypeName(options.TypeName, evaluations, out var typeFullName, out error))
+            try
             {
-                Console.Error.WriteLine($"Error: {error}");
-                return 1;
-            }
+                if (!TryResolveTypeName(options.TypeName, evaluations, out var typeFullName, out error))
+                {
+                    Console.Error.WriteLine($"Error: {error}");
+                    return 1;
+                }
 
-            var view = BuildView(
-                vector,
-                typeFullName!,
-                descriptor!,
-                evaluations,
-                selectedSections);
-            Write(view, options, selectedSections);
-            return 0;
+                var view = BuildView(
+                    vector,
+                    typeFullName!,
+                    descriptor!,
+                    evaluations,
+                    selectedSections,
+                    options.MemberName,
+                    options.IncludeAll);
+                Write(view, options, selectedSections);
+                return 0;
+            }
+            finally
+            {
+                foreach (var evaluation in evaluations)
+                    evaluation.Dispose();
+            }
         }
         catch (Exception ex)
         {
@@ -73,13 +85,16 @@ public static class TimelineCommand
         string typeFullName,
         string descriptor,
         IReadOnlyList<TimelineEvaluation> evaluated,
-        HashSet<string> selectedSections)
+        HashSet<string> selectedSections,
+        string? memberName = null,
+        bool includeAll = false)
         => descriptor switch
         {
             var id when id == MetadataFindings.TypeDescriptor.Id =>
-                BuildView(
+                BuildMetadataView(
                     vector,
                     typeFullName,
+                    null,
                     MetadataFindings.TypeDescriptor,
                     evaluated,
                     selectedSections,
@@ -97,13 +112,17 @@ public static class TimelineCommand
                         Subject(typeFullName),
                         typeFullName)),
             var id when id == MetadataFindings.MemberDescriptor.Id =>
-                BuildView(
+                BuildMetadataView(
                     vector,
                     typeFullName,
+                    memberName,
                     MetadataFindings.MemberDescriptor,
                     evaluated,
                     selectedSections,
-                    null,
+                    ResolveMemberCorrelationKey(
+                        typeFullName,
+                        memberName,
+                        evaluated),
                     surface => MetadataFindings.InspectApiMembers(
                         surface,
                         Subject(typeFullName),
@@ -114,9 +133,10 @@ public static class TimelineCommand
                         Subject(typeFullName),
                         typeFullName)),
             var id when id == MetadataFindings.AttributeDescriptor.Id =>
-                BuildView(
+                BuildMetadataView(
                     vector,
                     typeFullName,
+                    null,
                     MetadataFindings.AttributeDescriptor,
                     evaluated,
                     selectedSections,
@@ -130,13 +150,74 @@ public static class TimelineCommand
                         newSurface,
                         Subject(typeFullName),
                         typeFullName)),
+            var id when id == AnalysisFindings.AllocationDescriptor.Id =>
+                BuildAllocationView(
+                    vector,
+                    typeFullName,
+                    memberName!,
+                    EvaluateAnalysis<AllocationOccurrence>(
+                        evaluated,
+                        typeFullName,
+                        memberName!,
+                        includeAll,
+                        AnalysisFindings.AllocationDescriptor,
+                        static (index, token, subject) =>
+                        {
+                            index.GetAllocationOccurrences().TryGetValue(token, out var occurrences);
+                            return new FindingInspection<AllocationOccurrence>.Complete(
+                                AnalysisFindings.InspectAllocations(
+                                    occurrences.IsDefault ? [] : occurrences,
+                                    subject));
+                        }),
+                    selectedSections),
+            var id when id == AnalysisFindings.CallSiteDescriptor.Id =>
+                BuildCallSiteView(
+                    vector,
+                    typeFullName,
+                    memberName!,
+                    EvaluateAnalysis<DirectCall>(
+                        evaluated,
+                        typeFullName,
+                        memberName!,
+                        includeAll,
+                        AnalysisFindings.CallSiteDescriptor,
+                        static (index, token, subject) =>
+                        {
+                            index.GetDirectCallsByCaller().TryGetValue(token, out var calls);
+                            return new FindingInspection<DirectCall>.Complete(
+                                AnalysisFindings.InspectCallSites(
+                                    calls.IsDefault ? [] : calls,
+                                    subject));
+                        }),
+                    selectedSections),
+            var id when id == AnalysisFindings.UnsafetyDescriptor.Id =>
+                BuildUnsafetyView(
+                    vector,
+                    typeFullName,
+                    memberName!,
+                    EvaluateAnalysis<UnsafetyOccurrence>(
+                        evaluated,
+                        typeFullName,
+                        memberName!,
+                        includeAll,
+                        AnalysisFindings.UnsafetyDescriptor,
+                        static (index, token, subject) =>
+                        {
+                            index.GetUnsafetyOccurrences().TryGetValue(token, out var occurrences);
+                            return new FindingInspection<UnsafetyOccurrence>.Complete(
+                                AnalysisFindings.InspectUnsafety(
+                                    occurrences.IsDefault ? [] : occurrences,
+                                    subject));
+                        }),
+                    selectedSections),
             _ => throw new InvalidOperationException(
                 $"Unsupported Finding descriptor '{descriptor}'."),
         };
 
-    static TimelineDocumentView BuildView<T>(
+    static TimelineDocumentView BuildMetadataView<T>(
         PackageVersionVector vector,
         string typeFullName,
+        string? memberName,
         FindingDescriptor descriptor,
         IReadOnlyList<TimelineEvaluation> evaluated,
         HashSet<string> selectedSections,
@@ -145,8 +226,7 @@ public static class TimelineCommand
         Func<ApiSurface?, ApiSurface?, FindingComparison<T>> compare)
         where T : notnull
     {
-        var correlation = FindingCensusCorrelation<T>.Create(
-            evaluated.Select(evaluation => new VersionedFindingInspection<T>(
+        var versioned = evaluated.Select(evaluation => new VersionedFindingInspection<T>(
                 new FindingVersion(
                     evaluation.Address.Selector,
                     evaluation.Address.Version.ToNormalizedString(),
@@ -157,7 +237,350 @@ public static class TimelineCommand
                         new InspectionError(
                             Subject(typeFullName),
                             descriptor,
-                            evaluation.Error)))));
+                            evaluation.Error))))
+            .ToArray();
+        var evaluationsByPosition = evaluated.ToDictionary(item => item.Address.Position);
+        return BuildCorrelatedView(
+            vector,
+            typeFullName,
+            memberName,
+            descriptor,
+            versioned,
+            selectedSections,
+            identityKey,
+            (oldPosition, newPosition, _, _) => compare(
+                evaluationsByPosition[oldPosition].Surface,
+                evaluationsByPosition[newPosition].Surface));
+    }
+
+    static FindingCorrelationKey? ResolveMemberCorrelationKey(
+        string typeFullName,
+        string? memberName,
+        IReadOnlyList<TimelineEvaluation> evaluated)
+    {
+        if (string.IsNullOrWhiteSpace(memberName))
+            return null;
+
+        var selector = MemberTargetSelector.Parse(memberName);
+        foreach (var evaluation in evaluated.OrderBy(item => item.Address.Position))
+        {
+            var type = evaluation.Surface?.Types.FirstOrDefault(type =>
+                string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
+            if (type is null)
+                continue;
+
+            var resolution = MemberTargetResolver.Resolve(type, selector);
+            if (resolution.Found)
+            {
+                var handle = resolution.Target!.ApiMember;
+                return new FindingCorrelationKey(
+                    Subject(typeFullName),
+                    MetadataFindings.MemberDescriptor,
+                    new FindingKey(
+                        handle.CanonicalSignature ?? handle.Identity,
+                        type.FullName));
+            }
+
+            if (resolution.Diagnostic is { Kind: MemberTargetDiagnosticKind.AmbiguousMember
+                    or MemberTargetDiagnosticKind.DigestAmbiguous
+                    or MemberTargetDiagnosticKind.ConflictingSelectors } diagnostic)
+            {
+                throw new InvalidOperationException(diagnostic.Message);
+            }
+        }
+
+        return new FindingCorrelationKey(
+            Subject(typeFullName),
+            MetadataFindings.MemberDescriptor,
+            new FindingKey($"selector:{selector.NormalizedSelector}", typeFullName));
+    }
+
+    static TimelineDocumentView BuildAllocationView(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<TimelineFindingEvaluation<AllocationOccurrence>> evaluated,
+        HashSet<string> selectedSections)
+        => BuildAnalysisView(
+            vector,
+            typeFullName,
+            memberName,
+            AnalysisFindings.AllocationDescriptor,
+            evaluated,
+            selectedSections,
+            AnalysisFindings.CompareAllocations);
+
+    static TimelineDocumentView BuildCallSiteView(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<TimelineFindingEvaluation<DirectCall>> evaluated,
+        HashSet<string> selectedSections)
+        => BuildAnalysisView(
+            vector,
+            typeFullName,
+            memberName,
+            AnalysisFindings.CallSiteDescriptor,
+            evaluated,
+            selectedSections,
+            AnalysisFindings.CompareCallSites);
+
+    internal static TimelineDocumentView BuildUnsafetyView(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<TimelineFindingEvaluation<UnsafetyOccurrence>> evaluated,
+        HashSet<string> selectedSections)
+        => BuildAnalysisView(
+            vector,
+            typeFullName,
+            memberName,
+            AnalysisFindings.UnsafetyDescriptor,
+            evaluated,
+            selectedSections,
+            AnalysisFindings.CompareUnsafety);
+
+    static TimelineDocumentView BuildAnalysisView<T>(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        FindingDescriptor descriptor,
+        IReadOnlyList<TimelineFindingEvaluation<T>> evaluated,
+        HashSet<string> selectedSections,
+        Func<IEnumerable<T>, IEnumerable<T>, FindingSubject, int, FindingComparison<T>> compare)
+        where T : notnull
+    {
+        var subject = MemberSubject(typeFullName, memberName);
+        var versioned = evaluated.Select(evaluation => new VersionedFindingInspection<T>(
+            new FindingVersion(
+                evaluation.Address.Selector,
+                evaluation.Address.Version.ToNormalizedString(),
+                evaluation.Address.Position),
+            evaluation.Inspection)).ToArray();
+        return BuildCorrelatedView(
+            vector,
+            typeFullName,
+            memberName,
+            descriptor,
+            versioned,
+            selectedSections,
+            null,
+            (_, _, oldInspection, newInspection) => CompareAnalysis(
+                oldInspection,
+                newInspection,
+                subject,
+                compare));
+    }
+
+    static FindingComparison<T> CompareAnalysis<T>(
+        FindingInspection<T> oldInspection,
+        FindingInspection<T> newInspection,
+        FindingSubject subject,
+        Func<IEnumerable<T>, IEnumerable<T>, FindingSubject, int, FindingComparison<T>> compare)
+        where T : notnull
+    {
+        if (oldInspection is FindingInspection<T>.Complete oldComplete
+            && newInspection is FindingInspection<T>.Complete newComplete)
+        {
+            return compare(
+                oldComplete.Findings.Select(static finding => finding.Payload),
+                newComplete.Findings.Select(static finding => finding.Payload),
+                subject,
+                100);
+        }
+
+        return FindingComparison.Compare(oldInspection, newInspection);
+    }
+
+    static IReadOnlyList<TimelineFindingEvaluation<T>> EvaluateAnalysis<T>(
+        IReadOnlyList<TimelineEvaluation> evaluated,
+        string typeFullName,
+        string memberName,
+        bool includeAll,
+        FindingDescriptor descriptor,
+        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
+        where T : notnull
+    {
+        var subject = MemberSubject(typeFullName, memberName);
+        List<TimelineFindingEvaluation<T>> results = [];
+        foreach (var evaluation in evaluated)
+        {
+            FindingInspection<T> inspection;
+            if (evaluation.Error is not null)
+            {
+                inspection = new FindingInspection<T>.Failed(
+                    new InspectionError(subject, descriptor, evaluation.Error));
+            }
+            else
+            {
+                try
+                {
+                    inspection = InspectAnalysisEndpoint(
+                        evaluation,
+                        typeFullName,
+                        memberName,
+                        includeAll,
+                        descriptor,
+                        subject,
+                        inspect);
+                }
+                catch (Exception ex)
+                {
+                    inspection = new FindingInspection<T>.Failed(
+                        new InspectionError(
+                            subject,
+                            descriptor,
+                            $"{ex.GetType().Name}: {ex.Message}"));
+                }
+            }
+
+            results.Add(new TimelineFindingEvaluation<T>(evaluation.Address, inspection));
+        }
+
+        return results;
+    }
+
+    static FindingInspection<T> InspectAnalysisEndpoint<T>(
+        TimelineEvaluation evaluation,
+        string typeFullName,
+        string memberName,
+        bool includeAll,
+        FindingDescriptor descriptor,
+        FindingSubject subject,
+        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
+        where T : notnull
+    {
+        if (evaluation.Endpoint is null)
+            return new FindingInspection<T>.Absent("The package cell has no acquired assembly set.");
+
+        return InspectAnalysisAssemblies<T>(
+            evaluation.Endpoint.Paths,
+            typeFullName,
+            memberName,
+            includeAll,
+            descriptor,
+            subject,
+            inspect);
+    }
+
+    internal static FindingInspection<UnsafetyOccurrence> InspectUnsafetyAssemblies(
+        IReadOnlyList<string> assemblyPaths,
+        string typeFullName,
+        string memberName,
+        bool includeAll = false)
+    {
+        var subject = MemberSubject(typeFullName, memberName);
+        return InspectAnalysisAssemblies<UnsafetyOccurrence>(
+            assemblyPaths,
+            typeFullName,
+            memberName,
+            includeAll,
+            AnalysisFindings.UnsafetyDescriptor,
+            subject,
+            static (index, token, findingSubject) =>
+            {
+                index.GetUnsafetyOccurrences().TryGetValue(token, out var occurrences);
+                return new FindingInspection<UnsafetyOccurrence>.Complete(
+                    AnalysisFindings.InspectUnsafety(
+                        occurrences.IsDefault ? [] : occurrences,
+                        findingSubject));
+            });
+    }
+
+    static FindingInspection<T> InspectAnalysisAssemblies<T>(
+        IReadOnlyList<string> assemblyPaths,
+        string typeFullName,
+        string memberName,
+        bool includeAll,
+        FindingDescriptor descriptor,
+        FindingSubject subject,
+        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
+        where T : notnull
+    {
+        var selector = MemberTargetSelector.Parse(memberName);
+        List<(string Path, ResolvedMemberTarget Target)> targets = [];
+        bool typeFound = false;
+        foreach (string path in assemblyPaths)
+        {
+            var surface = AssemblyReader.ExtractApiSurface(path, includeAll);
+            var type = surface?.Types.FirstOrDefault(type =>
+                string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
+            if (type is null)
+                continue;
+
+            typeFound = true;
+            var resolution = MemberTargetResolver.Resolve(type, selector);
+            if (resolution.Found)
+            {
+                targets.Add((path, resolution.Target!));
+                continue;
+            }
+
+            if (resolution.Diagnostic is { Kind: MemberTargetDiagnosticKind.AmbiguousMember
+                    or MemberTargetDiagnosticKind.DigestAmbiguous
+                    or MemberTargetDiagnosticKind.ConflictingSelectors } diagnostic)
+            {
+                return new FindingInspection<T>.Failed(
+                    new InspectionError(subject, descriptor, diagnostic.Message));
+            }
+        }
+
+        if (targets.Count == 0)
+        {
+            string detail = typeFound
+                ? $"Member '{memberName}' is absent."
+                : $"Type '{typeFullName}' is absent.";
+            return new FindingInspection<T>.Absent(detail);
+        }
+        if (targets.Count > 1)
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Member '{memberName}' resolved in more than one package assembly."));
+        }
+
+        var (assemblyPath, target) = targets[0];
+        if (target.Kind is not (MemberTargetKind.Constructor
+            or MemberTargetKind.Method
+            or MemberTargetKind.Operator
+            or MemberTargetKind.ExplicitInterfaceImplementation
+            or MemberTargetKind.ExtensionMethod))
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Finding '{descriptor.Id}' requires a method-like target; "
+                    + $"'{memberName}' resolved to {target.Kind}."));
+        }
+        if (target.Body?.MetadataToken is not { } token)
+        {
+            return new FindingInspection<T>.Absent(
+                $"Member '{memberName}' has no method-body target.");
+        }
+
+        var index = LibraryBodyIndex.Open(
+            assemblyPath,
+            includeAllocations: descriptor == AnalysisFindings.AllocationDescriptor,
+            includeOpportunities: false,
+            bodyScope: ImmutableHashSet.Create(token));
+        return inspect(index, token, subject);
+    }
+
+    static TimelineDocumentView BuildCorrelatedView<T>(
+        PackageVersionVector vector,
+        string typeFullName,
+        string? memberName,
+        FindingDescriptor descriptor,
+        IReadOnlyList<VersionedFindingInspection<T>> versioned,
+        HashSet<string> selectedSections,
+        FindingCorrelationKey? identityKey,
+        Func<int, int, FindingInspection<T>, FindingInspection<T>, FindingComparison<T>> compare)
+        where T : notnull
+    {
+        var correlation = FindingCensusCorrelation<T>.Create(versioned);
         var inspectionsByPosition = correlation.Inspections.ToDictionary(
             item => item.Version.Position);
         var identityByPosition = identityKey is null
@@ -186,9 +609,10 @@ public static class TimelineCommand
         List<TimelineTransitionRow>? transitionRows = selectedSections.Contains(TransitionsSection)
             ? BuildTransitionRows(
                 correlation,
-                evaluated,
                 descriptor.Id,
                 typeFullName,
+                memberName,
+                identityKey,
                 compare)
             : null;
 
@@ -197,8 +621,14 @@ public static class TimelineCommand
             Title = $"Timeline: {vector.PackageId}",
             Range = $"{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}",
             Type = typeFullName,
+            Member = memberName,
             Finding = descriptor.Id,
-            Recommendation = RecommendProbe(vector, typeFullName, descriptor.Id, evaluated),
+            Recommendation = RecommendProbe(
+                vector,
+                typeFullName,
+                memberName,
+                descriptor.Id,
+                correlation.Inspections.Select(item => item.Version.Position)),
             Evaluations = evaluationRows,
             Transitions = transitionRows,
         };
@@ -276,14 +706,17 @@ public static class TimelineCommand
 
     static List<TimelineTransitionRow> BuildTransitionRows<T>(
         FindingCensusCorrelation<T> correlation,
-        IReadOnlyList<TimelineEvaluation> evaluations,
         string descriptor,
         string typeFullName,
-        Func<ApiSurface?, ApiSurface?, FindingComparison<T>> compare)
+        string? memberName,
+        FindingCorrelationKey? identityKey,
+        Func<int, int, FindingInspection<T>, FindingInspection<T>, FindingComparison<T>> compare)
         where T : notnull
     {
         var ordered = correlation.Inspections;
-        var evaluationsByPosition = evaluations.ToDictionary(item => item.Address.Position);
+        string focusTarget = memberName is null
+            ? typeFullName
+            : $"{typeFullName}.{memberName}";
         List<TimelineTransitionRow> rows = [];
         for (int i = 1; i < ordered.Length; i++)
         {
@@ -304,19 +737,11 @@ public static class TimelineCommand
             }
             else
             {
-                if (!evaluationsByPosition.TryGetValue(
-                        oldInspection.Version.Position,
-                        out var oldEvaluation)
-                    || !evaluationsByPosition.TryGetValue(
-                        newInspection.Version.Position,
-                        out var newEvaluation))
-                {
-                    throw new InvalidOperationException(
-                        $"Timeline correlation lost an evaluated cell for {descriptor} "
-                        + $"{oldInspection.Version.Key}..{newInspection.Version.Key}.");
-                }
-
-                comparison = compare(oldEvaluation.Surface, newEvaluation.Surface);
+                comparison = compare(
+                    oldInspection.Version.Position,
+                    newInspection.Version.Position,
+                    oldInspection.Inspection,
+                    newInspection.Inspection);
             }
 
             if (comparison.OldInspection != oldInspection.Inspection
@@ -336,7 +761,7 @@ public static class TimelineCommand
                     span,
                     "Failed",
                     descriptor,
-                    typeFullName,
+                    focusTarget,
                     failure.Failure));
                 continue;
             }
@@ -354,21 +779,24 @@ public static class TimelineCommand
             if (subjectTransition is not null)
             {
                 string detail = subjectTransition == "SubjectAvailable"
-                    ? "The focused type became available to this census."
-                    : "The focused type ceased to be available to this census.";
+                    ? $"The focused {(memberName is null ? "type" : "member")} became available to this census."
+                    : $"The focused {(memberName is null ? "type" : "member")} ceased to be available to this census.";
                 rows.Add(new TimelineTransitionRow(
                     oldInspection.Version.Key,
                     newInspection.Version.Key,
                     span,
                     subjectTransition,
                     descriptor,
-                    typeFullName,
+                    focusTarget,
                     exact ? detail : AppendGapQualification(detail)));
             }
 
             var changes = completeComparison.Pairs
                 .Where(pair => pair.Kind != PairKind.Present)
                 .Cast<IPairFinding>()
+                .Where(pair => identityKey is null
+                    || ((pair.Old ?? pair.New) is Finding<T> finding
+                        && Matches(identityKey, finding)))
                 .ToArray();
             if (changes.Length == 0 && subjectTransition is null)
             {
@@ -378,7 +806,7 @@ public static class TimelineCommand
                     span,
                     "None",
                     descriptor,
-                    typeFullName,
+                    focusTarget,
                     exact ? null : "No change was observed across the evaluated gap."));
                 continue;
             }
@@ -396,6 +824,12 @@ public static class TimelineCommand
         return rows;
     }
 
+    static bool Matches<T>(FindingCorrelationKey key, Finding<T> finding)
+        where T : notnull
+        => finding.Subject.Key == key.Subject.Key
+            && finding.Descriptor.Id == key.Descriptor.Id
+            && finding.Key == key.Key;
+
     static string? AppendGapQualification(string? detail)
         => string.IsNullOrEmpty(detail)
             ? "Observed across a gap; the exact transition version is unknown."
@@ -403,6 +837,14 @@ public static class TimelineCommand
 
     static FindingSubject Subject(string typeFullName)
         => new($"api.type:{typeFullName}", typeFullName);
+
+    static FindingSubject MemberSubject(string typeFullName, string memberName)
+    {
+        var selector = MemberTargetSelector.Parse(memberName);
+        return new(
+            $"analysis.member:{typeFullName}:{selector.NormalizedSelector}",
+            $"{typeFullName}.{selector.NormalizedSelector}");
+    }
 
     static string GetTarget(IPairFinding pair)
     {
@@ -412,8 +854,49 @@ public static class TimelineCommand
             Finding<ApiTypeHandle> type => type.Payload.TypeFullName,
             Finding<ApiMemberHandle> member => member.Payload.Identity,
             Finding<ApiAttributeHandle> attribute => attribute.Payload.Attribute,
+            Finding<AllocationOccurrence> allocation => AllocationTarget(allocation),
+            Finding<DirectCall> callSite => CallSiteTarget(callSite),
+            Finding<UnsafetyOccurrence> unsafety => UnsafetyTarget(unsafety),
             _ => pair.Subject.Display,
         };
+    }
+
+    static string AllocationTarget(Finding<AllocationOccurrence> finding)
+    {
+        var occurrence = finding.Payload;
+        var allocatedType = occurrence.AllocatedType?.ToQualifiedDisplayString()
+            ?? occurrence.RuntimeAllocationType
+            ?? occurrence.Detail
+            ?? "?";
+        return $"{finding.Subject.Display} :: {occurrence.Source}/{occurrence.Kind} {allocatedType}";
+    }
+
+    static string CallSiteTarget(Finding<DirectCall> finding)
+    {
+        var callee = finding.Payload.Callee;
+        if (callee.Kind == MemberKind.Unsupported)
+            return $"{finding.Subject.Display} :: {callee.DeclaringType.ToDisplayString()}";
+
+        var typeArguments = callee.TypeArguments.IsDefaultOrEmpty
+            ? ""
+            : $"<{string.Join(", ", callee.TypeArguments.Select(type => type.ToQualifiedDisplayString()))}>";
+        var parameters = string.Join(
+            ", ",
+            callee.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
+        var declaringType = callee.DeclaringType.ToQualifiedDisplayString();
+        var calleeDisplay = callee.Kind == MemberKind.Constructor
+            ? $"{declaringType}{typeArguments}({parameters})"
+            : $"{declaringType}.{callee.Name}{typeArguments}({parameters})";
+        return $"{finding.Subject.Display} :: {calleeDisplay}";
+    }
+
+    static string UnsafetyTarget(Finding<UnsafetyOccurrence> finding)
+    {
+        var occurrence = finding.Payload;
+        string detail = string.IsNullOrWhiteSpace(occurrence.Detail)
+            ? ""
+            : $" {occurrence.Detail}";
+        return $"{finding.Subject.Display} :: {occurrence.Kind}{detail}";
     }
 
     static async Task<List<TimelineEvaluation>> EvaluateAsync(
@@ -437,15 +920,18 @@ public static class TimelineCommand
                 options.IncludeAll,
                 context.Logger);
             if (result.Error is not null)
-                return (null, result.Error);
+                return (null, result.Error, (ApiSurfaceEndpoint?)null);
 
-            using var endpoint = result.Endpoint!;
-            return (endpoint.Surface, null);
+            var endpoint = result.Endpoint!;
+            return (endpoint.Surface, (string?)null, endpoint);
         });
 
     internal static async Task<List<TimelineEvaluation>> EvaluateCellsAsync(
         ImmutableArray<PackageVersionAddress> addresses,
-        Func<PackageVersionAddress, Task<(ApiSurface? Surface, string? Error)>> evaluate)
+        Func<PackageVersionAddress, Task<(
+            ApiSurface? Surface,
+            string? Error,
+            ApiSurfaceEndpoint? Endpoint)>> evaluate)
     {
         ArgumentNullException.ThrowIfNull(evaluate);
         List<TimelineEvaluation> evaluations = [];
@@ -454,7 +940,11 @@ public static class TimelineCommand
             try
             {
                 var result = await evaluate(address);
-                evaluations.Add(new TimelineEvaluation(address, result.Surface, result.Error));
+                evaluations.Add(new TimelineEvaluation(
+                    address,
+                    result.Surface,
+                    result.Error,
+                    result.Endpoint));
             }
             catch (Exception ex)
             {
@@ -560,10 +1050,11 @@ public static class TimelineCommand
     static string? RecommendProbe(
         PackageVersionVector vector,
         string typeFullName,
+        string? memberName,
         string descriptor,
-        IReadOnlyList<TimelineEvaluation> evaluations)
+        IEnumerable<int> evaluatedPositions)
     {
-        var evaluated = evaluations.Select(item => item.Address.Position).ToHashSet();
+        var evaluated = evaluatedPositions.ToHashSet();
         if (evaluated.Count == vector.Addresses.Length)
             return null;
 
@@ -593,6 +1084,7 @@ public static class TimelineCommand
         return $"Probe {address.Selector} ({address.Version.ToNormalizedString()}): "
             + $"dotnet-inspect timeline --package {ShellQuote(range)} "
             + $"--type {ShellQuote(typeFullName)} "
+            + (memberName is null ? "" : $"--member {ShellQuote(memberName)} ")
             + $"--finding {ShellQuote(descriptor)} "
             + $"--at {ShellQuote(address.Selector)}";
     }
@@ -627,7 +1119,21 @@ public static class TimelineCommand
 
         if (descriptor is null)
         {
-            error = $"Unknown Finding '{options.Finding}'. Use api.type, api.member, or api.attribute.";
+            error = $"Unknown Finding '{options.Finding}'. Use api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety.";
+            return false;
+        }
+
+        bool analysis = IsAnalysisDescriptor(descriptor);
+        if (analysis && string.IsNullOrWhiteSpace(options.MemberName))
+        {
+            error = $"--finding {descriptor} requires exactly one --member target.";
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(options.MemberName)
+            && descriptor != MetadataFindings.MemberDescriptor.Id
+            && !analysis)
+        {
+            error = $"--member is not supported with --finding {descriptor}.";
             return false;
         }
 
@@ -652,8 +1158,16 @@ public static class TimelineCommand
             "api.type" => "api.type",
             "api.member" => "api.member",
             "api.attribute" => "api.attribute",
+            "analysis.allocation" => "analysis.allocation",
+            "analysis.call-site" => "analysis.call-site",
+            "analysis.unsafety" => "analysis.unsafety",
             _ => null,
         };
+
+    static bool IsAnalysisDescriptor(string descriptor)
+        => descriptor == AnalysisFindings.AllocationDescriptor.Id
+            || descriptor == AnalysisFindings.CallSiteDescriptor.Id
+            || descriptor == AnalysisFindings.UnsafetyDescriptor.Id;
 
     static HashSet<string> ResolveSections(string[]? select, out string? error)
     {
@@ -756,13 +1270,23 @@ public static class TimelineCommand
     internal sealed record TimelineEvaluation(
         PackageVersionAddress Address,
         ApiSurface? Surface,
-        string? Error);
+        string? Error,
+        ApiSurfaceEndpoint? Endpoint = null) : IDisposable
+    {
+        public void Dispose() => Endpoint?.Dispose();
+    }
+
+    internal sealed record TimelineFindingEvaluation<T>(
+        PackageVersionAddress Address,
+        FindingInspection<T> Inspection)
+        where T : notnull;
 }
 
 public sealed record TimelineOptions
 {
     public string PackageVersionRange { get; init; } = "";
     public string TypeName { get; init; } = "";
+    public string? MemberName { get; init; }
     public string Finding { get; init; } = MetadataFindings.MemberDescriptor.Id;
     public string[] At { get; init; } = [];
     public string? Tfm { get; init; }

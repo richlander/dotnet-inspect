@@ -1,6 +1,10 @@
+using System.Collections.Immutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Packages;
+using ILInspector.Analysis;
+using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Tests;
 
@@ -98,6 +102,116 @@ public sealed class TimelineCommandTests
         var row = Assert.Single(view.Transitions!);
         Assert.Equal("Changed", row.Transition);
         Assert.Contains("accessibility: public -> protected", row.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberSelector_CorrelatesOneExactIdentity()
+    {
+        var vector = Vector("1.0.0", "1.0.1");
+        var oldSurface = Surface(Type("Widget", members:
+        [
+            Method("Run", "void Run()"),
+            Method("Stop", "void Stop()"),
+        ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            Method("Stop", "void Stop()", accessibility: "protected"),
+        ]));
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [
+                Evaluation(vector, 0, oldSurface),
+                Evaluation(vector, 1, newSurface),
+            ],
+            Sections(),
+            memberName: "Run");
+
+        Assert.Equal("Run", view.Member);
+        Assert.Collection(
+            view.Evaluations!,
+            row => Assert.Equal("Present", row.State),
+            row => Assert.Equal("Missing", row.State));
+        var removed = Assert.Single(view.Transitions!);
+        Assert.Equal("Removed", removed.Transition);
+        Assert.Contains("Run", removed.Target, StringComparison.Ordinal);
+        Assert.DoesNotContain("Stop", removed.Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafetyTimeline_UsesMemberScopedAnalysisCensus()
+    {
+        var vector = Vector("1.0.0", "1.0.1");
+        var subject = new FindingSubject(
+            "analysis.member:Sample.Widget:Run",
+            "Sample.Widget.Run");
+        var occurrence = new UnsafetyOccurrence(
+            MethodIdentity(),
+            4,
+            UnsafetyKind.StackAlloc,
+            "byte*");
+
+        var view = TimelineCommand.BuildUnsafetyView(
+            vector,
+            "Sample.Widget",
+            "Run",
+            [
+                new TimelineCommand.TimelineFindingEvaluation<UnsafetyOccurrence>(
+                    vector.Addresses[0],
+                    new FindingInspection<UnsafetyOccurrence>.Complete([])),
+                new TimelineCommand.TimelineFindingEvaluation<UnsafetyOccurrence>(
+                    vector.Addresses[1],
+                    new FindingInspection<UnsafetyOccurrence>.Complete(
+                        AnalysisFindings.InspectUnsafety([occurrence], subject))),
+            ],
+            Sections());
+
+        Assert.Equal("Run", view.Member);
+        Assert.Collection(
+            view.Evaluations!,
+            row => Assert.Equal(0, row.Findings),
+            row => Assert.Equal(1, row.Findings));
+        var added = Assert.Single(view.Transitions!);
+        Assert.Equal("Added", added.Transition);
+        Assert.Equal("analysis.unsafety", added.Finding);
+        Assert.Contains("StackAlloc byte*", added.Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnalysisTimeline_RequiresMemberBeforeAcquisition()
+    {
+        var result = await ConsoleCapture.RunAsync(() =>
+            TimelineCommand.ExecuteAsync(new TimelineOptions
+            {
+                PackageVersionRange = "Sample@1.0.0..1.0.1",
+                TypeName = "Sample.Widget",
+                Finding = "analysis.unsafety",
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--finding analysis.unsafety requires exactly one --member target",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnalysisTimeline_InspectsOnlyResolvedMethodBody()
+    {
+        var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+            [typeof(TimelineCommandTests).Assembly.Location],
+            typeof(TimelineCommandTests).FullName!,
+            nameof(ReadPointer));
+
+        var complete = inspection switch
+        {
+            FindingInspection<UnsafetyOccurrence>.Complete value => value,
+            _ => throw new InvalidOperationException("Expected a complete unsafety census."),
+        };
+        var finding = Assert.Single(complete.Findings);
+        Assert.Equal(UnsafetyKind.Deref, finding.Payload.Kind);
     }
 
     [Fact]
@@ -238,10 +352,11 @@ public sealed class TimelineCommandTests
         var evaluations = await TimelineCommand.EvaluateCellsAsync(
             vector.Addresses,
             address => address.Position == 1
-                ? Task.FromException<(ApiSurface?, string?)>(
+                ? Task.FromException<(ApiSurface?, string?, DotnetInspector.Inspectors.ApiSurfaceEndpoint?)>(
                     new InvalidOperationException("package exploded"))
-                : Task.FromResult<(ApiSurface?, string?)>((
+                : Task.FromResult<(ApiSurface?, string?, DotnetInspector.Inspectors.ApiSurfaceEndpoint?)>((
                     Surface(Type("Widget")),
+                    null,
                     null)));
 
         Assert.Equal(3, evaluations.Count);
@@ -341,4 +456,18 @@ public sealed class TimelineCommandTests
             Signature = signature,
             Accessibility = accessibility,
         };
+
+    static MethodIdentity MethodIdentity()
+        => new(
+            "Sample",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            TypeRef.Definition("Sample", "Sample", "Widget"),
+            "Run",
+            ImmutableArray<TypeRef>.Empty,
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+
+    public static unsafe int ReadPointer(int* value)
+        => *value;
 }

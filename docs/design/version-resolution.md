@@ -76,8 +76,21 @@ no `--at`, it renders every address as `Unevaluated` and recommends a probe
 without downloading package payloads. Repeated `--at` selectors perform sparse
 correlation; `--at all` is the explicit dense-traversal opt-in. Type focus may
 select the type-presence (`api.type`), owned-member (`api.member`), or applied
-attribute (`api.attribute`) census. Sparse transitions spanning unevaluated
-cells are labeled as gaps and do not claim the exact version of a change.
+attribute (`api.attribute`) census. Adding `--member` to `api.member` selects
+one exact member identity track. The same member focus composes with
+`analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`; only the
+selected method body is decoded at each evaluated address. Sparse transitions
+spanning unevaluated cells are labeled as gaps and do not claim the exact
+version of a change.
+
+```bash
+dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
+  --type Foo.Parser --member Parse \
+  --finding analysis.unsafety --at first --at last
+```
+
+This locates candidate unsafe-operation boundaries without replacing the final
+adjacent `diff --finding analysis.unsafety` introduction proof.
 
 Stable endpoints exclude prereleases by default. A prerelease endpoint or
 `--preview` on `package --versions` includes prereleases within the range.
