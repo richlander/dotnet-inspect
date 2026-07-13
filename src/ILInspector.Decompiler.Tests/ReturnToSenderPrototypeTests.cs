@@ -523,6 +523,50 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainedConstructorUnreconstructable()
+    {
+        // Issue #2678 guard: when the chained-to constructor has an unsupported
+        // signature (a function pointer), the planner drops it from the shell. A
+        // same-arity sibling ctor pulled in by another dependency must NOT be
+        // mistaken for the chained-to ctor: emitting `: this(args)` would bind to
+        // the wrong overload and fail with CS1503. The initializer must be
+        // stripped, falling back to an (empty) body that still compiles.
+        var assemblyPath = CompileFixture(
+            """
+            public unsafe class Chained
+            {
+                public Chained(int value) : this((delegate*<void>)value)
+                {
+                    _ = new Chained(true);
+                }
+
+                public Chained(delegate*<void> callback)
+                {
+                }
+
+                public Chained(bool flag)
+                {
+                }
+            }
+            """,
+            allowUnsafe: true);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Chained", ".ctor", 0,
+                    "(corelib:System.Int32) -> corelib:System.Void")]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""

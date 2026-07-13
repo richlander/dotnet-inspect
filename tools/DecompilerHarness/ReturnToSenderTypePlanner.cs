@@ -1240,16 +1240,22 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
-        if (targetConstructorInitializer is not null
-            && chainCallee is { } chainCtor
-            && !targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
+        bool chainedConstructorReconstructed =
+            chainCallee is { } chainCtor
+            // The chained-to constructor is reconstructed only when its signature
+            // is fully supported (an unsupported parameter such as a function
+            // pointer makes the planner drop it, mirroring MethodRequirement).
+            && chainCtor.ParameterTypes.All(type => !IsUnsupportedChainParameterType(type))
+            && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Parameters.Count == chainCtor.ParameterTypes.Length))
+                && member.Parameters.Count == chainCtor.ParameterTypes.Length);
+        if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to sibling constructor was not reconstructed in the
-            // shell (e.g. an unsupported parameter signature was dropped), so
-            // `: this(args)` would not bind. Drop the initializer and keep the
-            // body rather than emit an uncompilable chain.
+            // shell, so `: this(args)` would not bind (it would either fail to
+            // resolve or, worse, silently bind to a same-arity sibling of a
+            // different signature and fail with CS1503). Drop the initializer and
+            // keep the body rather than emit an uncompilable chain.
             int targetIndex = targetMembers.FindIndex(member =>
                 member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody == CompileBackStubBodyKind.TargetBody);
@@ -1640,6 +1646,21 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether a constructor-chain parameter type would be dropped from the
+    /// reconstructed shell (mirrors <c>IsUnsupportedSurfaceSignature</c>): a
+    /// function pointer or a compiler-generated/anonymous type has no faithful
+    /// C# surface, so the chained-to constructor is not reconstructed and a
+    /// <c>: this(args)</c> initializer targeting it cannot bind.
+    /// </summary>
+    static bool IsUnsupportedChainParameterType(TypeRef type)
+    {
+        string display = type.ToDisplayString();
+        return display.Contains("delegate*", StringComparison.Ordinal)
+            || display.Contains("<>", StringComparison.Ordinal)
+            || display.Contains('{', StringComparison.Ordinal);
     }
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
