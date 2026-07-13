@@ -116,11 +116,11 @@ public class SignatureDecoderSafetyTests
             signature.WriteByte(0x08); // I4
         });
 
-        Assert.Equal(
-            "int",
+        AssertRejected(
             TypeResolver.GetTypeNameFromSpecification(
                 reader,
-                MetadataTokens.TypeSpecificationHandle(1)));
+                MetadataTokens.TypeSpecificationHandle(1)),
+            SignatureDecodeRejectionKind.TypeSpecificationBudget);
     }
 
     [Fact]
@@ -136,11 +136,11 @@ public class SignatureDecoderSafetyTests
             signature.WriteByte(0x08);     // I4
         });
 
-        Assert.Equal(
-            "object",
+        AssertRejected(
             TypeResolver.GetTypeNameFromSpecification(
                 reader,
-                MetadataTokens.TypeSpecificationHandle(1)));
+                MetadataTokens.TypeSpecificationHandle(1)),
+            SignatureDecodeRejectionKind.TypeSpecificationBudget);
     }
 
     [Fact]
@@ -176,12 +176,202 @@ public class SignatureDecoderSafetyTests
                 methodHandle);
         });
 
-        var decoded = MetadataDeclarationQuery.GetMethodReturnType(
-            reader,
-            reader.GetTypeDefinition(typeHandle),
-            reader.GetMethodDefinition(methodHandle));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetMethodReturnType(
+                reader,
+                reader.GetTypeDefinition(typeHandle),
+                reader.GetMethodDefinition(methodHandle)));
+    }
 
-        Assert.Equal("object", decoded);
+    [Fact]
+    public void WideTypeSpec_AboveLegacyPerBlobCap_IsDecoded()
+    {
+        const int argumentCount = 1_500;
+        var reader = BuildTypeSpec(signature =>
+        {
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteByte(0x04); // TypeDef row 1
+            signature.WriteCompressedInteger(argumentCount);
+            for (int i = 0; i < argumentCount; i++)
+                signature.WriteByte(0x08); // I4
+        });
+
+        var handle = MetadataTokens.TypeSpecificationHandle(1);
+        var decoded = Assert.IsType<SignatureDecodeResult<string>.Decoded>(
+            TypeResolver.GetTypeNameFromSpecification(
+                reader,
+                handle));
+        var gateway = Assert.IsType<SignatureDecodeResult<string>.Decoded>(
+            GuardedSignatureText.TypeSpecText(reader, handle, context: null));
+
+        Assert.StartsWith("<Module><int, int", decoded.Value, StringComparison.Ordinal);
+        Assert.Equal(decoded.Value, gateway.Value);
+        Assert.True(
+            reader.GetBlobReader(
+                reader.GetTypeSpecification(MetadataTokens.TypeSpecificationHandle(1)).Signature)
+                .Length > 1_024);
+    }
+
+    [Fact]
+    public void TypeSpec_AboveCumulativeBudget_IsRejected()
+    {
+        var reader = BuildTypeSpec(signature =>
+        {
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteByte(0x04); // TypeDef row 1
+            signature.WriteCompressedInteger(TypeSpecGuard.MaxCumulativeBytes);
+            for (int i = 0; i < TypeSpecGuard.MaxCumulativeBytes; i++)
+                signature.WriteByte(0x08); // I4
+        });
+
+        var handle = MetadataTokens.TypeSpecificationHandle(1);
+        AssertRejected(
+            TypeResolver.GetTypeNameFromSpecification(
+                reader,
+                handle),
+            SignatureDecodeRejectionKind.TypeSpecificationBudget);
+        AssertRejected(
+            GuardedSignatureText.TypeSpecText(reader, handle, context: null),
+            SignatureDecodeRejectionKind.TypeSpecificationBudget);
+    }
+
+    [Fact]
+    public void MalformedTypeSpecHandle_IsRejected()
+    {
+        var reader = BuildTypeSpec(signature =>
+        {
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteByte(0x05); // TypeRef row 1, which does not exist
+        });
+
+        AssertRejected(
+            TypeResolver.GetTypeNameFromSpecification(
+                reader,
+                MetadataTokens.TypeSpecificationHandle(1)),
+            SignatureDecodeRejectionKind.MalformedMetadata);
+        AssertRejected(
+            GuardedSignatureText.TypeSpecText(
+                reader,
+                MetadataTokens.TypeSpecificationHandle(1),
+                context: null),
+            SignatureDecodeRejectionKind.MalformedMetadata);
+    }
+
+    [Fact]
+    public void GuardedGateways_RejectEveryUnsafeSignatureKind()
+    {
+        MethodDefinitionHandle methodHandle = default;
+        FieldDefinitionHandle fieldHandle = default;
+        PropertyDefinitionHandle propertyHandle = default;
+        MethodSpecificationHandle methodSpecHandle = default;
+        TypeSpecificationHandle typeSpecHandle = default;
+        var reader = BuildAssembly(metadata =>
+        {
+            methodHandle = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(DeepMethodSignature()),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+
+            var fieldSignature = new BlobBuilder();
+            fieldSignature.WriteByte(0x06); // FIELD
+            WriteDeepType(fieldSignature);
+            fieldHandle = metadata.AddFieldDefinition(
+                FieldAttributes.Public,
+                metadata.GetOrAddString("F"),
+                metadata.GetOrAddBlob(fieldSignature));
+
+            var propertySignature = new BlobBuilder();
+            propertySignature.WriteByte(0x08); // PROPERTY
+            propertySignature.WriteByte(0x00); // zero parameters
+            WriteDeepType(propertySignature);
+            propertyHandle = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("P"),
+                metadata.GetOrAddBlob(propertySignature));
+
+            var methodSpecSignature = new BlobBuilder();
+            methodSpecSignature.WriteByte(0x0a); // GENERICINST
+            methodSpecSignature.WriteByte(0x01); // one argument
+            WriteDeepType(methodSpecSignature);
+            methodSpecHandle = metadata.AddMethodSpecification(
+                methodHandle,
+                metadata.GetOrAddBlob(methodSpecSignature));
+
+            var typeSpecSignature = new BlobBuilder();
+            for (int i = 0; i < 600; i++)
+                typeSpecSignature.WriteByte(0x1d); // SZARRAY
+            typeSpecSignature.WriteByte(0x08);     // I4
+            typeSpecHandle = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        });
+
+        AssertRejected(
+            GuardedSignatureText.MethodText(
+                reader,
+                reader.GetMethodDefinition(methodHandle),
+                context: null),
+            SignatureDecodeRejectionKind.UnsafeStructure);
+        AssertRejected(
+            GuardedSignatureText.FieldText(
+                reader,
+                reader.GetFieldDefinition(fieldHandle),
+                context: null),
+            SignatureDecodeRejectionKind.UnsafeStructure);
+        AssertRejected(
+            GuardedSignatureText.PropertyText(
+                reader,
+                reader.GetPropertyDefinition(propertyHandle),
+                context: null),
+            SignatureDecodeRejectionKind.UnsafeStructure);
+        AssertRejected(
+            GuardedSignatureText.MethodSpecTypeArgs(
+                reader,
+                reader.GetMethodSpecification(methodSpecHandle),
+                context: null),
+            SignatureDecodeRejectionKind.UnsafeStructure);
+        AssertRejected(
+            GuardedSignatureText.TypeSpecText(reader, typeSpecHandle, context: null),
+            SignatureDecodeRejectionKind.UnsafeStructure);
+    }
+
+    [Fact]
+    public void NestedTypeSpecRejection_RejectsContainingMethod()
+    {
+        MethodDefinitionHandle methodHandle = default;
+        var reader = BuildAssembly(metadata =>
+        {
+            var cyclicTypeSpec = new BlobBuilder();
+            cyclicTypeSpec.WriteByte(0x1f); // CMOD_REQD
+            cyclicTypeSpec.WriteByte(0x06); // TypeSpec row 1
+            cyclicTypeSpec.WriteByte(0x08); // I4
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(cyclicTypeSpec));
+
+            var methodSignature = new BlobBuilder();
+            methodSignature.WriteByte(0x00); // default method signature
+            methodSignature.WriteByte(0x00); // zero parameters
+            methodSignature.WriteByte(0x1f); // CMOD_REQD
+            methodSignature.WriteByte(0x06); // TypeSpec row 1
+            methodSignature.WriteByte(0x08); // I4
+            methodHandle = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(methodSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        });
+
+        AssertRejected(
+            GuardedSignatureText.MethodText(
+                reader,
+                reader.GetMethodDefinition(methodHandle),
+                context: null),
+            SignatureDecodeRejectionKind.TypeSpecificationBudget);
     }
 
     [Fact]
@@ -386,6 +576,27 @@ public class SignatureDecoderSafetyTests
         signature.WriteByte(0x0f);     // PTR
         signature.WriteByte(0x08);     // I4
         return signature;
+    }
+
+    static void WriteDeepType(BlobBuilder signature)
+    {
+        for (int i = 0; i < 100_000; i++)
+            signature.WriteByte(0x1d); // SZARRAY
+        signature.WriteByte(0x08);     // I4
+    }
+
+    static void AssertRejected<T>(
+        SignatureDecodeResult<T> result,
+        SignatureDecodeRejectionKind kind)
+        where T : notnull
+    {
+        var rejected = Assert.IsType<SignatureDecodeResult<T>.Rejected>(result);
+        Assert.Equal(kind, rejected.Rejection.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(rejected.Rejection.Detail));
+        Assert.False(result.TryGetValue(out _));
+        var exception = Assert.Throws<BadImageFormatException>(
+            () => result.GetValueOrThrow());
+        Assert.Contains(rejected.Rejection.Detail, exception.Message, StringComparison.Ordinal);
     }
 
     static (MetadataReader Reader, TypeDefinitionHandle TypeHandle, MethodDefinitionHandle MethodHandle)

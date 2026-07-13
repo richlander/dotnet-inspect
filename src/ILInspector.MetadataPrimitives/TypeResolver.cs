@@ -20,7 +20,12 @@ public static class TypeResolver
         {
             HandleKind.TypeReference => GetTypeNameFromReference(reader, (TypeReferenceHandle)handle),
             HandleKind.TypeDefinition => GetTypeNameFromDefinition(reader, (TypeDefinitionHandle)handle),
-            HandleKind.TypeSpecification => GetTypeNameFromSpecification(reader, (TypeSpecificationHandle)handle, context),
+            HandleKind.TypeSpecification => GetTypeNameFromSpecification(
+                reader,
+                (TypeSpecificationHandle)handle,
+                context).TryGetValue(out var name)
+                    ? name
+                    : null,
             _ => null
         };
     }
@@ -48,21 +53,13 @@ public static class TypeResolver
         => GetFullName(reader, reader.GetTypeDefinition(handle));
 
     /// <summary>
-    /// Gets the type name from a TypeSpecification handle (generic instantiations).
+    /// Gets the guarded decode outcome for a TypeSpecification handle (generic instantiations).
     /// </summary>
-    public static string GetTypeNameFromSpecification(MetadataReader reader, TypeSpecificationHandle handle, GenericContext? context = null)
-    {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
-            return "object";
-        try
-        {
-            return reader.GetTypeSpecification(handle).DecodeSignature(SignatureDecoder.Instance, context);
-        }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
-        }
-    }
+    public static SignatureDecodeResult<string> GetTypeNameFromSpecification(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        GenericContext? context = null)
+        => GuardedSignatureDecoder.DecodeTypeSpecification(reader, handle, context);
 
     /// <summary>
     /// Gets the full name of a type definition (Namespace.Name), qualifying a
