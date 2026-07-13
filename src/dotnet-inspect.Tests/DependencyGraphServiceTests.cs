@@ -5,6 +5,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class DependencyGraphServiceTests
 {
     public DependencyGraphServiceTests()

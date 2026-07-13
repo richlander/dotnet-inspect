@@ -6,6 +6,7 @@ using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests.Parsers;
 
+[Collection("Console")]
 public class TypeOptionsParserTests
 {
     static (Command Root, SharedOptions Opts, TypeOptionsParser.TypeCommandArgs Args) CreateTestCommand()
