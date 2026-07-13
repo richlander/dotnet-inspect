@@ -238,6 +238,27 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_WithEnvironmentTable_SetsExplicitTabularOutput()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+
+            Assert.True(options.Tabular);
+            Assert.False(options.Tsv);
+            Assert.False(options.Jsonl);
+            Assert.True(options.TabularExplicitlySet);
+            Assert.True(options.FormatExplicitlySet);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithImplicitOutput_KeepsTipsEnabled()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");

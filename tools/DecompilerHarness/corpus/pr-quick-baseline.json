@@ -12592,7 +12592,7 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.ApiSurfaceTabularRowMarkoutTypeInfo",
+      "type": "DotnetInspector.Views.ApiSurfaceTableRowMarkoutTypeInfo",
       "method": ".ctor",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Void",
@@ -12602,7 +12602,7 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.ApiSurfaceTabularRowMarkoutTypeInfo::.ctor#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.Views.ApiSurfaceTableRowMarkoutTypeInfo::.ctor#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -12667,17 +12667,17 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.Views.DiffTabularRowMarkoutTypeInfo",
+      "type": "DotnetInspector.Views.DiffTableRowMarkoutTypeInfo",
       "method": "Serialize",
       "overload": 0,
-      "signature": "(Markout:Markout.MarkoutWriter, dotnet-inspect:DotnetInspector.Views.DiffTabularRow) -\u003E corelib:System.Void",
+      "signature": "(Markout:Markout.MarkoutWriter, dotnet-inspect:DotnetInspector.Views.DiffTableRow) -\u003E corelib:System.Void",
       "fidelity": "Full",
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "dotnet-inspect!DotnetInspector.Views.DiffTabularRowMarkoutTypeInfo::Serialize#0"
+      "displayMethod": "dotnet-inspect!DotnetInspector.Views.DiffTableRowMarkoutTypeInfo::Serialize#0"
     },
     {
       "assembly": "dotnet-inspect",

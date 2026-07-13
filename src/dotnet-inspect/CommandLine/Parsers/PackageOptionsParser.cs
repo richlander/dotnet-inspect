@@ -93,7 +93,7 @@ public static class PackageOptionsParser
                 : PackageFileContentScope.Full;
         bool bareOutput = parseResult.GetValue(opts.Bare);
         bool explicitTabularOutput = opts.IsTableExplicitlySet(parseResult);
-        bool suppressImplicitRowFormat = bareOutput && !explicitTabularOutput;
+        bool suppressImplicitRowFormat = bareOutput && !opts.IsTableFlagExplicitlySet(parseResult);
 
         // --path scopes the file listing and selects the Files section. A bare
         // --path (present without a value) means the whole package (root and below);
@@ -157,7 +157,7 @@ public static class PackageOptionsParser
             Jsonl = suppressImplicitRowFormat ? false : opts.ResolveJsonl(parseResult),
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                 && !parseResult.GetValue(opts.RawUrls),
-            TabularExplicitlySet = explicitTabularOutput,
+            TabularExplicitlySet = suppressImplicitRowFormat ? false : explicitTabularOutput,
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),

@@ -49,9 +49,6 @@ public enum OutputFormat
 /// </summary>
 public static class OutputFormatResolver
 {
-    private static OutputFormat? _envOverride;
-    private static bool _envParsed;
-
     /// <summary>
     /// Resolves format. Any -v flag implies Markdown. --json implies Json. --markdown implies Markdown.
     /// Commands may supply a <paramref name="defaultFormat"/> to override the global default (Markdown).
@@ -86,7 +83,7 @@ public static class OutputFormatResolver
             return OutputFormat.Markdown;
 
         // Environment variable
-        if (GetEnvOverride() is OutputFormat envFormat)
+        if (GetEnvironmentOverride() is OutputFormat envFormat)
             return envFormat;
 
         // Command-specific or global default
@@ -130,24 +127,19 @@ public static class OutputFormatResolver
         return false;
     }
 
-    private static OutputFormat? GetEnvOverride()
+    public static OutputFormat? GetEnvironmentOverride()
     {
-        if (!_envParsed)
+        var value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        return value?.ToLowerInvariant() switch
         {
-            var value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
-            _envOverride = value?.ToLowerInvariant() switch
-            {
-                "table" => OutputFormat.Table,
-                "tsv" => OutputFormat.Tsv,
-                "jsonl" or "json-lines" => OutputFormat.Jsonl,
-                "markdown" or "md" => OutputFormat.Markdown,
-                "plaintext" or "plain-text" or "plain" or "text" => OutputFormat.PlainText,
-                "json" => OutputFormat.Json,
-                "mermaid" => OutputFormat.Mermaid,
-                _ => null
-            };
-            _envParsed = true;
-        }
-        return _envOverride;
+            "table" => OutputFormat.Table,
+            "tsv" => OutputFormat.Tsv,
+            "jsonl" or "json-lines" => OutputFormat.Jsonl,
+            "markdown" or "md" => OutputFormat.Markdown,
+            "plaintext" or "plain-text" or "plain" or "text" => OutputFormat.PlainText,
+            "json" => OutputFormat.Json,
+            "mermaid" => OutputFormat.Mermaid,
+            _ => null
+        };
     }
 }

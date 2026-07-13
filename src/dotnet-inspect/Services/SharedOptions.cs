@@ -351,7 +351,8 @@ public class SharedOptions
 
     /// <summary>
     /// Returns true when the user explicitly chose an output format via CLI flags
-    /// (--json, --markdown, --plain-text, --table, --tsv, --jsonl, or -v).
+    /// (--json, --markdown, --plain-text, --table, --tsv, --jsonl, or -v)
+    /// or DOTNET_INSPECT_FORMAT.
     /// When false, commands are free to apply their own default format.
     /// </summary>
     public bool IsFormatExplicitlySet(ParseResult parseResult)
@@ -363,10 +364,15 @@ public class SharedOptions
         if (parseResult.GetResult(Mermaid) is { Implicit: false }) return true;
         if (parseResult.GetResult(Bare) is { Implicit: false }) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
-        return false;
+        return OutputFormatResolver.GetEnvironmentOverride() != null;
     }
 
     public bool IsTableExplicitlySet(ParseResult parseResult) =>
+        IsTableFlagExplicitlySet(parseResult)
+        || (!IsNonTabularFormatExplicitlySet(parseResult)
+            && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl);
+
+    public bool IsTableFlagExplicitlySet(ParseResult parseResult) =>
         IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, Jsonl);
 
     /// <summary>
@@ -457,6 +463,14 @@ public class SharedOptions
 
     private static bool IsExplicitTrue(ParseResult parseResult, Option<bool> option) =>
         IsExplicit(parseResult, option) && parseResult.GetValue(option);
+
+    private bool IsNonTabularFormatExplicitlySet(ParseResult parseResult) =>
+        IsExplicit(parseResult, Json)
+        || IsExplicit(parseResult, Markdown)
+        || IsExplicit(parseResult, PlainText)
+        || IsExplicit(parseResult, Mermaid)
+        || IsExplicit(parseResult, Bare)
+        || parseResult.GetResult(Verbosity) is { Implicit: false };
 
     private static readonly char[] ListSeparators = [',', ';'];
 
