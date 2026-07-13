@@ -3,57 +3,52 @@ using System.Text.RegularExpressions;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Freezes the provider-closure contract for issue #2575. Every
-/// <see cref="System.Reflection.Metadata.ISignatureTypeProvider{TType,TContext}"/>
-/// in <c>ILInspector.Metadata</c> is guarded on both crash vectors:
+/// Freezes the signature-provider closure contract for issue #2575 across both
+/// SRM-only assemblies. SRM's <c>DecodeSignature</c> recurses on the native
+/// stack for every nested element <em>before</em> the first provider callback,
+/// so a single over-deep blob overflows the stack in a way no managed
+/// <c>try/catch</c> can contain. Every top-level provider decode must therefore
+/// be prescanned with <c>SignatureBlobGuard</c>, and every nested cross-handle
+/// TypeSpec re-entry must be bounded by <c>TypeSpecGuard</c>.
 ///
-/// 1. Top-level decodes route through <c>GuardedProviderDecode</c>, which prescans
-///    the blob with <c>SignatureBlobGuard</c> (SRM recurses on the native stack
-///    before the first callback, so only a prescan stops a deep single blob).
-/// 2. Each provider's own <c>GetTypeFromSpecification</c> bounds cross-handle
-///    TypeSpec re-entry through <c>TypeSpecGuard</c>.
-///
-/// These assertions are the anti-ratchet completeness proof: a newly added
-/// provider or an un-gated top-level decode fails this test rather than shipping
-/// an unguarded same-mechanism hole.
+/// The assertions below are a deny-list, not an allow-list: any raw
+/// <c>Decode*Signature</c> call that is not one of the sanctioned guarded forms
+/// is a violation. A newly added provider, a decode routed through a local
+/// alias, or an un-gated site fails this test rather than shipping an unguarded
+/// same-mechanism hole. This is the anti-ratchet completeness proof.
 /// </summary>
 public class ProviderSignatureDecodeBoundaryTests
 {
-    static readonly string[] Providers =
+    static readonly string[] AssemblyRoots =
     {
-        "PointerDetector.Instance",
-        "ILSignatureTypeProvider.Instance",
-        "TypeNodeProvider.Instance",
-        "AnchorSignatureTypeProvider.Instance",
-        "new InaccessibleTypeDetector",
+        Path.Combine("src", "ILInspector.Metadata"),
+        Path.Combine("src", "ILInspector.MetadataPrimitives"),
     };
 
-    // The provider files whose nested TypeSpec re-entry must be bounded by TypeSpecGuard.
-    static readonly string[] ProviderFiles =
+    // Files that perform a top-level provider decode behind an inline
+    // SignatureBlobGuard prescan. Each is asserted to actually contain the
+    // prescan by GatewayFiles_PrescanWithSignatureBlobGuard.
+    static readonly string[] PrescanGatewayFiles =
     {
-        "PointerDetector.cs",
-        "CanonicalIL.cs",              // ILSignatureTypeProvider
-        "TypeNodeProvider.cs",
-        "ApiMemberIdentity.cs",        // AnchorSignatureTypeProvider
-        "SignatureSpellability.cs",    // InaccessibleTypeDetector
+        "GuardedProviderDecode.cs",
+        "GuardedSignatureText.cs",
+        "AttributeDecoder.cs",
     };
 
+    // Whitespace-tolerant so a `.DecodeSignature (` mutation cannot slip past.
     static readonly Regex RawDecode = new(
-        @"\.Decode(Method|Field)?Signature\(",
+        @"\.Decode(Method|Field)?Signature\s*\(",
         RegexOptions.Compiled);
 
     [Fact]
-    public void ProviderTopLevelDecodes_OnlyThroughGuardedGateway()
+    public void EveryProviderDecode_IsGuarded()
     {
-        var metadataRoot = Path.Combine(FindRepoRoot(), "src", "ILInspector.Metadata");
+        var root = FindRepoRoot();
         var violations = new List<string>();
 
-        foreach (var file in Directory.EnumerateFiles(metadataRoot, "*.cs", SearchOption.AllDirectories))
+        foreach (var file in EnumerateSourceFiles(root))
         {
             var fileName = Path.GetFileName(file);
-            if (fileName == "GuardedProviderDecode.cs")
-                continue; // the gateway is the single sanctioned raw-decode site
-
             var lines = File.ReadAllLines(file);
             for (int i = 0; i < lines.Length; i++)
             {
@@ -61,44 +56,86 @@ public class ProviderSignatureDecodeBoundaryTests
                 if (!RawDecode.IsMatch(line))
                     continue;
 
-                // A provider's own guarded GetTypeFromSpecification re-enters via `this`
-                // inside TypeSpecGuard.TryEnter/Exit — that is allowed.
-                if (line.Contains(".DecodeSignature(this,", StringComparison.Ordinal))
+                // Sanctioned form 1: an inline-prescanned gateway file.
+                if (PrescanGatewayFiles.Contains(fileName))
                     continue;
 
-                foreach (var provider in Providers)
-                {
-                    if (line.Contains(provider, StringComparison.Ordinal))
-                        violations.Add($"{Path.GetRelativePath(FindRepoRoot(), file)}:{i + 1}");
-                }
+                // Sanctioned form 2: a nested cross-handle TypeSpec re-entry,
+                // bounded by TypeSpecGuard in its enclosing provider file.
+                if (line.Contains("GetTypeSpecification(", StringComparison.Ordinal))
+                    continue;
+
+                violations.Add($"{Path.GetRelativePath(root, file)}:{i + 1}");
             }
         }
 
         Assert.True(
             violations.Count == 0,
-            "Provider signatures must enter through GuardedProviderDecode. Raw top-level decodes:\n  "
-            + string.Join("\n  ", violations));
+            "Every provider signature decode must be prescanned (GuardedProviderDecode / "
+            + "GuardedSignatureText / AttributeDecoder) or a TypeSpecGuard-bounded nested "
+            + "re-entry. Unguarded raw decodes:\n  " + string.Join("\n  ", violations));
     }
 
     [Fact]
-    public void EveryProvider_BoundsNestedTypeSpecReentry()
+    public void GatewayFiles_PrescanWithSignatureBlobGuard()
     {
-        var metadataRoot = Path.Combine(FindRepoRoot(), "src", "ILInspector.Metadata");
+        var root = FindRepoRoot();
+        var present = new HashSet<string>(StringComparer.Ordinal);
         var missing = new List<string>();
 
-        foreach (var providerFile in ProviderFiles)
+        foreach (var file in EnumerateSourceFiles(root))
         {
-            var path = Path.Combine(metadataRoot, providerFile);
-            Assert.True(File.Exists(path), $"Expected provider file {providerFile} to exist.");
-            var text = File.ReadAllText(path);
-            if (!text.Contains("TypeSpecGuard.TryEnter", StringComparison.Ordinal))
-                missing.Add(providerFile);
+            var fileName = Path.GetFileName(file);
+            if (!PrescanGatewayFiles.Contains(fileName))
+                continue;
+
+            present.Add(fileName);
+            if (!File.ReadAllText(file).Contains("SignatureBlobGuard.IsSafeToDecode", StringComparison.Ordinal))
+                missing.Add(Path.GetRelativePath(root, file));
+        }
+
+        // Every declared prescan gateway must exist and actually prescan.
+        Assert.Equal(PrescanGatewayFiles.Length, present.Count);
+        Assert.True(
+            missing.Count == 0,
+            "Declared prescan gateways must call SignatureBlobGuard.IsSafeToDecode:\n  "
+            + string.Join("\n  ", missing));
+    }
+
+    [Fact]
+    public void NestedTypeSpecReentry_IsBoundedByTypeSpecGuard()
+    {
+        var root = FindRepoRoot();
+        var unguarded = new List<string>();
+
+        foreach (var file in EnumerateSourceFiles(root))
+        {
+            var lines = File.ReadAllLines(file);
+            bool hasNestedReentry = lines.Any(line =>
+                RawDecode.IsMatch(line)
+                && line.Contains("GetTypeSpecification(", StringComparison.Ordinal));
+
+            if (hasNestedReentry
+                && !File.ReadAllText(file).Contains("TypeSpecGuard.TryEnter", StringComparison.Ordinal))
+                unguarded.Add(Path.GetRelativePath(root, file));
         }
 
         Assert.True(
-            missing.Count == 0,
-            "Every provider's GetTypeFromSpecification must bound re-entry with TypeSpecGuard. Unguarded:\n  "
-            + string.Join("\n  ", missing));
+            unguarded.Count == 0,
+            "Every file that re-enters a nested TypeSpec decode must bound it with "
+            + "TypeSpecGuard.TryEnter:\n  " + string.Join("\n  ", unguarded));
+    }
+
+    static IEnumerable<string> EnumerateSourceFiles(string root)
+    {
+        foreach (var assemblyRoot in AssemblyRoots)
+        {
+            var dir = Path.Combine(root, assemblyRoot);
+            if (!Directory.Exists(dir))
+                continue;
+            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+                yield return file;
+        }
     }
 
     static string FindRepoRoot()
