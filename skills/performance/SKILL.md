@@ -61,6 +61,25 @@ explicitly: `scan-method-in-loop-call` stays low-confidence because static
 analysis cannot prove that the scanned sequence grows with the caller's loop,
 so a `--min-confidence high` pass intentionally excludes it.
 
+Exact rows retain machine-readable provenance from the native Analysis producer:
+`Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
+`Provenance=exact`,
+`Operation`, `Token`, and `IL`. Use these fields for runtime/static joins or to
+carry one triage row into the matching `diff`/`timeline` confirmation workflow
+without parsing `Evidence` text:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Finding=analysis.allocation" --where "Operation=box" --jsonl
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Finding=analysis.call-site" --jsonl
+```
+
+Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
+a `pt~` candidate id but no exact source Finding, operation, or token.
+`Provenance=unmatched` flags an instruction-level row that did not join to the
+expected producer census.
+
 Not every shape is a pure hot-path win. `async-state-machine` is reported as
 amortized (low confidence) unless the allocation sits in a loop: async lowering
 moves work into a state object rather than eliminating it, often once per
