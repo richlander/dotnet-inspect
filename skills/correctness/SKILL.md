@@ -42,7 +42,17 @@ with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invok
 methods) and provenance/supply-chain signals, see the `signals` skill.
 
 To confirm whether one definite unsafe operation appeared at an adjacent
-version boundary:
+version boundary, first correlate caller-selected package cells:
+
+```bash
+dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
+  -t MyType -m Method \
+  --finding analysis.unsafety --at first --at last
+```
+
+Repeat `--at` for sparse probes or use `--at all` for an explicitly bounded
+dense traversal. A gap-spanning `Added` row locates a candidate boundary; it
+does not claim the exact introduction version. Confirm the adjacent pair:
 
 ```bash
 dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \

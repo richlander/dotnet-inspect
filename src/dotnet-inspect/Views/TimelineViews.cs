@@ -10,6 +10,7 @@ public sealed class TimelineDocumentView
     [MarkoutIgnore] public string Title { get; init; } = "";
     public string Range { get; init; } = "";
     public string Type { get; init; } = "";
+    public string? Member { get; init; }
     public string Finding { get; init; } = "";
     public string? Recommendation { get; init; }
 

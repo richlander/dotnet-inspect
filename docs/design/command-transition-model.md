@@ -422,6 +422,24 @@ identify the active observation in their title/schema:
 Changing among those timelines changes the observation producer, not the focus
 or operation.
 
+Adding `--member` changes the focus from the type-owned census to one exact
+member. With `--finding api.member`, the correlation selects that member's
+native identity key and reports `Present`, `Missing`, `SubjectAbsent`, and
+`Failed` cells. With `analysis.allocation`, `analysis.call-site`, or
+`analysis.unsafety`, the selected member is the Analysis subject and the
+correlated values are its producer-native occurrence censuses:
+
+```bash
+dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
+  --type Foo.Parser --member Parse \
+  --finding analysis.unsafety --at all
+```
+
+This is the cross-family composition proof: Metadata resolves the structural
+member focus, Analysis supplies the selected observation census, and Findings
+owns the N-address correlation. The command does not introduce a Research-owned
+timeline model.
+
 ### Dense timeline
 
 A bounded, explicit full-range traversal may evaluate every version in the

@@ -187,6 +187,13 @@ Allocation, call-site, and unsafety comparisons share one descriptor-keyed
 retention container; new descriptors do not add parallel flags, lists,
 constructors, or merge branches.
 
+The same three Analysis censuses now compose with the N-address correlation
+tier. `timeline --member M --finding analysis.*` uses Metadata only to resolve
+the structural method focus, then correlates the producer-native Analysis
+inspections directly through `FindingCensusCorrelation<T>`. Exact
+`api.member --member M` tracks use that census correlation's `Correlate(key)`
+bridge rather than a command-owned identity model.
+
 Decompiler fidelity uses the same retention rule in the single-version product
 path. The member command's opt-in `Fidelity Causes` section keeps the complete
 `FindingInspection<DecompilerFidelityCause>` through member acquisition and

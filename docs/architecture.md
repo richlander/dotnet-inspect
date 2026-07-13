@@ -39,7 +39,7 @@ The tool is organized around source inspection, API lookup, relationship, and ut
 │  Compare API, analysis, or implementation evidence           │
 ├─────────────────────────────────────────────────────────────┤
 │                       timeline                               │
-│  Correlate type-owned Findings across a package range         │
+│  Correlate API or member-body Findings across a package range │
 ├─────────────────────────────────────────────────────────────┤
 │            depends / extensions / implements                 │
 │  Relationship discovery for APIs, packages, and libraries    │
@@ -110,12 +110,15 @@ Compares two package, platform, or local-library versions:
 
 ### timeline
 
-Correlates one type-focused Finding census across an inclusive package version
-vector:
+Correlates one type- or member-focused Finding census across an inclusive
+package version vector:
 
 - `--finding api.type` observes the type's own presence and facets.
 - `--finding api.member` observes all members owned by the type.
+- `--finding api.member --member M` selects one exact member identity track.
 - `--finding api.attribute` observes applied attribute occurrences.
+- `--finding analysis.allocation`, `analysis.call-site`, or
+  `analysis.unsafety` observes one selected method's Analysis census.
 - No `--at` evaluates zero package payloads; repeated `--at` selectors perform
   sparse probes; `--at all` explicitly authorizes dense traversal.
 - `Evaluations` preserves `Present`/`Missing` self-presence through an exact
@@ -124,6 +127,8 @@ vector:
   identity tracks derive from the census correlation rather than bypassing it.
   `Transitions` compares adjacent evaluated cells; a
   gap-spanning row is qualified and never claims an exact transition version.
+  Analysis cells decode only the selected method body from the selected package
+  assembly.
 
 ### find
 

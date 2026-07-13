@@ -123,6 +123,9 @@ dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
 dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
 dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
   --type TargetType --members --at first --at last
+dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
+  --type TargetType --member TargetMember \
+  --finding analysis.unsafety --at first --at last
 ```
 
 `--at` accepts an exact version, one-based `#N`, `first`, or `last`. Vector
@@ -136,6 +139,9 @@ absence; use binary search only for a predicate known to be monotonic.
 `--at` for sparse probes, or pass `--at all` for explicit dense traversal.
 Choose the type-focused census with `--type-presence`, `--members`, or
 `--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
+Add `--member` to `api.member` for one exact member identity track. The same
+member selector scopes `analysis.allocation`, `analysis.call-site`, and
+`analysis.unsafety` timelines to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
 about the exact introduction or removal version.
 
