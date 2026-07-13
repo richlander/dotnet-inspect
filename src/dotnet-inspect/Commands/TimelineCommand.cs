@@ -1294,7 +1294,7 @@ public sealed record TimelineOptions
     public bool IncludePrerelease { get; init; }
     public bool Verbose { get; init; }
     public bool JsonOutput { get; init; }
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
     public bool NoHeader { get; init; }
@@ -1304,7 +1304,7 @@ public sealed record TimelineOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
-    public bool IsTabular => OneLine || Tsv || Jsonl;
+    public bool IsTabular => Tabular || Tsv || Jsonl;
 }
 
 [JsonSerializable(typeof(TimelineDocumentView))]

@@ -83,7 +83,7 @@ KIND
 wc -l | tr -d ' '
 ```
 
-### 1c. Oneline column structure
+### 1c. Table column structure
 
 ```bash
 dotnet-inspect type System.Text.Json --table | head -1

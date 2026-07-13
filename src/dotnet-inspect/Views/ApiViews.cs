@@ -610,32 +610,32 @@ public class TypeShapeView
 /// View model for tabular single-type output: one unified table of all members.
 /// </summary>
 [MarkoutSerializable]
-public class ApiTypeOneLineView
+public class ApiTypeTableView
 {
     [MarkoutSection(Name = "Members")]
-    public List<ApiOneLineRow>? Rows { get; set; }
+    public List<ApiTableRow>? Rows { get; set; }
 }
 
 /// <summary>
 /// View model for tabular full-API output: one unified table of all types.
 /// </summary>
 [MarkoutSerializable]
-public class ApiSurfaceOneLineView
+public class ApiSurfaceTableView
 {
-    [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiSurfaceOneLineRow.Description))]
-    public List<ApiSurfaceOneLineRow>? Rows { get; set; }
+    [MarkoutSection(Name = "Types", IgnoreProperty = nameof(ApiSurfaceTableRow.Description))]
+    public List<ApiSurfaceTableRow>? Rows { get; set; }
 
     [MarkoutSection(Name = "Types")]
-    public List<ApiSurfaceOneLineRow>? RowsWithDescription { get; set; }
+    public List<ApiSurfaceTableRow>? RowsWithDescription { get; set; }
 }
 
 [MarkoutSerializable]
-public record ApiOneLineRow(string Kind, string Name,
+public record ApiTableRow(string Kind, string Name,
     [property: MarkoutPropertyName("Return Type")] string ReturnType,
     string Detail);
 
 [MarkoutSerializable]
-public record ApiSurfaceOneLineRow(string Kind, string Type, string Members, string? Description);
+public record ApiSurfaceTableRow(string Kind, string Type, string Members, string? Description);
 
 [MarkoutSerializable]
 public sealed record FidelityCauseRow(
@@ -782,10 +782,10 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(TypeParameterRow))]
 [MarkoutContext(typeof(InterfaceRow))]
 [MarkoutContext(typeof(BaseclassRow))]
-[MarkoutContext(typeof(ApiTypeOneLineView))]
-[MarkoutContext(typeof(ApiOneLineRow))]
-[MarkoutContext(typeof(ApiSurfaceOneLineView))]
-[MarkoutContext(typeof(ApiSurfaceOneLineRow))]
+[MarkoutContext(typeof(ApiTypeTableView))]
+[MarkoutContext(typeof(ApiTableRow))]
+[MarkoutContext(typeof(ApiSurfaceTableView))]
+[MarkoutContext(typeof(ApiSurfaceTableRow))]
 [MarkoutContext(typeof(SampleRow))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {

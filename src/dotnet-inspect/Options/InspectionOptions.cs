@@ -194,7 +194,7 @@ public record InspectionOptions
     /// <summary>
     /// Tabular output (pretty table or TSV).
     /// </summary>
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
 
     /// <summary>
     /// Emit tabular output as normalized TSV instead of a pretty table.
@@ -210,7 +210,7 @@ public record InspectionOptions
     /// True when a tabular output flag was explicitly passed (not just the default format).
     /// Used to distinguish explicit tabular output from a tabular default.
     /// </summary>
-    public bool OneLineExplicitlySet { get; init; }
+    public bool TabularExplicitlySet { get; init; }
 
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
@@ -262,7 +262,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || PrintAll || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || PrintAll || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

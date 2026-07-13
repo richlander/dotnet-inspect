@@ -273,7 +273,7 @@ System.Text.Json.Serialization.JsonSerializerContext | class | implements
 System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver | class | implements
 ```
 
-## 7. Oneline output for scripting
+## 7. Table output for scripting
 
 > Goal: Columnar output suitable for piping and filtering.
 

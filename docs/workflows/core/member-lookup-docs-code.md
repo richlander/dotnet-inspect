@@ -364,7 +364,7 @@ dotnet-inspect member System.Text.Json JsonSerializer Deserialize -n 10
 TValue?
 ```
 
-## 12. Oneline output for scripting
+## 12. Table output for scripting
 
 > Goal: Get columnar output suitable for piping to other tools.
 

@@ -71,9 +71,9 @@ public class MemberCallsSectionTests
             TipLevel = TipLevel.Quiet,
             Discover = discover ? [] : null,
             Verbosity = Verbosity.Minimal,
-            OneLine = tsv || discover,
+            Tabular = tsv || discover,
             Tsv = tsv || discover,
-            OneLineExplicitlySet = tsv || discover,
+            TabularExplicitlySet = tsv || discover,
             FormatExplicitlySet = true,
         }));
 

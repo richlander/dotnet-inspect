@@ -271,7 +271,7 @@ public static class OutputFormatter
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
-        else if (writerOpts.IncludeSections is { Count: > 1 } && !options.OneLineExplicitlySet)
+        else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
@@ -381,7 +381,7 @@ public static class OutputFormatter
             && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
             && !options.Count
             && !options.JsonOutput
-            && !options.OneLine);
+            && !options.Tabular);
 
     internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
         options.IncludeSections is { Count: > 0 }
@@ -389,5 +389,5 @@ public static class OutputFormatter
         && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
-        && !options.OneLine;
+        && !options.Tabular;
 }

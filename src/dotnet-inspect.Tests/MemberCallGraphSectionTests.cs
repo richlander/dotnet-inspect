@@ -158,9 +158,9 @@ public class MemberCallGraphSectionTests
             TipLevel = TipLevel.Quiet,
             Discover = [],
             Verbosity = Verbosity.Normal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 

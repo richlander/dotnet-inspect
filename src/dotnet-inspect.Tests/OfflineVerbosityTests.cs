@@ -115,7 +115,7 @@ public class OfflineVerbosityTests : IDisposable
             "-m", "Serialize", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
-        // Oneline table row contains the method name
+        // Table table row contains the method name
         Assert.Contains("Serialize", output);
     }
 
@@ -210,7 +210,7 @@ public class OfflineVerbosityTests : IDisposable
             "type", "--platform", "System.Collections", "-t", "HashSet*", "--offline");
 
         Assert.Equal(0, exit);
-        // Oneline table: type name appears in row
+        // Table table: type name appears in row
         Assert.Contains("HashSet", output);
     }
 

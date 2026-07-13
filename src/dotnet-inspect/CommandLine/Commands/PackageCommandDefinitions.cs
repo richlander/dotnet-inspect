@@ -105,7 +105,7 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, readmeOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.OneLine, opts.NoHeaders);
+            tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.NoHeaders);
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
@@ -191,7 +191,7 @@ public static class PackageCommandDefinitions
                 Query = query,
                 Take = parseResult.GetValue(takeOption),
                 Prerelease = parseResult.GetValue(prereleaseOption),
-                JsonOutput = parseResult.GetValue(opts.Json),
+                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose)
             };

@@ -70,7 +70,7 @@ public static class CommandLineBuilder
         // API command (deprecated, hidden)
         rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateDeprecatedApiCommand());
 
-        // Type command (type discovery, terse)
+        // Type command (type discovery, compact table)
         rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateTypeCommand(opts));
 
         // Member command (member inspection, docs by default)

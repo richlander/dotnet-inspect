@@ -18,7 +18,7 @@ public static class DiffOutputFormatter
         }
     }
 
-    public static DiffOneLineView BuildOneLineView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffTableView BuildTableView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -54,10 +54,10 @@ public static class DiffOutputFormatter
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            return new DiffOneLineRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
+            return new DiffTableRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
         }).ToList();
 
-        return new DiffOneLineView
+        return new DiffTableView
         {
             Title = $"API Diff: {name}",
             Versions = $"{fromVersion} -> {toVersion}",

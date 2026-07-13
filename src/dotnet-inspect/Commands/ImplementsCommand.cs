@@ -86,7 +86,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.OneLine, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
             }
 
             return 0;
@@ -141,7 +141,7 @@ public class ImplementsCommand
         Console.WriteLine(results.Count);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool oneLine, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
@@ -151,7 +151,7 @@ public class ImplementsCommand
             return;
         }
 
-        if (oneLine)
+        if (tabular)
         {
             OutputFormatter.WriteProjectedTable(Console.Out, !noHeader, tsv, jsonl, columns, fields,
                 (writer, formatter, writerOptions) =>

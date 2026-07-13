@@ -38,7 +38,6 @@ public static class PackageOptionsParser
         Option<string?> OutOption,
         Option<string?> PathMatchOption,
         Option<bool> SkipEmptyOption,
-        Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
 
     /// <summary>
@@ -94,7 +93,7 @@ public static class PackageOptionsParser
                 : PackageFileContentScope.Full;
         bool bareOutput = parseResult.GetValue(opts.Bare);
         bool explicitTabularOutput = opts.IsTableExplicitlySet(parseResult);
-        bool suppressImplicitRowFormat = bareOutput && !explicitTabularOutput;
+        bool suppressImplicitRowFormat = bareOutput && !opts.IsTableFlagExplicitlySet(parseResult);
 
         // --path scopes the file listing and selects the Files section. A bare
         // --path (present without a value) means the whole package (root and below);
@@ -151,14 +150,14 @@ public static class PackageOptionsParser
             OutputPath = parseResult.GetValue(args.OutOption),
             Limit = (bareVersion || showLatestVersion) ? 1 : versionsValue,
             ForceLatest = showLatestVersion,
-            JsonOutput = parseResult.GetValue(opts.Json),
+            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             Bare = bareOutput,
-            OneLine = suppressImplicitRowFormat ? false : opts.ResolveOneLine(parseResult),
+            Tabular = suppressImplicitRowFormat ? false : opts.ResolveTabular(parseResult),
             Tsv = suppressImplicitRowFormat ? false : opts.ResolveTsv(parseResult),
             Jsonl = suppressImplicitRowFormat ? false : opts.ResolveJsonl(parseResult),
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                 && !parseResult.GetValue(opts.RawUrls),
-            OneLineExplicitlySet = explicitTabularOutput,
+            TabularExplicitlySet = suppressImplicitRowFormat ? false : explicitTabularOutput,
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),

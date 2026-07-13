@@ -24,7 +24,7 @@ internal static class TypeSearchService
         HttpClient httpClient)
     {
         // Optimized single-pattern path: collect with filtering, then partial match if empty
-        if (patterns.Length == 1 && !options.OneLine)
+        if (patterns.Length == 1 && !options.Tabular)
         {
             return await FindSinglePatternAsync(patterns[0], options, logger, httpClient);
         }

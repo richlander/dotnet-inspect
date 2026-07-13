@@ -68,9 +68,9 @@ public class MemberCallersSectionTests
             TipLevel = TipLevel.Quiet,
             Discover = [],
             Verbosity = Verbosity.Normal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 
@@ -218,9 +218,9 @@ public class MemberCallersSectionTests
             TipLevel = TipLevel.Quiet,
             Discover = discover ? [] : null,
             Verbosity = Verbosity.Normal,
-            OneLine = tsv || discover,
+            Tabular = tsv || discover,
             Tsv = tsv || discover,
-            OneLineExplicitlySet = tsv || discover,
+            TabularExplicitlySet = tsv || discover,
             FormatExplicitlySet = true,
         }));
 
