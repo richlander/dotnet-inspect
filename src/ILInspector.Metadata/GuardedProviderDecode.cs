@@ -19,15 +19,32 @@ namespace ILInspector.Metadata;
 /// </summary>
 internal static class GuardedProviderDecode
 {
+    internal readonly record struct DecodeResult<T>(T Value, bool IsDegraded);
+
     public static MethodSignature<T> Method<T, TContext>(
         MetadataReader reader,
         MethodDefinition method,
         ISignatureTypeProvider<T, TContext> provider,
         TContext context,
         T fallbackReturn)
-        => SignatureBlobGuard.IsSafeToDecode(reader, method.Signature, SignatureBlobGuard.Kind.Method)
-            ? method.DecodeSignature(provider, context)
-            : FallbackSignature(fallbackReturn);
+        => MethodResult(reader, method, provider, context, fallbackReturn).Value;
+
+    public static DecodeResult<MethodSignature<T>> MethodResult<T, TContext>(
+        MetadataReader reader,
+        MethodDefinition method,
+        ISignatureTypeProvider<T, TContext> provider,
+        TContext context,
+        T fallbackReturn)
+        => SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method)
+            ? new DecodeResult<MethodSignature<T>>(
+                method.DecodeSignature(provider, context),
+                IsDegraded: false)
+            : new DecodeResult<MethodSignature<T>>(
+                FallbackSignature(fallbackReturn),
+                IsDegraded: true);
 
     public static MethodSignature<T> MemberRefMethod<T, TContext>(
         MetadataReader reader,
@@ -45,9 +62,24 @@ internal static class GuardedProviderDecode
         ISignatureTypeProvider<T, TContext> provider,
         TContext context,
         T fallbackReturn)
-        => SignatureBlobGuard.IsSafeToDecode(reader, property.Signature, SignatureBlobGuard.Kind.Method)
-            ? property.DecodeSignature(provider, context)
-            : FallbackSignature(fallbackReturn);
+        => PropertyResult(reader, property, provider, context, fallbackReturn).Value;
+
+    public static DecodeResult<MethodSignature<T>> PropertyResult<T, TContext>(
+        MetadataReader reader,
+        PropertyDefinition property,
+        ISignatureTypeProvider<T, TContext> provider,
+        TContext context,
+        T fallbackReturn)
+        => SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                property.Signature,
+                SignatureBlobGuard.Kind.Method)
+            ? new DecodeResult<MethodSignature<T>>(
+                property.DecodeSignature(provider, context),
+                IsDegraded: false)
+            : new DecodeResult<MethodSignature<T>>(
+                FallbackSignature(fallbackReturn),
+                IsDegraded: true);
 
     public static T Field<T, TContext>(
         MetadataReader reader,
@@ -55,9 +87,24 @@ internal static class GuardedProviderDecode
         ISignatureTypeProvider<T, TContext> provider,
         TContext context,
         T fallback)
-        => SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
-            ? field.DecodeSignature(provider, context)
-            : fallback;
+        => FieldResult(reader, field, provider, context, fallback).Value;
+
+    public static DecodeResult<T> FieldResult<T, TContext>(
+        MetadataReader reader,
+        FieldDefinition field,
+        ISignatureTypeProvider<T, TContext> provider,
+        TContext context,
+        T fallback)
+        => SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                field.Signature,
+                SignatureBlobGuard.Kind.Field)
+            ? new DecodeResult<T>(
+                field.DecodeSignature(provider, context),
+                IsDegraded: false)
+            : new DecodeResult<T>(
+                fallback,
+                IsDegraded: true);
 
     public static T MemberRefField<T, TContext>(
         MetadataReader reader,

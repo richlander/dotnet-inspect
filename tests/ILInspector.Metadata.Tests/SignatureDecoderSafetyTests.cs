@@ -56,6 +56,48 @@ public class SignatureDecoderSafetyTests
         => RunWorker(nameof(DeepEnumFieldThroughAttributeDecoderWorker));
 
     [Fact]
+    public void ValidPointerSignature_IsDetectedWithoutDegradation()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteByte(0x00); // zero parameters
+        signature.WriteByte(0x0f); // PTR return type
+        signature.WriteByte(0x08); // I4
+        var image = BuildSurfacePe(fieldSignature: null, methodSignature: signature);
+        using var peReader = new PEReader(new MemoryStream(image));
+
+        var flags = AssemblyDetailScanner.ScanPresenceFlags(peReader);
+
+        Assert.True(flags.HasUnsafeCode);
+        Assert.Null(flags.UnsafeSignatureDecodeStatus);
+    }
+
+    [Fact]
+    public void PointerInCustomModifier_IsDetectedWithoutDegradation()
+    {
+        var typeSpecification = new BlobBuilder();
+        typeSpecification.WriteByte(0x0f); // PTR
+        typeSpecification.WriteByte(0x08); // I4
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteByte(0x00); // zero parameters
+        signature.WriteByte(0x20); // CMOD_OPT
+        signature.WriteByte(0x06); // TypeDefOrRefOrSpec: TypeSpec row 1
+        signature.WriteByte(0x01); // VOID
+        var image = BuildSurfacePe(
+            fieldSignature: null,
+            methodSignature: signature,
+            typeSpecification: typeSpecification);
+        using var peReader = new PEReader(new MemoryStream(image));
+
+        var flags = AssemblyDetailScanner.ScanPresenceFlags(peReader);
+
+        Assert.True(flags.HasUnsafeCode);
+        Assert.Null(flags.UnsafeSignatureDecodeStatus);
+    }
+
+    [Fact]
     public void SignatureBlobGuard_OldAssemblyIdentity_IsForwarded()
         => Assert.Equal(
             typeof(SignatureBlobGuard),
@@ -225,9 +267,12 @@ public class SignatureDecoderSafetyTests
         if (!IsSelectedWorker(nameof(DeepMethodSignatureThroughPointerDetectorWorker)))
             return;
 
-        var image = BuildSurfacePe(fieldSignature: null, methodSignature: DeepMethodSignature());
+        var image = BuildSurfacePe(fieldSignature: null, methodSignature: DeepPointerMethodSignature());
         using var peReader = new PEReader(new MemoryStream(image));
-        _ = AssemblyDetailScanner.ScanPresenceFlags(peReader);
+        var flags = AssemblyDetailScanner.ScanPresenceFlags(peReader);
+
+        Assert.False(flags.HasUnsafeCode);
+        Assert.Equal(SignatureDecodeStatus.Degraded, flags.UnsafeSignatureDecodeStatus);
     }
 
     [Fact]
@@ -250,8 +295,11 @@ public class SignatureDecoderSafetyTests
         var (reader, typeHandle, methodHandle) = BuildTypeWithMethod(DeepMethodSignature());
         var method = reader.GetMethodDefinition(methodHandle);
         var spellability = new SignatureSpellability(new NullReferenceResolver());
-        _ = spellability.CanSpellMethod(
+        var result = spellability.InspectMethod(
             reader, method, GenericContext.ForMethod(reader, reader.GetTypeDefinition(typeHandle), method));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(SignatureDecodeStatus.Degraded, result.DecodeStatus);
     }
 
     [Fact]
@@ -328,6 +376,18 @@ public class SignatureDecoderSafetyTests
         return signature;
     }
 
+    static BlobBuilder DeepPointerMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteByte(0x00); // zero parameters
+        for (int i = 0; i < 100_000; i++)
+            signature.WriteByte(0x1d); // SZARRAY return type
+        signature.WriteByte(0x0f);     // PTR
+        signature.WriteByte(0x08);     // I4
+        return signature;
+    }
+
     static (MetadataReader Reader, TypeDefinitionHandle TypeHandle, MethodDefinitionHandle MethodHandle)
         BuildTypeWithMethod(BlobBuilder methodSignature)
     {
@@ -359,7 +419,10 @@ public class SignatureDecoderSafetyTests
     /// PE-level scanners (ApiSurfaceExtractor, AssemblyDetailScanner) reach the
     /// crafted signature through their real entry points.
     /// </summary>
-    static byte[] BuildSurfacePe(BlobBuilder? fieldSignature, BlobBuilder? methodSignature)
+    static byte[] BuildSurfacePe(
+        BlobBuilder? fieldSignature,
+        BlobBuilder? methodSignature,
+        BlobBuilder? typeSpecification = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -389,6 +452,9 @@ public class SignatureDecoderSafetyTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+
+        if (typeSpecification is not null)
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpecification));
 
         if (fieldSignature is not null)
         {

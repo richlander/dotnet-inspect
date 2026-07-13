@@ -86,6 +86,7 @@ internal static class LibraryMetadataService
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
+            inspection.UnsafeSignatureDecodeStatus = presenceFlags.UnsafeSignatureDecodeStatus;
             inspection.HasMethodBodies = presenceFlags.HasMethodBodies;
             inspection.HasRuntimeAsync = presenceFlags.HasRuntimeAsync;
             inspection.HasStateMachineAsync = presenceFlags.HasStateMachineAsync;

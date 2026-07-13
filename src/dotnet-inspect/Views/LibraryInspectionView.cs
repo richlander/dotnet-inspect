@@ -728,11 +728,13 @@ public class LibraryInspectionView
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
-    public bool HasUnsafeMembers => _data.UnsafeMembers is { Count: > 0 };
+    public bool HasUnsafeMembers =>
+        _data.UnsafeMembers is { Count: > 0 }
+        || _data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded;
 
     [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
     public List<UnsafeMemberRow>? UnsafeMembersSection =>
-        _data.UnsafeMembers?
+        (_data.UnsafeMembers ?? [])
             .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
@@ -740,6 +742,15 @@ public class LibraryInspectionView
             .Select(m => new UnsafeMemberRow(
                 MarkoutInline.Code(m.Member), m.Reason, MarkoutInline.Code(m.Detail), m.Kind,
                 m.IL is null ? null : MarkoutInline.Code(m.IL), m.Token is null ? null : MarkoutInline.Code(m.Token)))
+            .Concat(_data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded
+                ? [new UnsafeMemberRow(
+                    MarkoutInline.Code("signature scan"),
+                    "Decode degraded",
+                    MarkoutInline.Code("unsafe-code presence may be incomplete"),
+                    "Diagnostic",
+                    null,
+                    null)]
+                : [])
             .ToList();
 
     public bool HasTopLeverage => _data.TopLeverage is { Count: > 0 };
