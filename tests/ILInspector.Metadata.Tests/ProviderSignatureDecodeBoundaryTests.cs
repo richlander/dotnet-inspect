@@ -211,6 +211,46 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "member receiver prefix reassigned after blob guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        this.container.value.Signature,
+                        kind))
+                    {
+                        return fallback;
+                    }
+                    this.container = otherContainer;
+                    return this.container.value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "qualified receiver reassigned through bare field",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        this.value.Signature,
+                        kind))
+                    {
+                        return fallback;
+                    }
+                    value = other;
+                    return this.value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
             "disjunctive blob guard",
             """
             class C
@@ -1326,33 +1366,38 @@ public class ProviderSignatureDecodeBoundaryTests
     static bool HasProtectedMutation(BlockSyntax block, params string[] identifiers)
     {
         var protectedIdentifiers = identifiers.ToHashSet(StringComparer.Ordinal);
-        return block.DescendantNodes().Any(node =>
-            node is AssignmentExpressionSyntax
-            {
-                Left: { } left
-            }
-                && ContainsProtectedIdentifier(left, protectedIdentifiers)
-            || node is PrefixUnaryExpressionSyntax
-            {
-                Operand: { } operand
-            } prefix
-                && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
-                    || prefix.IsKind(SyntaxKind.PreDecrementExpression))
-                && ContainsProtectedIdentifier(operand, protectedIdentifiers)
-            || node is PostfixUnaryExpressionSyntax
-            {
-                Operand: { } postOperand
-            } postfix
-                && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
-                    || postfix.IsKind(SyntaxKind.PostDecrementExpression))
-                && ContainsProtectedIdentifier(postOperand, protectedIdentifiers)
-            || node is ArgumentSyntax
-            {
-                Expression: { } argument,
-                RefKindKeyword.RawKind: not 0
-            }
-                && ContainsProtectedIdentifier(argument, protectedIdentifiers));
+        return block.DescendantNodes().Any(
+            node => IsProtectedMutation(node, protectedIdentifiers));
     }
+
+    static bool IsProtectedMutation(
+        SyntaxNode node,
+        HashSet<string> identifiers)
+        => node is AssignmentExpressionSyntax
+        {
+            Left: { } left
+        }
+            && ContainsProtectedIdentifier(left, identifiers)
+        || node is PrefixUnaryExpressionSyntax
+        {
+            Operand: { } operand
+        } prefix
+            && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
+                || prefix.IsKind(SyntaxKind.PreDecrementExpression))
+            && ContainsProtectedIdentifier(operand, identifiers)
+        || node is PostfixUnaryExpressionSyntax
+        {
+            Operand: { } postOperand
+        } postfix
+            && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
+                || postfix.IsKind(SyntaxKind.PostDecrementExpression))
+            && ContainsProtectedIdentifier(postOperand, identifiers)
+        || node is ArgumentSyntax
+        {
+            Expression: { } argument,
+            RefKindKeyword.RawKind: not 0
+        }
+            && ContainsProtectedIdentifier(argument, identifiers);
 
     static bool ContainsProtectedIdentifier(
         SyntaxNode node,
@@ -1447,56 +1492,15 @@ public class ProviderSignatureDecodeBoundaryTests
         SyntaxNode end)
     {
         var root = end.SyntaxTree.GetRoot();
-        if (expression is IdentifierNameSyntax identifier)
-        {
-            return IdentifierMutatedBetween(
-                root,
-                identifier.Identifier.Text,
-                start,
-                end.SpanStart);
-        }
-
-        return root.DescendantNodes().Any(node =>
-            node.SpanStart > start
-            && node.SpanStart < end.SpanStart
-            && (node is AssignmentExpressionSyntax
-                {
-                    Left: { } left
-                }
-                && AssignmentTargetContains(left, expression)
-                || node is PrefixUnaryExpressionSyntax
-                {
-                    Operand: { } operand
-                } prefix
-                && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
-                    || prefix.IsKind(SyntaxKind.PreDecrementExpression))
-                && Equivalent(operand, expression)
-                || node is PostfixUnaryExpressionSyntax
-                {
-                    Operand: { } postOperand
-                } postfix
-                && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
-                    || postfix.IsKind(SyntaxKind.PostDecrementExpression))
-                && Equivalent(postOperand, expression)
-                || node is ArgumentSyntax
-                {
-                    Expression: { } argument,
-                    RefKindKeyword.RawKind: not 0
-                }
-                && Equivalent(argument, expression)));
-    }
-
-    static bool AssignmentTargetContains(
-        ExpressionSyntax target,
-        ExpressionSyntax expression)
-    {
-        target = StripParentheses(target);
-        if (Equivalent(target, expression))
-            return true;
-
-        return target is TupleExpressionSyntax tuple
-            && tuple.Arguments.Any(argument =>
-                AssignmentTargetContains(argument.Expression, expression));
+        var identifiers = expression.DescendantNodesAndSelf()
+            .OfType<IdentifierNameSyntax>()
+            .Select(identifier => identifier.Identifier.Text)
+            .ToHashSet(StringComparer.Ordinal);
+        return IdentifiersMutatedBetween(
+            root,
+            identifiers,
+            start,
+            end.SpanStart);
     }
 
     static bool IdentifierMutatedBetween(
@@ -1504,39 +1508,21 @@ public class ProviderSignatureDecodeBoundaryTests
         string identifier,
         int start,
         int end)
+        => IdentifiersMutatedBetween(
+            root,
+            [identifier],
+            start,
+            end);
+
+    static bool IdentifiersMutatedBetween(
+        SyntaxNode root,
+        HashSet<string> identifiers,
+        int start,
+        int end)
         => root.DescendantNodes().Any(node =>
             node.SpanStart > start
             && node.SpanStart < end
-            && (node is AssignmentExpressionSyntax
-                {
-                    Left: { } left
-                }
-                && ContainsIdentifier(left, identifier)
-                || node is PrefixUnaryExpressionSyntax
-                {
-                    Operand: { } operand
-                } prefix
-                && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
-                    || prefix.IsKind(SyntaxKind.PreDecrementExpression))
-                && ContainsIdentifier(operand, identifier)
-                || node is PostfixUnaryExpressionSyntax
-                {
-                    Operand: { } postOperand
-                } postfix
-                && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
-                    || postfix.IsKind(SyntaxKind.PostDecrementExpression))
-                && ContainsIdentifier(postOperand, identifier)
-                || node is ArgumentSyntax
-                {
-                    Expression: { } argument,
-                    RefKindKeyword.RawKind: not 0
-                }
-                && ContainsIdentifier(argument, identifier)));
-
-    static bool ContainsIdentifier(SyntaxNode node, string identifier)
-        => node.DescendantNodesAndSelf()
-            .OfType<IdentifierNameSyntax>()
-            .Any(candidate => candidate.Identifier.Text == identifier);
+            && IsProtectedMutation(node, identifiers));
 
     static bool CrossesDeferredExecutionBoundary(SyntaxNode descendant, SyntaxNode ancestor)
     {
