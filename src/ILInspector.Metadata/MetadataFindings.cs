@@ -13,6 +13,8 @@ public static partial class MetadataFindings
     public static readonly FindingDescriptor TypeDescriptor = new("api.type", "API type");
     public static readonly FindingDescriptor MemberDescriptor = new("api.member", "API member");
     public static readonly FindingDescriptor AttributeDescriptor = new("api.attribute", "API attribute");
+    public static readonly FindingMatchTier ExtensionInstanceMatchTier =
+        new("api.member.extension-instance", 85);
 
     static readonly FindingMatchOptions IdentitySetOptions = new()
     {
@@ -51,9 +53,7 @@ public static partial class MetadataFindings
                 return new Finding<ApiMemberHandle>(
                     subject,
                     MemberDescriptor,
-                    new FindingKey(
-                        handle.CanonicalSignature ?? handle.Identity,
-                        item.Type.FullName),
+                    CreateMemberFindingKey(item.Type, item.Member, handle),
                     handle);
             }),
         ]);
@@ -103,9 +103,7 @@ public static partial class MetadataFindings
                     return new Finding<ApiMemberHandle>(
                         subject,
                         MemberDescriptor,
-                        new FindingKey(
-                            handle.CanonicalSignature ?? handle.Identity,
-                            item.Type.FullName),
+                        CreateMemberFindingKey(item.Type, item.Member, handle),
                         handle);
                 }),
             ]);
@@ -166,7 +164,8 @@ public static partial class MetadataFindings
         ApiSurface oldSurface,
         ApiSurface newSurface,
         FindingSubject subject,
-        ApiDiffOptions? options = null)
+        ApiDiffOptions? options = null,
+        int acceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(oldSurface);
         ArgumentNullException.ThrowIfNull(newSurface);
@@ -174,7 +173,13 @@ public static partial class MetadataFindings
         options ??= ApiDiffOptions.Default;
 
         var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
-        return CompareApiMembers(oldSurface, newSurface, subject, options, diff);
+        return CompareApiMembers(
+            oldSurface,
+            newSurface,
+            subject,
+            options,
+            diff,
+            acceptanceThreshold);
     }
 
     public static FindingComparison<ApiTypeHandle> CompareApiType(
@@ -208,7 +213,8 @@ public static partial class MetadataFindings
         ApiSurface? newSurface,
         FindingSubject subject,
         string typeFullName,
-        ApiDiffOptions? options = null)
+        ApiDiffOptions? options = null,
+        int acceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
@@ -217,7 +223,8 @@ public static partial class MetadataFindings
         var comparison = FindingComparison.Compare(
             InspectApiMembers(oldSurface, subject, typeFullName),
             InspectApiMembers(newSurface, subject, typeFullName),
-            IdentitySetOptions);
+            IdentitySetOptions,
+            acceptanceThreshold);
         if (oldSurface is null || newSurface is null)
             return comparison;
 
@@ -248,7 +255,8 @@ public static partial class MetadataFindings
         ApiSurface oldSurface,
         ApiSurface newSurface,
         FindingSubject subject,
-        ApiDiffOptions? options = null)
+        ApiDiffOptions? options = null,
+        int memberAcceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(oldSurface);
         ArgumentNullException.ThrowIfNull(newSurface);
@@ -258,7 +266,13 @@ public static partial class MetadataFindings
         var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
         return new ApiFindingComparison(
             CompareApiTypes(oldSurface, newSurface, subject, options, diff),
-            CompareApiMembers(oldSurface, newSurface, subject, options, diff),
+            CompareApiMembers(
+                oldSurface,
+                newSurface,
+                subject,
+                options,
+                diff,
+                memberAcceptanceThreshold),
             diff);
     }
 
@@ -283,14 +297,16 @@ public static partial class MetadataFindings
         ApiSurface newSurface,
         FindingSubject subject,
         ApiDiffOptions options,
-        ApiDiff diff)
+        ApiDiff diff,
+        int acceptanceThreshold = 100)
     {
         var oldInspection = InspectApiMembers(oldSurface, subject);
         var newInspection = InspectApiMembers(newSurface, subject);
         return FindingComparison.Compare(
             oldInspection,
             newInspection,
-            IdentitySetOptions)
+            IdentitySetOptions,
+            acceptanceThreshold)
             .TransformPairs(pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
     }
 
@@ -351,6 +367,30 @@ public static partial class MetadataFindings
                         present.New,
                         present.Difference,
                         string.Join("; ", details.Distinct(StringComparer.Ordinal))));
+            }
+            else if (pair is PairFinding<ApiMemberHandle>.Changed changed
+                && changed.Match is not null)
+            {
+                var details = new List<string>();
+                if (!string.IsNullOrWhiteSpace(changed.Detail))
+                    details.Add(changed.Detail);
+                AddMemberFacetDetails(
+                    changed.Old.Payload.Member,
+                    changed.New.Payload.Member,
+                    scope,
+                    details);
+                AddFacetDetail(
+                    details,
+                    "declaring type",
+                    changed.Old.Payload.TypeFullName,
+                    changed.New.Payload.TypeFullName);
+
+                builder.Add(new PairFinding<ApiMemberHandle>.Changed(
+                    changed.Old,
+                    changed.New,
+                    changed.Difference,
+                    string.Join("; ", details.Distinct(StringComparer.Ordinal)),
+                    changed.Match));
             }
             else
             {
@@ -538,6 +578,30 @@ public static partial class MetadataFindings
     {
         foreach (var member in type.Members)
             yield return (type, member);
+    }
+
+    static FindingKey CreateMemberFindingKey(
+        ApiType type,
+        ApiMember member,
+        ApiMemberHandle handle)
+    {
+        var softKeys = ApiMemberIdentity.TryGetExtensionInstanceProjection(
+            type,
+            member,
+            out var identityKey,
+            out var variant)
+                ? (IEnumerable<FindingSoftKey>)
+                [
+                    new FindingSoftKey(
+                        ExtensionInstanceMatchTier,
+                        identityKey,
+                        variant),
+                ]
+                : [];
+        return new FindingKey(
+            handle.CanonicalSignature ?? handle.Identity,
+            type.FullName,
+            softKeys);
     }
 
     static ApiType? FindType(ApiSurface surface, string typeFullName)

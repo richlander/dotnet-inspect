@@ -11,6 +11,9 @@ public enum FindingEdgeKind
     /// <summary>Content match recovered out of order by the move pass (a relocation).</summary>
     Moved,
 
+    /// <summary>Content correspondence accepted from a non-exact identity tier.</summary>
+    Changed,
+
     /// <summary>Present only on the new side.</summary>
     Added,
 
@@ -23,7 +26,30 @@ public enum FindingEdgeKind
 /// <see cref="NewIndex"/> is -1 for <see cref="FindingEdgeKind.Removed"/>. <see cref="Confidence"/>
 /// is 100 for the committed matching; lower values are reserved for accepted fringe.
 /// </summary>
-public sealed record FindingEdge(FindingEdgeKind Kind, int OldIndex, int NewIndex, int Confidence);
+public sealed record FindingEdge(
+    FindingEdgeKind Kind,
+    int OldIndex,
+    int NewIndex,
+    int Confidence,
+    FindingMatchProvenance? Match = null);
+
+/// <summary>Typed provenance retained when a non-exact tier establishes correspondence.</summary>
+public sealed record FindingMatchProvenance
+{
+    public FindingMatchProvenance(FindingMatchTier Tier, int Confidence)
+    {
+        this.Tier = Tier ?? throw new ArgumentNullException(nameof(Tier));
+        if (Confidence is <= 0 or >= 100)
+            throw new ArgumentOutOfRangeException(
+                nameof(Confidence),
+                Confidence,
+                "Soft match confidence must be between 1 and 99.");
+        this.Confidence = Confidence;
+    }
+
+    public FindingMatchTier Tier { get; }
+    public int Confidence { get; }
+}
 
 /// <summary>
 /// A deferred, ambiguous match the committed core did not commit (a content-equal
@@ -32,6 +58,15 @@ public sealed record FindingEdge(FindingEdgeKind Kind, int OldIndex, int NewInde
 /// threshold. The default (100) accepts none, so these stay Added+Removed.
 /// </summary>
 public sealed record FindingMoveCandidate(int OldIndex, int NewIndex, int Confidence, string Reason);
+
+/// <summary>
+/// A deferred non-exact correspondence between two residual observations. The candidate remains
+/// an add/remove pair until a consumer accepts its tier confidence.
+/// </summary>
+public sealed record FindingSoftMatchCandidate(
+    int OldIndex,
+    int NewIndex,
+    FindingMatchProvenance Match);
 
 /// <summary>The result of matching two key streams (see FindingKey).</summary>
 /// <param name="Edges">
@@ -49,6 +84,7 @@ public sealed record FindingMatch(
     ImmutableArray<FindingEdge> _edges = Validate(Edges, nameof(Edges));
     ImmutableArray<FindingMoveCandidate> _moveCandidates
         = Validate(MoveCandidates, nameof(MoveCandidates));
+    ImmutableArray<FindingSoftMatchCandidate> _softCandidates = [];
 
     public ImmutableArray<FindingEdge> Edges
     {
@@ -62,15 +98,23 @@ public sealed record FindingMatch(
         init => _moveCandidates = Validate(value, nameof(MoveCandidates));
     }
 
+    public ImmutableArray<FindingSoftMatchCandidate> SoftCandidates
+    {
+        get => _softCandidates;
+        init => _softCandidates = Validate(value, nameof(SoftCandidates));
+    }
+
     public bool Equals(FindingMatch? other)
         => other is not null
             && FindingValueEquality.SequenceEqual(Edges, other.Edges)
-            && FindingValueEquality.SequenceEqual(MoveCandidates, other.MoveCandidates);
+            && FindingValueEquality.SequenceEqual(MoveCandidates, other.MoveCandidates)
+            && FindingValueEquality.SequenceEqual(SoftCandidates, other.SoftCandidates);
 
     public override int GetHashCode()
         => HashCode.Combine(
             FindingValueEquality.SequenceHashCode(Edges),
-            FindingValueEquality.SequenceHashCode(MoveCandidates));
+            FindingValueEquality.SequenceHashCode(MoveCandidates),
+            FindingValueEquality.SequenceHashCode(SoftCandidates));
 
     static ImmutableArray<TItem> Validate<TItem>(
         ImmutableArray<TItem> items,
@@ -187,6 +231,7 @@ public static class FindingMatcher
         for (int j = 0; j < newKeys.Length; j++)
             Bucket(newByKey, newKeys[j].IdentityKey).Enqueue(j);
 
+        var matchedOld = new bool[oldKeys.Length];
         var matchedNew = new bool[newKeys.Length];
         var edges = ImmutableArray.CreateBuilder<FindingEdge>();
 
@@ -197,14 +242,18 @@ public static class FindingMatcher
             if (queue is { Count: > 0 })
             {
                 int j = queue.Dequeue();
+                matchedOld[i] = true;
                 matchedNew[j] = true;
                 edges.Add(new FindingEdge(FindingEdgeKind.Matched, i, j, 100));
             }
-            else
-            {
-                edges.Add(new FindingEdge(FindingEdgeKind.Removed, i, -1, 100));
-            }
         }
+
+        var residualOld = ResidualIndices(matchedOld);
+        var residualNew = ResidualIndices(matchedNew);
+        var softCandidates = BuildSoftCandidates(oldKeys, newKeys, residualOld, residualNew);
+
+        foreach (int i in residualOld)
+            edges.Add(new FindingEdge(FindingEdgeKind.Removed, i, -1, 100));
 
         for (int j = 0; j < newKeys.Length; j++)
         {
@@ -212,7 +261,10 @@ public static class FindingMatcher
                 edges.Add(new FindingEdge(FindingEdgeKind.Added, -1, j, 100));
         }
 
-        return new FindingMatch(edges.ToImmutable(), ImmutableArray<FindingMoveCandidate>.Empty);
+        return new FindingMatch(edges.ToImmutable(), ImmutableArray<FindingMoveCandidate>.Empty)
+        {
+            SoftCandidates = softCandidates,
+        };
 
         static Queue<int> Bucket(Dictionary<string, Queue<int>> byKey, string key)
         {
@@ -256,6 +308,19 @@ public static class FindingMatcher
 
         // 4. Leftover residual: score singleton content matches as fringe, emit the rest as add/remove.
         var fringe = BuildFringe(oldKeys, newKeys, residualOld, residualNew, committedOld, committedNew);
+        var unmatchedOld = residualOld
+            .Where((_, localIndex) => !committedOld[localIndex])
+            .ToArray();
+        var unmatchedNew = residualNew
+            .Where((_, localIndex) => !committedNew[localIndex])
+            .ToArray();
+        var softCandidates = BuildSoftCandidates(
+            oldKeys,
+            newKeys,
+            unmatchedOld,
+            unmatchedNew,
+            fringe.Select(candidate => candidate.OldIndex).ToHashSet(),
+            fringe.Select(candidate => candidate.NewIndex).ToHashSet());
 
         foreach (var (localIndex, oldIndex) in Indexed(residualOld))
         {
@@ -269,7 +334,10 @@ public static class FindingMatcher
                 edges.Add(new FindingEdge(FindingEdgeKind.Added, -1, newIndex, 100));
         }
 
-        return new FindingMatch(edges.ToImmutable(), fringe);
+        return new FindingMatch(edges.ToImmutable(), fringe)
+        {
+            SoftCandidates = softCandidates,
+        };
     }
 
     static int[] ResidualIndices(bool[] matched)
@@ -400,6 +468,93 @@ public static class FindingMatcher
 
         return fringe.ToImmutable();
     }
+
+    static ImmutableArray<FindingSoftMatchCandidate> BuildSoftCandidates(
+        FindingKey[] oldStream,
+        FindingKey[] newStream,
+        int[] residualOld,
+        int[] residualNew,
+        IReadOnlySet<int>? blockedOld = null,
+        IReadOnlySet<int>? blockedNew = null)
+    {
+        var newByProjection = new Dictionary<SoftProjectionKey, List<(int Index, FindingSoftKey Key)>>();
+        foreach (int newIndex in residualNew)
+        {
+            if (blockedNew?.Contains(newIndex) == true)
+                continue;
+
+            foreach (var softKey in newStream[newIndex].SoftKeys)
+            {
+                var projection = new SoftProjectionKey(
+                    softKey.Tier.Id,
+                    softKey.Tier.Confidence,
+                    softKey.IdentityKey);
+                if (!newByProjection.TryGetValue(projection, out var bucket))
+                    newByProjection.Add(projection, bucket = []);
+                bucket.Add((newIndex, softKey));
+            }
+        }
+
+        var candidates = new List<FindingSoftMatchCandidate>();
+        foreach (int oldIndex in residualOld)
+        {
+            if (blockedOld?.Contains(oldIndex) == true)
+                continue;
+
+            foreach (var oldSoftKey in oldStream[oldIndex].SoftKeys)
+            {
+                var projection = new SoftProjectionKey(
+                    oldSoftKey.Tier.Id,
+                    oldSoftKey.Tier.Confidence,
+                    oldSoftKey.IdentityKey);
+                if (!newByProjection.TryGetValue(projection, out var newEntries))
+                    continue;
+
+                foreach (var (newIndex, newSoftKey) in newEntries)
+                {
+                    if (string.Equals(oldSoftKey.Variant, newSoftKey.Variant, StringComparison.Ordinal))
+                        continue;
+
+                    candidates.Add(new FindingSoftMatchCandidate(
+                        oldIndex,
+                        newIndex,
+                        new FindingMatchProvenance(oldSoftKey.Tier, oldSoftKey.Tier.Confidence)));
+                }
+            }
+        }
+
+        // Multiple tiers may independently project the same pair. Keep only its strongest tier,
+        // then suppress every endpoint that still participates in more than one pair. Under-match
+        // is safer than choosing among ambiguous near misses.
+        var distinctPairs = candidates
+            .GroupBy(candidate => (candidate.OldIndex, candidate.NewIndex))
+            .Select(group => group
+                .OrderByDescending(candidate => candidate.Match.Confidence)
+                .ThenBy(candidate => candidate.Match.Tier.Id, StringComparer.Ordinal)
+                .First())
+            .ToArray();
+        var oldCounts = distinctPairs
+            .GroupBy(candidate => candidate.OldIndex)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var newCounts = distinctPairs
+            .GroupBy(candidate => candidate.NewIndex)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        return
+        [
+            .. distinctPairs
+                .Where(candidate => oldCounts[candidate.OldIndex] == 1)
+                .Where(candidate => newCounts[candidate.NewIndex] == 1)
+                .OrderByDescending(candidate => candidate.Match.Confidence)
+                .ThenBy(candidate => candidate.OldIndex)
+                .ThenBy(candidate => candidate.NewIndex),
+        ];
+    }
+
+    readonly record struct SoftProjectionKey(
+        string TierId,
+        int Confidence,
+        string IdentityKey);
 
     // Same construction and tiebreak as ILInspector.Instructions.IlBodyDiff so the committed
     // core reproduces the existing IL sequence diff exactly on move-free inputs.

@@ -28,6 +28,12 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
+    <ProjectReference Include="Fixtures/ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
+      <Aliases>extensionold</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="Fixtures/ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj">
+      <Aliases>extensionnew</Aliases>
+    </ProjectReference>
     <!-- New-rules unsafe fixture: a member declared `unsafe` with no pointer in
          its signature is stamped [RequiresUnsafeAttribute]; used to verify the
          API surface marks it unsafe. -->
