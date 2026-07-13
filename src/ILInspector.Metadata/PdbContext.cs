@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Instructions;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -22,7 +23,25 @@ public record SourceDocument(
     bool IsEmbedded,
     string? ResolvedUrl,
     byte[]? Checksum = null,
-    string? ChecksumAlgorithm = null);
+    string? ChecksumAlgorithm = null,
+    int DocumentRowId = 0,
+    string? CanonicalPath = null);
+
+/// <summary>
+/// A method-to-document relationship extracted from portable-PDB sequence points.
+/// The metadata token and document row identify the same-version coordinates; the
+/// member anchor and canonical document path provide cross-version identity.
+/// </summary>
+public sealed record MemberSourceInfo(
+    MemberAnchor Anchor,
+    int MetadataToken,
+    int DocumentRowId,
+    string FilePath,
+    string CanonicalPath,
+    string? ResolvedUrl,
+    int StartLine,
+    int EndLine,
+    bool IsPrimaryDocument = false);
 
 public record ILOffsetMemberContextInfo(
     string? Assembly,
@@ -869,14 +888,6 @@ public class PdbContext : IDisposable
             var document = _pdbReader.GetDocument(docHandle);
             string filePath = _pdbReader.GetString(document.Name);
 
-            // Skip non-source files
-            if (!filePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) &&
-                !filePath.EndsWith(".vb", StringComparison.OrdinalIgnoreCase) &&
-                !filePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             bool isEmbedded = false;
             foreach (var cdiHandle in _pdbReader.GetCustomDebugInformation(docHandle))
             {
@@ -898,9 +909,127 @@ public class PdbContext : IDisposable
                 checksumAlgorithm = MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm));
             }
 
-            yield return new SourceDocument(filePath, isEmbedded, resolvedUrl, checksum, checksumAlgorithm);
+            yield return new SourceDocument(
+                filePath,
+                isEmbedded,
+                resolvedUrl,
+                checksum,
+                checksumAlgorithm,
+                MetadataTokens.GetRowNumber(docHandle),
+                SourceDocumentPath.Canonicalize(filePath, SourceLinkJson));
         }
     }
+
+    /// <summary>
+    /// Enumerates method-to-document mappings from visible portable-PDB sequence points.
+    /// A method may produce multiple rows when sequence points span multiple documents.
+    /// </summary>
+    public IEnumerable<MemberSourceInfo> EnumerateMemberSources(
+        IReadOnlySet<int>? metadataTokens = null)
+    {
+        if (_pdbReader == null || !_peReader.HasMetadata)
+            yield break;
+
+        var metadata = _peReader.GetMetadataReader();
+        foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
+        {
+            int metadataToken = MetadataTokens.GetToken(methodHandle);
+            var debugInfo = _pdbReader.GetMethodDebugInformation(methodHandle.ToDebugInformationHandle());
+            var currentDocument = debugInfo.Document;
+            var primaryDocument = debugInfo.Document;
+            Dictionary<DocumentHandle, (int StartLine, int EndLine)> ranges = [];
+
+            foreach (var point in debugInfo.GetSequencePoints())
+            {
+                if (!point.Document.IsNil)
+                    currentDocument = point.Document;
+                if (point.IsHidden || currentDocument.IsNil)
+                    continue;
+                // Multi-document methods may omit the root document; in that case,
+                // the first visible sequence point is the stable presentation choice.
+                if (primaryDocument.IsNil)
+                    primaryDocument = currentDocument;
+
+                if (ranges.TryGetValue(currentDocument, out var range))
+                {
+                    ranges[currentDocument] = (
+                        Math.Min(range.StartLine, point.StartLine),
+                        Math.Max(range.EndLine, point.EndLine));
+                }
+                else
+                {
+                    ranges[currentDocument] = (point.StartLine, point.EndLine);
+                }
+            }
+
+            if (ranges.Count == 0)
+                continue;
+
+            var method = metadata.GetMethodDefinition(methodHandle);
+            var anchor = ApiMemberIdentity.CreateMethodAnchor(
+                metadata,
+                method.GetDeclaringType(),
+                method);
+
+            foreach (var (documentHandle, range) in ranges
+                .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key)))
+            {
+                var document = _pdbReader.GetDocument(documentHandle);
+                string filePath = _pdbReader.GetString(document.Name);
+                yield return new MemberSourceInfo(
+                    anchor,
+                    metadataToken,
+                    MetadataTokens.GetRowNumber(documentHandle),
+                    filePath,
+                    SourceDocumentPath.Canonicalize(filePath, SourceLinkJson),
+                    _resolver?.ApplySourceLinkMapping(filePath),
+                    range.StartLine,
+                    range.EndLine,
+                    IsPrimaryDocument: documentHandle == primaryDocument);
+            }
+        }
+    }
+
+    private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(
+        MetadataReader metadata,
+        IReadOnlySet<int>? metadataTokens)
+    {
+        if (metadataTokens is null)
+        {
+            foreach (var methodHandle in metadata.MethodDefinitions)
+                yield return methodHandle;
+            yield break;
+        }
+
+        int methodCount = metadata.GetTableRowCount(TableIndex.MethodDef);
+        foreach (int token in metadataTokens.Order())
+        {
+            const int methodDefinitionToken = 0x06000000;
+            const int tokenTypeMask = unchecked((int)0xFF000000);
+            const int rowMask = 0x00FFFFFF;
+            int row = token & rowMask;
+            if ((token & tokenTypeMask) != methodDefinitionToken || row == 0 || row > methodCount)
+                continue;
+
+            yield return MetadataTokens.MethodDefinitionHandle(row);
+        }
+    }
+
+    /// <summary>
+    /// Reads compiler options recorded in portable-PDB module custom debug information.
+    /// </summary>
+    public IReadOnlyList<CompilationOptionInfo> GetCompilationOptions()
+        => _pdbReader is null
+            ? []
+            : PdbCompilationInfoReader.ReadOptions(_pdbReader);
+
+    /// <summary>
+    /// Reads compiler references recorded in portable-PDB module custom debug information.
+    /// </summary>
+    public IReadOnlyList<CompilationReferenceInfo> GetCompilationReferences()
+        => _pdbReader is null
+            ? []
+            : PdbCompilationInfoReader.ReadReferences(_pdbReader);
 
     // Well-known source document hash algorithm GUIDs (System.Reflection.Metadata).
     private static readonly Guid s_hashSha1 = new("ff1816ec-aa5e-4d10-87f7-6f4963833460");

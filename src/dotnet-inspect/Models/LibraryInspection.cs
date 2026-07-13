@@ -232,6 +232,43 @@ public class LibraryInspection
         }
     }
 
+    private FindingInspection<SourceDocumentObservation>? _sourceDocumentInspection;
+    private FindingInspection<CompilationOptionInfo>? _compilationOptionInspection;
+    private FindingInspection<CompilationReferenceInfo>? _compilationReferenceInspection;
+
+    [JsonIgnore]
+    public FindingInspection<SourceDocumentObservation>? SourceDocumentInspection
+    {
+        get => _sourceDocumentInspection;
+        set
+        {
+            _sourceDocumentInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    [JsonIgnore]
+    public FindingInspection<CompilationOptionInfo>? CompilationOptionInspection
+    {
+        get => _compilationOptionInspection;
+        set
+        {
+            _compilationOptionInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    [JsonIgnore]
+    public FindingInspection<CompilationReferenceInfo>? CompilationReferenceInspection
+    {
+        get => _compilationReferenceInspection;
+        set
+        {
+            _compilationReferenceInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSurface? ApiSurface { get; set; }
 
@@ -474,6 +511,9 @@ public class LibraryInspection
             {
             List<LibraryInspectionFailureJson> failures = [];
             AddFailure(failures, "References", AssemblyReferenceInspection);
+            AddFailure(failures, "Source Documents", SourceDocumentInspection);
+            AddFailure(failures, "Compilation Options", CompilationOptionInspection);
+            AddFailure(failures, "Compilation References", CompilationReferenceInspection);
             AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);

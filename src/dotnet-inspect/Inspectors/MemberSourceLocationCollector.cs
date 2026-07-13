@@ -1,6 +1,7 @@
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -34,25 +35,50 @@ internal static class MemberSourceLocationCollector
             if (!service.HasPdb || !service.HasSourceLink)
                 return pdbPath;
 
-            foreach (var member in GetTargetMembers(apiType, options))
+            var targetMembers = GetTargetMembers(apiType, options).ToArray();
+            var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+            var membersByToken = targetMembers
+                .Where(static member => member.MetadataToken is not null)
+                .GroupBy(static member => member.MetadataToken!.Value)
+                .ToDictionary(static group => group.Key, static group => group.ToArray());
+            if (membersByToken.Count == 0)
+                return pdbPath;
+
+            var sourceInspection = MetadataFindings.InspectMemberSources(
+                service,
+                subject,
+                new MemberSourceQuery(membersByToken.Keys.ToHashSet()));
+            if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Complete complete)
             {
-                var typeName = string.IsNullOrWhiteSpace(member.DeclaringType)
-                    ? apiType.FullName
-                    : member.DeclaringType!;
-                var overloadIndex = GetSourceOverloadIndex(apiType, member, options);
-                if (overloadIndex < 0)
+                ApplySourceLocations(membersByToken, complete);
+                return pdbPath;
+            }
+
+            if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Absent)
+                return pdbPath;
+
+            // A malformed method must not suppress source locations for healthy selected
+            // members. Token queries are direct lookups, so this fallback remains O(selected).
+            foreach (var (token, members) in membersByToken)
+            {
+                var tokenInspection = MetadataFindings.InspectMemberSources(
+                    service,
+                    subject,
+                    new MemberSourceQuery(new HashSet<int> { token }));
+                if (tokenInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
+                {
+                    logger.Log(
+                        $"Warning: Failed to resolve source location for {members[0].Name}: "
+                        + failed.Error.Reason);
+                    continue;
+                }
+
+                if (tokenInspection.Value is not FindingInspection<MemberSourceObservation>.Complete tokenComplete)
                     continue;
 
-                var publicOnly = !options.IncludeAll
-                                 && member.Kind != "explicit-interface-implementation";
-                var info = service.ResolveMethodSource(typeName, member.Name, overloadIndex, publicOnly);
-                if (info is null)
-                    continue;
-
-                member.SourceFilePath = info.FilePath;
-                member.SourceUrl = info.SourceUrl;
-                member.SourceLineNumber = info.StartLine;
-                member.SourceEndLineNumber = info.EndLine;
+                ApplySourceLocations(
+                    new Dictionary<int, ApiMember[]> { [token] = members },
+                    tokenComplete);
             }
 
             return pdbPath;
@@ -61,6 +87,32 @@ internal static class MemberSourceLocationCollector
         {
             logger.Log($"Warning: Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
             return null;
+        }
+    }
+
+    private static void ApplySourceLocations(
+        IReadOnlyDictionary<int, ApiMember[]> membersByToken,
+        FindingInspection<MemberSourceObservation>.Complete inspection)
+    {
+        foreach (var mappings in inspection.Findings
+            .Select(static finding => finding.Payload)
+            .GroupBy(static mapping => mapping.MetadataToken))
+        {
+            if (!membersByToken.TryGetValue(mappings.Key, out var members))
+                continue;
+
+            // Preserve the legacy resolver's preference for MethodDebugInformation.Document.
+            var mapping = mappings
+                .OrderByDescending(static candidate => candidate.IsPrimaryDocument)
+                .ThenBy(static candidate => candidate.DocumentRowId)
+                .First();
+            foreach (var member in members)
+            {
+                member.SourceFilePath = mapping.OriginalPath;
+                member.SourceUrl = mapping.ResolvedUrl;
+                member.SourceLineNumber = mapping.StartLine;
+                member.SourceEndLineNumber = mapping.EndLine;
+            }
         }
     }
 
@@ -82,19 +134,4 @@ internal static class MemberSourceLocationCollector
         return members;
     }
 
-    private static int GetSourceOverloadIndex(ApiType apiType, ApiMember member, MemberOptions options)
-    {
-        if (member.DeclaringOverloadIndex is { } declaringOverload)
-            return declaringOverload - 1;
-
-        if (options.OverloadIndex is { } selectedOverload && apiType.Members.Count == 1)
-            return selectedOverload - 1;
-
-        var sameName = apiType.Members
-            .Where(m => string.Equals(m.Name, member.Name, StringComparison.Ordinal))
-            .Where(ApiMemberSectionDescriptors.IsMethodLike)
-            .ToList();
-
-        return sameName.IndexOf(member);
-    }
 }

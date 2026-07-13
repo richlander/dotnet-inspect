@@ -200,6 +200,13 @@ path. The member command's opt-in `Fidelity Causes` section keeps the complete
 projects it only when rendering. A complete empty census, absent method body,
 and failed inspection therefore remain distinct product outcomes.
 
+Portable-PDB source observations follow the same product-first path.
+`MetadataFindings` exposes source documents, member-to-document mappings,
+compilation options, and compilation references as separate identity-set
+censuses. Source reachability, checksum verification, authored/decompiled
+correspondence, and rebuild fidelity remain consumer operations over those raw
+observations. See [Source Finding Producers](source-finding-producers.md).
+
 The remaining Analysis safety observations preserve their native families:
 
 - declaration, signature, local, call, and opcode evidence use an identity

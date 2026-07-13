@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using DotnetInspector.Core;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
@@ -18,22 +19,32 @@ internal static class SourceIntegrityService
     private const string CacheCategory = "source-integrity";
 
     public static async Task PopulateAsync(
-        SourceLinkService service,
+        FindingInspection<SourceDocumentObservation> documentInspection,
         LibraryInspection inspection,
         VerboseLogger logger,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(documentInspection);
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        if (documentInspection.Value is not FindingInspection<SourceDocumentObservation>.Complete complete)
+            return;
+
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceIntegrity);
-        var documents = service.GetTrackedFiles();
+        var documents = complete.Findings
+            .Select(static finding => finding.Payload)
+            .Where(static document => document.IsCompilerLanguageSource)
+            .ToArray();
 
         // Only network-fetchable documents that carry a usable checksum can be verified.
-        List<SourceDocument> verifiable = [];
+        List<SourceDocumentObservation> verifiable = [];
         int unverifiable = 0;
         foreach (var doc in documents)
         {
-            if (doc.IsEmbedded)
+            if (doc.Storage == SourceDocumentStorage.Embedded)
                 continue; // present in the artifact; nothing to fetch
-            if (doc.ResolvedUrl == null || doc.Checksum is not { Length: > 0 } || doc.ChecksumAlgorithm == null
+            if (doc.ResolvedUrl == null || string.IsNullOrEmpty(doc.Checksum) || doc.ChecksumAlgorithm == null
                 || !Core.HttpClientFactory.IsAllowedFetchScheme(doc.ResolvedUrl))
             {
                 unverifiable++;
@@ -66,7 +77,8 @@ internal static class SourceIntegrityService
                 new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = cancellationToken },
                 async (doc, ct) =>
                 {
-                    string cacheKey = $"{doc.ResolvedUrl}|{doc.ChecksumAlgorithm}|{Convert.ToHexString(doc.Checksum!)}";
+                    byte[] checksum = Convert.FromHexString(doc.Checksum!);
+                    string cacheKey = $"{doc.ResolvedUrl}|{doc.ChecksumAlgorithm}|{doc.Checksum}";
                     bool immutable = SourceLinkUrls.IsImmutable(doc.ResolvedUrl!);
 
                     if (immutable && CoreCache.TryGet(CacheCategory, cacheKey, extension: "verified") != null)
@@ -100,13 +112,13 @@ internal static class SourceIntegrityService
                         return;
                     }
 
-                    if (HashMatches(doc.ChecksumAlgorithm!, body, doc.Checksum!))
+                    if (HashMatches(doc.ChecksumAlgorithm!, body, checksum))
                     {
                         Interlocked.Increment(ref verified);
                         if (immutable)
                             CoreCache.Set(CacheCategory, cacheKey, "1", extension: "verified");
                     }
-                    else if (HashMatchesAfterLineEndingNormalization(doc.ChecksumAlgorithm!, body, doc.Checksum!))
+                    else if (HashMatchesAfterLineEndingNormalization(doc.ChecksumAlgorithm!, body, checksum))
                     {
                         Interlocked.Increment(ref verified);
                         Interlocked.Increment(ref lineEndingNormalized);
@@ -116,8 +128,8 @@ internal static class SourceIntegrityService
                     else
                     {
                         Interlocked.Increment(ref mismatched);
-                        mismatches.Add(doc.FilePath);
-                        logger.Log($"Integrity MISMATCH: {doc.FilePath} ({doc.ResolvedUrl})");
+                        mismatches.Add(doc.OriginalPath);
+                        logger.Log($"Integrity MISMATCH: {doc.OriginalPath} ({doc.ResolvedUrl})");
                     }
                 });
         }
