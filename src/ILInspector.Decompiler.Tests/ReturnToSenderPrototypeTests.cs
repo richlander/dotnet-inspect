@@ -1109,6 +1109,75 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DropsInitializerWhenArrayCovariantArgumentBindsNestedFacadeAssemblyUserConversion()
+    {
+        // Issue #2726 guard (adversarial, from PR #2730 round-4 review, found
+        // independently by both reviewers): a NESTED inspected type has an empty
+        // metadata namespace and a simple metadata name, but the decoder shapes its
+        // TypeRef with the outermost namespace and a `Declaring+Nested` name
+        // (System.Outer+MySink). A flat `namespace + "." + name` inspected-name key
+        // would miss it, so in a facade-simple-named assembly the nested user type
+        // (canonicalized to corelib) would be wrongly excluded and the chain emitted.
+        // InspectedDefinitionKey walks the declaring chain to match the decoder, so
+        // the nested competitor stays in play and the chain strips.
+        var assemblyPath = CompileFixture(
+            """
+            using System.Collections.Generic;
+            using System.Runtime.CompilerServices;
+
+            namespace System
+            {
+                public class Outer
+                {
+                    public class MySink
+                    {
+                        public static implicit operator MySink(string[] value) => new MySink();
+                    }
+                }
+            }
+
+            public class C
+            {
+                public C(string tag)
+                    : this(Parse(tag), tag.Length)
+                {
+                    _ = (System.Outer.MySink)Parse(tag);
+                    _ = new C(default(System.Outer.MySink), 0);
+                }
+
+                public C(IEnumerable<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                [OverloadResolutionPriority(-1)]
+                public C(System.Outer.MySink sink, int count)
+                {
+                    Count = count;
+                }
+
+                public int Count { get; }
+
+                private static string[] Parse(string tag) => tag.Split('.');
+            }
+            """,
+            assemblyName: "System.Runtime");
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_DropsInitializerWhenArrayCovariantArgumentBindsSystemNamespaceUserConversion()
     {
         // Issue #2726 guard (adversarial, from PR #2730 round-2 review): a user type

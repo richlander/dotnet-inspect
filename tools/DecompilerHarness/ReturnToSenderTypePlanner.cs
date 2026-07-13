@@ -1809,14 +1809,7 @@ public static class CompileBackSourceComposer
         // inspected definitions so competitor exclusion never rules one out.
         var inspectedTypeNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var definitionHandle in reader.TypeDefinitions)
-        {
-            var definition = reader.GetTypeDefinition(definitionHandle);
-            string definitionNamespace = reader.GetString(definition.Namespace);
-            string definitionName = reader.GetString(definition.Name);
-            inspectedTypeNames.Add(definitionNamespace.Length == 0
-                ? definitionName
-                : definitionNamespace + "." + definitionName);
-        }
+            inspectedTypeNames.Add(InspectedDefinitionKey(reader, definitionHandle));
 
         // Enumerate the target type's instance constructors from metadata, each
         // with the arity range it can bind (a `params` array or optional parameters
@@ -1971,6 +1964,25 @@ public static class CompileBackSourceComposer
         => type.Kind == TypeRefKind.Definition
             && inspectedTypeNames.Contains(
                 type.Namespace.Length == 0 ? type.Name : type.Namespace + "." + type.Name);
+
+    /// <summary>
+    /// Builds the same full-name key that <see cref="IsInspectedDefinition"/>
+    /// compares against, mirroring how <c>TypeRefDecoder.GetTypeFromDefinition</c>
+    /// shapes a definition's <see cref="TypeRef"/>: a nested type carries the
+    /// OUTERMOST declaring type's namespace and a <c>Declaring+Nested</c> name
+    /// (chained through every enclosing type), so a flat
+    /// <c>namespace + "." + name</c> would miss nested inspected definitions.
+    /// </summary>
+    static string InspectedDefinitionKey(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        var definition = reader.GetTypeDefinition(handle);
+        string name = reader.GetString(definition.Name);
+        if (definition.IsNested)
+            return InspectedDefinitionKey(reader, definition.GetDeclaringType()) + "+" + name;
+
+        string ns = reader.GetString(definition.Namespace);
+        return ns.Length == 0 ? name : ns + "." + name;
+    }
 
     /// <summary>
     /// Whether an argument's static type is a single-dimensional array
