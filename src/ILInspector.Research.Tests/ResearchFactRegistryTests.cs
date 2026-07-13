@@ -101,22 +101,6 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
-    public void RunProjection_AllowsInitializerOnlyResult()
-    {
-        var projected = DecompilerResult.Success("") with
-        {
-            FieldInitializers = [("Value", "42")]
-        };
-
-        var result = ResearchViews.RunProjection(
-            () => projected,
-            emptyOutputIsFailure: true);
-
-        Assert.Same(projected, result);
-        Assert.Empty(result.Diagnostics);
-    }
-
-    [Fact]
     public void EmptyRegistry_ProducesNoOverlayFacts()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);

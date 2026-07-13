@@ -486,7 +486,6 @@ public static class ResearchViews
         return emptyOutputIsFailure
             && string.IsNullOrWhiteSpace(result.Output)
             && result.ConstructorChain is null
-            && result.FieldInitializers.Count == 0
             ? DecompilerResult.Failure(DiagnosticIds.EmptyOutput, "projection produced no output for a method with a body")
             : result;
     }
