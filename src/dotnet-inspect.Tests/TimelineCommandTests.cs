@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
@@ -212,6 +214,31 @@ public sealed class TimelineCommandTests
         };
         var finding = Assert.Single(complete.Findings);
         Assert.Equal(UnsafetyKind.Deref, finding.Payload.Kind);
+    }
+
+    [Fact]
+    public void AnalysisTimeline_DisposesEndpointAfterCellInspection()
+    {
+        var vector = Vector("1.0.0");
+        string tempDir = Path.Combine(Path.GetTempPath(), $"timeline-endpoint-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var endpoint = new ApiSurfaceEndpoint(
+            new AssemblySet(
+                assemblies: [],
+                diagnostics: [],
+                tempDirs: [tempDir]),
+            Surface(Type("Widget")));
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "analysis.unsafety",
+            [new TimelineCommand.TimelineEvaluation(vector.Addresses[0], endpoint.Surface, null, endpoint)],
+            Sections(),
+            memberName: "Run");
+
+        Assert.Equal("SubjectAbsent", Assert.Single(view.Evaluations!).State);
+        Assert.False(Directory.Exists(tempDir));
     }
 
     [Fact]

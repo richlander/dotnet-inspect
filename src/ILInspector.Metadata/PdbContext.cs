@@ -899,7 +899,7 @@ public class PdbContext : IDisposable
                 }
             }
 
-            string? resolvedUrl = _resolver?.ApplySourceLinkMapping(filePath);
+            var sourceLink = SourceDocumentPath.Resolve(filePath, SourceLinkJson);
 
             byte[]? checksum = null;
             string? checksumAlgorithm = null;
@@ -912,11 +912,11 @@ public class PdbContext : IDisposable
             yield return new SourceDocument(
                 filePath,
                 isEmbedded,
-                resolvedUrl,
+                sourceLink.ResolvedUrl,
                 checksum,
                 checksumAlgorithm,
                 MetadataTokens.GetRowNumber(docHandle),
-                SourceDocumentPath.Canonicalize(filePath, SourceLinkJson));
+                sourceLink.CanonicalPath);
         }
     }
 

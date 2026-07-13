@@ -445,6 +445,49 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void ExtensionRootSelection_FallsBackWhenReceiverIndexIsArityAmbiguous()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            namespace ExtensionReceiverArityFixture;
+
+            public class Result { }
+            public class Result<T> : IEnumerable<T>
+            {
+                public IEnumerator<T> GetEnumerator() => throw null!;
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+            }
+
+            public static class EnumerableExtensions
+            {
+                public static void Add(this IEnumerable<int> receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var selection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverArityFixture.Result<int>",
+                ["ExtensionReceiverArityFixture.Result<int>"],
+                compatibleReceiverTypesComplete: false);
+
+            Assert.Equal(
+                ["ExtensionReceiverArityFixture.EnumerableExtensions"],
+                selection.Roots);
+            Assert.True(selection.UsedFallback);
+            Assert.Equal(
+                "receiver hierarchy incomplete for ExtensionReceiverArityFixture.Result",
+                selection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""

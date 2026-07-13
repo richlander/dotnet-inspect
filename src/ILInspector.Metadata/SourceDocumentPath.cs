@@ -5,6 +5,9 @@ namespace ILInspector.Metadata;
 internal static class SourceDocumentPath
 {
     public static string Canonicalize(string filePath, string? sourceLinkJson)
+        => Resolve(filePath, sourceLinkJson).CanonicalPath;
+
+    public static SourceDocumentPathResolution Resolve(string filePath, string? sourceLinkJson)
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new BadImageFormatException("A portable-PDB source document has an empty path.");
@@ -27,13 +30,20 @@ internal static class SourceDocumentPath
                         {
                             string prefix = pattern[..^1];
                             if (normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                                return normalizedPath[prefix.Length..].TrimStart('/');
+                            {
+                                string suffix = normalizedPath[prefix.Length..].TrimStart('/');
+                                return new SourceDocumentPathResolution(
+                                    suffix,
+                                    ResolveUrl(mapping.Value.GetString(), suffix),
+                                    IsMapped: true);
+                            }
                         }
                         else if (string.Equals(normalizedPath, pattern, StringComparison.OrdinalIgnoreCase))
                         {
-                            return normalizedPath.StartsWith("/_/", StringComparison.Ordinal)
-                                ? normalizedPath[3..]
-                                : normalizedPath;
+                            return new SourceDocumentPathResolution(
+                                TrimSyntheticRoot(normalizedPath),
+                                mapping.Value.GetString(),
+                                IsMapped: true);
                         }
                     }
                 }
@@ -44,11 +54,30 @@ internal static class SourceDocumentPath
             }
         }
 
-        return normalizedPath.StartsWith("/_/", StringComparison.Ordinal)
-            ? normalizedPath[3..]
-            : normalizedPath;
+        return new SourceDocumentPathResolution(
+            TrimSyntheticRoot(normalizedPath),
+            ResolvedUrl: null,
+            IsMapped: false);
     }
 
     private static string NormalizeSeparators(string path)
         => path.Replace('\\', '/');
+
+    private static string TrimSyntheticRoot(string path)
+        => path.StartsWith("/_/", StringComparison.Ordinal) ? path[3..] : path;
+
+    private static string? ResolveUrl(string? urlPattern, string suffix)
+    {
+        if (string.IsNullOrWhiteSpace(urlPattern))
+            return null;
+
+        return urlPattern.EndsWith('*')
+            ? urlPattern[..^1] + suffix
+            : urlPattern;
+    }
 }
+
+internal sealed record SourceDocumentPathResolution(
+    string CanonicalPath,
+    string? ResolvedUrl,
+    bool IsMapped);

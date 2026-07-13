@@ -190,6 +190,11 @@ not from display headers such as `Field`; renamed headers therefore cannot hide
 fields, and an ordinary table with a coincidental `Field` column cannot create
 field rows.
 
+Cached surfaces serialized before degraded signature decode status existed carry
+a null status. Diffing one of those old surfaces against a fresh inspection of
+the same malformed assembly may report a one-time `MemberSignatureChanged`
+because the fresh row is now explicitly `Degraded`.
+
 **Effective sections are restricted to the active schema.** The `type`/member-list pipeline and the selected-overload member-detail pipeline expose different section sets. Type/member-list discovery drops member-detail implementation sections such as `Decompiled Source`, `Original Source`, and `IL`. Selected-overload effective discovery uses the detail schema and follows the same pipeline rules as package/library discovery: normal sections appear at `-v:n`, detailed sections appear at `-v:d`, and explicit-only sections are listed only by static schema discovery (`--schema`) or selected explicitly. Effective discovery for both the `type` and `member` commands runs through one shared helper (`ApiCommand.ExecuteEffectiveDiscovery`), so the section restriction and the render-probe column narrowing apply uniformly.
 
 **Empty sections are dropped via a render-probe.** Some schema sections have a coarse `CanRender` proxy that over-reports. For example, `Custom Attributes` (`MethodAttributes` descriptor) returns true for any type with methods, but its data (`TypeView.MethodAttributeRows`) is only populated on the member-detail/index path — the type-level renderer produces no table for it. To avoid advertising sections that would render nothing, `DiscoverOutput.RestrictToRenderedSections` reads the same typed render manifest used for column discovery and drops any _tabular_ schema section that emitted no table. No formatted output is produced or parsed. Non-tabular sections are left untouched.

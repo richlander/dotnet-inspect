@@ -141,6 +141,27 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentIdentity_AndResolvedUrlUseSameSourceLinkMatch()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "c:/repo/*": "https://example.test/repository/*",
+                "c:/repo/src/generated/*": "https://example.test/generated/*"
+              }
+            }
+            """;
+
+        var resolved = SourceDocumentPath.Resolve(
+            "C:/Repo/src/Generated/Widget.cs",
+            sourceLink);
+
+        Assert.True(resolved.IsMapped);
+        Assert.Equal("Widget.cs", resolved.CanonicalPath);
+        Assert.Equal("https://example.test/generated/Widget.cs", resolved.ResolvedUrl);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
