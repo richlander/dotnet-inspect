@@ -139,9 +139,8 @@ windows:
 - `--rows --tail N` keeps the last N data rows.
 
 Both row-window forms are incompatible with `--print` and `--print-all`;
-`--row N|first|last` is the explicit printable-row selector. The current CLI
-implements head rows and rejects tail rows; tail-row support is a follow-up to
-this symmetric contract.
+`--row N|first|last` is the explicit printable-row selector. The CLI implements
+both head and tail data-row windows symmetrically.
 
 This policy deliberately rejects implicit-first behavior. Row order may change
 with filtering, producer evolution, or package versions, and choosing the first
@@ -173,7 +172,7 @@ payloads on already evaluated rows; it cannot probe missing cells.
 | `-n N` / `--head N` / numeric shorthand such as `-20` | keep the first N rendered output lines unless `--rows` is active |
 | `--tail N` | keep the last N rendered output lines unless `--rows` is active |
 | `--rows --head N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
-| `--rows --tail N` | keep the last N **data rows per table**; target symmetry, not yet implemented |
+| `--rows --tail N` | keep the last N **data rows per table**, across Markdown, TSV, and JSONL |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 

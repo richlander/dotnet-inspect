@@ -446,7 +446,7 @@ public class ProjectCommand
             documents,
             new PrintProjectionOptions(
                 options.PrintAll,
-                options.Bare && !options.Print && !options.PrintAll ? 1 : options.PrintRow,
+                options.Bare && !options.Print && !options.PrintAll ? RowSelector.FromIndex(1) : options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,

@@ -116,22 +116,27 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
 // Install line-limiting writer when -NN shorthand was used (e.g. -30).
 // With --rows, -n/-NN is interpreted by commands as per-table row limits.
 var rowLimitMode = args.Any(a => a == "--rows");
-if (rowLimitMode && CommandLineBuilder.TailLines != null)
+if (rowLimitMode)
 {
-    Console.Error.WriteLine("Error: --rows cannot be combined with --tail.");
-    return 1;
+    if (CommandLineBuilder.HeadLines is not null && CommandLineBuilder.TailLines is not null)
+    {
+        Console.Error.WriteLine("Error: --rows cannot combine -n/--head with --tail; choose one row window.");
+        return 1;
+    }
+    if (CommandLineBuilder.HeadLines is null && CommandLineBuilder.TailLines is null)
+    {
+        Console.Error.WriteLine("Error: --rows requires -n/--head N or --tail N.");
+        return 1;
+    }
 }
-if (rowLimitMode && CommandLineBuilder.HeadLines == null)
-{
-    Console.Error.WriteLine("Error: --rows requires -n/--head or -N.");
-    return 1;
-}
+// Line/tail windows apply only outside --rows mode; in --rows mode the count is a
+// per-table data-row window rendered by the commands, not an output-line window.
 if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
     Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
 
 // Install tail writer when --tail N was used
 TailLineLimitingTextWriter? tailWriter = null;
-if (CommandLineBuilder.TailLines is int tailLines)
+if (!rowLimitMode && CommandLineBuilder.TailLines is int tailLines)
 {
     tailWriter = new TailLineLimitingTextWriter(Console.Out, tailLines);
     Console.SetOut(tailWriter);

@@ -1154,6 +1154,82 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void LimitMarkdownTableRows_TailKeepsLastRowsAndHeader()
+    {
+        var markdown = "| Name |\n| ---- |\n| A |\n| B |\n| C |\n";
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, new RowWindow(2, FromEnd: true)).ReplaceLineEndings("\n");
+
+        Assert.Contains("| Name |", output);
+        Assert.Contains("| ---- |", output);
+        Assert.DoesNotContain("| A |", output);
+        Assert.Contains("| B |", output);
+        Assert.Contains("| C |", output);
+    }
+
+    [Fact]
+    public void LimitMarkdownTableRows_TailWiderThanTableKeepsAllRows()
+    {
+        var markdown = "| Name |\n| ---- |\n| A |\n| B |\n";
+
+        var output = MarkdownTableRowLimiter.Apply(markdown, new RowWindow(10, FromEnd: true)).ReplaceLineEndings("\n");
+
+        Assert.Contains("| A |", output);
+        Assert.Contains("| B |", output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_TsvTailKeepsHeaderAndLastRows()
+    {
+        var tsv = "name\tcount\nA\t1\nB\t2\nC\t3\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(tsv, new RowWindow(2, FromEnd: true), hasHeader: true).ReplaceLineEndings("\n");
+
+        Assert.Equal("name\tcount\nB\t2\nC\t3\n", output);
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_JsonlTailKeepsLastRows()
+    {
+        var jsonl = "{\"name\":\"A\"}\n{\"name\":\"B\"}\n{\"name\":\"C\"}\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(jsonl, new RowWindow(2, FromEnd: true), hasHeader: true).ReplaceLineEndings("\n");
+
+        Assert.Equal("{\"name\":\"B\"}\n{\"name\":\"C\"}\n", output);
+    }
+
+    [Theory]
+    [InlineData("first", RowSelectorKind.First)]
+    [InlineData("FIRST", RowSelectorKind.First)]
+    [InlineData("last", RowSelectorKind.Last)]
+    [InlineData("Last", RowSelectorKind.Last)]
+    [InlineData("3", RowSelectorKind.Index)]
+    public void RowSelector_ParsesKeywordsAndIndex(string token, RowSelectorKind expected)
+    {
+        Assert.True(RowSelector.TryParse(token, out var selector));
+        Assert.Equal(expected, selector.Kind);
+    }
+
+    [Theory]
+    [InlineData("firstish")]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("abc")]
+    [InlineData(null)]
+    public void RowSelector_RejectsInvalidTokens(string? token)
+    {
+        Assert.False(RowSelector.TryParse(token, out _));
+    }
+
+    [Fact]
+    public void RowSelector_ResolvesFirstLastAndIndex()
+    {
+        Assert.Equal(1, RowSelector.First.Resolve(7));
+        Assert.Equal(7, RowSelector.Last.Resolve(7));
+        Assert.Equal(3, RowSelector.FromIndex(3).Resolve(7));
+    }
+
+    [Fact]
     public void MultiAssemblyReport_HasSingleH1()
     {
         var report = CreateTestReport("Test.dll", false, "net9.0", "net8.0");

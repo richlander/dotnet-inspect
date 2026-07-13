@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
@@ -75,7 +76,7 @@ public record DependsOptions : IAssemblySourceOptions
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
 
     /// <summary>
     /// Output the number of dependency nodes in the rendered tree.

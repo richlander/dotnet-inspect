@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
@@ -60,7 +61,7 @@ public record FindOptions : IAssemblySourceOptions
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
 
     /// <summary>
     /// Output the number of rendered result rows.

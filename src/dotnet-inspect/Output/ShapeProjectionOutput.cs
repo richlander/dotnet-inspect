@@ -20,7 +20,7 @@ public sealed record ShapeProjectionRow(
 
 public sealed record ShapeProjectionOptions(
     ShapeProjectionKind Kind,
-    int? Row,
+    RowSelector? Row,
     bool JsonOutput,
     bool Jsonl,
     bool JsonArray);
@@ -53,11 +53,12 @@ public static class ShapeProjectionOutput
         }
 
         IReadOnlyList<ShapeProjectionRow> selected = rows;
-        if (options.Row is { } row)
+        if (options.Row is { } selector)
         {
+            var row = selector.Resolve(rows.Count);
             if (row < 1 || row > rows.Count)
             {
-                Console.Error.WriteLine($"Error: row {row} is out of range. Use --row 1 through {rows.Count}.");
+                Console.Error.WriteLine($"Error: row {row} is out of range. Use --row 1 through {rows.Count}, first, or last.");
                 return 1;
             }
 
@@ -66,7 +67,7 @@ public static class ShapeProjectionOutput
 
         if (options.Kind == ShapeProjectionKind.Value && selected.Count != 1)
         {
-            Console.Error.WriteLine($"Error: --value found {selected.Count} rows; use --row N or select a single-row section.");
+            Console.Error.WriteLine($"Error: --value found {selected.Count} rows; use --row N|first|last or select a single-row section.");
             return 1;
         }
 

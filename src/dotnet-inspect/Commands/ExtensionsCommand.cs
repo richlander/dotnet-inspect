@@ -237,7 +237,7 @@ public class ExtensionsCommand
         Console.WriteLine(results.Count);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, int? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
         OutputFormatter.WriteLimitedMarkdown(Console.Out,

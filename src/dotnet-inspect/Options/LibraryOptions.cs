@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
@@ -200,14 +201,14 @@ public record LibraryOptions
 
     public bool JsonArray { get; init; }
 
-    public int? PrintRow { get; init; }
+    public RowSelector? PrintRow { get; init; }
 
-    public int? ProjectionRow { get; init; }
+    public RowSelector? ProjectionRow { get; init; }
 
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
 
     /// <summary>
     /// Row predicates for the Performance Triage section.

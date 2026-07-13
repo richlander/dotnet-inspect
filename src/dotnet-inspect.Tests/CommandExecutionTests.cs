@@ -2421,7 +2421,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("selected section has 2 printable rows; use --row N to choose one row or --print-all", error);
+        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row or --print-all", error);
     }
 
     [Fact]
@@ -8963,7 +8963,7 @@ public class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("selected section has 2 printable rows; use --row N to choose one row or --print-all", error);
+            Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row or --print-all", error);
         }
         finally
         {
