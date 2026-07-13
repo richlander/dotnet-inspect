@@ -10,6 +10,7 @@ using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Research;
 using Markout;
+using System.Collections.Immutable;
 using System.Text.Json;
 
 namespace DotnetInspector.Commands;
@@ -99,7 +100,8 @@ public class DiffCommand
                 return 1;
             }
             if (findingDescriptor == AnalysisFindings.AllocationDescriptor.Id
-                || findingDescriptor == AnalysisFindings.CallSiteDescriptor.Id)
+                || findingDescriptor == AnalysisFindings.CallSiteDescriptor.Id
+                || findingDescriptor == AnalysisFindings.UnsafetyDescriptor.Id)
             {
                 if (options.MemberFilter.Count != 1)
                 {
@@ -591,8 +593,14 @@ public class DiffCommand
             error = null;
             return true;
         }
+        if (string.Equals(descriptor, AnalysisFindings.UnsafetyDescriptor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            descriptor = AnalysisFindings.UnsafetyDescriptor.Id;
+            error = null;
+            return true;
+        }
 
-        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, analysis.allocation, analysis.call-site.";
+        error = $"Unsupported Finding descriptor '{descriptor}'. Supported descriptors: api.type, api.member, analysis.allocation, analysis.call-site, analysis.unsafety.";
         return false;
     }
 
@@ -621,6 +629,15 @@ public class DiffCommand
                     options),
             var descriptor when descriptor == AnalysisFindings.CallSiteDescriptor.Id =>
                 BuildCallSiteFindingTransitions(
+                    inputs.FromPaths,
+                    inputs.ToPaths,
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    inputs.FromVersion,
+                    inputs.ToVersion,
+                    options),
+            var descriptor when descriptor == AnalysisFindings.UnsafetyDescriptor.Id =>
+                BuildUnsafetyFindingTransitions(
                     inputs.FromPaths,
                     inputs.ToPaths,
                     inputs.FromSurface,
@@ -1038,39 +1055,16 @@ public class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options)
-    {
-        if (options.MemberFilter.Count != 1)
-            throw new InvalidOperationException("--finding analysis.allocation requires exactly one --member target.");
-
-        var targets = ResolveMemberTargetIdentities(
+        => BuildAnalysisFindingTransitions<AllocationOccurrence>(
+            fromPaths,
+            toPaths,
             fromSurface,
             toSurface,
-            options.MemberFilter,
-            options.TypeFilter,
-            requireBodyTargets: true,
-            bodySectionName: "Finding Transitions");
-        var research = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssemblies(fromPaths),
-            ResearchDiffInput.FromAssemblies(toPaths),
-            new ResearchDiffOptions(
-                ResearchChangeMechanism.BodySignals,
-                TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: targets.MemberIdentities)
-            {
-                RetainAllocationComparisons = true,
-            });
-
-        return research.AllocationComparisons
-            .SelectMany(comparison => CompletePairs(comparison.Comparison)
-                .Select(pair => ToAllocationTransitionRow(
-                    comparison.Subject,
-                    pair,
-                    fromVersion,
-                    toVersion)))
-            .OrderBy(row => row.Target, StringComparer.Ordinal)
-            .ThenBy(row => row.Transition, StringComparer.Ordinal)
-            .ToList();
-    }
+            fromVersion,
+            toVersion,
+            options,
+            AnalysisFindings.AllocationDescriptor,
+            ToAllocationTransitionRow);
 
     internal static IReadOnlyList<FindingTransitionRow> BuildCallSiteFindingTransitions(
         IReadOnlyList<string> fromPaths,
@@ -1080,9 +1074,54 @@ public class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options)
+        => BuildAnalysisFindingTransitions<DirectCall>(
+            fromPaths,
+            toPaths,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            AnalysisFindings.CallSiteDescriptor,
+            ToCallSiteTransitionRow);
+
+    internal static IReadOnlyList<FindingTransitionRow> BuildUnsafetyFindingTransitions(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options)
+        => BuildAnalysisFindingTransitions<UnsafetyOccurrence>(
+            fromPaths,
+            toPaths,
+            fromSurface,
+            toSurface,
+            fromVersion,
+            toVersion,
+            options,
+            AnalysisFindings.UnsafetyDescriptor,
+            ToUnsafetyTransitionRow);
+
+    static IReadOnlyList<FindingTransitionRow> BuildAnalysisFindingTransitions<T>(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        string fromVersion,
+        string toVersion,
+        DiffOptions options,
+        FindingDescriptor descriptor,
+        Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
+            toTransitionRow)
+        where T : notnull
     {
         if (options.MemberFilter.Count != 1)
-            throw new InvalidOperationException("--finding analysis.call-site requires exactly one --member target.");
+        {
+            throw new InvalidOperationException(
+                $"--finding {descriptor.Id} requires exactly one --member target.");
+        }
 
         var targets = ResolveMemberTargetIdentities(
             fromSurface,
@@ -1099,12 +1138,13 @@ public class DiffCommand
                 TypeFilters: options.TypeFilter,
                 MemberTargetIdentities: targets.MemberIdentities)
             {
-                RetainCallSiteComparisons = true,
+                RetainedComparisonDescriptorIds =
+                    ImmutableHashSet.Create(StringComparer.Ordinal, descriptor.Id),
             });
 
-        return research.CallSiteComparisons
+        return research.RetainedComparisons.Get<T>(descriptor)
             .SelectMany(comparison => CompletePairs(comparison.Comparison)
-                .Select(pair => ToCallSiteTransitionRow(
+                .Select(pair => toTransitionRow(
                     comparison.Subject,
                     pair,
                     fromVersion,
@@ -1232,6 +1272,36 @@ public class DiffCommand
             ? $"{declaringType}{typeArguments}({parameters})"
             : $"{declaringType}.{callee.Name}{typeArguments}({parameters})";
         return $"{subject.Display} :: {calleeDisplay}";
+    }
+
+    static FindingTransitionRow ToUnsafetyTransitionRow(
+        ResearchSubjectKey subject,
+        PairFinding<UnsafetyOccurrence> pair,
+        string fromVersion,
+        string toVersion)
+    {
+        var oldFinding = OldSide(pair);
+        var newFinding = NewSide(pair);
+        return new FindingTransitionRow(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            UnsafetyTarget(subject, newFinding ?? oldFinding!),
+            fromVersion,
+            toVersion,
+            oldFinding is null ? "absent" : "present",
+            newFinding is null ? "absent" : "present",
+            pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
+    }
+
+    static string UnsafetyTarget(
+        ResearchSubjectKey subject,
+        Finding<UnsafetyOccurrence> finding)
+    {
+        var occurrence = finding.Payload;
+        string detail = string.IsNullOrWhiteSpace(occurrence.Detail)
+            ? ""
+            : $" {occurrence.Detail}";
+        return $"{subject.Display} :: {occurrence.Kind}{detail}";
     }
 
     static string TypeTarget(PairFinding<ApiTypeHandle> pair)

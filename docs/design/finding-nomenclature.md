@@ -156,6 +156,20 @@ that a retained call changed dispatch, opcode, or loop context. IL offsets and
 metadata tokens remain endpoint-local provenance rather than correspondence
 identity.
 
+The same lens confirms when a definite unsafe IL operation appeared or
+disappeared:
+
+```bash
+dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.unsafety
+```
+
+Each row identifies an unsafe operation kind and producer detail.
+`PairFinding.Added` confirms introduction, while `Present` and `Removed`
+distinguish a wrong boundary from disappearance. IL offsets remain endpoint
+provenance and do not establish cross-version identity.
+
 ## Research composition
 
 Research is the join layer for sibling producers. It may retain a producer's
@@ -171,6 +185,11 @@ This is a migration boundary, not authorization for a second universal spine:
   inspection failures, and provenance as evidence;
 - Research must not wrap those values in a parallel generic `EvidenceRow`
   hierarchy solely to make them look uniform.
+
+When a consumer needs complete native comparisons, including exact pairs,
+Research retains typed comparisons in one descriptor-keyed container. Adding a
+producer descriptor extends that container rather than adding a payload-specific
+flag, list, constructor, or merge path.
 
 ## Coordinates
 

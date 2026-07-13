@@ -15,7 +15,7 @@ namespace ILInspector.Research.Tests;
 public class ResearchDiffTests
 {
     [Fact]
-    public void FindingRetention_PreservesExistingPublicConstructorSignatures()
+    public void FindingRetention_UsesGeneralizedPublicContainerSignature()
     {
         Assert.NotNull(typeof(ResearchComparison).GetConstructor(
         [
@@ -28,7 +28,7 @@ public class ResearchDiffTests
             typeof(ImmutableArray<ResearchChange>),
             typeof(ApiDiff),
             typeof(ApiFindingComparison),
-            typeof(ImmutableArray<AllocationFindingComparison>),
+            typeof(RetainedFindingComparisonSet),
         ]));
         Assert.NotNull(typeof(ResearchDiffOptions).GetConstructor(
         [
@@ -38,6 +38,77 @@ public class ResearchDiffTests
             typeof(IReadOnlySet<string>),
             typeof(IReadOnlySet<string>),
         ]));
+    }
+
+    [Fact]
+    public void FindingRetention_IndexesTypedComparisonsByDescriptor()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var findingSubject = new FindingSubject(subject.Id, subject.Display);
+        var retained = new RetainedFindingComparisonSet(
+        [
+            new RetainedFindingComparison<AllocationOccurrence>(
+                subject,
+                AnalysisFindings.AllocationDescriptor,
+                AnalysisFindings.CompareAllocations([], [], findingSubject)),
+            new RetainedFindingComparison<UnsafetyOccurrence>(
+                subject,
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisFindings.CompareUnsafety([], [], findingSubject)),
+        ]);
+
+        Assert.Equal(2, retained.Count);
+        Assert.Single(retained.Get<AllocationOccurrence>(
+            AnalysisFindings.AllocationDescriptor));
+        Assert.Single(retained.Get<UnsafetyOccurrence>(
+            AnalysisFindings.UnsafetyDescriptor));
+        Assert.Empty(retained.Get<DirectCall>(
+            AnalysisFindings.CallSiteDescriptor));
+        Assert.Throws<InvalidOperationException>(() =>
+            retained.Get<DirectCall>(AnalysisFindings.AllocationDescriptor));
+    }
+
+    [Fact]
+    public void FindingRetention_CombineMergesDescriptorBuckets()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.Widget.M()");
+        var findingSubject = new FindingSubject(subject.Id, subject.Display);
+        var allocations = new ResearchComparison(
+            [],
+            null,
+            null,
+            new RetainedFindingComparisonSet(
+            [
+                new RetainedFindingComparison<AllocationOccurrence>(
+                    subject,
+                    AnalysisFindings.AllocationDescriptor,
+                    AnalysisFindings.CompareAllocations([], [], findingSubject)),
+            ]));
+        var unsafety = new ResearchComparison(
+            [],
+            null,
+            null,
+            new RetainedFindingComparisonSet(
+            [
+                new RetainedFindingComparison<UnsafetyOccurrence>(
+                    subject,
+                    AnalysisFindings.UnsafetyDescriptor,
+                    AnalysisFindings.CompareUnsafety([], [], findingSubject)),
+            ]));
+
+        var combined = ResearchDiff.Combine(allocations, unsafety);
+
+        Assert.Equal(2, combined.RetainedComparisons.Count);
+        Assert.Single(combined.RetainedComparisons.Get<AllocationOccurrence>(
+            AnalysisFindings.AllocationDescriptor));
+        Assert.Single(combined.RetainedComparisons.Get<UnsafetyOccurrence>(
+            AnalysisFindings.UnsafetyDescriptor));
     }
 
     [Fact]
@@ -755,12 +826,16 @@ public class ResearchDiffTests
             ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
             new ResearchDiffOptions(ResearchChangeMechanism.BodySignals)
             {
-                RetainAllocationComparisons = true,
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    AnalysisFindings.AllocationDescriptor.Id),
             });
 
         Assert.DoesNotContain(diff.Changes, change =>
             change.Descriptor == AnalysisFindings.AllocationDescriptor);
-        var retained = Assert.Single(diff.AllocationComparisons);
+        var retained = Assert.Single(
+            diff.RetainedComparisons.Get<AllocationOccurrence>(
+                AnalysisFindings.AllocationDescriptor));
         var comparison = retained.Comparison switch
         {
             FindingComparison<AllocationOccurrence>.Complete complete => complete,
@@ -782,11 +857,17 @@ public class ResearchDiffTests
                     "DiffFixtureSample.DiffSample",
                 })
             {
-                RetainCallSiteComparisons = true,
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    AnalysisFindings.CallSiteDescriptor.Id),
             });
 
-        var retained = Assert.Single(diff.CallSiteComparisons, comparison =>
-            comparison.Subject.Display.Contains("RegressesAllocInLoop", StringComparison.Ordinal));
+        var retained = Assert.Single(
+            diff.RetainedComparisons.Get<DirectCall>(
+                AnalysisFindings.CallSiteDescriptor),
+            comparison => comparison.Subject.Display.Contains(
+                "RegressesAllocInLoop",
+                StringComparison.Ordinal));
         var comparison = retained.Comparison switch
         {
             FindingComparison<DirectCall>.Complete complete => complete,
@@ -798,6 +879,49 @@ public class ResearchDiffTests
         Assert.Contains(comparison.Pairs, pair =>
             pair is PairFinding<DirectCall>.Added added
             && added.New.Payload.Callee.Name == "Add");
+    }
+
+    [Fact]
+    public void CompareAssemblies_BodySignals_RetainsNativeUnsafetyComparison()
+    {
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(
+                ResearchChangeMechanism.BodySignals,
+                TypeFilters: new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "DiffFixtureSample.DiffSample",
+                })
+            {
+                RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
+                    StringComparer.Ordinal,
+                    AnalysisFindings.UnsafetyDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons.Get<UnsafetyOccurrence>(
+                AnalysisFindings.UnsafetyDescriptor),
+            comparison => comparison.Subject.Display.Contains(
+                "AddsUnsafe",
+                StringComparison.Ordinal));
+        var comparison = retained.Comparison switch
+        {
+            FindingComparison<UnsafetyOccurrence>.Complete complete => complete,
+            _ => throw new InvalidOperationException(
+                "Expected a complete unsafety comparison."),
+        };
+        var pair = Assert.Single(
+            comparison.Pairs,
+            pair => pair is PairFinding<UnsafetyOccurrence>.Added added
+                && added.New.Payload.Kind == UnsafetyKind.StackAlloc);
+        var added = pair switch
+        {
+            PairFinding<UnsafetyOccurrence>.Added value => value,
+            _ => throw new InvalidOperationException(
+                "Expected an added unsafe operation."),
+        };
+        Assert.Equal(UnsafetyKind.StackAlloc, added.New.Payload.Kind);
     }
 
     [Fact]

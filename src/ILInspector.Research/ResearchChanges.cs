@@ -307,13 +307,90 @@ public sealed record ResearchSubjectChanges
         => Changes.Any(change => change.Category == category);
 }
 
-public sealed record AllocationFindingComparison(
-    ResearchSubjectKey Subject,
-    FindingComparison<AllocationOccurrence> Comparison);
+public abstract record RetainedFindingComparison
+{
+    protected RetainedFindingComparison(
+        ResearchSubjectKey subject,
+        FindingDescriptor descriptor)
+    {
+        Subject = subject ?? throw new ArgumentNullException(nameof(subject));
+        Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+    }
 
-public sealed record CallSiteFindingComparison(
-    ResearchSubjectKey Subject,
-    FindingComparison<DirectCall> Comparison);
+    public ResearchSubjectKey Subject { get; }
+    public FindingDescriptor Descriptor { get; }
+}
+
+public sealed record RetainedFindingComparison<T> : RetainedFindingComparison
+    where T : notnull
+{
+    public RetainedFindingComparison(
+        ResearchSubjectKey subject,
+        FindingDescriptor descriptor,
+        FindingComparison<T> comparison)
+        : base(subject, descriptor)
+    {
+        Comparison = comparison ?? throw new ArgumentNullException(nameof(comparison));
+    }
+
+    public FindingComparison<T> Comparison { get; }
+}
+
+public sealed class RetainedFindingComparisonSet
+{
+    readonly ImmutableDictionary<string, ImmutableArray<RetainedFindingComparison>> _byDescriptor;
+
+    public RetainedFindingComparisonSet(IEnumerable<RetainedFindingComparison> comparisons)
+    {
+        ArgumentNullException.ThrowIfNull(comparisons);
+        var items = comparisons.ToImmutableArray();
+        if (items.Any(comparison => comparison is null))
+        {
+            throw new ArgumentException(
+                "Retained comparisons cannot contain null entries.",
+                nameof(comparisons));
+        }
+
+        Items = items;
+        _byDescriptor = items
+            .GroupBy(comparison => comparison.Descriptor.Id, StringComparer.Ordinal)
+            .ToImmutableDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray(),
+                StringComparer.Ordinal);
+    }
+
+    public static RetainedFindingComparisonSet Empty { get; } = new([]);
+
+    public int Count => Items.Length;
+    public bool IsEmpty => Items.IsEmpty;
+
+    public ImmutableArray<RetainedFindingComparison<T>> Get<T>(FindingDescriptor descriptor)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        if (!_byDescriptor.TryGetValue(descriptor.Id, out var comparisons))
+            return [];
+
+        var typed = ImmutableArray.CreateBuilder<RetainedFindingComparison<T>>(
+            comparisons.Length);
+        foreach (var comparison in comparisons)
+        {
+            if (comparison is not RetainedFindingComparison<T> value)
+            {
+                throw new InvalidOperationException(
+                    $"Retained Finding descriptor '{descriptor.Id}' does not carry "
+                    + $"{typeof(T).Name} payloads.");
+            }
+
+            typed.Add(value);
+        }
+
+        return typed.MoveToImmutable();
+    }
+
+    internal ImmutableArray<RetainedFindingComparison> Items { get; }
+}
 
 /// <summary>
 /// Outcome of one Research diff operation. Changes are stored once; subject grouping is a
@@ -325,7 +402,7 @@ public sealed record ResearchComparison
         ImmutableArray<ResearchChange> changes,
         ApiDiff? apiDiff = null,
         ApiFindingComparison? apiComparison = null)
-        : this(changes, apiDiff, apiComparison, [], [])
+        : this(changes, apiDiff, apiComparison, null)
     {
     }
 
@@ -333,36 +410,12 @@ public sealed record ResearchComparison
         ImmutableArray<ResearchChange> changes,
         ApiDiff? apiDiff,
         ApiFindingComparison? apiComparison,
-        ImmutableArray<AllocationFindingComparison> allocationComparisons)
-        : this(changes, apiDiff, apiComparison, allocationComparisons, [])
-    {
-    }
-
-    public ResearchComparison(
-        ImmutableArray<ResearchChange> changes,
-        ApiDiff? apiDiff,
-        ApiFindingComparison? apiComparison,
-        ImmutableArray<AllocationFindingComparison> allocationComparisons,
-        ImmutableArray<CallSiteFindingComparison> callSiteComparisons)
+        RetainedFindingComparisonSet? retainedComparisons)
     {
         if (changes.IsDefault)
             throw new ArgumentException("Changes must be initialized.", nameof(changes));
         if (changes.Any(change => change is null))
             throw new ArgumentException("Changes cannot contain null entries.", nameof(changes));
-        if (!allocationComparisons.IsDefault
-            && allocationComparisons.Any(comparison => comparison is null))
-        {
-            throw new ArgumentException(
-                "Allocation comparisons cannot contain null entries.",
-                nameof(allocationComparisons));
-        }
-        if (!callSiteComparisons.IsDefault
-            && callSiteComparisons.Any(comparison => comparison is null))
-        {
-            throw new ArgumentException(
-                "Call-site comparisons cannot contain null entries.",
-                nameof(callSiteComparisons));
-        }
         if (apiDiff is not null
             && apiComparison is not null
             && !ReferenceEquals(apiDiff, apiComparison.ApiDiff))
@@ -374,15 +427,13 @@ public sealed record ResearchComparison
         Changes = changes;
         ApiComparison = apiComparison;
         ApiDiff = apiComparison?.ApiDiff ?? apiDiff;
-        AllocationComparisons = allocationComparisons.IsDefault ? [] : allocationComparisons;
-        CallSiteComparisons = callSiteComparisons.IsDefault ? [] : callSiteComparisons;
+        RetainedComparisons = retainedComparisons ?? RetainedFindingComparisonSet.Empty;
     }
 
     public ImmutableArray<ResearchChange> Changes { get; }
     public ApiDiff? ApiDiff { get; }
     public ApiFindingComparison? ApiComparison { get; }
-    public ImmutableArray<AllocationFindingComparison> AllocationComparisons { get; }
-    public ImmutableArray<CallSiteFindingComparison> CallSiteComparisons { get; }
+    public RetainedFindingComparisonSet RetainedComparisons { get; }
     public bool IsEmpty => Changes.IsEmpty;
 
     public IReadOnlyList<ResearchSubjectChanges> BySubject()

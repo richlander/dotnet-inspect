@@ -18,8 +18,8 @@ public sealed record ResearchDiffOptions(
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null)
 {
-    public bool RetainAllocationComparisons { get; init; }
-    public bool RetainCallSiteComparisons { get; init; }
+    public ImmutableHashSet<string> RetainedComparisonDescriptorIds { get; init; } =
+        ImmutableHashSet.Create<string>(StringComparer.Ordinal);
 }
 
 public sealed record ResearchDiffInput(
@@ -189,14 +189,8 @@ public static class ResearchDiff
             [.. results.SelectMany(result => result.Changes)],
             apiDiff,
             apiComparison,
-            [.. results.SelectMany(result =>
-                result.AllocationComparisons.IsDefault
-                    ? []
-                    : result.AllocationComparisons)],
-            [.. results.SelectMany(result =>
-                result.CallSiteComparisons.IsDefault
-                    ? []
-                    : result.CallSiteComparisons)]);
+            new RetainedFindingComparisonSet(
+                results.SelectMany(result => result.RetainedComparisons.Items)));
     }
 
     public static ResearchComparison CompareAssemblies(string oldAssemblyPath, string newAssemblyPath, ResearchDiffOptions? options = null)
@@ -225,8 +219,7 @@ public static class ResearchDiff
                 newInput,
                 options.TypeFilters,
                 options.MemberTargetIdentities,
-                options.RetainAllocationComparisons,
-                options.RetainCallSiteComparisons);
+                options.RetainedComparisonDescriptorIds);
         }
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.IlBody))
@@ -278,9 +271,9 @@ public static class ResearchDiff
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
         IReadOnlySet<string>? memberTargetIdentities,
-        bool retainAllocationComparisons,
-        bool retainCallSiteComparisons)
+        IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
+        ArgumentNullException.ThrowIfNull(retainedComparisonDescriptorIds);
         foreach (var (oldIndex, newIndex) in PairedBodyIndexes(oldInput, newInput))
         {
             AddAnalysisSignalDiff(
@@ -289,8 +282,7 @@ public static class ResearchDiff
                 newIndex,
                 typeFilters,
                 memberTargetIdentities,
-                retainAllocationComparisons,
-                retainCallSiteComparisons);
+                retainedComparisonDescriptorIds);
 
             var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
             foreach (var change in UnsafetyFindingDiff.Compare(
@@ -333,19 +325,26 @@ public static class ResearchDiff
             LibraryBodyIndex newIndex,
             IReadOnlySet<string>? typeFilters,
             IReadOnlySet<string>? memberTargetIdentities,
-            bool retainAllocationComparisons,
-            bool retainCallSiteComparisons)
+            IReadOnlySet<string> retainedComparisonDescriptorIds)
         {
+            bool retainAllocations = retainedComparisonDescriptorIds.Contains(
+                AnalysisFindings.AllocationDescriptor.Id);
+            bool retainCallSites = retainedComparisonDescriptorIds.Contains(
+                AnalysisFindings.CallSiteDescriptor.Id);
+            bool retainUnsafety = retainedComparisonDescriptorIds.Contains(
+                AnalysisFindings.UnsafetyDescriptor.Id);
             var oldSnapshot = BuildAnalysisSnapshot(
                 oldIndex,
                 typeFilters,
                 memberTargetIdentities,
-                retainCallSiteComparisons);
+                retainCallSites,
+                retainUnsafety);
             var newSnapshot = BuildAnalysisSnapshot(
                 newIndex,
                 typeFilters,
                 memberTargetIdentities,
-                retainCallSiteComparisons);
+                retainCallSites,
+                retainUnsafety);
             foreach (var key in oldSnapshot.Keys.Union(newSnapshot.Keys, StringComparer.Ordinal))
             {
                 oldSnapshot.TryGetValue(key, out var oldMethod);
@@ -359,14 +358,28 @@ public static class ResearchDiff
                     oldMethod?.Allocations ?? [],
                     newMethod?.Allocations ?? [],
                     Evidence(oldMethod?.Signals, newMethod?.Signals),
-                    retainAllocationComparisons);
-                if (retainCallSiteComparisons)
+                    retainAllocations);
+                if (retainCallSites)
                 {
-                    AddCallSiteComparison(
+                    AddRetainedComparison(
                         builder,
                         subject,
-                        oldMethod?.CallSites ?? [],
-                        newMethod?.CallSites ?? []);
+                        AnalysisFindings.CallSiteDescriptor,
+                        AnalysisFindings.CompareCallSites(
+                            oldMethod?.CallSites ?? [],
+                            newMethod?.CallSites ?? [],
+                            new FindingSubject(subject.Id, subject.Display)));
+                }
+                if (retainUnsafety)
+                {
+                    AddRetainedComparison(
+                        builder,
+                        subject,
+                        AnalysisFindings.UnsafetyDescriptor,
+                        AnalysisFindings.CompareUnsafety(
+                            oldMethod?.Unsafety ?? [],
+                            newMethod?.Unsafety ?? [],
+                            new FindingSubject(subject.Id, subject.Display)));
                 }
                 AddCountRows(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
                 AddExceptionRow(builder, subject, inBoth, oldMethod?.Signals, newMethod?.Signals);
@@ -378,13 +391,15 @@ public static class ResearchDiff
             LibraryBodyIndex index,
             IReadOnlySet<string>? typeFilters,
             IReadOnlySet<string>? memberTargetIdentities,
-            bool includeCallSites)
+            bool includeCallSites,
+            bool includeUnsafety)
         {
             var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var signalsByToken = index.GetMethodSignals();
             var allocationsByToken = index.GetAllocationOccurrences();
             var callsByToken = includeCallSites ? index.GetDirectCallsByCaller() : null;
+            var unsafetyByToken = includeUnsafety ? index.GetUnsafetyOccurrences() : null;
             foreach (var method in index.Methods)
             {
                 if (IsGeneratedMethod(method, generatedFrameworkTypes))
@@ -402,6 +417,12 @@ public static class ResearchDiff
                 {
                     callSites = retainedCallSites;
                 }
+                ImmutableArray<UnsafetyOccurrence> unsafety = [];
+                if (unsafetyByToken is not null
+                    && unsafetyByToken.TryGetValue(method.MetadataToken, out var retainedUnsafety))
+                {
+                    unsafety = retainedUnsafety;
+                }
                 var key = BodySignalMethodKey(method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
@@ -410,6 +431,7 @@ public static class ResearchDiff
                         signals ?? MethodSignals.None,
                         allocations.IsDefault ? [] : allocations,
                         callSites,
+                        unsafety,
                         []);
                     methods[key] = entry;
                 }
@@ -420,6 +442,7 @@ public static class ResearchDiff
                         Signals = signals ?? MethodSignals.None,
                         Allocations = allocations.IsDefault ? [] : allocations,
                         CallSites = callSites,
+                        Unsafety = unsafety,
                     };
                 }
             }
@@ -436,7 +459,13 @@ public static class ResearchDiff
                 var key = BodySignalMethodKey(opportunity.Method);
                 if (!methods.TryGetValue(key, out var entry))
                 {
-                    entry = new ResearchAnalysisMethod(subject, MethodSignals.None, [], [], []);
+                    entry = new ResearchAnalysisMethod(
+                        subject,
+                        MethodSignals.None,
+                        [],
+                        [],
+                        [],
+                        []);
                     methods[key] = entry;
                 }
                 entry.Opportunities.Add(opportunity);
@@ -469,7 +498,13 @@ public static class ResearchDiff
                 newOccurrences,
                 new FindingSubject(subject.Id, subject.Display));
             if (retainComparison)
-                builder.Add(new AllocationFindingComparison(subject, comparison));
+            {
+                AddRetainedComparison(
+                    builder,
+                    subject,
+                    AnalysisFindings.AllocationDescriptor,
+                    comparison);
+            }
             var complete = comparison switch
             {
                 FindingComparison<AllocationOccurrence>.Complete value => value,
@@ -538,17 +573,16 @@ public static class ResearchDiff
                 allocationComparison: comparison));
         }
 
-        static void AddCallSiteComparison(
+        static void AddRetainedComparison<T>(
             ResultBuilder builder,
             ResearchSubjectKey subject,
-            ImmutableArray<DirectCall> oldCallSites,
-            ImmutableArray<DirectCall> newCallSites)
-            => builder.Add(new CallSiteFindingComparison(
+            FindingDescriptor descriptor,
+            FindingComparison<T> comparison)
+            where T : notnull
+            => builder.Add(new RetainedFindingComparison<T>(
                 subject,
-                AnalysisFindings.CompareCallSites(
-                    oldCallSites,
-                    newCallSites,
-                    new FindingSubject(subject.Id, subject.Display))));
+                descriptor,
+                comparison));
 
         static bool IsHotAllocation(AllocationOccurrence occurrence)
             => occurrence.CountsAsHeapAllocation
@@ -1166,31 +1200,28 @@ public static class ResearchDiff
         MethodSignals Signals,
         ImmutableArray<AllocationOccurrence> Allocations,
         ImmutableArray<DirectCall> CallSites,
+        ImmutableArray<UnsafetyOccurrence> Unsafety,
         List<OptimizationOpportunity> Opportunities);
 
     sealed class ResultBuilder
     {
         readonly List<ResearchChange> _changes = [];
-        readonly List<AllocationFindingComparison> _allocationComparisons = [];
-        readonly List<CallSiteFindingComparison> _callSiteComparisons = [];
+        readonly List<RetainedFindingComparison> _retainedComparisons = [];
 
         public ApiFindingComparison? ApiComparison { get; set; }
 
         public void Add(ResearchChange change) => _changes.Add(change);
 
-        public void Add(AllocationFindingComparison comparison)
-            => _allocationComparisons.Add(comparison);
-
-        public void Add(CallSiteFindingComparison comparison)
-            => _callSiteComparisons.Add(comparison);
+        public void Add(RetainedFindingComparison comparison)
+            => _retainedComparisons.Add(comparison);
 
         public ResearchComparison ToResult()
             => new(
                 [.. _changes],
                 apiDiff: null,
                 apiComparison: ApiComparison,
-                allocationComparisons: [.. _allocationComparisons],
-                callSiteComparisons: [.. _callSiteComparisons]);
+                retainedComparisons: new RetainedFindingComparisonSet(
+                    _retainedComparisons));
     }
 
     sealed class MethodBodyLookup : IDisposable

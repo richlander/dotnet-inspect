@@ -40,3 +40,16 @@ dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Ope
 `-S "Unsafe Operations"` shows the unsafe operations in a single method body,
 with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invoke
 methods) and provenance/supply-chain signals, see the `signals` skill.
+
+To confirm whether one definite unsafe operation appeared at an adjacent
+version boundary:
+
+```bash
+dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \
+  -t MyType -m Method \
+  --finding analysis.unsafety
+```
+
+`PairFinding.Added` is the introduction proof. `Present` and `Removed`
+distinguish persistence from disappearance; the command compares only the two
+supplied endpoints.

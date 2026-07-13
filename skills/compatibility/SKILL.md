@@ -70,6 +70,19 @@ Rows identify the callees. `PairFinding.Added` confirms a new direct-call
 occurrence; `Changed` reports retained-call facet changes such as moving into a
 loop.
 
+For a definite unsafe-operation boundary in one method, select the unsafety
+producer:
+
+```bash
+dnx dotnet-inspect -y -- diff --package Foo@1.4.0..1.5.0 \
+  -t Foo.Parser -m Parse \
+  --finding analysis.unsafety
+```
+
+Rows identify unsafe operation kinds and details. `PairFinding.Added` confirms
+introduction; `Present` and `Removed` distinguish persistence from
+disappearance without treating endpoint-local IL offsets as identity.
+
 ## Did the implementation change? (C# + IL)
 
 `-S "Implementation Diff"` selects Research-composed body evidence instead of
@@ -130,6 +143,6 @@ dnx dotnet-inspect -y -- diff \
 An introduction boundary is a row with `PairFinding.Added`, `Old=absent`, and
 `New=present`. `PairFinding.Present` means the target exists at both endpoints;
 for a type target, no row means it exists at neither. Use `-m Type.Member:1` for
-an API member boundary. Use `--finding analysis.allocation` or
-`--finding analysis.call-site` with exactly one method target for the
-corresponding Analysis boundary.
+an API member boundary. Use `--finding analysis.allocation`,
+`--finding analysis.call-site`, or `--finding analysis.unsafety` with exactly
+one method target for the corresponding Analysis boundary.
