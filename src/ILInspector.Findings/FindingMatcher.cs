@@ -31,7 +31,25 @@ public sealed record FindingEdge(
     int OldIndex,
     int NewIndex,
     int Confidence,
-    FindingMatchProvenance? Match = null);
+    FindingMatchProvenance? Match = null)
+{
+    public FindingEdge(
+        FindingEdgeKind Kind,
+        int OldIndex,
+        int NewIndex,
+        int Confidence)
+        : this(Kind, OldIndex, NewIndex, Confidence, Match: null)
+    {
+    }
+
+    public void Deconstruct(
+        out FindingEdgeKind Kind,
+        out int OldIndex,
+        out int NewIndex,
+        out int Confidence)
+        => (Kind, OldIndex, NewIndex, Confidence)
+            = (this.Kind, this.OldIndex, this.NewIndex, this.Confidence);
+}
 
 /// <summary>Typed provenance retained when a non-exact tier establishes correspondence.</summary>
 public sealed record FindingMatchProvenance

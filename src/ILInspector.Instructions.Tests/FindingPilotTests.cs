@@ -738,6 +738,31 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void MatchedPairCases_PreserveFourParameterConstructors()
+    {
+        foreach (var type in (Type[])
+        [
+            typeof(PairFinding<string>.Present),
+            typeof(PairFinding<string>.Changed),
+            typeof(FindingEdge),
+        ])
+        {
+            var parameterCounts = type.GetConstructors()
+                .Select(constructor => constructor.GetParameters().Length)
+                .ToHashSet();
+            Assert.Contains(4, parameterCounts);
+            Assert.Contains(5, parameterCounts);
+
+            var deconstructParameterCounts = type.GetMethods()
+                .Where(method => method.Name == "Deconstruct")
+                .Select(method => method.GetParameters().Length)
+                .ToHashSet();
+            Assert.Contains(4, deconstructParameterCounts);
+            Assert.Contains(5, deconstructParameterCounts);
+        }
+    }
+
+    [Fact]
     public void PairFinding_Cases_RejectNullAtoms_FailClosed()
     {
         var a = new Finding<string>(Subject, Descriptor, new FindingKey("k"), "k", Ordinal: 0);

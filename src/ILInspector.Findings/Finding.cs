@@ -265,8 +265,25 @@ public sealed record PairFinding<T> : IPairFinding
         string? Detail = null,
         FindingMatchProvenance? Match = null) : IMatchedPairFinding
     {
+        public Present(
+            Finding<T> Old,
+            Finding<T> New,
+            FindingDifferenceKind Difference,
+            string? Detail)
+            : this(Old, New, Difference, Detail, Match: null)
+        {
+        }
+
         public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
         public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public void Deconstruct(
+            out Finding<T> Old,
+            out Finding<T> New,
+            out FindingDifferenceKind Difference,
+            out string? Detail)
+            => (Old, New, Difference, Detail)
+                = (this.Old, this.New, this.Difference, this.Detail);
 
         public PairKind Kind => PairKind.Present;
         public FindingSubject Subject => New.Subject;
@@ -283,8 +300,25 @@ public sealed record PairFinding<T> : IPairFinding
         string? Detail = null,
         FindingMatchProvenance? Match = null) : IMatchedPairFinding
     {
+        public Changed(
+            Finding<T> Old,
+            Finding<T> New,
+            FindingDifferenceKind Difference,
+            string? Detail)
+            : this(Old, New, Difference, Detail, Match: null)
+        {
+        }
+
         public Finding<T> Old { get; } = Old ?? throw new ArgumentNullException(nameof(Old));
         public Finding<T> New { get; } = New ?? throw new ArgumentNullException(nameof(New));
+
+        public void Deconstruct(
+            out Finding<T> Old,
+            out Finding<T> New,
+            out FindingDifferenceKind Difference,
+            out string? Detail)
+            => (Old, New, Difference, Detail)
+                = (this.Old, this.New, this.Difference, this.Detail);
 
         public PairKind Kind => PairKind.Changed;
         public FindingSubject Subject => New.Subject;
