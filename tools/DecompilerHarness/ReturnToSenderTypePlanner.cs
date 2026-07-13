@@ -1807,6 +1807,16 @@ public static class CompileBackSourceComposer
         // (System.Runtime, mscorlib, netstandard, ...) to "corelib", so assembly
         // identity alone cannot prove such a definition non-convertible. Collect the
         // inspected definitions so competitor exclusion never rules one out.
+        //
+        // Accepted residual (PR #2730 round-5 review): a REFERENCED user assembly
+        // whose simple name is itself a corelib facade (e.g. a dependency literally
+        // named "System.Runtime") also decodes its types as "corelib", and those are
+        // not in reader.TypeDefinitions, so this guard cannot cover them; a proper
+        // fix belongs in the shared TypeRefDecoder (carry TPA/platform provenance
+        // rather than canonicalizing untrusted references by simple name), which is
+        // out of scope for this harness-only gate. This does not corrupt the RTS
+        // corpus metric: the oracle recompiles every emit, so any unsound
+        // `: this(args)` becomes an OpcodeDiff/RecompileFail, never a false Exact.
         var inspectedTypeNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var definitionHandle in reader.TypeDefinitions)
             inspectedTypeNames.Add(InspectedDefinitionKey(reader, definitionHandle));
