@@ -259,6 +259,53 @@ public class MemberOptionsParserTests
         }
     }
 
+    [Theory]
+    [InlineData("markdown", OutputFormat.Markdown)]
+    [InlineData("json", OutputFormat.Json)]
+    [InlineData("plaintext", OutputFormat.PlainText)]
+    [InlineData("mermaid", OutputFormat.Mermaid)]
+    public void ExplicitPackage_WithEnvironmentNonTabularFormat_TreatsFormatAsExplicit(
+        string environmentFormat,
+        OutputFormat expectedFormat)
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
+            var (root, opts, _) = CreateTestCommand();
+            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json"]);
+
+            Assert.Empty(parseResult.Errors);
+            Assert.Equal(expectedFormat, opts.ResolveFormat(parseResult));
+            Assert.True(opts.IsFormatExplicitlySet(parseResult));
+            Assert.False(opts.IsTableExplicitlySet(parseResult));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithEnvironmentMarkdown_SuppressesTips()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
+
+            Assert.True(options.FormatExplicitlySet);
+            Assert.False(options.Tabular);
+            Assert.False(options.TabularExplicitlySet);
+            Assert.Equal(TipLevel.Quiet, options.TipLevel);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
     [Fact]
     public async Task ExplicitPackage_WithBareAndEnvironmentTable_SuppressesTabularOutput()
     {
