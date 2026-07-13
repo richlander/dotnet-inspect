@@ -231,6 +231,13 @@ producers or preserve producer-native structural evidence. Failed censuses stay
 distinct from empty results and render as inspection diagnostics without
 suppressing unaffected sections.
 
+Portable-PDB observations use four Metadata Finding families: source documents,
+member-to-document mappings, compilation options, and compilation references.
+Source audit and integrity consume the document census; member source-location
+enrichment consumes the mapping census by metadata token. Network acquisition
+and checksum agreement remain operation outcomes rather than Metadata Findings.
+See [Source Finding Producers](design/source-finding-producers.md).
+
 Extension discovery follows the same rule for both `library` and `extensions`:
 each assembly is scanned once into Metadata's extension-member Finding census,
 then CLI target, reachability, overload, and display projections consume that

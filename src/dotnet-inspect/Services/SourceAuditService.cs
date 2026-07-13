@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using DotnetInspector.Core;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
@@ -16,38 +17,49 @@ internal static class SourceAuditService
     private static readonly TimeSpan MutablePositiveCacheTtl = TimeSpan.FromDays(1);
 
     public static async Task PopulateAsync(
-        SourceLinkService service,
+        FindingInspection<SourceDocumentObservation> documentInspection,
         LibraryInspection inspection,
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        ArgumentNullException.ThrowIfNull(documentInspection);
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        if (documentInspection.Value is not FindingInspection<SourceDocumentObservation>.Complete complete)
+            return;
+
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceAudit);
-        var documents = service.GetTrackedFiles();
+        var documents = complete.Findings
+            .Select(static finding => finding.Payload)
+            .Where(static document => document.IsCompilerLanguageSource)
+            .ToArray();
         int embeddedFiles = 0;
         int accessibleCount = 0;
         var missingFiles = new ConcurrentBag<string>();
-        List<SourceDocument> urlDocs = [];
+        List<SourceDocumentObservation> urlDocs = [];
 
         foreach (var doc in documents)
         {
-            if (doc.IsEmbedded)
+            if (doc.Storage == SourceDocumentStorage.Embedded)
             {
                 embeddedFiles++;
                 continue;
             }
 
             // ResolvedUrl comes from untrusted PDB SourceLink data; only probe absolute http/https.
-            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.FilePath)
+            if (doc.ResolvedUrl == null || IsBuildArtifact(doc.OriginalPath)
                 || !Core.HttpClientFactory.IsAllowedFetchScheme(doc.ResolvedUrl))
             {
-                missingFiles.Add(doc.FilePath);
+                missingFiles.Add(doc.OriginalPath);
                 continue;
             }
 
             urlDocs.Add(doc);
         }
 
-        List<SourceDocument> uncachedDocs = [];
+        List<SourceDocumentObservation> uncachedDocs = [];
         foreach (var doc in urlDocs)
         {
             // Permanent positive cache only for commit-pinned URLs; mutable URLs expire after a day.
@@ -62,7 +74,7 @@ internal static class SourceAuditService
             }
             else if (CoreCache.TryGet("source-audit", doc.ResolvedUrl!, NegativeCacheTtl, extension: "miss") != null)
             {
-                missingFiles.Add(doc.FilePath);
+                missingFiles.Add(doc.OriginalPath);
             }
             else
             {
@@ -92,17 +104,17 @@ internal static class SourceAuditService
                         if (result.IsNotFound)
                             CoreCache.Set("source-audit", doc.ResolvedUrl!, "1", extension: "miss");
                         logger.Log($"Source not accessible: {doc.ResolvedUrl}");
-                        missingFiles.Add(doc.FilePath);
+                        missingFiles.Add(doc.OriginalPath);
                     }
                 });
         }
 
         int totalAccessible = accessibleCount + embeddedFiles;
-        inspection.TotalSourceFiles = documents.Count;
+        inspection.TotalSourceFiles = documents.Length;
         inspection.AccessibleSourceFiles = totalAccessible;
         inspection.EmbeddedSourceFiles = embeddedFiles;
         inspection.MissingSourceFiles = missingFiles.IsEmpty ? null : [.. missingFiles.OrderBy(f => f)];
-        inspection.AllSourcesAccessible = documents.Count > 0 && totalAccessible >= documents.Count;
+        inspection.AllSourcesAccessible = documents.Length > 0 && totalAccessible >= documents.Length;
     }
 
     private static bool IsBuildArtifact(string filePath) =>

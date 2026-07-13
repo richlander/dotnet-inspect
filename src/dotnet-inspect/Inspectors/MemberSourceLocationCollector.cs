@@ -1,6 +1,7 @@
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -34,25 +35,43 @@ internal static class MemberSourceLocationCollector
             if (!service.HasPdb || !service.HasSourceLink)
                 return pdbPath;
 
-            foreach (var member in GetTargetMembers(apiType, options))
+            var targetMembers = GetTargetMembers(apiType, options).ToArray();
+            var metadataTokens = targetMembers
+                .Select(static member => member.MetadataToken)
+                .OfType<int>()
+                .ToHashSet();
+            var sourceInspection = MetadataFindings.InspectMemberSources(
+                service,
+                new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath)),
+                new MemberSourceQuery(metadataTokens));
+            if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
             {
-                var typeName = string.IsNullOrWhiteSpace(member.DeclaringType)
-                    ? apiType.FullName
-                    : member.DeclaringType!;
-                var overloadIndex = GetSourceOverloadIndex(apiType, member, options);
-                if (overloadIndex < 0)
+                logger.Log(
+                    $"Warning: Failed to resolve member source locations for {apiType.FullName}: "
+                    + failed.Error.Reason);
+                return pdbPath;
+            }
+
+            if (sourceInspection.Value is not FindingInspection<MemberSourceObservation>.Complete complete)
+                return pdbPath;
+
+            var mappingsByToken = complete.Findings
+                .Select(static finding => finding.Payload)
+                .GroupBy(static mapping => mapping.MetadataToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.OrderBy(static mapping => mapping.DocumentRowId).First());
+
+            foreach (var member in targetMembers)
+            {
+                if (member.MetadataToken is not { } token
+                    || !mappingsByToken.TryGetValue(token, out var mapping))
                     continue;
 
-                var publicOnly = !options.IncludeAll
-                                 && member.Kind != "explicit-interface-implementation";
-                var info = service.ResolveMethodSource(typeName, member.Name, overloadIndex, publicOnly);
-                if (info is null)
-                    continue;
-
-                member.SourceFilePath = info.FilePath;
-                member.SourceUrl = info.SourceUrl;
-                member.SourceLineNumber = info.StartLine;
-                member.SourceEndLineNumber = info.EndLine;
+                member.SourceFilePath = mapping.OriginalPath;
+                member.SourceUrl = mapping.ResolvedUrl;
+                member.SourceLineNumber = mapping.StartLine;
+                member.SourceEndLineNumber = mapping.EndLine;
             }
 
             return pdbPath;
@@ -82,19 +101,4 @@ internal static class MemberSourceLocationCollector
         return members;
     }
 
-    private static int GetSourceOverloadIndex(ApiType apiType, ApiMember member, MemberOptions options)
-    {
-        if (member.DeclaringOverloadIndex is { } declaringOverload)
-            return declaringOverload - 1;
-
-        if (options.OverloadIndex is { } selectedOverload && apiType.Members.Count == 1)
-            return selectedOverload - 1;
-
-        var sameName = apiType.Members
-            .Where(m => string.Equals(m.Name, member.Name, StringComparison.Ordinal))
-            .Where(ApiMemberSectionDescriptors.IsMethodLike)
-            .ToList();
-
-        return sameName.IndexOf(member);
-    }
 }

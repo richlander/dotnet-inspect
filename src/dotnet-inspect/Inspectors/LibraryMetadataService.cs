@@ -203,6 +203,17 @@ internal static class LibraryMetadataService
 
             await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, allowPdbDownload: allowPdbDownload);
 
+            var sourceSubject = FindingSubjectFor(path);
+            inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(
+                service,
+                sourceSubject);
+            inspection.CompilationOptionInspection = MetadataFindings.InspectCompilationOptions(
+                service,
+                sourceSubject);
+            inspection.CompilationReferenceInspection = MetadataFindings.InspectCompilationReferences(
+                service,
+                sourceSubject);
+
             if (needsAuditSignals)
                 AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
 
@@ -211,14 +222,20 @@ internal static class LibraryMetadataService
                 // SourceLink URLs are untrusted: probe them with the SSRF-hardened client, not the
                 // shared client used for trusted NuGet/symbol endpoints.
                 await SourceAuditService.PopulateAsync(
-                    service, inspection, DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch, logger);
+                    inspection.SourceDocumentInspection,
+                    inspection,
+                    DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
+                    logger);
                 if (needsAuditSignals)
                     AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }
 
             if (runIntegrity && service.HasSourceLink && pdbContext.HasPdb)
             {
-                await SourceIntegrityService.PopulateAsync(service, inspection, logger);
+                await SourceIntegrityService.PopulateAsync(
+                    inspection.SourceDocumentInspection,
+                    inspection,
+                    logger);
                 if (needsAuditSignals)
                     AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }
