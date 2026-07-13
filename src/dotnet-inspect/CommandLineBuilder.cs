@@ -84,6 +84,7 @@ public static class CommandLineBuilder
 
         // Diff command
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
+        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateTimelineCommand(opts));
 
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));

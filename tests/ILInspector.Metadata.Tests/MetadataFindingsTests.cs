@@ -186,6 +186,92 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void TypeScopedCensuses_DistinguishMissingTypeFromExistingEmptyType()
+    {
+        var missing = Surface(Type("Other"));
+        var empty = Surface(Type("Widget"));
+
+        var missingMembers = MetadataFindings.InspectApiMembers(
+            missing,
+            Subject,
+            "TestNamespace.Widget");
+        var emptyMembers = MetadataFindings.InspectApiMembers(
+            empty,
+            Subject,
+            "TestNamespace.Widget");
+
+        Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(missingMembers.Value);
+        Assert.Empty(
+            Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(emptyMembers.Value).Findings);
+    }
+
+    [Fact]
+    public void TypeSelfPresence_RepresentsMissingTypeAsCompleteEmptyCensus()
+    {
+        var inspection = MetadataFindings.InspectApiType(
+            Surface(Type("Other")),
+            Subject,
+            "TestNamespace.Widget");
+
+        Assert.Empty(
+            Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(inspection.Value).Findings);
+    }
+
+    [Fact]
+    public void TypeScopedMemberComparison_PreservesFacetClassification()
+    {
+        var oldSurface = Surface(Type("Widget", members:
+        [
+            Method("Run", "void Run()"),
+        ]));
+        var newSurface = Surface(Type("Widget", members:
+        [
+            Method("Run", "void Run()", accessibility: "protected"),
+        ]));
+
+        var comparison = MetadataFindings.CompareApiMembers(
+            oldSurface,
+            newSurface,
+            Subject,
+            "TestNamespace.Widget");
+
+        var changed = Assert.IsType<PairFinding<ApiMemberHandle>.Changed>(
+            Assert.Single(Pairs(comparison)).Value);
+        Assert.Contains("accessibility: public -> protected", changed.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TypeAttributeComparison_ExactMatchesBeforeClassifyingValueChanges()
+    {
+        var oldSurface = Surface(Type("Widget", attributes:
+        [
+            "System.Obsolete",
+            "System.Tag(\"A\")",
+            "System.Tag(\"A\")",
+        ]));
+        var newSurface = Surface(Type("Widget", attributes:
+        [
+            "System.Tag(\"A\")",
+            "System.Tag(\"B\")",
+        ]));
+
+        var comparison = MetadataFindings.CompareApiAttributes(
+            oldSurface,
+            newSurface,
+            Subject,
+            "TestNamespace.Widget");
+        var pairs = Pairs(comparison);
+
+        Assert.Equal(1, pairs.Count(pair => pair.Kind == PairKind.Present));
+        Assert.Equal(1, pairs.Count(pair => pair.Kind == PairKind.Changed));
+        Assert.Equal(1, pairs.Count(pair => pair.Kind == PairKind.Removed));
+        var changed = Assert.IsType<PairFinding<ApiAttributeHandle>.Changed>(
+            Assert.Single(pairs, pair => pair.Kind == PairKind.Changed).Value);
+        Assert.Equal("System.Tag", changed.Old.Payload.Name);
+        Assert.Contains("System.Tag(\"A\") -> System.Tag(\"B\")", changed.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RealAssemblySelfCompare_IsExact()
     {
         using var stream = File.OpenRead(typeof(ApiDiffAnalyzer).Assembly.Location);
@@ -253,7 +339,8 @@ public class MetadataFindingsTests
         string kind = "class",
         string? ns = "TestNamespace",
         bool isByRefLike = false,
-        List<ApiMember>? members = null)
+        List<ApiMember>? members = null,
+        List<string>? attributes = null)
         => new()
         {
             Name = name,
@@ -261,6 +348,7 @@ public class MetadataFindingsTests
             Namespace = ns,
             IsByRefLike = isByRefLike,
             Members = members ?? [],
+            Attributes = attributes ?? [],
         };
 
     static ApiMember Method(

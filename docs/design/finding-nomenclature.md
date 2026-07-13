@@ -54,7 +54,7 @@ second semantic axis.
 | **Diff** | A comparison operation, artifact, report, or presentation containing changes. | Appropriate for `ApiDiff`, `IlBodyDiff`, unified diff text, and CLI `diff`; not for one-version observations. |
 | **Evidence** | Information used to support a conclusion. | A Finding, transition, structural diff, failure, or provenance record may serve as evidence. Do not create a parallel `Evidence*` row hierarchy merely to rename the Finding model. |
 | **Detail** | Explanatory payload or rendered elaboration. | A field or presentation concept, not a model family. |
-| **Census** | The complete observation collection from a successful inspection. | A documentation concept, not a competing API type family. |
+| **Census** | The complete observation collection from a successful inspection. | Usually a semantic unit rather than a payload family. `FindingCensusCorrelation<T>` is the explicit N-address operation outcome when whole-census state, including `Complete([])`, must survive correlation. |
 | **Fact** | A curated or interpreted statement derived from observations where the product intentionally distinguishes that rung. | Do not use it as a synonym for every raw observation. |
 | **Triage** | Downstream prioritization or judgment over observations, changes, and facts. | Never present it as raw producer currency. |
 
@@ -75,7 +75,8 @@ Operation outcomes describe one invocation:
 | Match | `FindingMatch` | Alignment edges and fringe candidates. |
 | Inspect | `FindingInspection<T>` | `Complete(Finding<T>[])`, `Absent`, or `Failed(InspectionError)`. |
 | Compare | `FindingComparison<T>` | Completed pairs/match/inspections, or the failed inspections that prevented matching. |
-| Correlate | `FindingCorrelation<T>` | A sparse, ordered timeline assembled from caller-supplied version-labelled inspections. |
+| Correlate census | `FindingCensusCorrelation<T>` | Sparse, ordered, caller-supplied version-labelled inspections without selecting one observation identity. |
+| Correlate identity | `FindingCorrelation<T>` | `Present`, `Missing`, `SubjectAbsent`, or `Failed` for one exact identity selected from correlated censuses. |
 
 Outcome types carry information types; information types do not depend on
 outcome envelopes. Use the nominalized operation name instead of generic
@@ -100,11 +101,23 @@ The governing invariant is:
 
 ## Sparse correlation and onset
 
-`FindingCorrelation<T>` does not traverse a version range. The caller chooses
-which addresses to inspect and supplies each `FindingInspection<T>` with a
-stable `FindingVersion`. This keeps bisect, backward scanning, retry, and probe
-limits in the agent or calling workflow rather than hiding an unbounded search
-inside the Finding layer.
+Neither correlation outcome traverses a version range. The caller chooses which
+addresses to inspect and supplies each `FindingInspection<T>` with a stable
+`FindingVersion`. This keeps bisect, backward scanning, retry, and probe limits
+in the agent or calling workflow rather than hiding an unbounded search inside
+the Finding layer.
+
+`FindingCensusCorrelation<T>` is the whole-census tier. It preserves each
+evaluated inspection, so `Complete([])` remains distinguishable from
+`SubjectAbsent` and `Failed` even when there is no observation identity from
+which to construct an exact track. This is the appropriate operation outcome
+for a type-focused member or attribute timeline: the focus selects a subject
+and producer, not one member or attribute key. `Complete` is therefore a census
+inspection state, not a fifth exact-identity correlation state.
+
+`FindingCorrelation<T>` selects one `FindingCorrelationKey` from those same
+version-labelled inspections. `FindingCensusCorrelation<T>.Correlate` is the
+explicit bridge from the census tier to this exact-identity tier.
 
 For one exact `FindingCorrelationKey`, an evaluated address has one of four
 states:
