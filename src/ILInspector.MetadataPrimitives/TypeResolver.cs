@@ -20,7 +20,7 @@ public static class TypeResolver
         {
             HandleKind.TypeReference => GetTypeNameFromReference(reader, (TypeReferenceHandle)handle),
             HandleKind.TypeDefinition => GetTypeNameFromDefinition(reader, (TypeDefinitionHandle)handle),
-            HandleKind.TypeSpecification => GetTypeNameFromSpecification(
+            HandleKind.TypeSpecification => DecodeTypeNameFromSpecification(
                 reader,
                 (TypeSpecificationHandle)handle,
                 context).TryGetValue(out var name)
@@ -53,9 +53,18 @@ public static class TypeResolver
         => GetFullName(reader, reader.GetTypeDefinition(handle));
 
     /// <summary>
+    /// Gets the type name from a TypeSpecification handle (generic instantiations).
+    /// </summary>
+    public static string GetTypeNameFromSpecification(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        GenericContext? context = null)
+        => DecodeTypeNameFromSpecification(reader, handle, context).GetValueOrThrow();
+
+    /// <summary>
     /// Gets the guarded decode outcome for a TypeSpecification handle (generic instantiations).
     /// </summary>
-    public static SignatureDecodeResult<string> GetTypeNameFromSpecification(
+    public static SignatureDecodeResult<string> DecodeTypeNameFromSpecification(
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context = null)

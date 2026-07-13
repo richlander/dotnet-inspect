@@ -108,15 +108,13 @@ public static class GuardedSignatureDecoder
         where T : notnull
     {
         ArgumentNullException.ThrowIfNull(decode);
-        if (!SignatureBlobGuard.IsSafeToDecode(reader, signature, kind))
-        {
-            return new SignatureDecodeResult<T>.Rejected(
-                new SignatureDecodeRejection(
+        return SignatureDecoder.Decode(
+            decode,
+            () => SignatureBlobGuard.IsSafeToDecode(reader, signature, kind)
+                ? null
+                : new SignatureDecodeRejection(
                     SignatureDecodeRejectionKind.UnsafeStructure,
                     $"The {kind} signature exceeds the structural safety limit."));
-        }
-
-        return SignatureDecoder.Decode(decode);
     }
 
     /// <summary>

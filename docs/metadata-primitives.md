@@ -111,8 +111,10 @@ The safety envelope has two independent limits:
 A single wide, shallow TypeSpec may consume the full 4,096-byte closure budget.
 There is no separate 1,024-byte per-blob cap. Both
 `GuardedSignatureText.TypeSpecText` and
-`TypeResolver.GetTypeNameFromSpecification` enter through the same
-`TypeSpecGuard`, so legal-input acceptance cannot vary by route.
+`TypeResolver.DecodeTypeNameFromSpecification` enter through the same
+`TypeSpecGuard`, so legal-input acceptance cannot vary by route. The
+compatibility API `GetTypeNameFromSpecification` returns a decoded value or
+throws on rejection; it does not restore a plausible fallback.
 
 ## The key finding: it's an entangled cluster, used widely
 

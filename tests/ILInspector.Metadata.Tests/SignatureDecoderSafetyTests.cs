@@ -117,7 +117,7 @@ public class SignatureDecoderSafetyTests
         });
 
         AssertRejected(
-            TypeResolver.GetTypeNameFromSpecification(
+            TypeResolver.DecodeTypeNameFromSpecification(
                 reader,
                 MetadataTokens.TypeSpecificationHandle(1)),
             SignatureDecodeRejectionKind.TypeSpecificationBudget);
@@ -137,7 +137,7 @@ public class SignatureDecoderSafetyTests
         });
 
         AssertRejected(
-            TypeResolver.GetTypeNameFromSpecification(
+            TypeResolver.DecodeTypeNameFromSpecification(
                 reader,
                 MetadataTokens.TypeSpecificationHandle(1)),
             SignatureDecodeRejectionKind.TypeSpecificationBudget);
@@ -199,7 +199,7 @@ public class SignatureDecoderSafetyTests
 
         var handle = MetadataTokens.TypeSpecificationHandle(1);
         var decoded = Assert.IsType<SignatureDecodeResult<string>.Decoded>(
-            TypeResolver.GetTypeNameFromSpecification(
+            TypeResolver.DecodeTypeNameFromSpecification(
                 reader,
                 handle));
         var gateway = Assert.IsType<SignatureDecodeResult<string>.Decoded>(
@@ -207,6 +207,9 @@ public class SignatureDecoderSafetyTests
 
         Assert.StartsWith("<Module><int, int", decoded.Value, StringComparison.Ordinal);
         Assert.Equal(decoded.Value, gateway.Value);
+        Assert.Equal(
+            decoded.Value,
+            TypeResolver.GetTypeNameFromSpecification(reader, handle));
         Assert.True(
             reader.GetBlobReader(
                 reader.GetTypeSpecification(MetadataTokens.TypeSpecificationHandle(1)).Signature)
@@ -228,13 +231,15 @@ public class SignatureDecoderSafetyTests
 
         var handle = MetadataTokens.TypeSpecificationHandle(1);
         AssertRejected(
-            TypeResolver.GetTypeNameFromSpecification(
+            TypeResolver.DecodeTypeNameFromSpecification(
                 reader,
                 handle),
             SignatureDecodeRejectionKind.TypeSpecificationBudget);
         AssertRejected(
             GuardedSignatureText.TypeSpecText(reader, handle, context: null),
             SignatureDecodeRejectionKind.TypeSpecificationBudget);
+        Assert.Throws<BadImageFormatException>(
+            () => TypeResolver.GetTypeNameFromSpecification(reader, handle));
     }
 
     [Fact]
@@ -247,7 +252,7 @@ public class SignatureDecoderSafetyTests
         });
 
         AssertRejected(
-            TypeResolver.GetTypeNameFromSpecification(
+            TypeResolver.DecodeTypeNameFromSpecification(
                 reader,
                 MetadataTokens.TypeSpecificationHandle(1)),
             SignatureDecodeRejectionKind.MalformedMetadata);
@@ -257,6 +262,26 @@ public class SignatureDecoderSafetyTests
                 MetadataTokens.TypeSpecificationHandle(1),
                 context: null),
             SignatureDecodeRejectionKind.MalformedMetadata);
+    }
+
+    [Fact]
+    public void MalformedSignatureBlobHandle_IsRejectedBeforeDecode()
+    {
+        var reader = BuildAssembly(_ => { });
+        bool decodeCalled = false;
+
+        var result = GuardedSignatureDecoder.Decode(
+            reader,
+            MetadataTokens.BlobHandle(0x1000),
+            SignatureBlobGuard.Kind.Field,
+            () =>
+            {
+                decodeCalled = true;
+                return "int";
+            });
+
+        AssertRejected(result, SignatureDecodeRejectionKind.MalformedMetadata);
+        Assert.False(decodeCalled);
     }
 
     [Fact]

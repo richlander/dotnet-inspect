@@ -74,7 +74,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         }
     }
 
-    internal static SignatureDecodeResult<T> Decode<T>(Func<T> decode)
+    internal static SignatureDecodeResult<T> Decode<T>(
+        Func<T> decode,
+        Func<SignatureDecodeRejection?>? preflight = null)
         where T : notnull
     {
         ArgumentNullException.ThrowIfNull(decode);
@@ -82,6 +84,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         s_rejection = null;
         try
         {
+            if (preflight?.Invoke() is { } preflightRejection)
+                return new SignatureDecodeResult<T>.Rejected(preflightRejection);
+
             T value = decode();
             return s_rejection is null
                 ? new SignatureDecodeResult<T>.Decoded(value)

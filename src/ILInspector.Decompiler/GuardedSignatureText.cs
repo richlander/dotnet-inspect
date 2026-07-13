@@ -42,6 +42,6 @@ internal static class GuardedSignatureText
             .GetValueOrThrow();
 
     public static string TypeSpecText(MetadataReader reader, TypeSpecificationHandle handle, GenericContext? context)
-        => TypeResolver.GetTypeNameFromSpecification(reader, handle, context)
+        => TypeResolver.DecodeTypeNameFromSpecification(reader, handle, context)
             .GetValueOrThrow();
 }

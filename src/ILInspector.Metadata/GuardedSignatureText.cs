@@ -64,5 +64,5 @@ internal static class GuardedSignatureText
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context)
-        => TypeResolver.GetTypeNameFromSpecification(reader, handle, context);
+        => TypeResolver.DecodeTypeNameFromSpecification(reader, handle, context);
 }
