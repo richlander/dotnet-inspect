@@ -36,11 +36,20 @@ public class ProviderSignatureDecodeBoundaryTests
         Path.Combine("src", "ILInspector.MetadataPrimitives"),
     };
 
+    // The complete set of SRM top-level signature-blob decoders that recurse on
+    // the native stack (once per nested element, before the first provider
+    // callback) and can therefore StackOverflow uncatchably on an over-deep
+    // blob. This is a denylist of dangerous entry points, so names the product
+    // does not currently call are still listed to freeze the anti-ratchet gate.
+    // Lower-level sub-decoders (DecodeType, DecodeTypeSequence) are reached only
+    // from within one of these and are covered transitively.
     static readonly string[] DecodeMethodNames =
     {
         "DecodeSignature",
         "DecodeMethodSignature",
         "DecodeFieldSignature",
+        "DecodeLocalSignature",
+        "DecodeMethodSpecificationSignature",
     };
 
     [Fact]
