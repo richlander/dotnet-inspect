@@ -284,6 +284,45 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void FindingComparison_TransformationMustPreserveSoftMatchProvenance()
+    {
+        FindingInspection<string> oldInspection =
+            new FindingInspection<string>.Complete(
+            [
+                new Finding<string>(
+                    Subject,
+                    Descriptor,
+                    SoftKey("old", "same", "extension"),
+                    "old"),
+            ]);
+        FindingInspection<string> newInspection =
+            new FindingInspection<string>.Complete(
+            [
+                new Finding<string>(
+                    Subject,
+                    Descriptor,
+                    SoftKey("new", "same", "instance"),
+                    "new"),
+            ]);
+        var comparison = FindingComparison.Compare(
+            oldInspection,
+            newInspection,
+            acceptanceThreshold: 85);
+
+        Assert.Throws<ArgumentException>(() => comparison.TransformPairs(
+            pairs =>
+            [
+                pairs[0] is PairFinding<string>.Changed changed
+                    ? new PairFinding<string>.Changed(
+                        changed.Old,
+                        changed.New,
+                        changed.Difference,
+                        changed.Detail)
+                    : throw new Xunit.Sdk.XunitException("Expected a changed pair."),
+            ]));
+    }
+
+    [Fact]
     public void FindingComparison_FailedDerivesBothInspectionErrors()
     {
         FindingInspection<string> oldFailed =

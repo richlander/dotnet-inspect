@@ -465,7 +465,7 @@ public static class ApiMemberIdentity
         }
 
         string receiver = isExtension
-            ? member.ExtendedType ?? signature.Parameters[0].TypeWithModifier
+            ? signature.Parameters[0].TypeWithModifier
             : type.FullName;
         if (string.IsNullOrWhiteSpace(receiver)
             || string.IsNullOrWhiteSpace(member.Name)

@@ -202,6 +202,14 @@ public sealed record FindingComparison<T> where T : notnull
                     $"Transformed pair {i} must preserve its old and new atoms.",
                     nameof(transformed));
             }
+            if (original[i].Value is IMatchedPairFinding { Match: not null } matchedBefore
+                && (transformed[i].Value is not IMatchedPairFinding matchedAfter
+                    || matchedAfter.Match != matchedBefore.Match))
+            {
+                throw new ArgumentException(
+                    $"Transformed pair {i} must preserve its match provenance.",
+                    nameof(transformed));
+            }
         }
     }
 }
