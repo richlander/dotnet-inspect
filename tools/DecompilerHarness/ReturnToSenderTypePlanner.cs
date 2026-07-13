@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -417,7 +418,8 @@ public sealed record CompileBackParameter(
     string? Modifier = null,
     IReadOnlyList<string>? Attributes = null,
     bool HasDefault = false,
-    string? DefaultValueText = null);
+    string? DefaultValueText = null,
+    TypeRef? SemanticType = null);
 
 public sealed record CompileBackTypeParameter(
     string Name,
@@ -489,7 +491,8 @@ public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, 
 internal sealed record ProductTargetBody(
     string Source,
     IReadOnlyList<DecompilerDecision> Decisions,
-    string? ConstructorChain = null);
+    string? ConstructorChain = null,
+    IReadOnlyList<(string Field, string Value)>? FieldInitializers = null);
 
 public static class CompileBackSourceComposer
 {
@@ -502,12 +505,15 @@ public static class CompileBackSourceComposer
         var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
         if (printed.Output is null)
             throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
-        // The printer lifts an explicit base(...)/this(...) constructor-chain call
-        // out of the body into ConstructorChain (chain calls are invalid as body
-        // statements). Carry it so the reconstructed target constructor re-emits
-        // the initializer; dropping it silently compiles an empty body and loses
-        // the constructor-chain opcodes (issue #2678).
-        return new ProductTargetBody(printed.Output, printed.Decisions, printed.ConstructorChain);
+        // Constructor-chain calls and pre-base field stores are declaration-level
+        // C# shapes, so the printer lifts them out of the block body. Carry both
+        // projections into RTS; dropping either silently compiles a shorter target
+        // constructor and loses its opcodes (issue #2678).
+        return new ProductTargetBody(
+            printed.Output,
+            printed.Decisions,
+            printed.ConstructorChain,
+            printed.FieldInitializers);
     }
 
     internal static ProductArtifact Compose(ArtifactRequest request)
@@ -559,7 +565,8 @@ public static class CompileBackSourceComposer
                 closure.Roots,
                 closure.Facts,
                 closure.MemberRequirements,
-                request.TargetBody.ConstructorChain),
+                request.TargetBody.ConstructorChain,
+                request.TargetBody.FieldInitializers),
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -1149,7 +1156,8 @@ public static class CompileBackSourceComposer
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
-        string? constructorChain = null)
+        string? constructorChain = null,
+        IReadOnlyList<(string Field, string Value)>? fieldInitializers = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -1172,13 +1180,10 @@ public static class CompileBackSourceComposer
 
         var chainCall = isConstructor ? ConstructorChainCall(function) : null;
         var chainCallee = chainCall?.Callee;
-        // Only this(...) self-chains are re-emitted as constructor initializers.
-        // RTS shells are flat (object-based, no reconstructed base class), so a
-        // base(args) initializer has no base constructor to bind to and would
-        // fail to compile (CS1729). Leaving those bodies empty keeps the prior
-        // implicit-base() behavior instead of introducing a recompile failure.
+        bool isThisChain = constructorChain?.StartsWith("this(", StringComparison.Ordinal) == true;
+        bool isBaseChain = constructorChain?.StartsWith("base(", StringComparison.Ordinal) == true;
         string? targetConstructorInitializer =
-            constructorChain is { } chain && chain.StartsWith("this(", StringComparison.Ordinal)
+            constructorChain is { } chain && (isThisChain || isBaseChain)
                 ? constructorChain
                 : null;
 
@@ -1205,6 +1210,12 @@ public static class CompileBackSourceComposer
                 IsAsync: !isConstructor && function.RequiresAsyncBodyModifier,
                 ConstructorInitializer: targetConstructorInitializer)
         ];
+        if (isConstructor && primaryConstructor is null && fieldInitializers is { Count: > 0 })
+            targetMembers.AddRange(TargetFieldInitializerMembers(
+                reader,
+                targetTypeDef,
+                targetIdentity,
+                fieldInitializers));
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
         {
@@ -1241,6 +1252,24 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        IReadOnlyList<CompileBackMemberRequirement> chainTargetMembers = [];
+        TypeDefinitionHandle? chainTargetType = null;
+        if (chainCallee is { } chainTarget)
+        {
+            chainTargetType = ResolveSameAssemblyType(reader, chainTarget.DeclaringType);
+            if (isThisChain && chainTargetType == targetType)
+            {
+                chainTargetMembers = targetMembers;
+            }
+            else if (isBaseChain
+                && chainTargetType is { } baseHandle
+                && targetTypeDef.BaseType.Kind == HandleKind.TypeDefinition
+                && (TypeDefinitionHandle)targetTypeDef.BaseType == baseHandle
+                && closureMemberRequirements.TryGetValue(baseHandle, out var baseMembers))
+            {
+                chainTargetMembers = baseMembers;
+            }
+        }
         bool chainedConstructorReconstructed =
             chainCallee is { } chainCtor
             && chainCall is { } chainCallNode
@@ -1248,11 +1277,8 @@ public static class CompileBackSourceComposer
             // is fully supported (an unsupported parameter such as a function
             // pointer makes the planner drop it, mirroring MethodRequirement).
             && chainCtor.ParameterTypes.All(type => !IsUnsupportedChainParameterType(type))
-            // A same-arity non-target constructor must actually be present in the
-            // shell for `: this(args)` to have a binding target.
-            && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
-                && member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Parameters.Count == chainCtor.ParameterTypes.Length)
+            // The exact chained-to constructor must be present in the shell.
+            && chainTargetMembers.Any(member => ConstructorMatches(member, chainCtor))
             // The printed `: this(args)` must bind to exactly the chained-to
             // constructor. Two independent conditions each guarantee that:
             //
@@ -1263,18 +1289,15 @@ public static class CompileBackSourceComposer
             //    regardless of the other constructors in the shell (this also
             //    excludes binding back to the target constructor itself, CS0516).
             //
-            //  * Unique-arity binding — exactly one constructor in the whole shell
-            //    (the target constructor included) can bind to a call with the
-            //    chained-to constructor's argument count. Applicability accounts for
-            //    `params`/optional expansion, not just declared arity: a cross-arity
-            //    `params`/optional sibling can absorb an N-argument call and, for a
-            //    lossy argument (a bare constant or `null`), offer a better
-            //    conversion that steals the bind. Requiring a single applicable
-            //    candidate guarantees `: this(a1..aN)` binds to the chained-to
-            //    constructor even when an argument cannot be typed precisely.
+            //  * Unique applicability — exactly one constructor in the whole shell
+            //    can bind the printed arguments. Applicability accounts for
+            //    `params`/optional expansion and uses typed argument/parameter
+            //    evidence where it can rule a candidate out. Unknown conversions
+            //    remain possible, so the failure direction stays conservative.
             && (ChainArgumentsAreFaithful(chainCallNode, chainCtor)
-                || targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
-                    && ConstructorCouldBindToArgCount(member, chainCtor.ParameterTypes.Length)) == 1);
+                || chainTargetMembers.Count(member =>
+                    member.Kind == CompileBackMemberKind.Constructor
+                    && ConstructorCouldBindPrintedArguments(member, chainCallNode)) == 1);
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to constructor was not reconstructed in the shell, or the
@@ -1287,6 +1310,13 @@ public static class CompileBackSourceComposer
                 && member.StubBody == CompileBackStubBodyKind.TargetBody);
             if (targetIndex >= 0)
                 targetMembers[targetIndex] = targetMembers[targetIndex] with { ConstructorInitializer = null };
+        }
+        else if (isBaseChain && chainTargetType is { } baseHandle)
+        {
+            targetFacts.Add(new CompileBackFact(
+                "metadata",
+                "target-base-constructor-chain",
+                CompileBackTypeIdentity.FromDefinition(reader, reader.GetTypeDefinition(baseHandle)).MetadataFullName));
         }
         if (includeRecordSurface)
         {
@@ -1720,6 +1750,82 @@ public static class CompileBackSourceComposer
             && argument.ResultType is { } type
             && type.Equals(parameterType);
 
+    static bool ConstructorMatches(CompileBackMemberRequirement member, MethodRef constructor)
+    {
+        if (member.Kind != CompileBackMemberKind.Constructor
+            || member.Parameters.Count != constructor.ParameterTypes.Length)
+            return false;
+
+        for (int i = 0; i < member.Parameters.Count; i++)
+        {
+            if (member.Parameters[i].SemanticType is not { } parameterType
+                || !parameterType.Equals(constructor.ParameterTypes[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool ConstructorCouldBindPrintedArguments(
+        CompileBackMemberRequirement member,
+        Call chainCall)
+    {
+        int argumentCount = chainCall.Arguments.Count - 1;
+        if (!ConstructorCouldBindToArgCount(member, argumentCount))
+            return false;
+
+        int fixedParameterCount = member.Parameters.Count;
+        bool hasParams = fixedParameterCount > 0
+            && member.Parameters[fixedParameterCount - 1].Modifier == "params";
+        for (int i = 0; i < argumentCount; i++)
+        {
+            if (hasParams && i == fixedParameterCount - 1)
+                return true;
+
+            var argumentType = PrintedArgumentType(chainCall.Arguments[i + 1]);
+            if (!CouldImplicitlyConvertPrintedArgument(argumentType, member.Parameters[i].SemanticType))
+                return false;
+        }
+
+        return true;
+    }
+
+    static TypeRef? PrintedArgumentType(IrExpression argument)
+        => argument is Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance
+                or ILInspector.Decompiler.Pipeline.Constant
+                or Lambda or CollectionExpression or TupleExpression or InterpolatedStringExpression
+            ? null
+            : argument.ResultType;
+
+    static bool CouldImplicitlyConvertPrintedArgument(TypeRef? source, TypeRef? target)
+    {
+        if (source is null || target is null)
+            return true;
+        if (source.Equals(target))
+            return true;
+
+        if (source.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            && target is
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: "String"
+            })
+        {
+            // Arrays and System.String are sealed framework types; neither can
+            // declare the user-defined conversion that would make this candidate
+            // applicable. This rules out the same-arity string overload beside
+            // the actual IEnumerable<string> constructor in #2678.
+            return false;
+        }
+
+        // Unknown reference and user-defined conversions remain possible. Counting
+        // them as candidates may decline a safe initializer, but cannot bind one
+        // to the wrong constructor.
+        return true;
+    }
+
     /// <summary>
     /// Whether a reconstructed constructor could be an applicable candidate for a
     /// call with <paramref name="argCount"/> arguments. This is stronger than a
@@ -1765,6 +1871,20 @@ public static class CompileBackSourceComposer
         return display.Contains("delegate*", StringComparison.Ordinal)
             || display.Contains("<>", StringComparison.Ordinal)
             || display.Contains('{', StringComparison.Ordinal);
+    }
+
+    static TypeDefinitionHandle? ResolveSameAssemblyType(MetadataReader reader, TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        if (definition.Kind != TypeRefKind.Definition)
+            return null;
+        string assemblyName = TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name));
+        if (definition.Assembly != assemblyName)
+            return null;
+        return TypeDefinitionsByTypeRefIdentity(reader)
+            .GetValueOrDefault(TypeRefIdentityKey(definition.Namespace, definition.Name));
     }
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
@@ -1832,7 +1952,44 @@ public static class CompileBackSourceComposer
             declaringType,
             method,
             signature).Signature.Parameters);
+        parameters = WithSemanticTypes(reader, declaringType, method, parameters);
         return NormalizeSelfTypeParameters(reader, declaringType, parameters);
+    }
+
+    static IReadOnlyList<CompileBackParameter> WithSemanticTypes(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        MethodDefinition method,
+        IReadOnlyList<CompileBackParameter> parameters,
+        MethodRef? methodRef = null)
+    {
+        ImmutableArray<TypeRef> semanticTypes;
+        try
+        {
+            semanticTypes = GuardedDecode.MethodSignature(
+                reader,
+                method,
+                IrImporter.CallerScope(reader, declaringType, method)).ParameterTypes;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return parameters;
+        }
+
+        if (methodRef is { } reference)
+        {
+            var declaringTypeArguments = reference.DeclaringType.Kind == TypeRefKind.GenericInstance
+                ? reference.DeclaringType.TypeArguments
+                : [];
+            semanticTypes = [.. semanticTypes.Select(parameter =>
+                parameter.Instantiate(declaringTypeArguments, reference.TypeArguments))];
+        }
+        return parameters
+            .Select((parameter, index) => parameter with
+            {
+                SemanticType = index < semanticTypes.Length ? semanticTypes[index] : null
+            })
+            .ToArray();
     }
 
     static IReadOnlyList<CompileBackParameter> NormalizeSelfTypeParameters(
@@ -2623,6 +2780,53 @@ public static class CompileBackSourceComposer
         return members;
     }
 
+    static IReadOnlyList<CompileBackMemberRequirement> TargetFieldInitializerMembers(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity targetIdentity,
+        IReadOnlyList<(string Field, string Value)> initializers)
+    {
+        var members = new List<CompileBackMemberRequirement>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (fieldName, value) in initializers)
+        {
+            if (!seen.Add(fieldName)
+                || FindField(reader, typeDef, fieldName) is not { } fieldHandle)
+                continue;
+
+            var field = reader.GetFieldDefinition(fieldHandle);
+            string fieldType;
+            try
+            {
+                fieldType = GuardedSignatureText.FieldText(
+                    reader,
+                    field,
+                    GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+
+            members.Add(new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(
+                    targetIdentity.FullName,
+                    Identifier(fieldName),
+                    0,
+                    $"field {fieldType}"),
+                CompileBackMemberKind.Field,
+                field.Attributes.HasFlag(FieldAttributes.Static),
+                Parameters: [],
+                CompileBackTypeSignature.Display(fieldType),
+                TypeParameters: [],
+                CompileBackStubBodyKind.FieldInitializer,
+                value,
+                [new CompileBackFact("metadata", "target-field-initializer", fieldName)]));
+        }
+
+        return members;
+    }
+
     static int CountInstanceConstructors(MetadataReader reader, TypeDefinition typeDef)
     {
         int count = 0;
@@ -2858,7 +3062,7 @@ public static class CompileBackSourceComposer
             if (TryFindPropertyForAccessor(reader, typeDef, methodRef) is { } propertyHandle)
                 return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, methodRef.Name);
             if (TryFindMethod(reader, typeDef, methodRef) is { } methodHandle)
-                return MethodRequirement(reader, typeDef, typeIdentity, methodHandle);
+                return MethodRequirement(reader, typeDef, typeIdentity, methodHandle, methodRef);
             return null;
         }
 
@@ -3046,8 +3250,13 @@ public static class CompileBackSourceComposer
             try
             {
                 var signature = GuardedDecode.MethodSignature(reader, method, IrImporter.CallerScope(reader, typeDef, method));
+                var declaringTypeArguments = methodRef.DeclaringType.Kind == TypeRefKind.GenericInstance
+                    ? methodRef.DeclaringType.TypeArguments
+                    : [];
+                var parameterTypes = signature.ParameterTypes
+                    .Select(parameter => parameter.Instantiate(declaringTypeArguments, methodRef.TypeArguments));
                 return signature.ParameterTypes.Length == methodRef.ParameterTypes.Length
-                    && signature.ParameterTypes.SequenceEqual(methodRef.ParameterTypes);
+                    && parameterTypes.SequenceEqual(methodRef.ParameterTypes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -3124,7 +3333,8 @@ public static class CompileBackSourceComposer
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity,
-            MethodDefinitionHandle methodHandle)
+            MethodDefinitionHandle methodHandle,
+            MethodRef? methodRef = null)
         {
             var method = reader.GetMethodDefinition(methodHandle);
             string name = reader.GetString(method.Name);
@@ -3159,6 +3369,7 @@ public static class CompileBackSourceComposer
             var parameters = generatedLocalFunction
                 ? Parameters(reader, method, signature)
                 : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);
+            parameters = WithSemanticTypes(reader, typeDef, method, parameters, methodRef);
             var methodReturnType = generatedLocalFunction
                 ? signature.ReturnType
                 : methodDeclaration!.Signature.ReturnType;
@@ -3244,7 +3455,11 @@ public static class CompileBackSourceComposer
                 Name = requirement.Type.MetadataName,
                 MetadataName = requirement.Type.MetadataName,
                 Kind = TypeKindText(kind),
-                BaseType = BaseTypeSignature(reader, typeDef)?.DisplayName,
+                BaseType = BaseTypeSignature(
+                    reader,
+                    typeDef,
+                    requirement,
+                    requirementsByMetadataName)?.DisplayName,
                 TypeParameters = TypeParameters(reader, typeDef)
                     .Select(ToApiTypeParameter)
                     .ToList(),
@@ -3422,7 +3637,11 @@ public static class CompileBackSourceComposer
         static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
             => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
 
-        static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef)
+        static CompileBackTypeSignature? BaseTypeSignature(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            CompileBackTypeRequirement requirement,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName)
         {
             if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
                 return null;
@@ -3430,8 +3649,20 @@ public static class CompileBackSourceComposer
                 return null;
 
             string? baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
-            return baseType is "System.Attribute"
-                ? CompileBackTypeSignature.Display(baseType)
+            if (baseType is "System.Attribute")
+                return CompileBackTypeSignature.Display(baseType);
+
+            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition
+                || !requirement.SourceFacts.Any(fact =>
+                    fact.Id == "target-base-constructor-chain"
+                    && fact.Detail == baseType))
+                return null;
+
+            var baseIdentity = CompileBackTypeIdentity.FromDefinition(
+                reader,
+                reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType));
+            return requirementsByMetadataName.ContainsKey(baseIdentity.MetadataFullName)
+                ? CompileBackTypeSignature.Definition(baseIdentity)
                 : null;
         }
 

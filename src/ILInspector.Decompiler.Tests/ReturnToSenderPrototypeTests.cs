@@ -513,8 +513,160 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("Versioned", ".ctor", 0,
                     "(corelib:System.String) -> corelib:System.Void")]));
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(": this(", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesLiftedFieldInitializerOpcodes()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public sealed class C
+            {
+                private readonly object _gate = new object();
+                private readonly Stack<int> _values = new Stack<int>();
+
+                public C(int value)
+                {
+                    Value = value;
+                }
+
+                public int Value { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.Contains(type.Members, member =>
+                member.SourceFacts.Any(fact =>
+                    fact.Id == "target-field-initializer"
+                    && fact.Detail == "_gate"));
+            Assert.Contains("_gate = new object()", result.Source);
+            Assert.Contains("_values = new Stack<int>()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesLambdaBackedGenericFieldInitializerOpcodes()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+            using System.Text;
+
+            public sealed class Pool<T> where T : class
+            {
+                public Pool(Func<T> allocate)
+                {
+                }
+            }
+
+            public sealed class C
+            {
+                private readonly Pool<StringBuilder> _pool =
+                    new Pool<StringBuilder>(() => new StringBuilder(256));
+
+                public C()
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("_pool = new Pool<StringBuilder>", result.Source);
+            Assert.Contains("Pool(System.Func<T> allocate)", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesBaseConstructorChainOpcodes()
+    {
+        var assemblyPath = CompileFixture("""
+            public class B
+            {
+                protected B(int value)
+                {
+                }
+            }
+
+            public sealed class C : B
+            {
+                public C(int value) : base(value)
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0)]));
+
+            Assert.Contains("class C : B", result.Source);
+            Assert.Contains(": base(value)", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesUniqueArrayToEnumerableConstructorChain()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class C
+            {
+                public C(IEnumerable<string> values, string metadata)
+                {
+                }
+
+                public C(string value, int metadata)
+                {
+                }
+
+                public C(string text) : this(Parse(text), null)
+                {
+                }
+
+                private static string[] Parse(string text) => [text];
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.Contains(": this(", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
@@ -676,8 +828,8 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains(": this(", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
