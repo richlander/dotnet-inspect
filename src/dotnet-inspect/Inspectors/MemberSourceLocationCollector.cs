@@ -36,36 +36,33 @@ internal static class MemberSourceLocationCollector
                 return pdbPath;
 
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
-            var metadataTokens = targetMembers
-                .Select(static member => member.MetadataToken)
-                .OfType<int>()
-                .ToHashSet();
-            var sourceInspection = MetadataFindings.InspectMemberSources(
-                service,
-                new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath)),
-                new MemberSourceQuery(metadataTokens));
-            if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
-            {
-                logger.Log(
-                    $"Warning: Failed to resolve member source locations for {apiType.FullName}: "
-                    + failed.Error.Reason);
-                return pdbPath;
-            }
-
-            if (sourceInspection.Value is not FindingInspection<MemberSourceObservation>.Complete complete)
-                return pdbPath;
-
-            var mappingsByToken = complete.Findings
-                .Select(static finding => finding.Payload)
-                .GroupBy(static mapping => mapping.MetadataToken)
-                .ToDictionary(
-                    static group => group.Key,
-                    static group => group.OrderBy(static mapping => mapping.DocumentRowId).First());
+            var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
 
             foreach (var member in targetMembers)
             {
-                if (member.MetadataToken is not { } token
-                    || !mappingsByToken.TryGetValue(token, out var mapping))
+                if (member.MetadataToken is not { } token)
+                    continue;
+
+                var sourceInspection = MetadataFindings.InspectMemberSources(
+                    service,
+                    subject,
+                    new MemberSourceQuery(new HashSet<int> { token }));
+                if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
+                {
+                    logger.Log(
+                        $"Warning: Failed to resolve source location for {member.Name}: "
+                        + failed.Error.Reason);
+                    continue;
+                }
+
+                if (sourceInspection.Value is not FindingInspection<MemberSourceObservation>.Complete complete)
+                    continue;
+
+                var mapping = complete.Findings
+                    .Select(static finding => finding.Payload)
+                    .OrderBy(static candidate => candidate.DocumentRowId)
+                    .FirstOrDefault();
+                if (mapping is null)
                     continue;
 
                 member.SourceFilePath = mapping.OriginalPath;

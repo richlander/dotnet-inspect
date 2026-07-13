@@ -114,6 +114,31 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentIdentity_MatchesSourceLinkPathsCaseInsensitively()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "c:/repo/*": "https://example.test/repository/*"
+              }
+            }
+            """;
+
+        Assert.Equal(
+            "src/Widget.cs",
+            SourceDocumentPath.Canonicalize("C:/Repo/src/Widget.cs", sourceLink));
+    }
+
+    [Fact]
+    public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
+    {
+        var exception = Assert.Throws<BadImageFormatException>(
+            () => SourceDocumentPath.Canonicalize("", sourceLinkJson: null));
+
+        Assert.Contains("empty path", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MemberSourceComparison_UsesCanonicalMemberIdentity()
     {
         var anchor = new MemberAnchor(

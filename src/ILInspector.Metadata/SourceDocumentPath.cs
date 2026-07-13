@@ -6,7 +6,8 @@ internal static class SourceDocumentPath
 {
     public static string Canonicalize(string filePath, string? sourceLinkJson)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        if (string.IsNullOrWhiteSpace(filePath))
+            throw new BadImageFormatException("A portable-PDB source document has an empty path.");
 
         string normalizedPath = NormalizeSeparators(filePath);
         if (!string.IsNullOrWhiteSpace(sourceLinkJson))
@@ -25,10 +26,10 @@ internal static class SourceDocumentPath
                         if (pattern.EndsWith('*'))
                         {
                             string prefix = pattern[..^1];
-                            if (normalizedPath.StartsWith(prefix, StringComparison.Ordinal))
+                            if (normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                                 return normalizedPath[prefix.Length..].TrimStart('/');
                         }
-                        else if (string.Equals(normalizedPath, pattern, StringComparison.Ordinal))
+                        else if (string.Equals(normalizedPath, pattern, StringComparison.OrdinalIgnoreCase))
                         {
                             return normalizedPath.StartsWith("/_/", StringComparison.Ordinal)
                                 ? normalizedPath[3..]
