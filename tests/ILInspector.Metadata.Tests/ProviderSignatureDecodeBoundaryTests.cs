@@ -812,6 +812,42 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "TypeRefDecoder mutates spec through trailing local function",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        Mutate();
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+
+                    void Mutate() =>
+                        spec = reader.GetTypeSpecification(otherHandle);
+                }
+            }
+            """
+        },
+        {
             "TypeRefDecoder tuple-mutates protected locals",
             """
             class C
@@ -1413,6 +1449,14 @@ public class ProviderSignatureDecodeBoundaryTests
             return false;
 
         int tryIndex = body.Statements.IndexOf(guardedTry);
+        var protectedIdentities = new HashSet<string>(
+            [
+                receiver.Identifier.Text,
+                "blobLength",
+                "s_recursionDepth",
+                "s_cumulativeSignatureBytes",
+            ],
+            StringComparer.Ordinal);
         if (tryIndex is not (7 or 8)
             || !IsRejectingComparisonStatement(
                 body.Statements[0],
@@ -1448,7 +1492,11 @@ public class ProviderSignatureDecodeBoundaryTests
                 receiver.Identifier.Text,
                 "blobLength",
                 "s_recursionDepth",
-                "s_cumulativeSignatureBytes"))
+                "s_cumulativeSignatureBytes")
+            || HasPotentialAliasBefore(method, protectedIdentities, int.MaxValue)
+            || guardedTry.Block.DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Any(candidate => candidate != invocation))
         {
             return false;
         }
