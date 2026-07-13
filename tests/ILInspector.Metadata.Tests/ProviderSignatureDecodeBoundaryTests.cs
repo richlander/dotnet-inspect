@@ -14,7 +14,7 @@ namespace ILInspector.Metadata.Tests;
 /// cross-handle TypeSpec re-entry must be bounded by <c>TypeSpecGuard</c>.
 ///
 /// This census is a deny-list: any <c>Decode*Signature</c> invocation that is
-/// not one of the two sanctioned guarded forms is a violation. A newly added
+/// not one of the sanctioned guarded forms is a violation. A newly added
 /// provider, an un-gated site, or a decode routed through a local alias fails
 /// this test rather than shipping an unguarded same-mechanism hole. This is the
 /// anti-ratchet closure proof.
@@ -24,9 +24,10 @@ namespace ILInspector.Metadata.Tests;
 /// aliasing, or spoofed tokens. It enumerates every occurrence of a decode
 /// method name and requires each to be the invoked member of a sanctioned call,
 /// so null-conditional (`x?.Decode...`), method-group, and delegate forms are
-/// flagged rather than skipped. Form 2 additionally binds the prescan to the
-/// decoded blob (same receiver's `.Signature`), so an unrelated or nil-handle
-/// guard cannot launder an unguarded decode past the census.
+/// flagged rather than skipped. Prescan forms bind the guard to the decoded
+/// blob (same receiver's `.Signature`), TypeSpec forms bind the disposable
+/// scope to the decoded handle, and the two TypeRefDecoder implementations
+/// must retain their depth/cumulative counter pattern.
 /// </summary>
 public class ProviderSignatureDecodeBoundaryTests
 {
@@ -35,6 +36,8 @@ public class ProviderSignatureDecodeBoundaryTests
         Path.Combine("src", "ILInspector.Metadata"),
         Path.Combine("src", "ILInspector.MetadataPrimitives"),
         Path.Combine("src", "ILInspector.Instructions"),
+        Path.Combine("src", "ILInspector.Analysis"),
+        Path.Combine("src", "ILInspector.Decompiler"),
     };
 
     // The complete set of SRM top-level signature-blob decoders that recurse on
@@ -61,25 +64,8 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            foreach (var name in DecodeNameOccurrences(file))
+            foreach (var name in UnsafeDecodeOccurrences(ParseRoot(file)))
             {
-                // A decode method name may appear ONLY as the invoked method of a
-                // sanctioned decode call. Any other occurrence — a method-group /
-                // delegate reference, or a call whose name node is not the invoked
-                // member — is an unguarded escape and a violation.
-                if (TryGetInvokedDecode(name, out var invocation)
-                    && (IsNestedTypeSpecReentry(invocation) || IsPrescanGuardedTernary(invocation)))
-                {
-                    // Sanctioned form 1: a nested cross-handle TypeSpec re-entry,
-                    // `reader.GetTypeSpecification(handle).Decode*Signature(...)`,
-                    // bounded by TypeSpecGuard in its enclosing provider file
-                    // (asserted by NestedTypeSpecReentry_IsBoundedByTypeSpecGuard).
-                    // Sanctioned form 2: the decode is the true-branch of a
-                    // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature,
-                    // ...) ? decode : fallback` prescan ternary.
-                    continue;
-                }
-
                 var line = name.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
                 violations.Add($"{Path.GetRelativePath(root, file)}:{line}");
             }
@@ -87,9 +73,9 @@ public class ProviderSignatureDecodeBoundaryTests
 
         Assert.True(
             violations.Count == 0,
-            "Every top-level provider signature decode must be the true-branch of a "
-            + "SignatureBlobGuard.IsSafeToDecode prescan ternary or a "
-            + "TypeSpecGuard-bounded nested GetTypeSpecification re-entry. "
+            "Every provider signature decode must be bound to its receiver's "
+            + "SignatureBlobGuard prescan, a disposable TypeSpecGuard scope, or "
+            + "the bounded TypeRefDecoder counter pattern. "
             + "Unguarded raw decodes:\n  " + string.Join("\n  ", violations));
     }
 
@@ -101,40 +87,424 @@ public class ProviderSignatureDecodeBoundaryTests
 
         foreach (var file in EnumerateSourceFiles(root))
         {
-            var invocations = AllInvocations(file);
+            foreach (var invocation in ParseRoot(file).DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Where(i => IsDecodeInvocation(i) && IsNestedTypeSpecReentry(i)))
+            {
+                if (IsBoundedByTypeSpecGuard(invocation))
+                    continue;
 
-            bool hasNestedReentry = invocations.Any(i => IsDecodeInvocation(i) && IsNestedTypeSpecReentry(i));
-            if (!hasNestedReentry)
-                continue;
-
-            bool boundsWithTypeSpecGuard = invocations.Any(i =>
-                i.Expression is MemberAccessExpressionSyntax member
-                && member.Name.Identifier.Text == "TryEnter"
-                && member.Expression is IdentifierNameSyntax id
-                && id.Identifier.Text == "TypeSpecGuard");
-
-            if (!boundsWithTypeSpecGuard)
-                unguarded.Add(Path.GetRelativePath(root, file));
+                var line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                unguarded.Add($"{Path.GetRelativePath(root, file)}:{line}");
+            }
         }
 
         Assert.True(
             unguarded.Count == 0,
-            "Every file that re-enters a nested TypeSpec decode must bound it with "
-            + "TypeSpecGuard.TryEnter:\n  " + string.Join("\n  ", unguarded));
+            "Every nested TypeSpec decode invocation must be enclosed by the disposable "
+            + "scope returned from its own TypeSpecGuard.TryEnter call:\n  "
+            + string.Join("\n  ", unguarded));
     }
 
-    static IEnumerable<SimpleNameSyntax> DecodeNameOccurrences(string file)
-        => ParseRoot(file).DescendantNodes()
-            .OfType<SimpleNameSyntax>()
-            .Where(name => DecodeMethodNames.Contains(name.Identifier.Text));
+    [Theory]
+    [MemberData(nameof(ReviewerEvasions))]
+    public void ReviewerEvasion_IsRejected(string _, string source)
+    {
+        var violations = UnsafeDecodeOccurrences(ParseSource(source)).ToArray();
 
-    static InvocationExpressionSyntax[] AllInvocations(string file)
-        => ParseRoot(file).DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
+        Assert.NotEmpty(violations);
+    }
+
+    public static TheoryData<string, string> ReviewerEvasions => new()
+    {
+        {
+            "gateway file",
+            """
+            class C
+            {
+                object M() => gateway.DecodeSignature(provider, context);
+            }
+            """
+        },
+        {
+            "local alias",
+            """
+            class C
+            {
+                object M()
+                {
+                    var alias = value;
+                    return SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind)
+                        ? alias.DecodeSignature(provider, context)
+                        : fallback;
+                }
+            }
+            """
+        },
+        {
+            "newline and comment spoof",
+            """
+            class C
+            {
+                object M() => value
+                    /* SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind) */
+                    .DecodeSignature(provider, context);
+            }
+            """
+        },
+        {
+            "nil handle guard",
+            """
+            class C
+            {
+                object M() => SignatureBlobGuard.IsSafeToDecode(reader, default, kind)
+                    ? value.DecodeSignature(provider, context)
+                    : fallback;
+            }
+            """
+        },
+        {
+            "unrelated blob guard",
+            """
+            class C
+            {
+                object M() => SignatureBlobGuard.IsSafeToDecode(reader, other.Signature, kind)
+                    ? value.DecodeSignature(provider, context)
+                    : fallback;
+            }
+            """
+        },
+        {
+            "disjunctive blob guard",
+            """
+            class C
+            {
+                object M() =>
+                    (SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind) || alwaysTrue)
+                        ? value.DecodeSignature(provider, context)
+                        : fallback;
+            }
+            """
+        },
+        {
+            "null conditional",
+            """
+            class C
+            {
+                object M() => SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind)
+                    ? value?.DecodeSignature(provider, context)
+                    : fallback;
+            }
+            """
+        },
+        {
+            "method group",
+            """
+            class C
+            {
+                object M()
+                {
+                    var decode = value.DecodeSignature;
+                    return decode(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "lambda deferred decode",
+            """
+            class C
+            {
+                object M()
+                {
+                    var decode = () => value.DecodeSignature(provider, context);
+                    return decode();
+                }
+            }
+            """
+        },
+        {
+            "new decoder entry point",
+            """
+            class C
+            {
+                object M() => value.DecodeLocalSignature(provider, context);
+            }
+            """
+        },
+        {
+            "file-granular TypeSpec guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    TypeSpecGuard.TryEnter(reader, otherHandle, out var unrelated);
+                    return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "mismatched TypeSpec handle",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!TypeSpecGuard.TryEnter(reader, otherHandle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "mismatched TypeSpec reader",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!TypeSpecGuard.TryEnter(otherReader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeSpec scope entered before an unscoped return",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    if (skip)
+                        return fallback;
+                    using (scope)
+                    {
+                        return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder with inverted recursion guard",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth < MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder without cumulative guard",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder without finally cleanup",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    return spec.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(SanctionedShapes))]
+    public void SanctionedShape_IsAccepted(string _, string source)
+    {
+        var violations = UnsafeDecodeOccurrences(ParseSource(source)).ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    public static TheoryData<string, string> SanctionedShapes => new()
+    {
+        {
+            "prescan ternary",
+            """
+            class C
+            {
+                object M() => SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind)
+                    ? value.DecodeSignature(provider, context)
+                    : fallback;
+            }
+            """
+        },
+        {
+            "prescan positive if",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return value.DecodeSignature(provider, context);
+                    return fallback;
+                }
+            }
+            """
+        },
+        {
+            "prescan rejecting if",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "disposable TypeSpec scope",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                        return fallback;
+                    using (scope)
+                    {
+                        return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "bounded TypeRefDecoder",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+    };
+
+    static IEnumerable<SimpleNameSyntax> UnsafeDecodeOccurrences(SyntaxNode root)
+        => root.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Where(name => DecodeMethodNames.Contains(name.Identifier.Text))
+            .Where(name => !TryGetInvokedDecode(name, out var invocation)
+                || !IsSanctionedDecode(invocation));
 
     static SyntaxNode ParseRoot(string file)
     {
         var token = TestContext.Current.CancellationToken;
         var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(file), cancellationToken: token);
+        return tree.GetRoot(token);
+    }
+
+    static SyntaxNode ParseSource(string source)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: token);
         return tree.GetRoot(token);
     }
 
@@ -169,6 +539,13 @@ public class ProviderSignatureDecodeBoundaryTests
         => invocation.Expression is MemberAccessExpressionSyntax member
             && DecodeMethodNames.Contains(member.Name.Identifier.Text);
 
+    static bool IsSanctionedDecode(InvocationExpressionSyntax invocation)
+        => IsNestedTypeSpecReentry(invocation)
+            ? IsBoundedByTypeSpecGuard(invocation)
+            : IsPrescanGuardedTernary(invocation)
+                || IsPrescanGuardedIf(invocation)
+                || IsDepthAndCumulativeBoundedTypeSpecDecode(invocation);
+
     // `<expr>.GetTypeSpecification(...).Decode*Signature(...)`: the decode's
     // immediate receiver is itself a GetTypeSpecification invocation.
     static bool IsNestedTypeSpecReentry(InvocationExpressionSyntax invocation)
@@ -176,6 +553,81 @@ public class ProviderSignatureDecodeBoundaryTests
             && member.Expression is InvocationExpressionSyntax receiver
             && receiver.Expression is MemberAccessExpressionSyntax receiverMember
             && receiverMember.Name.Identifier.Text == "GetTypeSpecification";
+
+    static bool IsBoundedByTypeSpecGuard(InvocationExpressionSyntax invocation)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember
+            || decodeMember.Expression is not InvocationExpressionSyntax typeSpecReceiver
+            || typeSpecReceiver.Expression is not MemberAccessExpressionSyntax typeSpecAccess
+            || typeSpecReceiver.ArgumentList.Arguments.FirstOrDefault()?.Expression is not { } handle)
+        {
+            return false;
+        }
+
+        foreach (var usingStatement in invocation.Ancestors().OfType<UsingStatementSyntax>())
+        {
+            if (!usingStatement.Statement.Span.Contains(invocation.Span)
+                || usingStatement.Expression is not IdentifierNameSyntax scope
+                || usingStatement.Parent is not BlockSyntax block)
+            {
+                continue;
+            }
+
+            int usingIndex = block.Statements.IndexOf(usingStatement);
+            if (usingIndex <= 0
+                || block.Statements[usingIndex - 1] is not IfStatementSyntax guard)
+                continue;
+
+            if (ConditionRejectsFailedTypeSpecEntry(
+                    guard.Condition,
+                    scope.Identifier.Text,
+                    typeSpecAccess.Expression,
+                    handle)
+                && StatementAlwaysExits(guard.Statement))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool ConditionRejectsFailedTypeSpecEntry(
+        ExpressionSyntax condition,
+        string scopeName,
+        ExpressionSyntax reader,
+        ExpressionSyntax handle)
+    {
+        condition = StripParentheses(condition);
+        if (condition is not PrefixUnaryExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.LogicalNotExpression,
+                Operand: { } operand
+            })
+        {
+            return false;
+        }
+
+        operand = StripParentheses(operand);
+        if (operand is not InvocationExpressionSyntax tryEnter
+            || tryEnter.Expression is not MemberAccessExpressionSyntax member
+            || member.Name.Identifier.Text != "TryEnter"
+            || !IsNamedExpression(member.Expression, "TypeSpecGuard"))
+        {
+            return false;
+        }
+
+        var arguments = tryEnter.ArgumentList.Arguments;
+        return arguments.Count == 3
+            && Equivalent(arguments[0].Expression, reader)
+            && Equivalent(arguments[1].Expression, handle)
+            && arguments[2].RefKindKeyword.IsKind(SyntaxKind.OutKeyword)
+            && arguments[2].Expression is DeclarationExpressionSyntax
+            {
+                Designation: SingleVariableDesignationSyntax designation
+            }
+            && designation.Identifier.Text == scopeName;
+    }
 
     // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature, ...) ?
     // <recv>.Decode*Signature(...) : <fallback>`: some enclosing conditional
@@ -201,17 +653,265 @@ public class ProviderSignatureDecodeBoundaryTests
         return false;
     }
 
+    static bool IsPrescanGuardedIf(InvocationExpressionSyntax invocation)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember)
+            return false;
+        string decodeReceiver = decodeMember.Expression.ToString();
+
+        foreach (var ifStatement in invocation.Ancestors().OfType<IfStatementSyntax>())
+        {
+            if (ifStatement.Statement.Span.Contains(invocation.Span)
+                && ConditionGuardsReceiverSignature(ifStatement.Condition, decodeReceiver))
+            {
+                return true;
+            }
+        }
+
+        foreach (var block in invocation.Ancestors().OfType<BlockSyntax>())
+        {
+            var guardedStatement = block.Statements.FirstOrDefault(
+                statement => statement.Span.Contains(invocation.Span));
+            if (guardedStatement is null)
+                continue;
+
+            int guardedIndex = block.Statements.IndexOf(guardedStatement);
+            foreach (var ifStatement in block.Statements.Take(guardedIndex).OfType<IfStatementSyntax>())
+            {
+                if (ConditionRejectsUnsafeReceiverSignature(ifStatement.Condition, decodeReceiver)
+                    && StatementAlwaysExits(ifStatement.Statement))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     static bool ConditionGuardsReceiverSignature(ExpressionSyntax condition, string decodeReceiver)
-        => condition.DescendantNodesAndSelf()
-            .OfType<InvocationExpressionSyntax>()
-            .Any(i => i.Expression is MemberAccessExpressionSyntax member
-                && member.Name.Identifier.Text == "IsSafeToDecode"
-                && member.Expression is IdentifierNameSyntax id
-                && id.Identifier.Text == "SignatureBlobGuard"
-                && i.ArgumentList.Arguments.Any(a =>
-                    a.Expression is MemberAccessExpressionSyntax blob
-                    && blob.Name.Identifier.Text == "Signature"
-                    && blob.Expression.ToString() == decodeReceiver));
+    {
+        condition = StripParentheses(condition);
+        if (condition is InvocationExpressionSyntax invocation)
+            return IsReceiverSignatureGuard(invocation, decodeReceiver);
+
+        return condition is BinaryExpressionSyntax binary
+            && binary.IsKind(SyntaxKind.LogicalAndExpression)
+            && (ConditionGuardsReceiverSignature(binary.Left, decodeReceiver)
+                || ConditionGuardsReceiverSignature(binary.Right, decodeReceiver));
+    }
+
+    static bool ConditionRejectsUnsafeReceiverSignature(
+        ExpressionSyntax condition,
+        string decodeReceiver)
+    {
+        condition = StripParentheses(condition);
+        if (condition is not PrefixUnaryExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.LogicalNotExpression,
+                Operand: { } operand
+            })
+        {
+            return false;
+        }
+
+        operand = StripParentheses(operand);
+        return operand is InvocationExpressionSyntax invocation
+            && IsReceiverSignatureGuard(invocation, decodeReceiver);
+    }
+
+    static bool IsReceiverSignatureGuard(
+        InvocationExpressionSyntax invocation,
+        string decodeReceiver)
+        => invocation.Expression is MemberAccessExpressionSyntax member
+            && member.Name.Identifier.Text == "IsSafeToDecode"
+            && IsNamedExpression(member.Expression, "SignatureBlobGuard")
+            && invocation.ArgumentList.Arguments.Any(argument =>
+                argument.Expression is MemberAccessExpressionSyntax blob
+                && blob.Name.Identifier.Text == "Signature"
+                && blob.Expression.ToString() == decodeReceiver);
+
+    static bool IsDepthAndCumulativeBoundedTypeSpecDecode(
+        InvocationExpressionSyntax invocation)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax receiver
+            }
+            || invocation.FirstAncestorOrSelf<MethodDeclarationSyntax>() is not
+            {
+                Identifier.Text: "GetTypeFromSpecification",
+                Body: { } body
+            } method)
+        {
+            return false;
+        }
+
+        bool receiverIsTypeSpec = method.DescendantNodes()
+            .OfType<VariableDeclaratorSyntax>()
+            .Any(variable =>
+                variable.Identifier.Text == receiver.Identifier.Text
+                && variable.SpanStart < invocation.SpanStart
+                && variable.Initializer?.Value is InvocationExpressionSyntax
+                {
+                    Expression: MemberAccessExpressionSyntax member
+                }
+                && member.Name.Identifier.Text == "GetTypeSpecification");
+        if (!receiverIsTypeSpec
+            || !HasRejectingComparisonBefore(
+                body,
+                invocation,
+                SyntaxKind.GreaterThanOrEqualExpression,
+                "s_recursionDepth",
+                "MaxRecursionDepth")
+            || !HasRejectingComparisonBefore(
+                body,
+                invocation,
+                SyntaxKind.GreaterThanExpression,
+                "blobLength",
+                "MaxSignatureBlobLength")
+            || !HasRejectingComparisonBefore(
+                body,
+                invocation,
+                SyntaxKind.GreaterThanExpression,
+                "s_cumulativeSignatureBytes + blobLength",
+                "MaxCumulativeSignatureBytes"))
+        {
+            return false;
+        }
+
+        var guardedTry = invocation.Ancestors().OfType<TryStatementSyntax>()
+            .FirstOrDefault(statement => statement.Block.Span.Contains(invocation.Span));
+        if (guardedTry?.Finally?.Block is not { } finallyBlock
+            || !HasPostfixMutationBefore(
+                body,
+                guardedTry,
+                "s_recursionDepth",
+                SyntaxKind.PostIncrementExpression)
+            || !HasAssignmentBefore(
+                body,
+                guardedTry,
+                "s_cumulativeSignatureBytes",
+                "blobLength",
+                SyntaxKind.AddAssignmentExpression)
+            || !HasPostfixMutation(
+                finallyBlock,
+                "s_recursionDepth",
+                SyntaxKind.PostDecrementExpression)
+            || !HasAssignment(
+                finallyBlock,
+                "s_cumulativeSignatureBytes",
+                "blobLength",
+                SyntaxKind.SubtractAssignmentExpression))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool HasRejectingComparisonBefore(
+        BlockSyntax body,
+        InvocationExpressionSyntax invocation,
+        SyntaxKind kind,
+        string left,
+        string right)
+        => body.DescendantNodes()
+            .OfType<IfStatementSyntax>()
+            .Any(statement =>
+                statement.SpanStart < invocation.SpanStart
+                && StripParentheses(statement.Condition) is BinaryExpressionSyntax comparison
+                && comparison.IsKind(kind)
+                && Equivalent(
+                    StripParentheses(comparison.Left),
+                    SyntaxFactory.ParseExpression(left))
+                && Equivalent(
+                    StripParentheses(comparison.Right),
+                    SyntaxFactory.ParseExpression(right))
+                && StatementAlwaysExits(statement.Statement));
+
+    static bool HasPostfixMutationBefore(
+        BlockSyntax body,
+        StatementSyntax boundary,
+        string identifier,
+        SyntaxKind kind)
+        => body.DescendantNodes()
+            .OfType<PostfixUnaryExpressionSyntax>()
+            .Any(expression =>
+                expression.SpanStart < boundary.SpanStart
+                && expression.IsKind(kind)
+                && expression.Operand is IdentifierNameSyntax id
+                && id.Identifier.Text == identifier);
+
+    static bool HasPostfixMutation(
+        BlockSyntax body,
+        string identifier,
+        SyntaxKind kind)
+        => body.DescendantNodes()
+            .OfType<PostfixUnaryExpressionSyntax>()
+            .Any(expression =>
+                expression.IsKind(kind)
+                && expression.Operand is IdentifierNameSyntax id
+                && id.Identifier.Text == identifier);
+
+    static bool HasAssignmentBefore(
+        BlockSyntax body,
+        StatementSyntax boundary,
+        string left,
+        string right,
+        SyntaxKind kind)
+        => body.DescendantNodes()
+            .OfType<AssignmentExpressionSyntax>()
+            .Any(expression =>
+                expression.SpanStart < boundary.SpanStart
+                && IsAssignment(expression, left, right, kind));
+
+    static bool HasAssignment(
+        BlockSyntax body,
+        string left,
+        string right,
+        SyntaxKind kind)
+        => body.DescendantNodes()
+            .OfType<AssignmentExpressionSyntax>()
+            .Any(expression => IsAssignment(expression, left, right, kind));
+
+    static bool IsAssignment(
+        AssignmentExpressionSyntax expression,
+        string left,
+        string right,
+        SyntaxKind kind)
+        => expression.IsKind(kind)
+            && expression.Left is IdentifierNameSyntax leftIdentifier
+            && leftIdentifier.Identifier.Text == left
+            && expression.Right is IdentifierNameSyntax rightIdentifier
+            && rightIdentifier.Identifier.Text == right;
+
+    static bool StatementAlwaysExits(StatementSyntax statement)
+        => statement switch
+        {
+            ReturnStatementSyntax or ThrowStatementSyntax or ContinueStatementSyntax => true,
+            BlockSyntax { Statements.Count: > 0 } block
+                => StatementAlwaysExits(block.Statements[^1]),
+            _ => false,
+        };
+
+    static ExpressionSyntax StripParentheses(ExpressionSyntax expression)
+    {
+        while (expression is ParenthesizedExpressionSyntax parenthesized)
+            expression = parenthesized.Expression;
+        return expression;
+    }
+
+    static bool Equivalent(ExpressionSyntax left, ExpressionSyntax right)
+        => left.WithoutTrivia().ToFullString() == right.WithoutTrivia().ToFullString();
+
+    static bool IsNamedExpression(ExpressionSyntax expression, string name)
+        => expression switch
+        {
+            IdentifierNameSyntax identifier => identifier.Identifier.Text == name,
+            MemberAccessExpressionSyntax member => member.Name.Identifier.Text == name,
+            _ => false,
+        };
 
     static IEnumerable<string> EnumerateSourceFiles(string root)
     {

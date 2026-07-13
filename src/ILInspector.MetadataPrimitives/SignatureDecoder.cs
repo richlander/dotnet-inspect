@@ -47,15 +47,11 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
             return Unresolved;
-        try
+        using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
-        }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
         }
     }
 

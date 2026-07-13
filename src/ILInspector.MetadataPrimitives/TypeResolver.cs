@@ -52,15 +52,11 @@ public static class TypeResolver
     /// </summary>
     public static string GetTypeNameFromSpecification(MetadataReader reader, TypeSpecificationHandle handle, GenericContext? context = null)
     {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
             return "object";
-        try
+        using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(SignatureDecoder.Instance, context);
-        }
-        finally
-        {
-            TypeSpecGuard.Exit(blobLength);
         }
     }
 

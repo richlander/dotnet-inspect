@@ -5,7 +5,9 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// Bounds cross-handle TypeSpec re-entry performed by signature providers.
 /// A top-level blob prescan cannot see a custom modifier that resolves another
-/// TypeSpec, including a cycle back to the current row.
+/// TypeSpec, including a cycle back to the current row. Successful entries
+/// return a disposable scope so depth and byte accounting cannot be exited
+/// independently.
 /// </summary>
 public static class TypeSpecGuard
 {
@@ -19,9 +21,15 @@ public static class TypeSpecGuard
     [ThreadStatic]
     static int s_depth;
 
-    public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out int blobLength)
+    [ThreadStatic]
+    static uint s_currentToken;
+
+    [ThreadStatic]
+    static uint s_nextToken;
+
+    public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
     {
-        blobLength = 0;
+        scope = default;
         if (s_depth >= MaxDepth)
             return false;
 
@@ -36,13 +44,44 @@ public static class TypeSpecGuard
 
         s_depth++;
         s_cumulativeBytes += length;
-        blobLength = length;
+        uint parentToken = s_currentToken;
+        uint token;
+        do
+        {
+            token = unchecked(++s_nextToken);
+        }
+        while (token == 0);
+        s_currentToken = token;
+        scope = new Scope(length, token, parentToken);
         return true;
     }
 
-    public static void Exit(int blobLength)
+    static void Exit(int blobLength)
     {
         s_depth--;
         s_cumulativeBytes -= blobLength;
+    }
+
+    public readonly ref struct Scope
+    {
+        readonly int _blobLength;
+        readonly uint _token;
+        readonly uint _parentToken;
+
+        internal Scope(int blobLength, uint token, uint parentToken)
+        {
+            _blobLength = blobLength;
+            _token = token;
+            _parentToken = parentToken;
+        }
+
+        public void Dispose()
+        {
+            if (_token == 0 || s_currentToken != _token)
+                return;
+
+            Exit(_blobLength);
+            s_currentToken = _parentToken;
+        }
     }
 }
