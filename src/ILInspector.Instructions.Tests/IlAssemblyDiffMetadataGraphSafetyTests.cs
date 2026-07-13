@@ -4,6 +4,9 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
 namespace ILInspector.Instructions.Tests;
 
 public class IlAssemblyDiffMetadataGraphSafetyTests
@@ -32,7 +35,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
     {
         string identity = MemberIdentity(BuildTypeDefinitionImage(depth: 3, cyclic: false));
 
-        Assert.Equal("N.T+T+T::M#static void()", identity);
+        Assert.Equal("N.T+T+T::M#static void([Synthetic]N.T+T+T)", identity);
     }
 
     [Fact]
@@ -47,15 +50,24 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
     public void MetadataGraphEdgeCensus_MatchesBoundedImplementations()
     {
         string sourceDirectory = Path.Combine(FindRepositoryRoot(), "src", "ILInspector.Instructions");
-        var actual = Directory.EnumerateFiles(sourceDirectory, "*.cs")
+        var actual = Directory.EnumerateFiles(sourceDirectory, "*.cs", SearchOption.AllDirectories)
             .Select(path =>
             {
-                string text = File.ReadAllText(path);
+                var root = CSharpSyntaxTree.ParseText(
+                    File.ReadAllText(path),
+                    path: path,
+                    cancellationToken: TestContext.Current.CancellationToken)
+                    .GetRoot(TestContext.Current.CancellationToken);
                 return new GraphEdgeCount(
-                    Path.GetFileName(path),
-                    Count(text, ".GetDeclaringType()"),
-                    Count(text, "(TypeReferenceHandle)type.ResolutionScope")
-                        + Count(text, "(TypeReferenceHandle)scope"));
+                    Path.GetRelativePath(sourceDirectory, path),
+                    root.DescendantNodes()
+                        .OfType<InvocationExpressionSyntax>()
+                        .Count(invocation =>
+                            invocation.Expression is MemberAccessExpressionSyntax member
+                            && member.Name.Identifier.ValueText == "GetDeclaringType"),
+                    root.DescendantNodes()
+                        .OfType<MemberAccessExpressionSyntax>()
+                        .Count(member => member.Name.Identifier.ValueText == "ResolutionScope"));
             })
             .Where(count => count.DeclaringTypeEdges > 0 || count.TypeReferenceEdges > 0)
             .OrderBy(count => count.File, StringComparer.Ordinal)
@@ -63,9 +75,9 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
 
         GraphEdgeCount[] expected =
         [
-            new("BoundedMetadataName.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 1),
+            new("BoundedMetadataName.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 2),
             new("IlAssemblyDiff.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
-            new("IlBodyDiff.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 2),
+            new("IlBodyDiff.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
             new("MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
         ];
         Assert.Equal(expected, actual);
@@ -163,7 +175,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         if (cyclic)
             metadata.AddNestedType(parent, parent);
 
-        var methodBodies = AddMethod(metadata, MethodSignature(metadata, typeReference: default));
+        var methodBodies = AddMethod(metadata, MethodSignature(metadata, parent));
         return Serialize(metadata, methodBodies);
     }
 
@@ -241,16 +253,22 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
-    static BlobHandle MethodSignature(MetadataBuilder metadata, TypeReferenceHandle typeReference)
+    static BlobHandle MethodSignature(MetadataBuilder metadata, EntityHandle parameterType)
     {
         var signature = new BlobBuilder();
         signature.WriteByte(0x00); // default, static
-        signature.WriteCompressedInteger(typeReference.IsNil ? 0 : 1);
+        signature.WriteCompressedInteger(parameterType.IsNil ? 0 : 1);
         signature.WriteByte(0x01); // void
-        if (!typeReference.IsNil)
+        if (!parameterType.IsNil)
         {
             signature.WriteByte(0x12); // class
-            signature.WriteCompressedInteger((MetadataTokens.GetRowNumber(typeReference) << 2) | 1);
+            int tag = parameterType.Kind switch
+            {
+                HandleKind.TypeDefinition => 0,
+                HandleKind.TypeReference => 1,
+                _ => throw new ArgumentException($"Unsupported signature type {parameterType.Kind}.", nameof(parameterType)),
+            };
+            signature.WriteCompressedInteger((MetadataTokens.GetRowNumber(parameterType) << 2) | tag);
         }
         return metadata.GetOrAddBlob(signature);
     }
@@ -293,18 +311,6 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         }
 
         throw new InvalidOperationException("Method M not found.");
-    }
-
-    static int Count(string text, string value)
-    {
-        int count = 0;
-        int start = 0;
-        while ((start = text.IndexOf(value, start, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            start += value.Length;
-        }
-        return count;
     }
 
     static string FindRepositoryRoot()
