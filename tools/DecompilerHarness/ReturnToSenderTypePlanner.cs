@@ -1264,14 +1264,17 @@ public static class CompileBackSourceComposer
             //    excludes binding back to the target constructor itself, CS0516).
             //
             //  * Unique-arity binding — exactly one constructor in the whole shell
-            //    (the target constructor included) has the chained-to constructor's
-            //    argument count. A normal-form exact-arity match beats any
-            //    params/optional expansion, so `: this(a1..aN)` binds to that sole
-            //    N-arg constructor even when an argument is a bare constant or
-            //    `null` the printer cannot type precisely.
+            //    (the target constructor included) can bind to a call with the
+            //    chained-to constructor's argument count. Applicability accounts for
+            //    `params`/optional expansion, not just declared arity: a cross-arity
+            //    `params`/optional sibling can absorb an N-argument call and, for a
+            //    lossy argument (a bare constant or `null`), offer a better
+            //    conversion that steals the bind. Requiring a single applicable
+            //    candidate guarantees `: this(a1..aN)` binds to the chained-to
+            //    constructor even when an argument cannot be typed precisely.
             && (ChainArgumentsAreFaithful(chainCallNode, chainCtor)
                 || targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
-                    && member.Parameters.Count == chainCtor.ParameterTypes.Length) == 1);
+                    && ConstructorCouldBindToArgCount(member, chainCtor.ParameterTypes.Length)) == 1);
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to constructor was not reconstructed in the shell, or the
@@ -1706,6 +1709,38 @@ public static class CompileBackSourceComposer
         => argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance or ILInspector.Decompiler.Pipeline.Constant)
             && argument.ResultType is { } type
             && type.Equals(parameterType);
+
+    /// <summary>
+    /// Whether a reconstructed constructor could be an applicable candidate for a
+    /// call with <paramref name="argCount"/> arguments. This is stronger than a
+    /// declared-arity match: a <c>params</c> array absorbs any number of trailing
+    /// arguments (including zero), and optional parameters may be omitted, so a
+    /// constructor of a different nominal arity can still bind an N-argument call.
+    /// The unique-arity guard uses this so a cross-arity <c>params</c>/optional
+    /// sibling that could steal a lossy-argument bind is counted as a competing
+    /// candidate rather than ignored.
+    /// </summary>
+    static bool ConstructorCouldBindToArgCount(CompileBackMemberRequirement member, int argCount)
+    {
+        var parameters = member.Parameters;
+        int total = parameters.Count;
+        bool hasParams = total > 0 && parameters[total - 1].Modifier == "params";
+        // Minimum required arguments: leading parameters that are neither optional
+        // (C# requires all parameters after the first optional to be optional too)
+        // nor the trailing `params` array (which is satisfied by zero arguments).
+        int required = 0;
+        for (int i = 0; i < total; i++)
+        {
+            if (hasParams && i == total - 1)
+                break;
+            if (parameters[i].HasDefault)
+                break;
+            required++;
+        }
+
+        int max = hasParams ? int.MaxValue : total;
+        return argCount >= required && argCount <= max;
+    }
 
     /// <summary>
     /// Whether a constructor-chain parameter type would be dropped from the

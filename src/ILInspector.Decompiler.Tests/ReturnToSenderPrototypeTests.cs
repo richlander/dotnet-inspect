@@ -686,6 +686,50 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DropsInitializerWhenCrossArityParamsSiblingCanBind()
+    {
+        // Issue #2678 guard (Gemini R5): unique *declared* arity is not enough — a
+        // cross-arity `params` (or optional) sibling can absorb an N-argument call
+        // and, for a lossy argument the printer cannot type precisely, offer a
+        // better conversion that steals the bind. Here `C()` chains
+        // `: this((object)null)`; the printer drops the `(object)` cast, printing
+        // `: this(null)`. `C(object)` is the only one-parameter constructor, but
+        // `C(string, params int[])` is also applicable to a one-argument call and
+        // `null` binds to `string` (more derived than `object`) via params
+        // expansion — the wrong overload. The initializer must be stripped.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(object x)
+                {
+                }
+
+                public C(string x, params int[] y)
+                {
+                }
+
+                public C() : this((object)null)
+                {
+                    _ = new C("hello");
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""
