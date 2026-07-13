@@ -12,6 +12,7 @@ public static partial class MetadataFindings
 {
     public static readonly FindingDescriptor TypeDescriptor = new("api.type", "API type");
     public static readonly FindingDescriptor MemberDescriptor = new("api.member", "API member");
+    public static readonly FindingDescriptor AttributeDescriptor = new("api.attribute", "API attribute");
 
     static readonly FindingMatchOptions IdentitySetOptions = new()
     {
@@ -58,6 +59,94 @@ public static partial class MetadataFindings
         ]);
     }
 
+    public static FindingInspection<ApiTypeHandle> InspectApiType(
+        ApiSurface? surface,
+        FindingSubject subject,
+        string typeFullName)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrEmpty(typeFullName);
+        if (surface is null)
+            return new FindingInspection<ApiTypeHandle>.Absent();
+
+        var type = FindType(surface, typeFullName);
+        return type is null
+            ? new FindingInspection<ApiTypeHandle>.Complete([])
+            : new FindingInspection<ApiTypeHandle>.Complete(
+            [
+                new Finding<ApiTypeHandle>(
+                    subject,
+                    TypeDescriptor,
+                    new FindingKey(type.FullName),
+                    new ApiTypeHandle(type)),
+            ]);
+    }
+
+    public static FindingInspection<ApiMemberHandle> InspectApiMembers(
+        ApiSurface? surface,
+        FindingSubject subject,
+        string typeFullName)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrEmpty(typeFullName);
+        if (surface is null)
+            return new FindingInspection<ApiMemberHandle>.Absent();
+
+        var type = FindType(surface, typeFullName);
+        return type is null
+            ? new FindingInspection<ApiMemberHandle>.Absent()
+            : new FindingInspection<ApiMemberHandle>.Complete(
+            [
+                .. EnumerateMembers(type).Select(item =>
+                {
+                    var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member);
+                    return new Finding<ApiMemberHandle>(
+                        subject,
+                        MemberDescriptor,
+                        new FindingKey(
+                            handle.CanonicalSignature ?? handle.Identity,
+                            item.Type.FullName),
+                        handle);
+                }),
+            ]);
+    }
+
+    public static FindingInspection<ApiAttributeHandle> InspectApiAttributes(
+        ApiSurface? surface,
+        FindingSubject subject,
+        string typeFullName)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrEmpty(typeFullName);
+        if (surface is null)
+            return new FindingInspection<ApiAttributeHandle>.Absent();
+
+        var type = FindType(surface, typeFullName);
+        if (type is null)
+            return new FindingInspection<ApiAttributeHandle>.Absent();
+
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        return new FindingInspection<ApiAttributeHandle>.Complete(
+        [
+            .. type.Attributes.Select(attribute =>
+            {
+                string name = GetAttributeName(attribute);
+                int occurrence = occurrences.GetValueOrDefault(name);
+                occurrences[name] = occurrence + 1;
+                return new Finding<ApiAttributeHandle>(
+                    subject,
+                    AttributeDescriptor,
+                    new FindingKey($"{type.FullName}|{name}|{occurrence}"),
+                    new ApiAttributeHandle(
+                        type.FullName,
+                        name,
+                        attribute,
+                        occurrence),
+                    Detail: attribute);
+            }),
+        ]);
+    }
+
     public static FindingComparison<ApiTypeHandle> CompareApiTypes(
         ApiSurface oldSurface,
         ApiSurface newSurface,
@@ -86,6 +175,73 @@ public static partial class MetadataFindings
 
         var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
         return CompareApiMembers(oldSurface, newSurface, subject, options, diff);
+    }
+
+    public static FindingComparison<ApiTypeHandle> CompareApiType(
+        ApiSurface? oldSurface,
+        ApiSurface? newSurface,
+        FindingSubject subject,
+        string typeFullName,
+        ApiDiffOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrEmpty(typeFullName);
+        options ??= ApiDiffOptions.Default;
+
+        var comparison = FindingComparison.Compare(
+            InspectApiType(oldSurface, subject, typeFullName),
+            InspectApiType(newSurface, subject, typeFullName),
+            IdentitySetOptions);
+        if (oldSurface is null || newSurface is null)
+            return comparison;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            FocusSurface(oldSurface, typeFullName),
+            FocusSurface(newSurface, typeFullName),
+            options);
+        return comparison.TransformPairs(
+            pairs => ApplyTypeFacetChanges(pairs, diff, options.Scope));
+    }
+
+    public static FindingComparison<ApiMemberHandle> CompareApiMembers(
+        ApiSurface? oldSurface,
+        ApiSurface? newSurface,
+        FindingSubject subject,
+        string typeFullName,
+        ApiDiffOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrEmpty(typeFullName);
+        options ??= ApiDiffOptions.Default;
+
+        var comparison = FindingComparison.Compare(
+            InspectApiMembers(oldSurface, subject, typeFullName),
+            InspectApiMembers(newSurface, subject, typeFullName),
+            IdentitySetOptions);
+        if (oldSurface is null || newSurface is null)
+            return comparison;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            FocusSurface(oldSurface, typeFullName),
+            FocusSurface(newSurface, typeFullName),
+            options);
+        return comparison.TransformPairs(
+            pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
+    }
+
+    public static FindingComparison<ApiAttributeHandle> CompareApiAttributes(
+        ApiSurface? oldSurface,
+        ApiSurface? newSurface,
+        FindingSubject subject,
+        string typeFullName)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentException.ThrowIfNullOrEmpty(typeFullName);
+        return FindingComparison.Compare(
+            InspectApiAttributes(oldSurface, subject, typeFullName),
+            InspectApiAttributes(newSurface, subject, typeFullName),
+            IdentitySetOptions)
+            .TransformPairs(ApplyAttributeValueChanges);
     }
 
     public static ApiFindingComparison CompareApi(
@@ -204,6 +360,22 @@ public static partial class MetadataFindings
 
         return builder.ToImmutable();
     }
+
+    static ImmutableArray<PairFinding<ApiAttributeHandle>> ApplyAttributeValueChanges(
+        ImmutableArray<PairFinding<ApiAttributeHandle>> pairs)
+        => pairs
+            .Select(pair => pair is PairFinding<ApiAttributeHandle>.Present present
+                && !string.Equals(
+                    present.Old.Payload.Attribute,
+                    present.New.Payload.Attribute,
+                    StringComparison.Ordinal)
+                    ? new PairFinding<ApiAttributeHandle>.Changed(
+                        present.Old,
+                        present.New,
+                        present.Difference,
+                        $"{present.Old.Payload.Attribute} -> {present.New.Payload.Attribute}")
+                    : pair)
+            .ToImmutableArray();
 
     static Dictionary<string, List<ApiChange>> BuildTypeChangeMap(ApiDiff diff)
     {
@@ -357,11 +529,40 @@ public static partial class MetadataFindings
     {
         foreach (var type in surface.Types)
         {
-            foreach (var member in type.Members)
-                yield return (type, member);
+            foreach (var item in EnumerateMembers(type))
+                yield return item;
         }
     }
+
+    static IEnumerable<(ApiType Type, ApiMember Member)> EnumerateMembers(ApiType type)
+    {
+        foreach (var member in type.Members)
+            yield return (type, member);
+    }
+
+    static ApiType? FindType(ApiSurface surface, string typeFullName)
+        => surface.Types.FirstOrDefault(
+            type => string.Equals(type.FullName, typeFullName, StringComparison.Ordinal));
+
+    static ApiSurface FocusSurface(ApiSurface surface, string typeFullName)
+    {
+        var type = FindType(surface, typeFullName);
+        return new ApiSurface { Types = type is null ? [] : [type] };
+    }
+
+    static string GetAttributeName(string attribute)
+    {
+        int arguments = attribute.IndexOf('(');
+        return arguments < 0 ? attribute : attribute[..arguments];
+    }
+
 }
+
+public sealed record ApiAttributeHandle(
+    string TypeFullName,
+    string Name,
+    string Attribute,
+    int Occurrence);
 
 /// <summary>
 /// One API comparison operation: generic type/member transitions plus Metadata-owned

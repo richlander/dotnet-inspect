@@ -3016,7 +3016,7 @@ static class FidelityCheck
         string? initializer = fieldInits.FirstOrDefault(fi => fi.Field == name).Value;
         string suffix = initializer is not null && !isStatic ? $" = {initializer}" : "";
         bool isVolatile = false;
-        try { isVolatile = MetadataDeclarationQuery.IsVolatileField(field, context); }
+        try { isVolatile = MetadataDeclarationQuery.IsVolatileField(reader, field, context); }
         catch { /* signature already decoded above; treat as non-volatile */ }
         string fieldType = Clean(type);
         string unsafeModifier = RequiresUnsafeSignature(fieldType) ? "unsafe " : "";

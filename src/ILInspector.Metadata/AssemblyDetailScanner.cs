@@ -462,7 +462,7 @@ public static class AssemblyDetailScanner
                     {
                         try
                         {
-                            var sig = method.DecodeSignature(PointerDetector.Instance, null);
+                            var sig = GuardedProviderDecode.Method(reader, method, PointerDetector.Instance, (object?)null, false);
                             if (sig.ReturnType || sig.ParameterTypes.Any(p => p))
                                 flags.HasUnsafeCode = true;
                         }

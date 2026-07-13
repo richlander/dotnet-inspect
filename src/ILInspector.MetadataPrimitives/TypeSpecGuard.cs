@@ -7,7 +7,7 @@ namespace ILInspector.Metadata;
 /// A top-level blob prescan cannot see a custom modifier that resolves another
 /// TypeSpec, including a cycle back to the current row.
 /// </summary>
-internal static class TypeSpecGuard
+public static class TypeSpecGuard
 {
     const int MaxBlobLength = 1024;
     const int MaxCumulativeBytes = 4096;

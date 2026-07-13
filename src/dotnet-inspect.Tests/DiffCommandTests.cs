@@ -225,6 +225,54 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildFindingTransitions_TypeScopedMemberCensus_DoesNotRequireMemberSelector()
+    {
+        var oldSurface = DiffSurface(DiffMember("Existing"));
+        var newSurface = DiffSurface(DiffMember("Existing"), DiffMember("Added"));
+
+        var rows = DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            newSurface,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = "api.member",
+                TypeFilter = ["Sample.Widget"],
+            });
+
+        var added = Assert.Single(rows, row => row.Transition == "PairFinding.Added");
+        Assert.Equal("api.member", added.Finding);
+        Assert.StartsWith("Sample.Widget.Added~", added.Target);
+        Assert.Contains(rows, row => row.Transition == "PairFinding.Present");
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_TypeAttributeCensus_ReportsAppliedOccurrences()
+    {
+        var oldType = DiffType("Sample", "Widget");
+        oldType.Attributes = ["System.Obsolete(\"old\")"];
+        var newType = DiffType("Sample", "Widget");
+        newType.Attributes = ["System.Obsolete(\"new\")"];
+
+        var rows = DiffCommand.BuildFindingTransitions(
+            DiffSurface(oldType),
+            DiffSurface(newType),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = "api.attribute",
+                TypeFilter = ["Sample.Widget"],
+            });
+
+        var changed = Assert.Single(rows);
+        Assert.Equal("PairFinding.Changed", changed.Transition);
+        Assert.Equal("Sample.Widget [System.Obsolete(\"new\")]", changed.Target);
+        Assert.Contains("System.Obsolete(\"old\") -> System.Obsolete(\"new\")", changed.Detail);
+    }
+
+    [Fact]
     public void BuildFindingTransitions_RemovedMember_ReportsOldSide()
     {
         var oldSurface = DiffSurface(DiffMember("Removed"));

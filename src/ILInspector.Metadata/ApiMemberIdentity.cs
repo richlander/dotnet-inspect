@@ -94,7 +94,18 @@ public static class ApiMemberIdentity
             => TypeResolver.GetTypeNameFromReference(reader, handle).Replace('+', '.');
 
         public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-            => reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out int blobLength))
+                return "System.Object";
+            try
+            {
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            }
+            finally
+            {
+                TypeSpecGuard.Exit(blobLength);
+            }
+        }
 
         public string GetSZArrayType(string elementType) => $"{elementType}[]";
 
@@ -238,11 +249,11 @@ public static class ApiMemberIdentity
         PropertyDefinition property)
     {
         var context = GenericContext.ForType(reader, markerType);
-        var markerSignature = markerMethod.DecodeSignature(AnchorSignatureTypeProvider.Instance, context);
+        var markerSignature = GuardedProviderDecode.Method(reader, markerMethod, AnchorSignatureTypeProvider.Instance, context, "System.Object");
         if (markerSignature.ParameterTypes.Length != 1)
             throw new BadImageFormatException("An extension marker must have exactly one receiver parameter.");
 
-        var propertySignature = property.DecodeSignature(AnchorSignatureTypeProvider.Instance, context);
+        var propertySignature = GuardedProviderDecode.Property(reader, property, AnchorSignatureTypeProvider.Instance, context, "System.Object");
         string propertyName = reader.GetString(property.Name);
         string typeFullName = FormatDefinitionName(reader, extensionClassHandle);
         string extendedType = markerSignature.ParameterTypes[0];
@@ -268,9 +279,12 @@ public static class ApiMemberIdentity
     {
         var type = reader.GetTypeDefinition(typeHandle);
         string methodName = reader.GetString(method.Name);
-        var signature = method.DecodeSignature(
+        var signature = GuardedProviderDecode.Method(
+            reader,
+            method,
             AnchorSignatureTypeProvider.Instance,
-            GenericContext.ForMethod(reader, type, method));
+            GenericContext.ForMethod(reader, type, method),
+            "System.Object");
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
         // Route the SRM-direct producer through the single full-name grammar core so it

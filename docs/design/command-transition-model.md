@@ -161,9 +161,11 @@ Multi-address operations are operation-first:
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
   --type System.Text.Json.JsonSerializer
+dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
+  --type System.Text.Json.JsonSerializer --finding api.member --at all
 ```
 
-A future `timeline` belongs beside `diff`, not behind `type --timeline` or a
+`timeline` belongs beside `diff`, not behind `type --timeline` or a
 `Timeline` section. It changes arity, acquisition, failure topology, and the
 top-level result from a subject document to an ordered history.
 
@@ -179,7 +181,7 @@ It does not by itself authorize payload acquisition, choose a cell, compare
 endpoints, or infer monotonic history.
 
 Operations do not have to materialize that address space in the same way.
-`package --versions`, addressed unary inspection, and a future timeline need the
+`package --versions`, addressed unary inspection, and `timeline` need the
 published interior vector and resolve it through `PackageVersionVector`.
 `diff` needs only the two literal endpoints, so it currently acquires those
 endpoints without enumerating or validating the interior vector first. Endpoint
@@ -194,7 +196,7 @@ The selected lens or operation supplies the payload-acquisition contract:
 | Select version Vector | 0 | `package Package@A..B --versions` resolves and renders range metadata without acquiring package payloads. |
 | Inspect | 1 | `type` and `member` require one explicit `--at <version\|#N\|first\|last>` and acquire only that exact package. |
 | Compare | 2 | `diff --package Package@A..B` acquires and compares the two endpoints. |
-| Correlate | N explicit cells | A future `timeline` resolves the full address space but acquires only caller-selected probe cells. |
+| Correlate | N explicit cells | `timeline` resolves the full address space but acquires only repeated `--at` probe cells; `--at all` explicitly authorizes every cell. |
 
 The first row is a package lens and output-shape selection. It is not an
 operation peer of `diff` and `timeline`.
@@ -240,7 +242,7 @@ Shape reducers do not revise operation arity. In particular:
   transition from version-address rows to package artifact inspection. The
   explicit transition remains `package Package@version`.
 
-The same rule applies to a future timeline. `--count` can reduce an already
+The same rule applies to `timeline`. `--count` can reduce an already
 assembled Timeline table; it cannot probe additional cells. `--print` and
 `--print-all` can print only payloads already carried or explicitly referenced
 by evaluated rows; they cannot turn unevaluated rows into implicit acquisition.
@@ -435,18 +437,24 @@ is deferred, but the architecture permits it.
 ### Sparse timeline and bisect
 
 A sparse traversal evaluates only caller-selected cells. It preserves the
-Finding correlation semantics:
+Finding census-correlation semantics:
 
-- `Present`: a completed census contains the exact identity;
-- `Missing`: a completed census does not contain it;
+- `Complete`: the focused census completed, including when it contains zero
+  observations;
 - `SubjectAbsent`: the producer has no applicable subject input;
 - `Failed`: inspection did not complete;
 - `Unevaluated`: the address exists in the resolved vector but was not supplied
-  to `FindingCorrelation`.
+  to `FindingCensusCorrelation`.
 
 `Unevaluated` is a presentation state formed by joining the version vector with
 the sparse correlation. It is not fabricated as a Finding or inspection
 outcome.
+
+When a projection selects one exact observation identity,
+`FindingCensusCorrelation.Correlate` produces its `FindingCorrelation` track:
+`Present` means the completed census contains that identity and `Missing` means
+it does not. Whole-census and exact-identity states must not be combined into
+one shadow cell-state model.
 
 Probe order does not define timeline order. Positions come from the resolved
 version vector in the caller's range direction; evaluated inspections retain

@@ -71,6 +71,37 @@ public class FindingPilotTests
     }
 
     [Fact]
+    public void FindingCensusCorrelation_PreservesWholeCensusesInAddressOrder()
+    {
+        var present = Atoms("target")[0];
+        var error = new InspectionError(Subject, Descriptor, "declined");
+        var correlation = FindingCensusCorrelation<string>.Create(
+        [
+            new(new FindingVersion("v3", "3.0.0", 2), new FindingInspection<string>.Failed(error)),
+            new(new FindingVersion("v1", "1.0.0", 0), new FindingInspection<string>.Complete([])),
+            new(new FindingVersion("v2", "2.0.0", 1), new FindingInspection<string>.Absent("no body")),
+            new(new FindingVersion("v4", "4.0.0", 3), new FindingInspection<string>.Complete([present])),
+        ]);
+
+        Assert.Equal(["v1", "v2", "v3", "v4"], correlation.Inspections.Select(item => item.Version.Key));
+        Assert.True(correlation.Inspections[0].Inspection is FindingInspection<string>.Complete { Findings.Length: 0 });
+        Assert.True(correlation.Inspections[1].Inspection is FindingInspection<string>.Absent);
+        Assert.True(correlation.Inspections[2].Inspection is FindingInspection<string>.Failed);
+        Assert.True(correlation.Inspections[3].Inspection is FindingInspection<string>.Complete { Findings.Length: 1 });
+
+        var comparison = correlation.Compare("v1", "v4") switch
+        {
+            FindingComparison<string>.Complete value => value,
+            FindingComparison<string>.Failed failed => throw new Xunit.Sdk.XunitException(failed.Failure),
+        };
+        Assert.Equal(PairKind.Added, Assert.Single(comparison.Pairs).Kind);
+
+        var exact = correlation.Correlate(FindingCorrelationKey.From(present));
+        Assert.True(exact.Timeline[0] is FindingCorrelationPoint<string>.Missing);
+        Assert.True(exact.Timeline[3] is FindingCorrelationPoint<string>.Present);
+    }
+
+    [Fact]
     public void FindingCorrelation_ProjectsAnyEvaluatedPairThroughTheSharedFold()
     {
         var present = Atoms("target")[0];

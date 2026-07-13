@@ -569,7 +569,7 @@ public static class ApiSurfaceExtractor
         byte typeNullableContext)
     {
         var context = GenericContext.ForType(reader, typeDef);
-        var fieldNode = field.DecodeSignature(TypeNodeProvider.Instance, context);
+        var fieldNode = GuardedProviderDecode.Field(reader, field, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true));
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
         int pos = 0;
         fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
@@ -744,7 +744,7 @@ public static class ApiSurfaceExtractor
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        var treeSignature = method.DecodeSignature(TypeNodeProvider.Instance, context);
+        var treeSignature = GuardedProviderDecode.Method(reader, method, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true));
 
         // Determine the effective nullable default: method overrides type
         byte methodContext = NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes());
@@ -1282,7 +1282,7 @@ public static class ApiSurfaceExtractor
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
-        var treeSignature = prop.DecodeSignature(TypeNodeProvider.Instance, context);
+        var treeSignature = GuardedProviderDecode.Property(reader, prop, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true));
 
         // Apply nullability to the property type
         var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());

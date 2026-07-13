@@ -204,8 +204,8 @@ public sealed class MetadataDeclarationQueryTests
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
         var context = GenericContext.ForType(Reader, type);
-        Assert.True(MetadataDeclarationQuery.IsVolatileField(GetField(type, "VolatileField"), context));
-        Assert.False(MetadataDeclarationQuery.IsVolatileField(GetField(type, "PlainField"), context));
+        Assert.True(MetadataDeclarationQuery.IsVolatileField(Reader, GetField(type, "VolatileField"), context));
+        Assert.False(MetadataDeclarationQuery.IsVolatileField(Reader, GetField(type, "PlainField"), context));
     }
 
     [Fact]
