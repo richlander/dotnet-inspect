@@ -476,7 +476,8 @@ public sealed record CompileBackMemberRequirement(
     bool IsSealed = false,
     bool IsAsync = false,
     bool IsExtension = false,
-    CompileBackAccessibility Accessibility = CompileBackAccessibility.Public)
+    CompileBackAccessibility Accessibility = CompileBackAccessibility.Public,
+    string? ConstructorInitializer = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -485,7 +486,10 @@ public sealed record CompileBackMemberRequirement(
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
-internal sealed record ProductTargetBody(string Source, IReadOnlyList<DecompilerDecision> Decisions);
+internal sealed record ProductTargetBody(
+    string Source,
+    IReadOnlyList<DecompilerDecision> Decisions,
+    string? ConstructorChain = null);
 
 public static class CompileBackSourceComposer
 {
@@ -498,7 +502,12 @@ public static class CompileBackSourceComposer
         var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
         if (printed.Output is null)
             throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
-        return new ProductTargetBody(printed.Output, printed.Decisions);
+        // The printer lifts an explicit base(...)/this(...) constructor-chain call
+        // out of the body into ConstructorChain (chain calls are invalid as body
+        // statements). Carry it so the reconstructed target constructor re-emits
+        // the initializer; dropping it silently compiles an empty body and loses
+        // the constructor-chain opcodes (issue #2678).
+        return new ProductTargetBody(printed.Output, printed.Decisions, printed.ConstructorChain);
     }
 
     internal static ProductArtifact Compose(ArtifactRequest request)
@@ -549,7 +558,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                request.TargetBody.ConstructorChain),
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -1138,7 +1148,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        string? constructorChain = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -1158,6 +1169,18 @@ public static class CompileBackSourceComposer
         };
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
+
+        var chainCall = isConstructor ? ConstructorChainCall(function) : null;
+        var chainCallee = chainCall?.Callee;
+        // Only this(...) self-chains are re-emitted as constructor initializers.
+        // RTS shells are flat (object-based, no reconstructed base class), so a
+        // base(args) initializer has no base constructor to bind to and would
+        // fail to compile (CS1729). Leaving those bodies empty keeps the prior
+        // implicit-base() behavior instead of introducing a recompile failure.
+        string? targetConstructorInitializer =
+            constructorChain is { } chain && chain.StartsWith("this(", StringComparison.Ordinal)
+                ? constructorChain
+                : null;
 
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
@@ -1179,7 +1202,8 @@ public static class CompileBackSourceComposer
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
                 IsSealed: false,
-                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
+                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier,
+                ConstructorInitializer: targetConstructorInitializer)
         ];
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
@@ -1217,6 +1241,53 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        bool chainedConstructorReconstructed =
+            chainCallee is { } chainCtor
+            && chainCall is { } chainCallNode
+            // The chained-to constructor is reconstructed only when its signature
+            // is fully supported (an unsupported parameter such as a function
+            // pointer makes the planner drop it, mirroring MethodRequirement).
+            && chainCtor.ParameterTypes.All(type => !IsUnsupportedChainParameterType(type))
+            // A same-arity non-target constructor must actually be present in the
+            // shell for `: this(args)` to have a binding target.
+            && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
+                && member.StubBody != CompileBackStubBodyKind.TargetBody
+                && member.Parameters.Count == chainCtor.ParameterTypes.Length)
+            // The printed `: this(args)` must bind to exactly the chained-to
+            // constructor. Two independent conditions each guarantee that:
+            //
+            //  * Faithful arguments — every argument's printed form already carries
+            //    its parameter's exact type. The printer can drop a disambiguating
+            //    cast (a `box` to `object` prints as its inner value; a reference
+            //    upcast prints bare), so only faithful arguments bind unambiguously
+            //    regardless of the other constructors in the shell (this also
+            //    excludes binding back to the target constructor itself, CS0516).
+            //
+            //  * Unique-arity binding — exactly one constructor in the whole shell
+            //    (the target constructor included) can bind to a call with the
+            //    chained-to constructor's argument count. Applicability accounts for
+            //    `params`/optional expansion, not just declared arity: a cross-arity
+            //    `params`/optional sibling can absorb an N-argument call and, for a
+            //    lossy argument (a bare constant or `null`), offer a better
+            //    conversion that steals the bind. Requiring a single applicable
+            //    candidate guarantees `: this(a1..aN)` binds to the chained-to
+            //    constructor even when an argument cannot be typed precisely.
+            && (ChainArgumentsAreFaithful(chainCallNode, chainCtor)
+                || targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
+                    && ConstructorCouldBindToArgCount(member, chainCtor.ParameterTypes.Length)) == 1);
+        if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
+        {
+            // The chained-to constructor was not reconstructed in the shell, or the
+            // printed `: this(args)` could not be proven to bind to it (a lossy
+            // argument could bind to a sibling or the target constructor). Drop the
+            // initializer and keep the body rather than emit an uncompilable or
+            // wrong chain.
+            int targetIndex = targetMembers.FindIndex(member =>
+                member.Kind == CompileBackMemberKind.Constructor
+                && member.StubBody == CompileBackStubBodyKind.TargetBody);
+            if (targetIndex >= 0)
+                targetMembers[targetIndex] = targetMembers[targetIndex] with { ConstructorInitializer = null };
+        }
         if (includeRecordSurface)
         {
             // AddRequiredMembers above preserves every IR-gathered dependency (including a user
@@ -1512,6 +1583,12 @@ public static class CompileBackSourceComposer
                         new CSharpConstructorInitializer(
                             CSharpConstructorInitializerKind.This,
                             Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
+            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
+                && ParseConstructorInitializer(requirement.ConstructorInitializer) is { } capturedInitializer
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(requirement.TargetBody!, capturedInitializer)),
             CompileBackStubBodyKind.TargetBody
                 => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(requirement.TargetBody!)),
             CompileBackStubBodyKind.TargetGetterWithSetter
@@ -1541,6 +1618,154 @@ public static class CompileBackSourceComposer
         => requirement.Kind == CompileBackMemberKind.PropertyGet
             ? new CSharpPropertyBody(body, null)
             : new CSharpPropertyBody(null, body);
+
+    /// <summary>
+    /// Parses a printer-form constructor-chain string (<c>this(args)</c> or
+    /// <c>base(args)</c>, with no leading <c>: </c> or trailing <c>;</c>) into a
+    /// <see cref="CSharpConstructorInitializer"/>. The whole argument list is
+    /// carried as a single initializer argument — the printer already rendered
+    /// it, so no top-level comma split is needed (and splitting would break
+    /// nested calls). Returns null when there is no captured chain.
+    /// </summary>
+    static CSharpConstructorInitializer? ParseConstructorInitializer(string? chain)
+    {
+        if (string.IsNullOrEmpty(chain))
+            return null;
+        var kind = chain.StartsWith("this(", StringComparison.Ordinal)
+            ? CSharpConstructorInitializerKind.This
+            : chain.StartsWith("base(", StringComparison.Ordinal)
+                ? CSharpConstructorInitializerKind.Base
+                : (CSharpConstructorInitializerKind?)null;
+        if (kind is null)
+            return null;
+        int open = chain.IndexOf('(', StringComparison.Ordinal);
+        int close = chain.LastIndexOf(')');
+        if (open < 0 || close <= open)
+            return null;
+        string arguments = chain[(open + 1)..close];
+        return new CSharpConstructorInitializer(
+            kind.Value,
+            arguments.Length == 0 ? [] : [arguments]);
+    }
+
+    /// <summary>
+    /// The base/this <c>.ctor</c> chain call in the entry block, or null when the
+    /// constructor body has no chain call (a struct ctor, or a body that never
+    /// chains). Mirrors the printer's chain-call detection so the shell can verify
+    /// the chained-to constructor was reconstructed and its arguments bind
+    /// faithfully before emitting the initializer.
+    /// </summary>
+    static Call? ConstructorChainCall(IrFunction function)
+    {
+        if (function.Body.Blocks is not [{ } entry, ..])
+            return null;
+        foreach (var child in entry.Children)
+        {
+            if (child is ExpressionStatement
+                {
+                    Expression: Call { Callee: { Name: ".ctor", HasThis: true } } call
+                }
+                && call.Arguments is [_, ..])
+            {
+                return call;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether every argument of a constructor-chain call prints in a form that
+    /// binds to exactly the chained-to constructor. The C# printer can drop a
+    /// disambiguating cast (a <c>box</c> to <c>object</c> prints as its inner
+    /// value; a reference upcast prints bare), so a lossy argument could re-bind
+    /// to a different reconstructed constructor — a sibling or the target
+    /// constructor itself. An argument is faithful only when its printed form
+    /// already carries the parameter's exact type: a non-lossy expression whose
+    /// result type structurally equals the parameter type. Faithful arguments
+    /// bind unambiguously regardless of the other constructors in the shell.
+    /// </summary>
+    static bool ChainArgumentsAreFaithful(Call chainCall, MethodRef callee)
+    {
+        var arguments = chainCall.Arguments;
+        // Arguments[0] is the `this` receiver; the ctor arguments follow it.
+        if (arguments.Count - 1 != callee.ParameterTypes.Length)
+            return false;
+        for (int i = 0; i < callee.ParameterTypes.Length; i++)
+        {
+            if (!ChainArgumentIsFaithful(arguments[i + 1], callee.ParameterTypes[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool ChainArgumentIsFaithful(IrExpression argument, TypeRef parameterType)
+        // Box (prints its inner value, dropping the `(object)` cast), Coerce,
+        // Convert, IsInstance, and bare constants can each be spelled at a static
+        // type other than the parameter's, so overload resolution could bind them
+        // elsewhere. Lambdas, collection expressions, tuple literals, and
+        // interpolated strings print in a target-typed form with no intrinsic
+        // static type (a lambda `() => ...` and a collection `[...]` have none; a
+        // tuple `(a, b)` target-types per element; an interpolated string `$"..."`
+        // also converts to FormattableString/IFormattable), so a matching
+        // ResultType does not prove they bind only to the chained-to constructor —
+        // a lambda-, collection-, tuple-, or string-accepting sibling can make the
+        // printed initializer ambiguous (CS0121) or bind it elsewhere. Every other
+        // expression prints at its result type, so it is faithful exactly when
+        // that type matches the parameter type.
+        => argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance
+                or ILInspector.Decompiler.Pipeline.Constant
+                or Lambda or CollectionExpression or TupleExpression or InterpolatedStringExpression)
+            && argument.ResultType is { } type
+            && type.Equals(parameterType);
+
+    /// <summary>
+    /// Whether a reconstructed constructor could be an applicable candidate for a
+    /// call with <paramref name="argCount"/> arguments. This is stronger than a
+    /// declared-arity match: a <c>params</c> array absorbs any number of trailing
+    /// arguments (including zero), and optional parameters may be omitted, so a
+    /// constructor of a different nominal arity can still bind an N-argument call.
+    /// The unique-arity guard uses this so a cross-arity <c>params</c>/optional
+    /// sibling that could steal a lossy-argument bind is counted as a competing
+    /// candidate rather than ignored.
+    /// </summary>
+    static bool ConstructorCouldBindToArgCount(CompileBackMemberRequirement member, int argCount)
+    {
+        var parameters = member.Parameters;
+        int total = parameters.Count;
+        bool hasParams = total > 0 && parameters[total - 1].Modifier == "params";
+        // Minimum required arguments: leading parameters that are neither optional
+        // (C# requires all parameters after the first optional to be optional too)
+        // nor the trailing `params` array (which is satisfied by zero arguments).
+        int required = 0;
+        for (int i = 0; i < total; i++)
+        {
+            if (hasParams && i == total - 1)
+                break;
+            if (parameters[i].HasDefault)
+                break;
+            required++;
+        }
+
+        int max = hasParams ? int.MaxValue : total;
+        return argCount >= required && argCount <= max;
+    }
+
+    /// <summary>
+    /// Whether a constructor-chain parameter type would be dropped from the
+    /// reconstructed shell (mirrors <c>IsUnsupportedSurfaceSignature</c>): a
+    /// function pointer or a compiler-generated/anonymous type has no faithful
+    /// C# surface, so the chained-to constructor is not reconstructed and a
+    /// <c>: this(args)</c> initializer targeting it cannot bind.
+    /// </summary>
+    static bool IsUnsupportedChainParameterType(TypeRef type)
+    {
+        string display = type.ToDisplayString();
+        return display.Contains("delegate*", StringComparison.Ordinal)
+            || display.Contains("<>", StringComparison.Ordinal)
+            || display.Contains('{', StringComparison.Ordinal);
+    }
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(

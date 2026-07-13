@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.ControlFlow;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -81,7 +82,7 @@ public sealed class LibraryBodyIndex
                 var reachByToken = new Dictionary<int, int>();
                 foreach (var entry in TopLeverage(int.MaxValue))
                     reachByToken[entry.Method.MetadataToken] = entry.RootReach;
-                _opportunities =
+                _opportunities = AttachFindingProvenance(
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
@@ -99,11 +100,147 @@ public sealed class LibraryBodyIndex
                         .Select(o => o.Method.MetadataToken)))
                         .Select(AddFallbackOpportunityMetadata),
                     .. ScanMethodsInvokedInLoops(reachByToken).Select(AddFallbackOpportunityMetadata),
-                ];
+                ]);
             }
             return _opportunities;
         }
     }
+
+    ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
+        ImmutableArray<OptimizationOpportunity> opportunities)
+    {
+        var allocationFindings = new Dictionary<int, ImmutableArray<Finding<AllocationOccurrence>>>();
+        var callSiteFindings = new Dictionary<int, ImmutableArray<Finding<DirectCall>>>();
+        var candidateIds = new HashSet<string>(StringComparer.Ordinal);
+        var builder = ImmutableArray.CreateBuilder<OptimizationOpportunity>(opportunities.Length);
+
+        foreach (var opportunity in opportunities)
+        {
+            Finding<AllocationOccurrence>? allocation = null;
+            Finding<DirectCall>? callSite = null;
+            if (opportunity.ILOffset is { } offset)
+            {
+                int methodToken = opportunity.Method.MetadataToken;
+                if (_allocationOccurrences.TryGetValue(methodToken, out var occurrences))
+                {
+                    if (!allocationFindings.TryGetValue(methodToken, out var findings))
+                    {
+                        findings = AnalysisFindings.InspectAllocations(
+                            occurrences,
+                            FindingSubjectFor(opportunity.Method));
+                        allocationFindings[methodToken] = findings;
+                    }
+                    allocation = SingleFindingAtOffset(
+                        findings,
+                        offset,
+                        static occurrence => occurrence.ILOffset);
+                }
+
+                // newobj and GetEnumerator calls can appear in both censuses. Their triage
+                // shapes describe the allocation, so the allocation Finding owns provenance.
+                if (allocation is null
+                    && GetDirectCallsByCaller().TryGetValue(methodToken, out var calls))
+                {
+                    if (!callSiteFindings.TryGetValue(methodToken, out var findings))
+                    {
+                        findings = AnalysisFindings.InspectCallSites(
+                            calls,
+                            FindingSubjectFor(opportunity.Method));
+                        callSiteFindings[methodToken] = findings;
+                    }
+                    callSite = SingleFindingAtOffset(
+                        findings,
+                        offset,
+                        static call => call.ILOffset);
+                }
+            }
+
+            string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id;
+            FindingKey? findingKey = allocation?.Key ?? callSite?.Key;
+            int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
+            int fingerprintLength = PerformanceTriageCandidateId.InitialFingerprintLength;
+            string candidateId;
+            while (true)
+            {
+                candidateId = PerformanceTriageCandidateId.Create(
+                    opportunity,
+                    sourceFinding,
+                    findingKey,
+                    ordinal,
+                    fingerprintLength);
+                if (candidateIds.Add(candidateId))
+                    break;
+                if (fingerprintLength == PerformanceTriageCandidateId.MaximumFingerprintLength)
+                {
+                    throw new InvalidOperationException(
+                        $"Duplicate Performance Triage candidate identity '{candidateId}'.");
+                }
+                fingerprintLength = Math.Min(
+                    fingerprintLength + 8,
+                    PerformanceTriageCandidateId.MaximumFingerprintLength);
+            }
+
+            builder.Add(opportunity with
+            {
+                CandidateId = candidateId,
+                SourceFinding = sourceFinding,
+                Operation = allocation is null
+                    ? CallOperation(callSite?.Payload)
+                    : AllocationOperation(allocation.Payload),
+                OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
+                Provenance = sourceFinding is not null
+                    ? PerformanceTriageProvenance.Exact
+                    : opportunity.ILOffset is null
+                        ? PerformanceTriageProvenance.Aggregate
+                        : PerformanceTriageProvenance.Unmatched,
+            });
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    static FindingSubject FindingSubjectFor(MethodIdentity method)
+        => new(
+            $"method:0x{method.MetadataToken:X8}",
+            $"{method.DeclaringType.ToQualifiedDisplayString()}::{method.Name}");
+
+    static Finding<T>? SingleFindingAtOffset<T>(
+        ImmutableArray<Finding<T>> findings,
+        int offset,
+        Func<T, int> getOffset)
+        where T : notnull
+    {
+        Finding<T>? result = null;
+        foreach (var finding in findings)
+        {
+            if (getOffset(finding.Payload) != offset)
+                continue;
+            if (result is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Finding census '{finding.Descriptor.Id}' contains multiple occurrences at IL_{offset:X4}.");
+            }
+            result = finding;
+        }
+        return result;
+    }
+
+    static string AllocationOperation(AllocationOccurrence occurrence)
+        => occurrence.Source switch
+        {
+            AllocationFactSource.Newobj => "newobj",
+            AllocationFactSource.Newarr => "newarr",
+            AllocationFactSource.Box => "box",
+            AllocationFactSource.GetEnumeratorCall => "call.get-enumerator",
+            _ => occurrence.Source.ToString().ToLowerInvariant(),
+        };
+
+    static string? CallOperation(DirectCall? call)
+        => call is null
+            ? null
+            : string.IsNullOrWhiteSpace(call.Opcode)
+                ? call.Kind.ToString().ToLowerInvariant()
+                : call.Opcode;
 
     bool IsExceptionConstruction(TypeRef type)
     {

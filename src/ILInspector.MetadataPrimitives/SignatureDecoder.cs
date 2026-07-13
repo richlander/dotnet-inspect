@@ -11,6 +11,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
 
+    [ThreadStatic]
+    static SignatureDecodeRejection? s_rejection;
+
     /// <summary>
     /// Shared instance for common use cases.
     /// </summary>
@@ -47,23 +50,80 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+        if (!TypeSpecGuard.TryEnter(
+            reader,
+            handle,
+            out var scope,
+            out var rejectionKind))
+        {
+            Reject(
+                new SignatureDecodeRejection(
+                    rejectionKind,
+                    rejectionKind == SignatureDecodeRejectionKind.UnsafeStructure
+                        ? "A nested TypeSpec exceeds the structural safety limit."
+                        : "A nested TypeSpec exceeds the re-entry depth or cumulative-byte budget."));
             return Unresolved;
+        }
         using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
         }
     }
 
+    internal static SignatureDecodeResult<T> Decode<T>(
+        Func<T> decode,
+        Func<SignatureDecodeRejection?>? preflight = null)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(decode);
+        var previousRejection = s_rejection;
+        s_rejection = null;
+        try
+        {
+            if (preflight?.Invoke() is { } preflightRejection)
+                return new SignatureDecodeResult<T>.Rejected(preflightRejection);
+
+            T value = decode();
+            return s_rejection is null
+                ? new SignatureDecodeResult<T>.Decoded(value)
+                : new SignatureDecodeResult<T>.Rejected(s_rejection);
+        }
+        catch (BadImageFormatException ex)
+        {
+            return Malformed<T>(ex);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return Malformed<T>(ex);
+        }
+        finally
+        {
+            s_rejection = previousRejection;
+        }
+    }
+
+    internal static void Reject(SignatureDecodeRejection rejection)
+    {
+        ArgumentNullException.ThrowIfNull(rejection);
+        s_rejection ??= rejection;
+    }
+
+    static SignatureDecodeResult<T> Malformed<T>(Exception exception)
+        where T : notnull
+        => new SignatureDecodeResult<T>.Rejected(
+            new SignatureDecodeRejection(
+                SignatureDecodeRejectionKind.MalformedMetadata,
+                exception.Message));
+
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
-    
-    public string GetArrayType(string elementType, ArrayShape shape) 
+
+    public string GetArrayType(string elementType, ArrayShape shape)
         => $"{elementType}[{new string(',', shape.Rank - 1)}]";
-    
+
     public string GetByReferenceType(string elementType) => $"ref {elementType}";
-    
+
     public string GetPointerType(string elementType) => $"{elementType}*";
-    
+
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
         => TypeResolver.ApplyGenericArguments(genericType, typeArguments);
 
@@ -100,8 +160,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
         _ => "unmanaged",
     };
-    
+
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
-    
+
     public string GetPinnedType(string elementType) => elementType;
 }

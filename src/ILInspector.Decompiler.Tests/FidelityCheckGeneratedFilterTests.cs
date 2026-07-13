@@ -445,6 +445,120 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void ExtensionRootSelection_DistinguishesReceiverTypesByGenericArity()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverArityFixture;
+
+            public class NonGenericBase { }
+            public class GenericBase { }
+            public class Result : NonGenericBase { }
+            public class Result<T> : GenericBase { }
+
+            public static class NonGenericExtensions
+            {
+                public static void Add(this NonGenericBase receiver, string value) { }
+            }
+
+            public static class GenericExtensions
+            {
+                public static void Add(this GenericBase receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var nonGeneric = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverArityFixture.Result");
+            var generic = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                "Add",
+                "ExtensionReceiverArityFixture.Result<int>");
+
+            Assert.Equal(
+                ["ExtensionReceiverArityFixture.NonGenericExtensions"],
+                nonGeneric.Roots);
+            Assert.False(nonGeneric.UsedFallback, nonGeneric.FallbackReason);
+            Assert.Equal(
+                ["ExtensionReceiverArityFixture.GenericExtensions"],
+                generic.Roots);
+            Assert.False(generic.UsedFallback, generic.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ExtensionRootSelection_UsesArityAwareRoslynReceiverEvidence()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace ExtensionReceiverArityEvidenceFixture;
+
+            public interface IReceiver<T> { }
+            public class Result<T> : IReceiver<T> { }
+
+            public static class GenericReceiverExtensions
+            {
+                public static void Add<T>(this IReceiver<T> receiver, int value) { }
+            }
+            """);
+        try
+        {
+            var tree = CSharpSyntaxTree.ParseText(
+                """
+                class Consumer
+                {
+                    void Use(
+                        ExtensionReceiverArityEvidenceFixture.Result<int> value)
+                        => value.Add(1);
+                }
+                """,
+                cancellationToken: TestContext.Current.CancellationToken);
+            var compilation = CSharpCompilation.Create(
+                "extension-receiver-arity-evidence",
+                [tree],
+                [
+                    MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                    MetadataReference.CreateFromFile(assemblyPath),
+                ],
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+            var diagnostic = Assert.Single(
+                compilation.GetDiagnostics(TestContext.Current.CancellationToken),
+                candidate => candidate.Id == "CS1061");
+            var reference = Assert.IsType<ClosureDiagnosticReference>(
+                ClosureDiagnosticEvidence.Extract(
+                    diagnostic,
+                    compilation.GetSemanticModel(tree)));
+
+            Assert.Equal(
+                "ExtensionReceiverArityEvidenceFixture.Result`1",
+                reference.ContainingType);
+            Assert.Contains(
+                "ExtensionReceiverArityEvidenceFixture.IReceiver`1",
+                reference.CompatibleReceiverTypes!);
+
+            var selection = FidelityCheck.SelectExtensionRootsForTest(
+                assemblyPath,
+                reference.Name,
+                reference.ContainingType,
+                reference.CompatibleReceiverTypes,
+                reference.CompatibleReceiverTypesComplete);
+
+            Assert.Equal(
+                ["ExtensionReceiverArityEvidenceFixture.GenericReceiverExtensions"],
+                selection.Roots);
+            Assert.False(selection.UsedFallback, selection.FallbackReason);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void RunMethodDelta_UsesCorpusMetadataForPlatformOutParameters()
     {
         var assemblyPath = CompileFixture("""

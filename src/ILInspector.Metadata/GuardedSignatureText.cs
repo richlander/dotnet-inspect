@@ -4,145 +4,65 @@ using System.Reflection.Metadata;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Top-level prescan gateway for string-producing signature decodes in Metadata.
-/// Nested TypeSpec re-entry is guarded by <see cref="SignatureDecoder"/>.
+/// Top-level result gateway for string-producing signature decodes in Metadata.
+/// Nested TypeSpec rejection is retained by <see cref="SignatureDecoder"/> and projected as a
+/// rejected result rather than a plausible signature value.
 /// </summary>
 internal static class GuardedSignatureText
 {
-    const string Unresolved = "object";
-    static readonly MethodSignature<string> UnresolvedMethod = new(default, Unresolved, 0, 0, []);
-
-    internal readonly record struct DecodeResult<T>(T Value, bool IsDegraded);
-
-    sealed class TrackingSignatureDecoder
-        : SignatureDecoder, ISignatureTypeProvider<string, GenericContext?>
-    {
-        public bool IsDegraded { get; private set; }
-
-        public T Reject<T>(T fallback)
-        {
-            IsDegraded = true;
-            return fallback;
-        }
-
-        string ISignatureTypeProvider<string, GenericContext?>.GetTypeFromSpecification(
-            MetadataReader reader,
-            GenericContext? context,
-            TypeSpecificationHandle handle,
-            byte rawTypeKind)
-        {
-            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
-            {
-                IsDegraded = true;
-                return Unresolved;
-            }
-
-            using (scope)
-            {
-                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
-            }
-        }
-    }
-
-    public static MethodSignature<string> MethodText(
+    public static SignatureDecodeResult<MethodSignature<string>> MethodText(
         MetadataReader reader,
         MethodDefinition method,
         GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, method.Signature, SignatureBlobGuard.Kind.Method)
-            ? method.DecodeSignature(SignatureDecoder.Instance, context)
-            : UnresolvedMethod;
-
-    public static DecodeResult<MethodSignature<string>> MethodTextResult(
-        MetadataReader reader,
-        MethodDefinition method,
-        GenericContext? context)
-    {
-        var provider = new TrackingSignatureDecoder();
-        var signature = SignatureBlobGuard.IsSafeToDecode(
+        => GuardedSignatureDecoder.Decode(
             reader,
             method.Signature,
-            SignatureBlobGuard.Kind.Method)
-            ? method.DecodeSignature(provider, context)
-            : provider.Reject(UnresolvedMethod);
-        return new DecodeResult<MethodSignature<string>>(signature, provider.IsDegraded);
-    }
+            SignatureBlobGuard.Kind.Method,
+            () => method.DecodeSignature(SignatureDecoder.Instance, context));
 
-    public static MethodSignature<string> MemberRefMethodText(
+    public static SignatureDecodeResult<MethodSignature<string>> MemberRefMethodText(
         MetadataReader reader,
         MemberReference member,
         GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, member.Signature, SignatureBlobGuard.Kind.Method)
-            ? member.DecodeMethodSignature(SignatureDecoder.Instance, context)
-            : UnresolvedMethod;
+        => GuardedSignatureDecoder.Decode(
+            reader,
+            member.Signature,
+            SignatureBlobGuard.Kind.Method,
+            () => member.DecodeMethodSignature(SignatureDecoder.Instance, context));
 
-    public static MethodSignature<string> PropertyText(
+    public static SignatureDecodeResult<MethodSignature<string>> PropertyText(
         MetadataReader reader,
         PropertyDefinition property,
         GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, property.Signature, SignatureBlobGuard.Kind.Method)
-            ? property.DecodeSignature(SignatureDecoder.Instance, context)
-            : UnresolvedMethod;
-
-    public static DecodeResult<MethodSignature<string>> PropertyTextResult(
-        MetadataReader reader,
-        PropertyDefinition property,
-        GenericContext? context)
-    {
-        var provider = new TrackingSignatureDecoder();
-        var signature = SignatureBlobGuard.IsSafeToDecode(
+        => GuardedSignatureDecoder.Decode(
             reader,
             property.Signature,
-            SignatureBlobGuard.Kind.Method)
-            ? property.DecodeSignature(provider, context)
-            : provider.Reject(UnresolvedMethod);
-        return new DecodeResult<MethodSignature<string>>(signature, provider.IsDegraded);
-    }
+            SignatureBlobGuard.Kind.Method,
+            () => property.DecodeSignature(SignatureDecoder.Instance, context));
 
-    public static string FieldText(
+    public static SignatureDecodeResult<string> FieldText(
         MetadataReader reader,
         FieldDefinition field,
         GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
-            ? field.DecodeSignature(SignatureDecoder.Instance, context)
-            : Unresolved;
-
-    public static DecodeResult<string> FieldTextResult(
-        MetadataReader reader,
-        FieldDefinition field,
-        GenericContext? context)
-    {
-        var provider = new TrackingSignatureDecoder();
-        var type = SignatureBlobGuard.IsSafeToDecode(
+        => GuardedSignatureDecoder.Decode(
             reader,
             field.Signature,
-            SignatureBlobGuard.Kind.Field)
-            ? field.DecodeSignature(provider, context)
-            : provider.Reject(Unresolved);
-        return new DecodeResult<string>(type, provider.IsDegraded);
-    }
+            SignatureBlobGuard.Kind.Field,
+            () => field.DecodeSignature(SignatureDecoder.Instance, context));
 
-    public static ImmutableArray<string> MethodSpecTypeArgs(
+    public static SignatureDecodeResult<ImmutableArray<string>> MethodSpecTypeArgs(
         MetadataReader reader,
         MethodSpecification specification,
         GenericContext? context)
-        => SignatureBlobGuard.IsSafeToDecode(
+        => GuardedSignatureDecoder.Decode(
             reader,
             specification.Signature,
-            SignatureBlobGuard.Kind.MethodSpecification)
-            ? specification.DecodeSignature(SignatureDecoder.Instance, context)
-            : [];
+            SignatureBlobGuard.Kind.MethodSpecification,
+            () => specification.DecodeSignature(SignatureDecoder.Instance, context));
 
-    public static string TypeSpecText(
+    public static SignatureDecodeResult<string> TypeSpecText(
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context)
-    {
-        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
-            return Unresolved;
-        using (scope)
-        {
-            return reader.GetTypeSpecification(handle)
-                .DecodeSignature(SignatureDecoder.Instance, context);
-        }
-    }
+        => TypeResolver.DecodeTypeNameFromSpecification(reader, handle, context);
 }

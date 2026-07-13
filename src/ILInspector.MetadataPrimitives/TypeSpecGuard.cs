@@ -11,9 +11,14 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class TypeSpecGuard
 {
-    const int MaxBlobLength = 1024;
-    const int MaxCumulativeBytes = 4096;
-    const int MaxDepth = 256;
+    /// <summary>
+    /// Maximum bytes across the active TypeSpec re-entry closure. A single wide,
+    /// shallow TypeSpec may use the entire budget.
+    /// </summary>
+    public const int MaxCumulativeBytes = 4096;
+
+    /// <summary>Maximum cross-handle TypeSpec re-entry depth.</summary>
+    public const int MaxDepth = 256;
 
     [ThreadStatic]
     static int s_cumulativeBytes;
@@ -28,17 +33,34 @@ public static class TypeSpecGuard
     static ulong s_nextToken;
 
     public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
+        => TryEnter(reader, handle, out scope, out _);
+
+    internal static bool TryEnter(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        out Scope scope,
+        out SignatureDecodeRejectionKind rejectionKind)
     {
         scope = default;
         if (s_depth >= MaxDepth)
+        {
+            rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
             return false;
+        }
 
         var signature = reader.GetTypeSpecification(handle).Signature;
         int length = reader.GetBlobReader(signature).Length;
-        if (length > MaxBlobLength
-            || s_cumulativeBytes + length > MaxCumulativeBytes
-            || !SignatureBlobGuard.IsSafeToDecode(reader, signature, SignatureBlobGuard.Kind.TypeSpecification))
+        if ((long)s_cumulativeBytes + length > MaxCumulativeBytes)
         {
+            rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
+            return false;
+        }
+        if (!SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            signature,
+            SignatureBlobGuard.Kind.TypeSpecification))
+        {
+            rejectionKind = SignatureDecodeRejectionKind.UnsafeStructure;
             return false;
         }
 
@@ -53,6 +75,7 @@ public static class TypeSpecGuard
         while (token == 0 || token == parentToken);
         s_currentToken = token;
         scope = new Scope(length, token, parentToken);
+        rejectionKind = default;
         return true;
     }
 
@@ -62,6 +85,10 @@ public static class TypeSpecGuard
         s_cumulativeBytes -= blobLength;
     }
 
+    /// <summary>
+    /// Restores the calling thread's TypeSpec decode budget when the guarded
+    /// re-entry completes. The stack-only token cannot escape to another thread.
+    /// </summary>
     public readonly ref struct Scope
     {
         readonly int _blobLength;

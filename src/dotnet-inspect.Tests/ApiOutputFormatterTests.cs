@@ -143,6 +143,32 @@ public class ApiOutputFormatterTests
         Assert.Contains("    : base(42)", lines);
     }
 
+    [Fact]
+    public void FormatSourceWithDeclaration_AllowsInitializerOnlyConstructorBody()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        var result = DecompilerResult.Success("") with
+        {
+            FieldInitializers = [("Value", "42")]
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+
+        Assert.StartsWith("public Widget()", source);
+        Assert.DoesNotContain("Value = 42", source);
+        Assert.DoesNotContain(DiagnosticIds.EmptyOutput, source);
+    }
+
     [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, true)]

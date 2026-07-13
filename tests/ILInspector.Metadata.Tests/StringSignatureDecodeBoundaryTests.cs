@@ -14,6 +14,7 @@ public class StringSignatureDecodeBoundaryTests
         var allowedFiles = new HashSet<string>(StringComparer.Ordinal)
         {
             "GuardedSignatureText.cs",
+            "SignatureDecodeResult.cs",
             "SignatureDecoder.cs",
             "TypeResolver.cs",
             // TypeNodeProvider delegates leaf-name callbacks to the string provider for

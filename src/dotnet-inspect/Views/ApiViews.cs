@@ -905,8 +905,13 @@ public record UnsafeMemberRow(
 [MarkoutSerializable]
 public record OptimizationOpportunityRow(
     string Member,
+    [property: MarkoutSkipNull] string? Candidate,
+    [property: MarkoutSkipNull] string? Finding,
+    [property: MarkoutSkipNull] string? Provenance,
     string RootReach,
     string Shape,
+    [property: MarkoutSkipNull] string? Operation,
+    [property: MarkoutSkipNull] string? Token,
     string Evidence,
     string Fix,
     string Confidence,
