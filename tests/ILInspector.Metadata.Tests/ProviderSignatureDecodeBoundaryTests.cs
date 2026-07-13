@@ -273,6 +273,22 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "TypeSpec double local alias with prescan only",
+            """
+            class C
+            {
+                object GetTypeFromSpecification()
+                {
+                    var spec = reader.GetTypeSpecification(handle);
+                    var alias = spec;
+                    return SignatureBlobGuard.IsSafeToDecode(reader, alias.Signature, kind)
+                        ? alias.DecodeSignature(provider, context)
+                        : fallback;
+                }
+            }
+            """
+        },
+        {
             "TypeSpec deferred local function",
             """
             class C
@@ -393,6 +409,43 @@ public class ProviderSignatureDecodeBoundaryTests
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
                         return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder with blob length spoofed in lambda",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = 0;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    Action unused = () =>
+                    {
+                        int blobLength =
+                            reader.GetBlobReader(spec.Signature).Length;
+                    };
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     try
@@ -714,13 +767,18 @@ public class ProviderSignatureDecodeBoundaryTests
         if (decode.Expression is not MemberAccessExpressionSyntax decodeMember)
             return false;
 
-        InvocationExpressionSyntax? getTypeSpec = decodeMember.Expression switch
+        ExpressionSyntax? receiver = decodeMember.Expression;
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (receiver is IdentifierNameSyntax identifier)
         {
-            InvocationExpressionSyntax direct => direct,
-            IdentifierNameSyntax identifier => FindLocalInitializer(decode, identifier.Identifier.Text)
-                as InvocationExpressionSyntax,
-            _ => null,
-        };
+            if (!visited.Add(identifier.Identifier.Text))
+                return false;
+            receiver = FindLocalInitializer(decode, identifier.Identifier.Text);
+        }
+
+        if (receiver is not InvocationExpressionSyntax getTypeSpec)
+            return false;
+
         if (getTypeSpec?.Expression is not MemberAccessExpressionSyntax access
             || access.Name.Identifier.Text != "GetTypeSpecification"
             || getTypeSpec.ArgumentList.Arguments.Count != 1)
@@ -742,8 +800,8 @@ public class ProviderSignatureDecodeBoundaryTests
             .Where(variable =>
                 variable.Identifier.Text == identifier
                 && variable.SpanStart < invocation.SpanStart
-                && variable.Ancestors().OfType<BlockSyntax>()
-                    .Any(block => block.Span.Contains(invocation.Span)))
+                && variable.Ancestors().OfType<BlockSyntax>().FirstOrDefault() is { } block
+                && block.Span.Contains(invocation.Span))
             .OrderByDescending(variable => variable.SpanStart)
             .Select(variable => variable.Initializer?.Value)
             .FirstOrDefault(value => value is not null);
