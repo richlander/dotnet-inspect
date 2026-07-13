@@ -34,7 +34,7 @@ internal static class SourceDocumentPath
                                 string suffix = normalizedPath[prefix.Length..].TrimStart('/');
                                 return new SourceDocumentPathResolution(
                                     suffix,
-                                    ResolveUrl(mapping.Value.GetString(), suffix),
+                                    ResolveUrl(SourceLinkUrlPattern(mapping.Value), suffix),
                                     IsMapped: true);
                             }
                         }
@@ -42,7 +42,7 @@ internal static class SourceDocumentPath
                         {
                             return new SourceDocumentPathResolution(
                                 TrimSyntheticRoot(normalizedPath),
-                                mapping.Value.GetString(),
+                                SourceLinkUrlPattern(mapping.Value),
                                 IsMapped: true);
                         }
                     }
@@ -75,6 +75,9 @@ internal static class SourceDocumentPath
             ? urlPattern[..^1] + EscapeSourceLinkPath(suffix)
             : urlPattern;
     }
+
+    private static string? SourceLinkUrlPattern(JsonElement value)
+        => value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static string EscapeSourceLinkPath(string path)
         => string.Join(

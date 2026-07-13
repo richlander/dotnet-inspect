@@ -183,6 +183,29 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentIdentity_IgnoresMalformedSourceLinkUrlValues()
+    {
+        const string sourceLink = """
+            {
+              "documents": {
+                "/repo/*": 123,
+                "/exact/Widget.cs": true
+              }
+            }
+            """;
+
+        var wildcard = SourceDocumentPath.Resolve("/repo/src/Widget.cs", sourceLink);
+        var exact = SourceDocumentPath.Resolve("/exact/Widget.cs", sourceLink);
+
+        Assert.True(wildcard.IsMapped);
+        Assert.Equal("src/Widget.cs", wildcard.CanonicalPath);
+        Assert.Null(wildcard.ResolvedUrl);
+        Assert.True(exact.IsMapped);
+        Assert.Equal("/exact/Widget.cs", exact.CanonicalPath);
+        Assert.Null(exact.ResolvedUrl);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
