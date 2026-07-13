@@ -10,11 +10,12 @@ namespace ILInspector.Metadata.Tests;
 /// stack for every nested element <em>before</em> the first provider callback,
 /// so a single over-deep blob overflows the stack in a way no managed
 /// <c>try/catch</c> can contain. Every top-level provider decode must therefore
-/// be prescanned with <c>SignatureBlobGuard.IsSafeToDecode</c>, and every nested
-/// cross-handle TypeSpec re-entry must be bounded by <c>TypeSpecGuard</c>.
+/// be prescanned with <c>SignatureBlobGuard.IsSafeToDecode</c> or enter through
+/// <c>GuardedSignatureDecoder</c>, and every nested cross-handle TypeSpec
+/// re-entry must be bounded by <c>TypeSpecGuard</c>.
 ///
 /// This census is a deny-list: any <c>Decode*Signature</c> invocation that is
-/// not one of the two sanctioned guarded forms is a violation. A newly added
+/// not one of the three sanctioned guarded forms is a violation. A newly added
 /// provider, an un-gated site, or a decode routed through a local alias fails
 /// this test rather than shipping an unguarded same-mechanism hole. This is the
 /// anti-ratchet closure proof.
@@ -68,7 +69,9 @@ public class ProviderSignatureDecodeBoundaryTests
                 // delegate reference, or a call whose name node is not the invoked
                 // member — is an unguarded escape and a violation.
                 if (TryGetInvokedDecode(name, out var invocation)
-                    && (IsNestedTypeSpecReentry(invocation) || IsPrescanGuardedTernary(invocation)))
+                    && (IsNestedTypeSpecReentry(invocation)
+                        || IsPrescanGuardedTernary(invocation)
+                        || IsGuardedSignatureDecoderGateway(invocation)))
                 {
                     // Sanctioned form 1: a nested cross-handle TypeSpec re-entry,
                     // `reader.GetTypeSpecification(handle).Decode*Signature(...)`,
@@ -77,6 +80,9 @@ public class ProviderSignatureDecodeBoundaryTests
                     // Sanctioned form 2: the decode is the true-branch of a
                     // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature,
                     // ...) ? decode : fallback` prescan ternary.
+                    // Sanctioned form 3: the decode is the value factory of
+                    // `GuardedSignatureDecoder.Decode(reader, <recv>.Signature,
+                    // ..., () => decode)`, bound to the same signature blob.
                     continue;
                 }
 
@@ -88,7 +94,8 @@ public class ProviderSignatureDecodeBoundaryTests
         Assert.True(
             violations.Count == 0,
             "Every top-level provider signature decode must be the true-branch of a "
-            + "SignatureBlobGuard.IsSafeToDecode prescan ternary or a "
+            + "SignatureBlobGuard.IsSafeToDecode prescan ternary, the value factory "
+            + "of a matching GuardedSignatureDecoder.Decode call, or a "
             + "TypeSpecGuard-bounded nested GetTypeSpecification re-entry. "
             + "Unguarded raw decodes:\n  " + string.Join("\n  ", violations));
     }
@@ -212,6 +219,34 @@ public class ProviderSignatureDecodeBoundaryTests
                     a.Expression is MemberAccessExpressionSyntax blob
                     && blob.Name.Identifier.Text == "Signature"
                     && blob.Expression.ToString() == decodeReceiver));
+
+    // `GuardedSignatureDecoder.Decode(reader, <recv>.Signature, ..., () =>
+    // <recv>.Decode*Signature(...))`: the decode must be inside the supplied
+    // value factory and the gateway must prescan the same receiver's blob.
+    static bool IsGuardedSignatureDecoderGateway(InvocationExpressionSyntax invocation)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember)
+            return false;
+        var decodeReceiver = decodeMember.Expression.ToString();
+
+        var valueFactory = invocation.Ancestors()
+            .OfType<AnonymousFunctionExpressionSyntax>()
+            .FirstOrDefault();
+        if (valueFactory?.Parent is not ArgumentSyntax valueArgument
+            || valueArgument.Parent?.Parent is not InvocationExpressionSyntax gateway
+            || gateway.Expression is not MemberAccessExpressionSyntax gatewayMember
+            || gatewayMember.Name.Identifier.Text != "Decode"
+            || gatewayMember.Expression is not IdentifierNameSyntax gatewayType
+            || gatewayType.Identifier.Text != "GuardedSignatureDecoder")
+        {
+            return false;
+        }
+
+        return gateway.ArgumentList.Arguments.Any(a =>
+            a.Expression is MemberAccessExpressionSyntax blob
+            && blob.Name.Identifier.Text == "Signature"
+            && blob.Expression.ToString() == decodeReceiver);
+    }
 
     static IEnumerable<string> EnumerateSourceFiles(string root)
     {
