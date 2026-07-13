@@ -82,14 +82,12 @@ public static class CompileBackTypeSkeleton
         if (baseType is "System.Object" or "System.ValueType" or "System.Enum"
             or "System.Delegate" or "System.MulticastDelegate")
             return null;
-        // No surface-representability gate here. origin/main applied it to the C#
-        // display form (CompileBackCSharpNames.Clean) of the base, and Clean strips
-        // the compiler-generated `<>` segments and modreq/modopt that the heuristic
-        // looks for, so for a same-assembly TypeDefinition name the check could never
-        // fire. Running the pure heuristic on the RAW metadata name instead would
-        // wrongly drop a generated `<>`-named base that origin/main kept, so the gate
-        // is omitted to stay byte-identical. The downstream C# printer sanitizes the
-        // emitted base name.
+        // No C# surface-representability gate here. That check belongs on the C#
+        // display form (where `{`, `delegate*`, and generated `<>` are judged after
+        // normalization), which is a caller concern: the harness applies it on the
+        // Clean'd display name. Running the pure heuristic on the RAW metadata name
+        // here would diverge from that normalized decision (e.g. wrongly dropping a
+        // generated `<>`-named base). This method owns only the metadata-level gates.
         return baseType;
     }
 }

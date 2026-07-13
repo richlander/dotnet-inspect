@@ -3437,11 +3437,18 @@ public static class CompileBackSourceComposer
 
         static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
         {
-            // Compile-back base-class reconstruction is owned by the product skeleton
-            // composition (CompileBackTypeSkeleton) so any consumer reconstructs bases
-            // the same way; the harness only maps the result into its signature type.
+            // The product skeleton (CompileBackTypeSkeleton) owns the metadata-level
+            // gates that decide which base is reconstructable (interface/nil/same-
+            // assembly/non-generic/object-family). The harness applies its own C#
+            // surface-representability gate on the display form here, where the Clean
+            // normalization lives: Clean strips generated <> segments (so a <>-named
+            // base is kept) but not { or delegate*, matching origin/main exactly.
             var baseType = CompileBackTypeSkeleton.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
-            return baseType is null ? null : CompileBackTypeSignature.Display(baseType);
+            if (baseType is null)
+                return null;
+            if (IsUnsupportedSurfaceSignature(baseType))
+                return null;
+            return CompileBackTypeSignature.Display(baseType);
         }
 
         // True when some other reconstructed shell type — top-level or nested —
