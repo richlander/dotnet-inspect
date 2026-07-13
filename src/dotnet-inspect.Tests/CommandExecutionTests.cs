@@ -1406,6 +1406,9 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows cannot combine -n/--head with --tail", error);
+        // Pin the failure shape, not just the message: a swallowed BuildRowWindow
+        // throw would dump a stack trace that also contains the message and exits 1.
+        Assert.DoesNotContain("Unhandled exception", error);
     }
 
     [Fact]
@@ -1417,6 +1420,8 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows requires -n/--head N or --tail N", error);
+        // Pin the failure shape, not just the message (see above).
+        Assert.DoesNotContain("Unhandled exception", error);
     }
 
     [Fact]
