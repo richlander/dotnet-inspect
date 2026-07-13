@@ -89,7 +89,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, memberFilterOption, opts.OneLine, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, findingOption, legendOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, findingOption, legendOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -260,10 +260,10 @@ public static class InspectionCommandDefinitions
                 JsonOutput = parseResult.GetValue(opts.Json),
                 Markdown = parseResult.GetValue(opts.Markdown),
                 PlainText = parseResult.GetValue(opts.PlainText),
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
-                OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+                TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
                 FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),

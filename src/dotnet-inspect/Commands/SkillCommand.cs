@@ -19,7 +19,7 @@ public class SkillCommand
 
     /// <summary>
     /// A focused skill that can be printed with <c>dotnet-inspect skill &lt;name&gt;</c>.
-    /// The one-line description is sourced from the skill's YAML frontmatter
+    /// The table description is sourced from the skill's YAML frontmatter
     /// (<c>description:</c>), which is the single source of truth.
     /// </summary>
     public sealed record SkillEntry(string Name, string ResourceName)

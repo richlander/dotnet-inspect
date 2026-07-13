@@ -76,7 +76,7 @@ public class MemberOptionsParserTests
         var root = new RootCommand { memberCommand };
         var args = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
-            allOption, memberOption, ctorOption, compactOption, opts.OneLine, opts.NoHeaders,
+            allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, atOption);
 
@@ -230,10 +230,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.False(options.Tsv);
         Assert.False(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -261,11 +261,11 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.True(options.Tsv);
         Assert.False(options.Jsonl);
         Assert.True(options.NoHeader);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -274,10 +274,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--jsonl");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.False(options.Tsv);
         Assert.True(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -286,10 +286,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--tsv");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.True(options.Tsv);
         Assert.False(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -298,10 +298,10 @@ public class MemberOptionsParserTests
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--jsonl");
 
-        Assert.True(options.OneLine);
+        Assert.True(options.Tabular);
         Assert.False(options.Tsv);
         Assert.True(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
+        Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
     }
 
@@ -338,18 +338,6 @@ public class MemberOptionsParserTests
                 () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
             return 0;
         });
-    }
-
-    [Fact]
-    public async Task ExplicitPackage_WithOneline_SetsTableCompatOutput()
-    {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--oneline");
-
-        Assert.True(options.OneLine);
-        Assert.False(options.Tsv);
-        Assert.False(options.Jsonl);
-        Assert.True(options.OneLineExplicitlySet);
-        Assert.True(options.FormatExplicitlySet);
     }
 
     // ── Explicit --package with type and member ──────────────────────────

@@ -24,7 +24,6 @@ public class SharedOptions
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
     public Option<bool> Jsonl { get; } = new("--jsonl") { Description = "Output as JSON Lines (one object per row)" };
-    public Option<bool> OneLine { get; } = new("--oneline") { Description = "Compatibility alias for --table", Hidden = true };
     public Option<bool> NoHeaders { get; } = new("--no-headers") { Description = "Suppress table/TSV column headers" };
 
     // Verbosity options
@@ -167,7 +166,6 @@ public class SharedOptions
         command.Options.Add(Table);
         command.Options.Add(Tsv);
         command.Options.Add(Jsonl);
-        command.Options.Add(OneLine);
         command.Options.Add(NoHeaders);
     }
 
@@ -320,7 +318,7 @@ public class SharedOptions
         bool markdownFlag = parseResult.GetValue(Markdown);
         bool plainTextFlag = parseResult.GetValue(PlainText);
         bool mermaidFlag = parseResult.GetValue(Mermaid);
-        bool tableFlag = IsExplicitTrue(parseResult, Table) || IsExplicitTrue(parseResult, OneLine);
+        bool tableFlag = IsExplicitTrue(parseResult, Table);
         bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
         bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
@@ -336,10 +334,10 @@ public class SharedOptions
         => OutputFormatResolver.IsEmbeddedMermaid(parseResult.GetValue(Markdown), parseResult.GetValue(Mermaid));
 
     /// <summary>
-    /// Resolves whether tabular output should be used, considering --table, --tsv, --jsonl, and the --oneline compatibility alias.
+    /// Resolves whether tabular output should be used, considering --table, --tsv, and --jsonl.
     /// Throws if a tabular flag is combined with -v (contradictory: -v implies markdown).
     /// </summary>
-    public bool ResolveOneLine(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
+    public bool ResolveTabular(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
         var format = ResolveFormat(parseResult, defaultFormat);
         return format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
@@ -353,7 +351,7 @@ public class SharedOptions
 
     /// <summary>
     /// Returns true when the user explicitly chose an output format via CLI flags
-    /// (--json, --markdown, --plain-text, --table, --tsv, --jsonl, --oneline, or -v).
+    /// (--json, --markdown, --plain-text, --table, --tsv, --jsonl, or -v).
     /// When false, commands are free to apply their own default format.
     /// </summary>
     public bool IsFormatExplicitlySet(ParseResult parseResult)
@@ -369,7 +367,7 @@ public class SharedOptions
     }
 
     public bool IsTableExplicitlySet(ParseResult parseResult) =>
-        IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, Jsonl) || IsExplicit(parseResult, OneLine);
+        IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, Jsonl);
 
     /// <summary>
     /// Parses select list from parse result.

@@ -26,7 +26,6 @@ public static class DiffOptionsParser
         Option<bool> AllOption,
         Option<string[]> TypeFilterOption,
         Option<string[]> MemberFilterOption,
-        Option<bool> OneLineOption,
         Option<bool> NoHeaderOption,
         Option<bool> NameOnlyOption,
         Option<bool> BreakingOption,
@@ -116,11 +115,11 @@ public static class DiffOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
             MemberFilter = memberFilter,
-            OneLine = opts.ResolveOneLine(parseResult),
+            Tabular = opts.ResolveTabular(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-            OneLineExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+            TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             NameOnly = parseResult.GetValue(args.NameOnlyOption),
@@ -166,9 +165,9 @@ public static class DiffOptionsParser
             {
                 var pkgName = versionRange[..atIdx];
                 var toVersion = versionRange[(dotDotIdx + 2)..];
-                if (!options.OneLine && !options.NameOnly)
+                if (!options.Tabular && !options.NameOnly)
                     tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
-                if (!options.OneLine)
+                if (!options.Tabular)
                     tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --table", "summary statistics"));
             }
         }

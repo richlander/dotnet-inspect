@@ -44,10 +44,10 @@ public partial record ApiOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
     public bool JsonOutput { get; init; }
     public bool CompactJson { get; init; }
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
-    public bool OneLineExplicitlySet { get; init; }
+    public bool TabularExplicitlySet { get; init; }
     public bool PlainText { get; init; }
 
     /// <summary>Print only the selected payload with no heading,
@@ -102,7 +102,7 @@ public partial record ApiOptions
     /// <summary>
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).
     /// </summary>
-    public bool VerbosityEnabled => !OneLine && !JsonOutput;
+    public bool VerbosityEnabled => !Tabular && !JsonOutput;
 
     /// <summary>
     /// True when the user is performing a section/projection query (-S/--columns/--fields).
@@ -120,7 +120,7 @@ public partial record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Bare || Print || PrintAll || Value || Urls || Paths || JsonOutput || OneLine || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => Bare || Print || PrintAll || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
 }
 
 /// <summary>
@@ -161,7 +161,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || OneLine || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
 }
 
 /// <summary>

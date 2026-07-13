@@ -57,7 +57,7 @@ public class TypeOptionsParserTests
         var root = new RootCommand { typeCommand };
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders,
+            allOption, typeFilterOption, compactOption, opts.NoHeaders,
             shapeOption, unsafeOption, memberOption, kindOption, atOption);
 
         return (root, opts, args);

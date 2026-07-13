@@ -108,7 +108,7 @@ public static class ApiCommandDefinitions
 
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
-            allOption, typeFilterOption, compactOption, opts.OneLine,
+            allOption, typeFilterOption, compactOption,
             opts.NoHeaders, shapeOption, unsafeOption, memberOption, kindOption, atOption);
 
         typeCommand.SetAction(async (parseResult, ct) =>
@@ -244,7 +244,7 @@ public static class ApiCommandDefinitions
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
-            compactOption, opts.OneLine, opts.NoHeaders,
+            compactOption, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, atOption);
 

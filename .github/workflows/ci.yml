@@ -640,15 +640,15 @@ jobs:
           grep -q "## Dependencies" smoke-package-normal.md
           grep -q "Library" smoke-package-normal.md
 
-      - name: Smoke test - type command (oneline default)
+      - name: Smoke test - type command (table output)
         run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --oneline > smoke-type.txt
+          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --table > smoke-type.txt
           cat smoke-type.txt
           grep -q "JsonSerializer" smoke-type.txt
 
-      - name: Smoke test - member command (oneline default)
+      - name: Smoke test - member command (table output)
         run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --oneline > smoke-member.txt
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --table > smoke-member.txt
           cat smoke-member.txt
           grep -q "Serialize" smoke-member.txt
 

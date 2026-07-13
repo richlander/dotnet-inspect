@@ -99,7 +99,7 @@ public record LibraryOptions
     /// <summary>
     /// Tabular output (pretty table or TSV).
     /// </summary>
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
 
     /// <summary>
     /// Emit tabular output as normalized TSV instead of a pretty table.
@@ -119,7 +119,7 @@ public record LibraryOptions
     /// <summary>
     /// True when a tabular output flag was explicitly passed (not just the default format).
     /// </summary>
-    public bool OneLineExplicitlySet { get; init; }
+    public bool TabularExplicitlySet { get; init; }
 
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
@@ -239,15 +239,15 @@ public record LibraryOptions
     /// <summary>
     /// True when no explicit output format was selected (default → table).
     /// </summary>
-    public bool IsDefaultInvocation => OneLine && !JsonOutput;
+    public bool IsDefaultInvocation => Tabular && !JsonOutput;
 
     /// <summary>
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).
     /// </summary>
-    public bool VerbosityEnabled => !OneLine && !JsonOutput;
+    public bool VerbosityEnabled => !Tabular && !JsonOutput;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => JsonOutput || OneLine || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
+    public bool IsRawOutput => JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
 }

@@ -41,8 +41,8 @@ public class ApiCommand
             UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
             BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
-            OneLine = options.OneLine, Tsv = options.Tsv, Jsonl = options.Jsonl,
-            OneLineExplicitlySet = options.OneLineExplicitlySet,
+            Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
+            TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
@@ -96,7 +96,7 @@ public class ApiCommand
             }
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
+                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
                 sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap()));
         }
@@ -172,7 +172,7 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
+        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
             return (null!, 1);
 
         // Auto-promote verbosity when -S targets specific sections
@@ -187,7 +187,7 @@ public class ApiCommand
 
         // Warn if tabular output is combined with detailed verbosity without section selector
         if (!options.Count)
-            OutputFormatResolver.WarnIfOneLineDetailMismatch(options.OneLine, options.Verbosity, options.IncludeSections);
+            OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }
@@ -484,13 +484,13 @@ public class ApiCommand
             markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
-        else if (options.OneLine)
+        else if (options.Tabular)
         {
-            var (oneLineView, _) = ApiOutputFormatter.BuildSurfaceOneLineView(api, options);
+            var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
-                    MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions));
+                    MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
@@ -792,7 +792,7 @@ public class ApiCommand
             return 0;
         }
 
-        if (options.OneLine)
+        if (options.Tabular)
         {
             if (ApiOutputFormatter.ShouldRenderSectionedTabularView(type, options))
             {
@@ -810,11 +810,11 @@ public class ApiCommand
             }
             else
             {
-                var (oneLineView, _) = ApiOutputFormatter.BuildTypeOneLineView(type, options);
+                var (tableView, _) = ApiOutputFormatter.BuildTypeTableView(type, options);
                 OutputFormatter.WriteProjectedTable(sink, !options.NoHeader, options.Tsv, options.Jsonl,
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
-                        MarkoutSerializer.Serialize(oneLineView, writer, formatter, ApiViewContext.Default, writerOptions),
+                        MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
                     options.Rows);
             }
         }
@@ -1185,7 +1185,7 @@ public class ApiCommand
         }
         var schema = DiscoverOutput.FilterSchemaToRenderedColumns(queryEffective, fullSchema, renderManifest);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
+            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap());
@@ -1260,7 +1260,7 @@ public class ApiCommand
             Fields = null,
             PlainText = false,
             JsonOutput = false,
-            OneLine = false,
+            Tabular = false,
         };
         if (options.Discover is { Length: > 0 } discover)
         {

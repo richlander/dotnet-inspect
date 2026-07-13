@@ -81,7 +81,7 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.OneLine, opts.NoHeaders, packagePrefixOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -227,7 +227,7 @@ public static class SearchCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
@@ -368,7 +368,7 @@ public static class SearchCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = parseResult.GetValue(opts.Json),
                 CompactJson = parseResult.GetValue(compactOption),
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),

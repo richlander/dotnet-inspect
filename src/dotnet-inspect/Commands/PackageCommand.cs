@@ -38,7 +38,7 @@ public class PackageCommand
         {
             var schemaMap = PackageDiscoverySchema();
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
+                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
@@ -101,7 +101,7 @@ public class PackageCommand
             if ((options.Print || options.PrintAll) && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.OneLineExplicitlySet, options.IncludeSections))
+            if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections
@@ -509,14 +509,14 @@ public class PackageCommand
                 }
 
                 return DiscoverOutput.ExecuteEffective(options.Discover, effective, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                     verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: pipeline.GetCategoryMap());
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
-            if (options.OneLine)
+            if (options.Tabular)
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
@@ -662,7 +662,7 @@ public class PackageCommand
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
     {
         section = null;
-        if (!options.OneLine)
+        if (!options.Tabular)
             return true;
 
         if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
@@ -877,7 +877,7 @@ public class PackageCommand
             return false;
         }
 
-        if (options.ShowContent && options.OneLine && !options.Jsonl)
+        if (options.ShowContent && options.Tabular && !options.Jsonl)
         {
             Console.Error.WriteLine("Error: --content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
             return false;
@@ -1904,7 +1904,7 @@ public class PackageCommand
             return 0;
         }
 
-        if (libraryOptions.OneLineExplicitlySet)
+        if (libraryOptions.TabularExplicitlySet)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
@@ -1930,15 +1930,15 @@ public class PackageCommand
             TypeFilter = options.TypeFilter,
             BrowsableUrls = options.BrowsableUrls,
             JsonOutput = options.JsonOutput,
-            OneLine = options.OneLine,
+            Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
-            OneLineExplicitlySet = options.OneLineExplicitlySet,
+            TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
             Format = options.JsonOutput ? OutputFormat.Json
                 : options.Jsonl ? OutputFormat.Jsonl
                 : options.Tsv ? OutputFormat.Tsv
-                : options.OneLine ? OutputFormat.Table
+                : options.Tabular ? OutputFormat.Table
                 : OutputFormat.Markdown,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,

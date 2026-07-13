@@ -36,7 +36,7 @@ This is the single highest-impact improvement. It directly enables correct code 
 
 ### 2. ~~`--terse` referenced in docs but doesn't exist~~ (FIXED)
 
-**Resolution:** Replaced `--terse`, `--grouped`, `--name-only`, `--signatures-only`, and `--stat` with a unified `--oneline` flag across `api`, `find`, `diff`, and `implements` commands. Uses `OneLineWriter` (a `MarkoutWriter` subclass) for docker-style columnar output. Added `--no-header` to suppress column headers.
+**Resolution:** Replaced `--terse`, `--grouped`, `--name-only`, `--signatures-only`, and `--stat` with a unified `--table` flag across `api`, `find`, `diff`, and `implements` commands. Uses the tabular writer path for docker-style columnar output. Added `--no-header` to suppress column headers.
 
 ### 3. `diff` type filter uses exact match, not globs
 
@@ -112,7 +112,7 @@ Tips are the primary mechanism for guiding LLMs toward efficient next steps with
 
 ### Safe changes
 
-- **Adding new options** (e.g., `--oneline` for columnar output)
+- **Adding new options** (e.g., `--table` for columnar output)
 - **Adding new tips on stderr** (skills ignore stderr)
 - **Enriching signatures** with params/defaults (more information in the same format)
 - **Making commands more lenient** (accepting `*` as glob in diff, optional type argument)
@@ -125,7 +125,7 @@ David Fowler's [ilspy-decompile skill](https://github.com/davidfowl/dotnet-skill
 ## Priority Order
 
 1. **Show `params` and default values in signatures** — eliminates the worst LLM spiral
-2. ~~**Fix `--terse`**~~ — resolved: unified as `--oneline`
+2. ~~**Fix `--terse`**~~ — resolved: unified as `--table`
 3. **Fix `-s` crash** — straightforward bug
 4. **Support globs in diff type filter** — consistency with find/api
 5. **Remove diff member truncation** — easy, high value for migrations

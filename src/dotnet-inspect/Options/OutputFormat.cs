@@ -104,7 +104,7 @@ public static class OutputFormatResolver
     /// Warns when a tabular format is combined with a verbosity that produces multiple sections
     /// without a section selector. Tabular formats can only render one table at a time.
     /// </summary>
-    public static bool WarnIfOneLineDetailMismatch(bool tabular, Verbosity verbosity, HashSet<string>? includeSections)
+    public static bool WarnIfTabularDetailMismatch(bool tabular, Verbosity verbosity, HashSet<string>? includeSections)
     {
         if (tabular && verbosity >= Verbosity.Normal && includeSections == null)
         {
@@ -137,7 +137,7 @@ public static class OutputFormatResolver
             var value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
             _envOverride = value?.ToLowerInvariant() switch
             {
-                "table" or "oneline" or "one-line" => OutputFormat.Table,
+                "table" => OutputFormat.Table,
                 "tsv" => OutputFormat.Tsv,
                 "jsonl" or "json-lines" => OutputFormat.Jsonl,
                 "markdown" or "md" => OutputFormat.Markdown,

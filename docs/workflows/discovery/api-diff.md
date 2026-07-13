@@ -206,7 +206,7 @@ System.Text.Json.JsonElement
 wc -l | tr -d ' '
 ```
 
-## 9. Oneline output for scripting
+## 9. Table output for scripting
 
 > Goal: Columnar output showing change type and summary per type.
 

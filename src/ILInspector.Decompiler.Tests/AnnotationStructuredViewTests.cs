@@ -45,7 +45,7 @@ public class AnnotationStructuredViewTests
     }
 
     [Fact]
-    public void Tsv_HasAHeaderAndOneLinePerFact()
+    public void Tsv_HasAHeaderAndTabularPerFact()
     {
         var tsv = AnnotationStructuredView.Tsv(Collect(nameof(AllocSampleClass.Capture)));
         var lines = tsv.TrimEnd('\n').Split('\n');

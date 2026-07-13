@@ -38,7 +38,6 @@ public static class PackageOptionsParser
         Option<string?> OutOption,
         Option<string?> PathMatchOption,
         Option<bool> SkipEmptyOption,
-        Option<bool> OneLineOption,
         Option<bool> NoHeaderOption);
 
     /// <summary>
@@ -153,12 +152,12 @@ public static class PackageOptionsParser
             ForceLatest = showLatestVersion,
             JsonOutput = parseResult.GetValue(opts.Json),
             Bare = bareOutput,
-            OneLine = suppressImplicitRowFormat ? false : opts.ResolveOneLine(parseResult),
+            Tabular = suppressImplicitRowFormat ? false : opts.ResolveTabular(parseResult),
             Tsv = suppressImplicitRowFormat ? false : opts.ResolveTsv(parseResult),
             Jsonl = suppressImplicitRowFormat ? false : opts.ResolveJsonl(parseResult),
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                 && !parseResult.GetValue(opts.RawUrls),
-            OneLineExplicitlySet = explicitTabularOutput,
+            TabularExplicitlySet = explicitTabularOutput,
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),

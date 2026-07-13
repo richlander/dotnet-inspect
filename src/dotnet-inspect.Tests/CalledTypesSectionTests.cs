@@ -68,9 +68,9 @@ public class CalledTypesSectionTests
             Discover = [],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 
@@ -86,9 +86,9 @@ public class CalledTypesSectionTests
             IncludeSections = [SectionNames.CalledTypes],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = tsv,
+            Tabular = tsv,
             Tsv = tsv,
-            OneLineExplicitlySet = tsv,
+            TabularExplicitlySet = tsv,
             MarkdownExplicitlySet = !tsv,
             FormatExplicitlySet = true,
         }));

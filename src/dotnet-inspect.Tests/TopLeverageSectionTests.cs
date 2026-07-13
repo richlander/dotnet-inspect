@@ -19,8 +19,8 @@ public class TopLeverageSectionTests
             IncludeSections = [SectionNames.TopLeverage],
             Tsv = true,
             Rows = 2,
-            OneLine = true,
-            OneLineExplicitlySet = true,
+            Tabular = true,
+            TabularExplicitlySet = true,
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             FormatExplicitlySet = true,
@@ -144,9 +144,9 @@ public class TopLeverageSectionTests
             Discover = [],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true,
+            TabularExplicitlySet = true,
             FormatExplicitlySet = true,
         }));
 

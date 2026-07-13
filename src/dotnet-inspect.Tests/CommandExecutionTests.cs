@@ -827,12 +827,12 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_OneLine()
+    public async Task Api_PlatformLibrary_Table()
     {
         var options = new ApiOptions
         {
             PlatformAssembly = "System.Text.Json",
-            OneLine = true
+            Tabular = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -853,7 +853,7 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            OneLine = true,
+            Tabular = true,
             Select = ["Classes"]
         };
 
@@ -3534,7 +3534,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectDecompiledSource_UsesExpressionBodiedSyntaxForOneLineReturn()
+    public async Task Member_SelectDecompiledSource_UsesExpressionBodiedSyntaxForTableReturn()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -3673,9 +3673,9 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Select = ["Methods", "Properties"],
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true
+            TabularExplicitlySet = true
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -3839,7 +3839,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForOneLineMembers()
+    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForTableMembers()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -4030,7 +4030,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_MixedKindFilter_TsvUsesUnifiedOneLineRows()
+    public async Task Member_MixedKindFilter_TsvUsesUnifiedTableRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
@@ -4539,9 +4539,9 @@ public class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             Select = ["Library Info", "Signals"],
-            OneLine = true,
+            Tabular = true,
             Tsv = true,
-            OneLineExplicitlySet = true
+            TabularExplicitlySet = true
         };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(

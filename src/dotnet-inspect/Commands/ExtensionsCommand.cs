@@ -58,7 +58,7 @@ public class ExtensionsCommand
             {
                 WriteCount(results);
             }
-            else if (options.OneLine || options.Tsv || options.Jsonl || options.NoHeader)
+            else if (options.Tabular || options.Tsv || options.Jsonl || options.NoHeader)
             {
                 WriteTableOutput(targetType, results, options);
             }

@@ -51,13 +51,13 @@ public class DiffCommand
             var schemaMap = DiffSections.CreateSchema();
             var discoverable = pipeline.GetDiscoverableSections(new DiffDiscoveryModel(), options.IncludeSections);
             return DiscoverOutput.ExecuteEffective(options.Discover, discoverable, schemaMap,
-                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine,
+                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
         }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
-                options.OneLineExplicitlySet,
+                options.TabularExplicitlySet,
                 options.IncludeSections))
             return 1;
 
@@ -186,7 +186,7 @@ public class DiffCommand
                         rows,
                         inputs.FromVersion,
                         inputs.ToVersion);
-                    if (options.OneLine || options.Tsv || options.Jsonl)
+                    if (options.Tabular || options.Tsv || options.Jsonl)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
@@ -215,7 +215,7 @@ public class DiffCommand
                         implementation,
                         inputs.FromVersion,
                         inputs.ToVersion);
-                    if (options.OneLine)
+                    if (options.Tabular)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
@@ -259,7 +259,7 @@ public class DiffCommand
 
                 var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
 
-                if (options.OneLine)
+                if (options.Tabular)
                 {
                     var typeDiffs = ApplyFilters(diff, options);
                     if (SelectsDetailedChanges(options))
@@ -273,7 +273,7 @@ public class DiffCommand
                     }
                     else
                     {
-                        var view = DiffOutputFormatter.BuildOneLineView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
+                        var view = DiffOutputFormatter.BuildTableView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
@@ -1623,11 +1623,11 @@ public record DiffOptions
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
     public HashSet<string> MemberFilter { get; init; } = [];
-    public bool OneLine { get; init; }
+    public bool Tabular { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
     public bool JsonOutput { get; init; }
-    public bool OneLineExplicitlySet { get; init; }
+    public bool TabularExplicitlySet { get; init; }
     public bool FormatExplicitlySet { get; init; }
     public bool NoHeader { get; init; }
     public bool NameOnly { get; init; }
@@ -1649,5 +1649,5 @@ public record DiffOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => OneLine || Jsonl || JsonOutput || NoHeader || NameOnly;
+    public bool IsRawOutput => Tabular || Jsonl || JsonOutput || NoHeader || NameOnly;
 }

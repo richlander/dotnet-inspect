@@ -78,8 +78,8 @@ Formatters decide presentation, not content:
 - **`TableFormatter`** — a single-section tabular renderer (pretty table, `--tsv`,
   `--jsonl`). Because it renders one section at a time, its output is always a
   single Table (or Vector).
-- Tree and one-line writers render their own narrow shapes (a call graph tree, a
-  one-line row) and have no verbosity dial — they either show a thing or they
+- Tree and table writers render their own narrow shapes (a call graph tree, a
+  table row) and have no verbosity dial — they either show a thing or they
   do not (see [rendering-model.md](rendering-model.md)).
 
 ## How dotnet-inspect flags select a shape

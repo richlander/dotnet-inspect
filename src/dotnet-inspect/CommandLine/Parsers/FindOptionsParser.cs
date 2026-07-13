@@ -31,7 +31,6 @@ public static class FindOptionsParser
         Option<bool> AllOption,
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
-        Option<bool> OneLineOption,
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption);
 
@@ -99,7 +98,7 @@ public static class FindOptionsParser
             Count = parseResult.GetValue(opts.Count),
             JsonOutput = parseResult.GetValue(opts.Json),
             CompactJson = parseResult.GetValue(args.CompactOption),
-            OneLine = opts.ResolveOneLine(parseResult),
+            Tabular = opts.ResolveTabular(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),

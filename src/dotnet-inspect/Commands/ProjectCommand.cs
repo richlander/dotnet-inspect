@@ -50,7 +50,7 @@ public class ProjectCommand
                 json: options.JsonOutput,
                 tsv: options.Tsv,
                 jsonl: options.Jsonl,
-                markdown: !options.OneLine && !options.JsonOutput,
+                markdown: !options.Tabular && !options.JsonOutput,
                 sectionCategories: ProjectCategoryMap());
         }
 
@@ -162,7 +162,7 @@ public class ProjectCommand
             return false;
         }
 
-        if (options.ReadmePackageId != null && options.OneLine && !options.Jsonl)
+        if (options.ReadmePackageId != null && options.Tabular && !options.Jsonl)
         {
             Console.Error.WriteLine("Error: project --readme supports raw text, --json, or --jsonl; it cannot be combined with --table or --tsv.");
             return false;
@@ -248,7 +248,7 @@ public class ProjectCommand
             ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectAgentsIndexRowArray)
             : options.Jsonl
                 ? RenderAgentsIndexJsonl(rows)
-                : options.OneLine
+                : options.Tabular
                     ? RenderAgentsIndexTable(rows, options)
                     : RenderAgentsIndexMarkdown(rows);
 
@@ -352,7 +352,7 @@ public class ProjectCommand
                 ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectSkillRowArray)
                 : options.Jsonl
                     ? RenderSkillJsonl(rows)
-                    : options.OneLine
+                    : options.Tabular
                         ? RenderSkillTable(rows, options)
                         : RenderSkillMarkdown(rows);
 

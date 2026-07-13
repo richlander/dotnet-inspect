@@ -53,7 +53,7 @@
   flag for emitting grounding/content payloads directly (#1659, #1672).
 - Turns `dotnet-inspect skill` into a router to focused scenario sub-skills
   (`skill list`, `skill source`, `skill performance`, and more), with
-  one-line descriptions sourced from each skill's YAML frontmatter
+  table descriptions sourced from each skill's YAML frontmatter
   (#1559, #1577).
 
 ### Performance analysis (experimental)
@@ -227,7 +227,6 @@
 
 - Adds `--table` for compact pretty-printed rows and `--tsv` for normalized tab-separated rows.
 - Treats `--table` and `--tsv` as single-table formats; select one section with `-S` or use Markdown/JSON for multi-section output.
-- Keeps `--oneline` as a hidden compatibility alias for `--table`.
 - Normalizes Markdown table cell pipe characters to `&#124;` instead of escaped pipes.
 
 ### Type shape output

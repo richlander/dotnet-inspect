@@ -105,7 +105,7 @@ public static class TypeCommand
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
                     return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.OneLine && !options.JsonOutput,
+                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                         sectionCategories: typePipeline.GetCategoryMap());
@@ -275,7 +275,7 @@ public static class TypeCommand
                     // Notify when a requested section matched but has no data for this type.
                     // JSON and markdown both honor -S; tabular output falls back to showing all
                     // members and shape replaces selection, so skip those.
-                    if (!effectiveOptions.OneLine
+                    if (!effectiveOptions.Tabular
                         && effectiveOptions is not TypeOptions { ShapeOutput: true })
                     {
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
@@ -398,7 +398,7 @@ public static class TypeCommand
     private static bool ShouldDefaultToShape(TypeOptions options)
         => !options.HasSectionQuery
            && !options.JsonOutput
-           && !options.OneLine
+           && !options.Tabular
            && !options.Tsv
            && !options.Jsonl
            && !options.NoHeader
@@ -410,7 +410,7 @@ public static class TypeCommand
     private static bool ShouldRejectQuietShape(TypeOptions options)
         => !options.MarkdownExplicitlySet
            && !options.JsonOutput
-           && !options.OneLine
+           && !options.Tabular
            && !options.Tsv
            && !options.Jsonl
            && !options.NoHeader
@@ -482,7 +482,7 @@ public static class TypeCommand
             var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
             var effective = typePipeline.GetDiscoverableSections(api, browseOptions.IncludeSections);
             return DiscoverOutput.ExecuteEffective(browseOptions.Discover, effective, schema,
-                tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.OneLine && !browseOptions.JsonOutput,
+                tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.Tabular && !browseOptions.JsonOutput,
                 verbosity: (int)browseOptions.Verbosity,
                 sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                 sectionCategories: typePipeline.GetCategoryMap());

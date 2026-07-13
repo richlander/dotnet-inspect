@@ -87,7 +87,7 @@ public static class ProjectCommandDefinitions
                 BodyRequested = bodyRequested,
                 OutputPath = parseResult.GetValue(outOption),
                 JsonOutput = parseResult.GetValue(opts.Json),
-                OneLine = opts.ResolveOneLine(parseResult),
+                Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),

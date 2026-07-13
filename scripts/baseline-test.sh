@@ -115,8 +115,8 @@ run_cmd() {
     # Generic types
     run_cmd "api 'Option<T>' --package System.CommandLine@2.0.0-beta4.22272.1"
 
-    # One-line output
-    run_cmd "api JsonSerializer --package System.Text.Json@10.0.2 --oneline -n 10"
+    # Table output
+    run_cmd "api JsonSerializer --package System.Text.Json@10.0.2 --table -n 10"
 
     # Verbosity
     run_cmd "api JsonSerializer --package System.Text.Json@10.0.2 -v:q"
