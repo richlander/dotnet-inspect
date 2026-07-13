@@ -158,6 +158,24 @@ public class SharedOptions
         command.Options.Add(Limit);
         command.Options.Add(Rows);
         command.Options.Add(Tail);
+
+        // Validate the --rows head/tail window at parse time so an invalid combination
+        // surfaces as a clean System.CommandLine error (one line on stderr, exit 1)
+        // rather than a RowWindowValidationException thrown inside the invocation
+        // pipeline, which SCL prints as an unhandled-exception stack trace. Reading the
+        // parse results here (not the arg-preprocessor token scan) covers =-syntax and
+        // concatenated forms the scanner misses.
+        command.Validators.Add(result =>
+        {
+            if (!result.GetValue(Rows))
+                return;
+            var hasHead = result.GetValue(Limit) is not null;
+            var hasTail = result.GetValue(Tail) is not null;
+            if (hasHead && hasTail)
+                result.AddError("--rows cannot combine -n/--head with --tail; choose one row window.");
+            else if (!hasHead && !hasTail)
+                result.AddError("--rows requires -n/--head N or --tail N.");
+        });
     }
 
     /// <summary>
@@ -235,10 +253,11 @@ public class SharedOptions
 
     /// <summary>
     /// Resolves the <c>--rows</c> data-row window from the parsed head/tail values.
-    /// Validation lives here (not in the arg preprocessor) so it sees the real
-    /// System.CommandLine parse — including <c>=</c>-syntax and concatenated forms
-    /// the token scanner misses. Throws <see cref="RowWindowValidationException"/>
-    /// when <c>--rows</c> is given both windows or neither.
+    /// The primary user-facing validation is the parse-time command validator in
+    /// <see cref="AddOutputOptionsTo"/>, which fails cleanly during parsing before
+    /// this runs. The throws here are a defensive invariant guard for direct callers
+    /// (and are unit-tested); in the CLI path the invalid both/neither combinations
+    /// are already rejected, so they are not expected to fire.
     /// </summary>
     public static RowWindow? BuildRowWindow(bool rows, int? head, int? tail)
     {
