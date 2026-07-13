@@ -52,6 +52,11 @@ erase the rest.
   extension-member inspection per assembly, writes failed inspections to
   standard error, excludes only the failed census, and keeps successful
   assemblies in the result.
+- [PR #2699](https://github.com/richlander/dotnet-inspect/pull/2699) scopes
+  failure per version cell: one throwing evaluation becomes that cell's `Failed`
+  while later cells are still evaluated, applying the same one-bad-source
+  principle at N-address scale. See
+  [`TimelineCommand`](../../src/dotnet-inspect/Commands/TimelineCommand.cs).
 
 ## 3. Replace instead of accreting
 
@@ -117,6 +122,15 @@ same contract to direct call sites. `DiffCommand` validates the focused target
 before acquisition, rejects classification filters, and renders
 `PairFinding.{pair.Kind}` directly. See
 [`DiffCommand`](../../src/dotnet-inspect/Commands/DiffCommand.cs).
+[PR #2697](https://github.com/richlander/dotnet-inspect/pull/2697) proves the
+marginal cost of the next descriptor: `analysis.unsafety` reuses the generic
+`BuildAnalysisFindingTransitions<T>` plus `RetainedFindingComparisonSet` for one
+row-mapper and one delegation, without a parallel matcher. See
+[`DiffCommand`](../../src/dotnet-inspect/Commands/DiffCommand.cs) and
+[`RetainedFindingComparisonSet`](../../src/ILInspector.Research/ResearchChanges.cs).
+[PR #2699](https://github.com/richlander/dotnet-inspect/pull/2699) renders the
+same native cases in timeline transition rows as `pair.Kind`, without a triage
+relabel.
 
 ## 6. Carry sensor and docket integrity
 
@@ -143,6 +157,46 @@ regression can escape by falling into an excluded failure bucket.
   and
   [`LoweredFidelityGateTests`](../../src/ILInspector.Decompiler.Tests/LoweredFidelityGateTests.cs).
 
+## 7. Correlate through the census and identity tiers
+
+**Rule.** An N-address consumer routes whole-census state through
+`FindingCensusCorrelation<T>` and exact-identity tracks through `Correlate(key)`.
+It must not build a private per-cell state model, and it must not merge the two
+vocabularies: `Complete` is a census inspection state, not a fifth exact-identity
+correlation state (see [Finding Nomenclature](finding-nomenclature.md)).
+
+`Unevaluated` is a presentation join of the address space against the evaluated
+cells; it is never fabricated as an inspection outcome. Failure topology is
+per-cell: one failed evaluation becomes that cell's `Failed` and must not abort
+or discard the other paid evaluations.
+
+**Model.** [PR #2699](https://github.com/richlander/dotnet-inspect/pull/2699)
+correlates package version vectors through `FindingCensusCorrelation<T>` and
+`Correlate(key)`, joins unevaluated addresses only at presentation, and scopes
+failure to the cell. Pins:
+`CellException_BecomesFailureAndLaterCellsStillEvaluate`,
+`EmptyOwnedCensus_PreservesSubjectAvailabilityTransitions`, and
+`ProbeOrder_DoesNotChangeTimelineOrder` in
+[`TimelineCommandTests`](../../src/dotnet-inspect.Tests/TimelineCommandTests.cs).
+See [`FindingCensusCorrelation`](../../src/ILInspector.Findings/FindingCorrelation.cs).
+
+## 8. Equality is not correspondence
+
+**Rule.** Correspondence is always `FindingKey`-driven. .NET value equality
+answers only whether two already-materialized values have the same content; it
+is not a matching channel. A consumer that dedupes, caches, or set-compares
+findings must not reach for `.Equals` as a stand-in for correspondence. A
+collection-bearing payload that promises value equality must define its semantic
+equality explicitly, or supply an explicit comparer.
+
+**Model.** [PR #2701](https://github.com/richlander/dotnet-inspect/pull/2701)
+gives Finding collection records sequence- and set-aware value equality while
+keeping matching key-driven. The load-bearing pin is
+`FindingPayloadEquality_IsProducerOwnedButMatchingRemainsKeyDriven`: equal keys
+still match while unequal payload content reports unequal, and that is correct.
+See [Finding Value Equality](finding-value-equality.md) and
+[`FindingValueEquality`](../../src/ILInspector.Findings/FindingValueEquality.cs).
+
 ## Adoption review
 
 Before calling a consumer migration complete, verify:
@@ -153,4 +207,8 @@ Before calling a consumer migration complete, verify:
 - failures are visible and isolated to their source;
 - the superseded lane is deleted;
 - native transition cases reach confirmation surfaces unchanged;
+- N-address consumers correlate through the census and identity tiers, with
+  `Unevaluated` only as a presentation join and per-cell failure scoping;
+- matching remains key-driven, payload equality is content-only, and
+  collection-bearing payloads declare their equality semantics;
 - sensors compare the same identities and docket entries remain checkable.
