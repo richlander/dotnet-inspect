@@ -18,9 +18,9 @@ public sealed class MetadataSourceFindingsTests
         return adjusted * 2;
     }
 
+#line 100 "Generated/MetadataSourceFindings.g.cs"
     static int MultiDocumentMappedMethod(int value)
     {
-#line 100 "Generated/MetadataSourceFindings.g.cs"
         int adjusted = value + 1;
 #line default
         return adjusted * 2;
