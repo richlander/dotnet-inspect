@@ -163,6 +163,21 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void MethodDeclaration_PreservesNestedGenericTypeArgumentPlacement()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var method = GetMethod(type, nameof(MetadataDeclarationQueryFixtures.NestedGeneric));
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+
+        const string nestedType =
+            "ILInspector.Metadata.Tests.MetadataDeclarationQueryFixtures.Container<int>.Row<string>";
+        Assert.Equal(nestedType, declaration.Signature.ReturnType);
+        Assert.Equal(nestedType, Assert.Single(declaration.Signature.Parameters).Type);
+        Assert.Null(declaration.SignatureDecodeStatus);
+    }
+
+    [Fact]
     public void SelfTypeSignature_IncludesDeclaringGenericParameters()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures.Container<>.Row<>));
@@ -328,6 +343,9 @@ public class MetadataDeclarationQueryFixtures
         global::@scoped scopedValue)
     {
     }
+
+    public Container<int>.Row<string> NestedGeneric(Container<int>.Row<string> value)
+        => value;
 
     public volatile int VolatileField;
 

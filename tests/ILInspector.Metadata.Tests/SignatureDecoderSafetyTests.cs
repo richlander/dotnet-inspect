@@ -154,6 +154,9 @@ public class SignatureDecoderSafetyTests
 
         var member = Assert.Single(Assert.Single(surface.Types).Members);
         Assert.Equal(SignatureDecodeStatus.Degraded, member.SignatureDecodeStatus);
+        Assert.Equal(
+            SignatureDecodeStatus.Degraded,
+            ExtractDeclarationQueryMember(peReader).SignatureDecodeStatus);
     }
 
     [Fact]
@@ -174,6 +177,9 @@ public class SignatureDecoderSafetyTests
 
         var member = Assert.Single(Assert.Single(surface.Types).Members);
         Assert.Equal(SignatureDecodeStatus.Degraded, member.SignatureDecodeStatus);
+        Assert.Equal(
+            SignatureDecodeStatus.Degraded,
+            ExtractDeclarationQueryMember(peReader).SignatureDecodeStatus);
     }
 
     [Fact]
@@ -190,6 +196,9 @@ public class SignatureDecoderSafetyTests
 
         var member = Assert.Single(Assert.Single(surface.Types).Members);
         Assert.Equal(SignatureDecodeStatus.Degraded, member.SignatureDecodeStatus);
+        Assert.Equal(
+            SignatureDecodeStatus.Degraded,
+            ExtractDeclarationQueryMember(peReader).SignatureDecodeStatus);
     }
 
     [Fact]
@@ -408,6 +417,17 @@ public class SignatureDecoderSafetyTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static ApiMember ExtractDeclarationQueryMember(PEReader peReader)
+    {
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Last();
+        return Assert.Single(
+            MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true).Members);
     }
 
     sealed class NullReferenceResolver : IAssemblyReferenceResolver

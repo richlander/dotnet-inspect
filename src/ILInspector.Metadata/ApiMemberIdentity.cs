@@ -305,7 +305,9 @@ public static class ApiMemberIdentity
 
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
     {
-        var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
+        var fingerprint = MemberAnchor.ComputeFingerprint(
+            canonicalSignature,
+            member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded);
         var stableSelector = $"{GetMemberSelectorName(member)}~{fingerprint}";
         return new MemberAnchor(
             stableSelector,
