@@ -9,3 +9,6 @@ MD032: false
 
 # Bare URLs OK (source links like https://github.com/...)
 MD034: false
+
+# Padded table cells OK (generated Markdown optimizes readability)
+MD060: false

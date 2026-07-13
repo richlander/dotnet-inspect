@@ -673,7 +673,7 @@ jobs:
       - name: Validate markdown output
         run: |
           npm install -g markdownlint-cli
-          markdownlint smoke-*.md
+          markdownlint --config .markdownlint.yaml smoke-*.md
 
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
