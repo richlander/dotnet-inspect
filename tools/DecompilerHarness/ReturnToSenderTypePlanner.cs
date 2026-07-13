@@ -1274,7 +1274,16 @@ public static class CompileBackSourceComposer
             //    constructor even when an argument cannot be typed precisely.
             && (ChainArgumentsAreFaithful(chainCallNode, chainCtor)
                 || targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
-                    && ConstructorCouldBindToArgCount(member, chainCtor.ParameterTypes.Length)) == 1);
+                    && ConstructorCouldBindToArgCount(member, chainCtor.ParameterTypes.Length)) == 1
+                // Assignable-but-not-identical arguments — an argument whose static
+                // type is implicitly convertible to its chained-to parameter by
+                // array covariance (`string[]` -> `IEnumerable<string>`) is not
+                // faithful (identity) and shares arity with the sibling that steals
+                // the unique-arity path, yet still binds unambiguously when every
+                // other same-arity constructor is provably inapplicable at an array
+                // position. Sound and fail-closed: emits only when uniqueness is
+                // proven, strips on any uncertainty.
+                || ChainArgumentsBindViaArrayCovariance(reader, targetTypeDef, chainCallNode, chainCtor));
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to constructor was not reconstructed in the shell, or the
@@ -1701,24 +1710,283 @@ public static class CompileBackSourceComposer
     }
 
     static bool ChainArgumentIsFaithful(IrExpression argument, TypeRef parameterType)
-        // Box (prints its inner value, dropping the `(object)` cast), Coerce,
-        // Convert, IsInstance, and bare constants can each be spelled at a static
-        // type other than the parameter's, so overload resolution could bind them
-        // elsewhere. Lambdas, collection expressions, tuple literals, and
-        // interpolated strings print in a target-typed form with no intrinsic
-        // static type (a lambda `() => ...` and a collection `[...]` have none; a
-        // tuple `(a, b)` target-types per element; an interpolated string `$"..."`
-        // also converts to FormattableString/IFormattable), so a matching
-        // ResultType does not prove they bind only to the chained-to constructor —
-        // a lambda-, collection-, tuple-, or string-accepting sibling can make the
-        // printed initializer ambiguous (CS0121) or bind it elsewhere. Every other
-        // expression prints at its result type, so it is faithful exactly when
-        // that type matches the parameter type.
-        => argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance
+        => TryGetFaithfulArgumentType(argument, out var type) && type.Equals(parameterType);
+
+    /// <summary>
+    /// The static type an argument prints at, when that type is intrinsic to the
+    /// printed form (so overload resolution binds it there regardless of the
+    /// other candidates). Box (prints its inner value, dropping the
+    /// <c>(object)</c> cast), Coerce, Convert, IsInstance, and bare constants can
+    /// each be spelled at a static type other than their result type, so overload
+    /// resolution could bind them elsewhere. Lambdas, collection expressions,
+    /// tuple literals, and interpolated strings print in a target-typed form with
+    /// no intrinsic static type, so a matching result type does not prove they
+    /// bind only to one candidate. Every other expression prints at its result
+    /// type. Shared by the faithful-argument check and the array-covariance gate.
+    /// </summary>
+    static bool TryGetFaithfulArgumentType(IrExpression argument, out TypeRef type)
+    {
+        if (argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance
                 or ILInspector.Decompiler.Pipeline.Constant
                 or Lambda or CollectionExpression or TupleExpression or InterpolatedStringExpression)
-            && argument.ResultType is { } type
-            && type.Equals(parameterType);
+            && argument.ResultType is { } resultType)
+        {
+            type = resultType;
+            return true;
+        }
+
+        type = null!;
+        return false;
+    }
+
+    /// <summary>
+    /// The <c>System.Collections.Generic</c> interfaces a single-dimensional
+    /// zero-based array (<c>T[]</c>) implements via array covariance, keyed by
+    /// their metadata name (arity backtick included).
+    /// </summary>
+    static readonly string[] s_covariantArrayInterfaces =
+        ["IEnumerable`1", "IReadOnlyList`1", "IReadOnlyCollection`1", "IList`1", "ICollection`1"];
+
+    /// <summary>
+    /// Whether a constructor-chain call binds unambiguously to its chained-to
+    /// constructor when one or more arguments are implicitly convertible to their
+    /// parameter by array covariance (<c>string[]</c> to
+    /// <c>IEnumerable&lt;string&gt;</c>) rather than identity-equal. Such an
+    /// argument is not <see cref="ChainArgumentIsFaithful"/> (identity) and shares
+    /// arity with the sibling that defeats the unique-arity path, so neither of the
+    /// two existing conditions accepts it. This returns true only when the chain is
+    /// provably unambiguous: every argument is identity-equal or array-covariant to
+    /// its chained-to parameter, and every OTHER same-arity constructor of the
+    /// target type is provably inapplicable at an array-covariant argument
+    /// position. The model is bounded and fail-closed: it bails (strips) on
+    /// <c>params</c>/optional constructors and on any argument or competitor it
+    /// cannot fully reason about, so it never emits an ambiguous or wrong chain.
+    /// </summary>
+    static bool ChainArgumentsBindViaArrayCovariance(
+        MetadataReader reader,
+        TypeDefinition targetTypeDef,
+        Call chainCall,
+        MethodRef chainCtor)
+    {
+        var arguments = chainCall.Arguments;
+        var chainParams = chainCtor.ParameterTypes;
+        int paramCount = chainParams.Length;
+        // Arguments[0] is the `this` receiver; the ctor arguments follow it.
+        if (arguments.Count - 1 != paramCount)
+            return false;
+
+        // Every argument must carry a known, non-lossy static type and be either
+        // identity-equal to its chained-to parameter or array-covariant-assignable
+        // to it. At least one argument must be the array-covariant (non-identity)
+        // case; otherwise the faithful path already covers this chain.
+        var argTypes = new TypeRef[paramCount];
+        bool anyArrayCovariant = false;
+        for (int i = 0; i < paramCount; i++)
+        {
+            if (!TryGetFaithfulArgumentType(arguments[i + 1], out var argType))
+                return false;
+            argTypes[i] = argType;
+            if (argType.Equals(chainParams[i]))
+                continue;
+            if (IsArrayToCovariantInterface(argType, chainParams[i]))
+            {
+                anyArrayCovariant = true;
+                continue;
+            }
+
+            return false;
+        }
+
+        if (!anyArrayCovariant)
+            return false;
+
+        // Enumerate the target type's instance constructors from metadata. Keep the
+        // model bounded: a `params` array or an optional parameter lets a
+        // constructor bind calls of other arities, so competitor applicability can
+        // no longer be decided position-by-position. Bail (strip) rather than risk
+        // an ambiguous chain.
+        var constructors = new List<IReadOnlyList<TypeRef>>();
+        foreach (var methodHandle in targetTypeDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != ".ctor"
+                || method.Attributes.HasFlag(MethodAttributes.Static))
+            {
+                continue;
+            }
+
+            if (ConstructorHasParamsOrOptional(reader, method))
+                return false;
+            constructors.Add(MethodParameterTypes(reader, targetTypeDef, method));
+        }
+
+        // Competitor exclusion. For every OTHER same-arity constructor, require it
+        // is provably inapplicable at an array-covariant argument position.
+        // `ArrayCanConvertTo` OVER-approximates real convertibility (true = maybe
+        // convertible), so a `false` result PROVES the competitor cannot accept
+        // that array argument. If a same-arity competitor cannot be excluded, the
+        // printed `: this(args)` may be ambiguous (CS0121) or bind elsewhere —
+        // strip. The chained-to constructor must itself appear among the metadata
+        // constructors, so an unresolved chain target never emits.
+        bool sawChainCtor = false;
+        foreach (var ctorParams in constructors)
+        {
+            if (ctorParams.Count != paramCount)
+                continue;
+            if (ParameterTypesEqual(ctorParams, chainParams))
+            {
+                sawChainCtor = true;
+                continue;
+            }
+
+            bool excluded = false;
+            for (int i = 0; i < paramCount; i++)
+            {
+                if (argTypes[i].Kind == TypeRefKind.SzArray
+                    && !ArrayCanConvertTo(argTypes[i], ctorParams[i]))
+                {
+                    excluded = true;
+                    break;
+                }
+            }
+
+            if (!excluded)
+                return false;
+        }
+
+        return sawChainCtor;
+    }
+
+    /// <summary>
+    /// Whether an argument's static type is a single-dimensional array
+    /// (<c>T[]</c>) that is implicitly convertible to <paramref name="param"/> by
+    /// array covariance, where <paramref name="param"/> is one of the
+    /// <c>System.Collections.Generic</c> array-covariant interfaces over the SAME
+    /// element type (<c>string[]</c> to <c>IEnumerable&lt;string&gt;</c>). Only the
+    /// identity-element case is treated as assignable for emission: it is the
+    /// provably sound conversion that needs no element-betterness reasoning.
+    /// </summary>
+    static bool IsArrayToCovariantInterface(TypeRef arg, TypeRef param)
+    {
+        if (arg.Kind != TypeRefKind.SzArray || arg.ElementType is not { } element)
+            return false;
+        if (param.Kind != TypeRefKind.GenericInstance
+            || param.ElementType is not { } definition
+            || param.TypeArguments.Length != 1)
+        {
+            return false;
+        }
+
+        return IsCovariantArrayInterfaceDefinition(definition)
+            && element.Equals(param.TypeArguments[0]);
+    }
+
+    static bool IsCovariantArrayInterfaceDefinition(TypeRef definition)
+        => definition.Kind == TypeRefKind.Definition
+            && definition.Namespace == "System.Collections.Generic"
+            && Array.IndexOf(s_covariantArrayInterfaces, definition.Name) >= 0;
+
+    /// <summary>
+    /// OVER-approximation of "could a <c>T[]</c> argument convert to
+    /// <paramref name="param"/>?". Returns true whenever a conversion exists OR
+    /// cannot be ruled out, so a <c>false</c> result PROVES non-convertibility.
+    /// Used only to EXCLUDE a competing constructor at an array position: any
+    /// uncertainty keeps the competitor in play (which strips the chain).
+    /// </summary>
+    static bool ArrayCanConvertTo(TypeRef arrayType, TypeRef param)
+    {
+        if (arrayType.Kind != TypeRefKind.SzArray || arrayType.ElementType is not { } element)
+            return true;
+        if (arrayType.Equals(param))
+            return true;
+
+        return param.Kind switch
+        {
+            // T[] -> U[] by array covariance when the element is reference-covariant.
+            TypeRefKind.SzArray => param.ElementType is { } targetElement
+                && ElementReferenceCovariant(element, targetElement),
+            // T[] -> IEnumerable<U>/IReadOnlyList<U>/... when element reference-covariant to U.
+            TypeRefKind.GenericInstance => param.TypeArguments.Length == 1
+                && param.ElementType is { } definition
+                && IsCovariantArrayInterfaceDefinition(definition)
+                && ElementReferenceCovariant(element, param.TypeArguments[0]),
+            // object, System.Array, ICloneable, and the non-generic collection /
+            // structural interfaces are the only named types an array converts to.
+            TypeRefKind.Definition => IsArrayCompatibleNonGenericType(param),
+            // ByRef/Pointer/GenericParameter/Unsupported/etc.: cannot rule out.
+            _ => true,
+        };
+    }
+
+    static bool IsArrayCompatibleNonGenericType(TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+            return true;
+        if (type.Namespace == "System" && type.Name is "Object" or "Array" or "ICloneable")
+            return true;
+        if (type.Namespace == "System.Collections"
+            && type.Name is "IEnumerable" or "ICollection" or "IList"
+                or "IStructuralComparable" or "IStructuralEquatable")
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// OVER-approximation of "is there an identity or reference conversion from
+    /// array element <paramref name="source"/> to <paramref name="target"/>?"
+    /// (the precondition for array covariance). Returns false only when provably
+    /// impossible: differing elements where either side is a known value type
+    /// (value-type arrays are invariant). Unknown value-type-ness keeps the
+    /// conversion possible (true), so exclusion stays sound.
+    /// </summary>
+    static bool ElementReferenceCovariant(TypeRef source, TypeRef target)
+    {
+        if (source.Equals(target))
+            return true;
+        if (source.DeclaredValueTypeHint == ValueTypeHint.ValueType
+            || target.DeclaredValueTypeHint == ValueTypeHint.ValueType)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool ParameterTypesEqual(IReadOnlyList<TypeRef> left, IReadOnlyList<TypeRef> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!left[i].Equals(right[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool ConstructorHasParamsOrOptional(MetadataReader reader, MethodDefinition method)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber < 1)
+                continue;
+            if (parameter.Attributes.HasFlag(ParameterAttributes.Optional))
+                return true;
+            var attributes = parameter.GetCustomAttributes();
+            if (AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                || AttributeReader.HasAttribute(reader, attributes, "System.Runtime.CompilerServices.ParamCollectionAttribute"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Whether a reconstructed constructor could be an applicable candidate for a

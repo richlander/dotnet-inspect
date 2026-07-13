@@ -778,6 +778,210 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesConstructorChainWhenArgumentIsArrayCovariantToInterface()
+    {
+        // Issue #2726: the `(Version, string, string)` ctor chains to
+        // `(Version, IEnumerable<string>, string)` passing a `string[]` argument.
+        // `string[]` is implicitly convertible to `IEnumerable<string>` by array
+        // covariance but is NOT structurally identical to it, so the faithful
+        // check (identity only) declines the chain; the two ctors share arity, so
+        // the unique-arity check declines too. `string[]` cannot bind to the
+        // sibling's second `string` parameter, so the chain binds unambiguously to
+        // `(Version, IEnumerable<string>, string)` and must be preserved.
+        var assemblyPath = CompileFixture("""
+            using System;
+            using System.Collections.Generic;
+
+            public class Ver
+            {
+                public Ver(Version version, string release, string metadata)
+                    : this(version, ParseLabels(release), metadata)
+                {
+                }
+
+                public Ver(Version version, IEnumerable<string> releaseLabels, string metadata)
+                {
+                    Labels = releaseLabels;
+                    Metadata = metadata;
+                }
+
+                public IEnumerable<string> Labels { get; }
+
+                public string Metadata { get; }
+
+                private static string[] ParseLabels(string release) => release.Split('.');
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Ver", ".ctor", 0,
+                    "(corelib:System.Version, corelib:System.String, corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenArrayCovariantArgumentAlsoBindsCovariantSibling()
+    {
+        // Issue #2726 guard: `string[]` is array-covariant to BOTH the chained-to
+        // `IReadOnlyCollection<string>` parameter and the same-arity sibling's
+        // `IEnumerable<string>` parameter, so the chained-to constructor is not the
+        // unique applicable candidate at the array position. The `new C(...)` in the
+        // body forces the sibling into the shell (defeating the unique-arity path),
+        // so the assignability gate must decide — and must strip rather than emit a
+        // chain that could bind to the sibling.
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class C
+            {
+                public C(string tag)
+                    : this(Parse(tag), tag.Length)
+                {
+                    _ = new C((IEnumerable<string>)null, 0);
+                }
+
+                public C(IReadOnlyCollection<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                public C(IEnumerable<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                public int Count { get; }
+
+                private static string[] Parse(string tag) => tag.Split('.');
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenArrayCovariantArgumentAlsoBindsObjectSibling()
+    {
+        // Issue #2726 guard: `string[]` converts to `object`, so a same-arity
+        // sibling taking `object` at the array position cannot be excluded. The
+        // covariance model over-approximates convertibility (so exclusion is only
+        // ever a proof of non-convertibility); an unprovable competitor strips. The
+        // `new C(...)` forces the `object` sibling into the shell so the
+        // assignability gate is the decider.
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class C
+            {
+                public C(string tag)
+                    : this(Parse(tag), tag.Length)
+                {
+                    _ = new C((object)null, 0);
+                }
+
+                public C(IEnumerable<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                public C(object marker, int count)
+                {
+                    Count = count;
+                }
+
+                public int Count { get; }
+
+                private static string[] Parse(string tag) => tag.Split('.');
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenArrayCovariantTargetHasParamsConstructor()
+    {
+        // Issue #2726 guard: a `params` constructor absorbs calls of other arities,
+        // so competitor applicability can no longer be decided position-by-position.
+        // The covariance model bails (strips) when any reconstructable constructor
+        // is variadic or has an optional parameter. The `new C("a", "b")` forces the
+        // `params` sibling into the shell so the unique-arity path does not decide.
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class C
+            {
+                public C(string tag)
+                    : this(Parse(tag), tag.Length)
+                {
+                    _ = new C("a", "b");
+                }
+
+                public C(IEnumerable<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                public C(params string[] parts)
+                {
+                    Count = parts.Length;
+                }
+
+                public int Count { get; }
+
+                private static string[] Parse(string tag) => tag.Split('.');
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""
