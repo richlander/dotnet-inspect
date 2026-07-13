@@ -68,6 +68,7 @@ public class MemberOptionsParserTests
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
+        memberCommand.Options.Add(opts.Bare);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
@@ -250,6 +251,27 @@ public class MemberOptionsParserTests
             Assert.False(options.Tsv);
             Assert.False(options.Jsonl);
             Assert.True(options.TabularExplicitlySet);
+            Assert.True(options.FormatExplicitlySet);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithBareAndEnvironmentTable_SuppressesTabularOutput()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--bare");
+
+            Assert.False(options.Tabular);
+            Assert.False(options.Tsv);
+            Assert.False(options.Jsonl);
+            Assert.False(options.TabularExplicitlySet);
             Assert.True(options.FormatExplicitlySet);
         }
         finally
