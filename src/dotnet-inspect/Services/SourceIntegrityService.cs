@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Security.Cryptography;
 using DotnetInspector.Core;
 using ILInspector.Findings;
 using ILInspector.Metadata;
@@ -77,7 +76,6 @@ internal static class SourceIntegrityService
                 new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = cancellationToken },
                 async (doc, ct) =>
                 {
-                    byte[] checksum = Convert.FromHexString(doc.Checksum!);
                     string cacheKey = $"{doc.ResolvedUrl}|{doc.ChecksumAlgorithm}|{doc.Checksum}";
                     bool immutable = SourceLinkUrls.IsImmutable(doc.ResolvedUrl!);
 
@@ -112,24 +110,32 @@ internal static class SourceIntegrityService
                         return;
                     }
 
-                    if (HashMatches(doc.ChecksumAlgorithm!, body, checksum))
+                    var verification = AuthoredSourceAcquisition.VerifyChecksum(
+                        doc,
+                        body);
+                    if (verification == SourceChecksumVerification.Exact)
                     {
                         Interlocked.Increment(ref verified);
                         if (immutable)
                             CoreCache.Set(CacheCategory, cacheKey, "1", extension: "verified");
                     }
-                    else if (HashMatchesAfterLineEndingNormalization(doc.ChecksumAlgorithm!, body, checksum))
+                    else if (verification
+                        == SourceChecksumVerification.LineEndingNormalized)
                     {
                         Interlocked.Increment(ref verified);
                         Interlocked.Increment(ref lineEndingNormalized);
                         if (immutable)
                             CoreCache.Set(CacheCategory, cacheKey, "1", extension: "normalized");
                     }
-                    else
+                    else if (verification == SourceChecksumVerification.Mismatch)
                     {
                         Interlocked.Increment(ref mismatched);
                         mismatches.Add(doc.OriginalPath);
                         logger.Log($"Integrity MISMATCH: {doc.OriginalPath} ({doc.ResolvedUrl})");
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref unverifiable);
                     }
                 });
         }
@@ -145,59 +151,4 @@ internal static class SourceIntegrityService
     private static string? SafeHost(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : null;
 
-    private static bool HashMatches(string algorithm, byte[] content, byte[] expected)
-        => ComputeHash(algorithm, content).AsSpan().SequenceEqual(expected);
-
-    private static bool HashMatchesAfterLineEndingNormalization(string algorithm, byte[] content, byte[] expected)
-    {
-        if (!content.Contains((byte)'\n') && !content.Contains((byte)'\r'))
-            return false;
-
-        return HashMatches(algorithm, NormalizeLineEndings(content, crlf: false), expected)
-            || HashMatches(algorithm, NormalizeLineEndings(content, crlf: true), expected);
-    }
-
-    private static byte[] NormalizeLineEndings(byte[] content, bool crlf)
-    {
-        List<byte> lf = new(content.Length);
-        for (var i = 0; i < content.Length; i++)
-        {
-            if (content[i] == '\r')
-            {
-                if (i + 1 < content.Length && content[i + 1] == '\n')
-                    continue;
-
-                lf.Add((byte)'\n');
-                continue;
-            }
-
-            lf.Add(content[i]);
-        }
-
-        if (!crlf)
-            return [.. lf];
-
-        List<byte> result = new(lf.Count);
-        foreach (var b in lf)
-        {
-            if (b == '\n')
-            {
-                result.Add((byte)'\r');
-                result.Add((byte)'\n');
-            }
-            else
-            {
-                result.Add(b);
-            }
-        }
-
-        return [.. result];
-    }
-
-    private static byte[] ComputeHash(string algorithm, byte[] content) => algorithm switch
-    {
-        "SHA256" => SHA256.HashData(content),
-        "SHA1" => SHA1.HashData(content),
-        _ => [],
-    };
 }

@@ -24,6 +24,20 @@ The important distinction is artifact production vs proof:
 - ReturnToSender owns artifact requests, compilation, product diff invocation,
   and failure reporting.
 
+The harness also has a strict two-oracle invariant:
+
+- decompiled **B→IL** answers whether product-decompiled C# rebuilds to shipped
+  IL;
+- checksum-verified authored **A→IL** measures authored-source rebuild fidelity;
+- neither verdict changes, rescues, or declassifies the other.
+
+PDB checksum verification proves that fetched authored bytes correspond to the
+PDB. It is not the A→IL verdict. Determinism, compilation options, references,
+compiler version, generators, and project context are reported separately as
+build-context evidence. `--authored-rebuild-fidelity` substitutes the acquired
+authored body into the same final `ArtifactRequest`, invokes product IL diff,
+and prints both oracle results plus checksum, determinism, and context status.
+
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
 named same-assembly roots, and repeat until the closure stops growing or hits a

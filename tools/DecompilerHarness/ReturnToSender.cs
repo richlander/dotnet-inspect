@@ -51,6 +51,7 @@ static class ReturnToSender
         FaultIsolationResult? FaultIsolation = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
+        internal ArtifactRequest? FinalRequest { get; init; }
     }
 
     public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
@@ -1023,7 +1024,10 @@ static class ReturnToSender
                     $"{identityDiagnostic.Reason}: {identityDiagnostic.Detail}",
                     TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
+                    Decisions: targetBody.Decisions)
+                {
+                    FinalRequest = sourceResult.Request,
+                };
             }
 
             string unit = sourceResult.Source;
@@ -1054,7 +1058,10 @@ static class ReturnToSender
                         "method-not-found",
                         TargetBody: targetBody.Source,
                         MemberAnchor: memberAnchor,
-                        Decisions: targetBody.Decisions);
+                        Decisions: targetBody.Decisions)
+                    {
+                        FinalRequest = sourceResult.Request,
+                    };
                 }
 
                 return new Result(
@@ -1070,7 +1077,10 @@ static class ReturnToSender
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions);
+                    Decisions: targetBody.Decisions)
+                {
+                    FinalRequest = sourceResult.Request,
+                };
             }
 
             var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
@@ -1103,7 +1113,10 @@ static class ReturnToSender
                     TargetBody: targetBody.Source,
                     MemberAnchor: memberAnchor,
                     Decisions: targetBody.Decisions,
-                    FaultIsolation: faultIsolation);
+                    FaultIsolation: faultIsolation)
+                {
+                    FinalRequest = sourceResult.Request,
+                };
             }
         }
 
@@ -1121,7 +1134,10 @@ static class ReturnToSender
                 TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
                 Decisions: targetBody.Decisions,
-                FaultIsolation: faultIsolation);
+                FaultIsolation: faultIsolation)
+            {
+                FinalRequest = sourceResult.Request,
+            };
         }
     }
 
@@ -1413,7 +1429,7 @@ static class ReturnToSender
         return display.IsEmpty ? null : display;
     }
 
-    static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
+    internal static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
@@ -1501,12 +1517,21 @@ static class ReturnToSender
         }
     }
 
-    static ArtifactRequest WithTargetBody(ArtifactRequest request, ProductTargetBody targetBody)
+    internal static ArtifactRequest WithTargetBody(ArtifactRequest request, ProductTargetBody targetBody)
         => request switch
         {
             MethodArtifactRequest method => method with { TargetBody = targetBody },
             PropertyGetterArtifactRequest getter => getter with { TargetBody = targetBody },
             PropertySetterArtifactRequest setter => setter with { TargetBody = targetBody },
+            _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
+        };
+
+    internal static ArtifactRequest WithReader(ArtifactRequest request, MetadataReader reader)
+        => request switch
+        {
+            MethodArtifactRequest method => method with { Reader = reader },
+            PropertyGetterArtifactRequest getter => getter with { Reader = reader },
+            PropertySetterArtifactRequest setter => setter with { Reader = reader },
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 

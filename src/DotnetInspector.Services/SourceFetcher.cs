@@ -9,7 +9,9 @@ namespace DotnetInspector.Services;
 public class SourceFetcher(HttpClient httpClient)
 {
     private readonly Dictionary<string, string> _memoryCache = new();
+    private readonly Dictionary<string, byte[]> _byteMemoryCache = new();
     private readonly HttpClient _httpClient = httpClient;
+    private const string ByteCacheCategory = "source-bytes-v1";
 
     /// <summary>
     /// Fetches source content from a URL, with caching.
@@ -56,6 +58,71 @@ public class SourceFetcher(HttpClient httpClient)
             return content;
         }
         catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Fetches the exact source bytes. This path has a byte-preserving cache so callers can verify
+    /// portable-PDB checksums before treating fetched content as authored-source evidence.
+    /// </summary>
+    public async Task<byte[]?> FetchSourceBytesAsync(
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            || (parsed.Scheme != Uri.UriSchemeHttps
+                && parsed.Scheme != Uri.UriSchemeHttp))
+        {
+            return null;
+        }
+
+        if (_byteMemoryCache.TryGetValue(url, out var memoryBytes))
+            return memoryBytes;
+
+        string? encoded = CoreCache.TryGet(
+            ByteCacheCategory,
+            url,
+            extension: "base64");
+        if (encoded is not null)
+        {
+            try
+            {
+                var cachedBytes = Convert.FromBase64String(encoded);
+                _byteMemoryCache[url] = cachedBytes;
+                return cachedBytes;
+            }
+            catch (FormatException)
+            {
+                // A corrupt cache entry is replaced by the network result below.
+            }
+        }
+
+        try
+        {
+            var bytes = await HttpRetryHelper.GetBytesWithRetryAsync(
+                _httpClient,
+                url,
+                cancellationToken: cancellationToken,
+                trafficKind: NetworkTrafficKind.SourceFetch).ConfigureAwait(false);
+            if (bytes is null)
+                return null;
+
+            _byteMemoryCache[url] = bytes;
+            CoreCache.Set(
+                ByteCacheCategory,
+                url,
+                Convert.ToBase64String(bytes),
+                extension: "base64");
+            return bytes;
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return null;
         }

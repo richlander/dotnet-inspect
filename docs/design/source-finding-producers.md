@@ -61,11 +61,21 @@ census. Their reachability and checksum statuses are operation results and
 presentation folds, not additional Metadata Findings.
 
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
-token. The decompiler SourceLink oracle can later consume the same mappings,
-then join a complete source acquisition with the selected member observation.
+token. `AuthoredSourceAcquisition` consumes the same token-scoped mapping and
+document census, fetches exact bytes through the SSRF-hardened Services path,
+verifies the portable-PDB checksum, extracts the member body, and returns a
+`FindingInspection<string>`. It keeps missing PDB/mapping/URL as `Absent` and
+fetch/checksum/extraction errors as `Failed`.
 
 Compilation options and references describe available rebuild context. They do
 not claim that the context is complete enough to reproduce the original build.
+The authored rebuild harness reports `Recorded`, `Incomplete`, `Drift`, or
+`Failed` context beside—never folded into—the A-to-IL result.
+
+Product `ImplementationDiff` consumes acquired line envelopes for its `Source`
+mechanism; Research remains network-free. Decompiled `CSharp` and authored
+`Source` are peers, so Source absence never changes or suppresses decompiler
+evidence.
 
 ## Migration and API retirement
 

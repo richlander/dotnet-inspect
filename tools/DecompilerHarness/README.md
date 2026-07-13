@@ -160,7 +160,8 @@ The `rts.*` fixtures are focused ReturnToSender parity-burndown probes; for
 example `rts.attribute-shell` protects attribute type shells that must preserve a
 spellable `System.Attribute` base before attribute usages can compile.
 Use `--return-to-sender-fixtures rts.candidates` with `--return-to-sender`,
-`--return-to-sender-ab`, or `--return-to-sender-source-probe` to add built
+`--return-to-sender-ab`, `--return-to-sender-source-probe`, or
+`--authored-rebuild-fidelity` to add built
 fixture assemblies from `FixtureCatalog` as inputs without generating source.
 The source probe reuses RTS target discovery/import/render/compile-back plumbing
 and, for catalog fixtures, compares the decompiled target body against the
@@ -200,6 +201,14 @@ such as `source.correspondence.valid_different.known_taste`, a coarse category
 whether opcode-diff evidence is attached. The finding projection intentionally
 uses source file names rather than absolute source paths so the census can be
 shared without leaking local checkout paths.
+
+`--authored-rebuild-fidelity` is the SourceLink-backed second oracle. It
+checksum-verifies the authored body, substitutes it into the same final RTS
+artifact request, compiles it, and compares emitted IL through product
+`ImplementationDiff`. The report keeps authored A→IL beside decompiled B→IL and
+reports deterministic-build and portable-PDB option/reference context
+separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
+or integrity failure.
 
 The generated fixture ladder is intentionally staged:
 
