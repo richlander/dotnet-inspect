@@ -50,7 +50,7 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
         PointerDetection unmodifiedType,
         bool isRequired)
         => new(
-            unmodifiedType.HasPointer,
+            modifier.HasPointer || unmodifiedType.HasPointer,
             modifier.IsDegraded || unmodifiedType.IsDegraded);
     public PointerDetection GetPinnedType(PointerDetection elementType) => elementType;
 }

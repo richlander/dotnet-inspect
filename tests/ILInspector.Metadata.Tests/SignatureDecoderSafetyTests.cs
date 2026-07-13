@@ -73,6 +73,31 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void PointerInCustomModifier_IsDetectedWithoutDegradation()
+    {
+        var typeSpecification = new BlobBuilder();
+        typeSpecification.WriteByte(0x0f); // PTR
+        typeSpecification.WriteByte(0x08); // I4
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteByte(0x00); // zero parameters
+        signature.WriteByte(0x20); // CMOD_OPT
+        signature.WriteByte(0x06); // TypeDefOrRefOrSpec: TypeSpec row 1
+        signature.WriteByte(0x01); // VOID
+        var image = BuildSurfacePe(
+            fieldSignature: null,
+            methodSignature: signature,
+            typeSpecification: typeSpecification);
+        using var peReader = new PEReader(new MemoryStream(image));
+
+        var flags = AssemblyDetailScanner.ScanPresenceFlags(peReader);
+
+        Assert.True(flags.HasUnsafeCode);
+        Assert.Null(flags.UnsafeSignatureDecodeStatus);
+    }
+
+    [Fact]
     public void SignatureBlobGuard_OldAssemblyIdentity_IsForwarded()
         => Assert.Equal(
             typeof(SignatureBlobGuard),
@@ -394,7 +419,10 @@ public class SignatureDecoderSafetyTests
     /// PE-level scanners (ApiSurfaceExtractor, AssemblyDetailScanner) reach the
     /// crafted signature through their real entry points.
     /// </summary>
-    static byte[] BuildSurfacePe(BlobBuilder? fieldSignature, BlobBuilder? methodSignature)
+    static byte[] BuildSurfacePe(
+        BlobBuilder? fieldSignature,
+        BlobBuilder? methodSignature,
+        BlobBuilder? typeSpecification = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -424,6 +452,9 @@ public class SignatureDecoderSafetyTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+
+        if (typeSpecification is not null)
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpecification));
 
         if (fieldSignature is not null)
         {

@@ -247,7 +247,7 @@ public sealed class SignatureSpellability
             SpellabilityEvidence unmodifiedType,
             bool isRequired)
             => new(
-                unmodifiedType.IsInaccessible,
+                (isRequired && modifier.IsInaccessible) || unmodifiedType.IsInaccessible,
                 modifier.IsDegraded || unmodifiedType.IsDegraded);
         public SpellabilityEvidence GetPinnedType(SpellabilityEvidence elementType) => elementType;
     }

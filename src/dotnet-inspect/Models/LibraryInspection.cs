@@ -680,7 +680,7 @@ public class LibraryInspection
     [JsonIgnore]
     public bool HasUnsafeCode { get; set; }
 
-    /// <summary>Set when unsafe-signature detection could not inspect every signature completely.</summary>
+    /// <summary>Set when guarded decoding prevents unsafe-code presence from being determined.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SignatureDecodeStatus? UnsafeSignatureDecodeStatus { get; set; }
 

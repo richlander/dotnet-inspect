@@ -471,10 +471,15 @@ public static class AssemblyDetailScanner
                             var detection = PointerDetection.Combine(
                                 decoded.Value.ReturnType,
                                 decoded.Value.ParameterTypes);
-                            if (decoded.IsDegraded || detection.IsDegraded)
-                                flags.UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded;
                             if (detection.HasPointer)
+                            {
                                 flags.HasUnsafeCode = true;
+                                flags.UnsafeSignatureDecodeStatus = null;
+                            }
+                            else if (decoded.IsDegraded || detection.IsDegraded)
+                            {
+                                flags.UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded;
+                            }
                         }
                         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
                         {
