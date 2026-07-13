@@ -38,7 +38,14 @@ renumbering does not make a comparison `Changed`.
 Member-source identity is the canonical `MemberAnchor` signature. Metadata token
 and document row are same-version coordinates; canonical document path and line
 range are the compared relationship. This lets consumers locate the exact PDB
-method without using overload ordinals.
+method without using overload ordinals. Token-scoped queries resolve requested
+method handles directly rather than scanning the assembly method table.
+
+Each member/document relationship records whether it is the primary document.
+That is the portable PDB's `MethodDebugInformation.Document` when present. For
+multi-document methods that omit that root, the first visible sequence point's
+document is primary. Presentation consumers prefer the primary relationship and
+use document-row order only as a deterministic fallback.
 
 Compilation-option identity is the option name. Compilation-reference identity
 is its normalized reference name; aliases, image kind, embedding, timestamp,

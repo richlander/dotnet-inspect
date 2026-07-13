@@ -37,7 +37,8 @@ public sealed record MemberSourceObservation(
     string OriginalPath,
     string? ResolvedUrl,
     int StartLine,
-    int EndLine);
+    int EndLine,
+    bool IsPrimaryDocument);
 
 public static partial class MetadataFindings
 {
@@ -419,7 +420,8 @@ public static partial class MetadataFindings
                     mapping.FilePath,
                     mapping.ResolvedUrl,
                     mapping.StartLine,
-                    mapping.EndLine);
+                    mapping.EndLine,
+                    mapping.IsPrimaryDocument);
             }),
             subject,
             MemberSourceDescriptor,
@@ -474,7 +476,8 @@ public static partial class MetadataFindings
         => oldMapping.Anchor == newMapping.Anchor
             && oldMapping.CanonicalPath == newMapping.CanonicalPath
             && oldMapping.StartLine == newMapping.StartLine
-            && oldMapping.EndLine == newMapping.EndLine;
+            && oldMapping.EndLine == newMapping.EndLine
+            && oldMapping.IsPrimaryDocument == newMapping.IsPrimaryDocument;
 
     private static string NormalizeReferenceName(string name)
         => name.Replace('\\', '/');

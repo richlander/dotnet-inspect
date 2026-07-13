@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -12,6 +15,14 @@ public sealed class MetadataSourceFindingsTests
     static int SourceMappedMethod(int value)
     {
         int adjusted = value + 1;
+        return adjusted * 2;
+    }
+
+    static int MultiDocumentMappedMethod(int value)
+    {
+#line 100 "Generated/MetadataSourceFindings.g.cs"
+        int adjusted = value + 1;
+#line default
         return adjusted * 2;
     }
 
@@ -207,6 +218,65 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void MemberSourceProducer_UsesFirstVisibleDocumentWhenRootIsOmitted()
+    {
+        using var source = SourceLinkService.Open(typeof(MetadataSourceFindingsTests).Assembly.Location);
+        int token = typeof(MetadataSourceFindingsTests)
+            .GetMethod(
+                nameof(MultiDocumentMappedMethod),
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .MetadataToken;
+
+        var mappings = Findings(MetadataFindings.InspectMemberSources(
+                source,
+                Subject,
+                new MemberSourceQuery(new HashSet<int> { token })))
+            .Select(static finding => finding.Payload)
+            .ToArray();
+
+        var authored = Assert.Single(mappings, mapping =>
+            mapping.OriginalPath.EndsWith(
+                "tests/ILInspector.Metadata.Tests/MetadataSourceFindingsTests.cs",
+                StringComparison.Ordinal));
+        Assert.False(authored.IsPrimaryDocument);
+        var primary = Assert.Single(mappings, static mapping => mapping.IsPrimaryDocument);
+        Assert.EndsWith(
+            "Generated/MetadataSourceFindings.g.cs",
+            primary.OriginalPath,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberSourceQuery_ResolvesMultipleRealTokens()
+    {
+        using var source = SourceLinkService.Open(typeof(MetadataSourceFindingsTests).Assembly.Location);
+        int[] tokens =
+        [
+            typeof(MetadataSourceFindingsTests)
+                .GetMethod(
+                    nameof(SourceMappedMethod),
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken,
+            typeof(MetadataSourceFindingsTests)
+                .GetMethod(
+                    nameof(MultiDocumentMappedMethod),
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken,
+        ];
+
+        var actualTokens = Findings(MetadataFindings.InspectMemberSources(
+                source,
+                Subject,
+                new MemberSourceQuery(tokens.ToHashSet())))
+            .Select(static finding => finding.Payload.MetadataToken)
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        Assert.Equal(tokens.Order(), actualTokens);
+    }
+
+    [Fact]
     public void BuildContextComparisons_PromoteOptionAndReferenceChanges()
     {
         var option = Assert.Single(Pairs(MetadataFindings.CompareCompilationOptions(
@@ -284,6 +354,69 @@ public sealed class MetadataSourceFindingsTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void MalformedPortablePdb_ProducesFailedInspection()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteMalformedCompilationReferencesPdb(assemblyPath, pdbPath);
+
+        try
+        {
+            using var source = SourceLinkService.Open(assemblyPath);
+
+            Assert.True(source.HasPdb);
+            var failed = Assert.IsType<FindingInspection<CompilationReferenceInfo>.Failed>(
+                MetadataFindings.InspectCompilationReferences(source, Subject).Value);
+            Assert.Contains("truncated", failed.Error.Reason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void WriteMalformedCompilationReferencesPdb(string assemblyPath, string pdbPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var metadata = pe.GetMetadataReader();
+        var codeView = pe.ReadDebugDirectory()
+            .Where(static entry => entry.Type == DebugDirectoryEntryType.CodeView)
+            .Select(pe.ReadCodeViewDebugDirectoryData)
+            .First();
+
+        int[] rowCounts = new int[64];
+        foreach (var table in Enum.GetValues<TableIndex>())
+        {
+            int index = (int)table;
+            if ((uint)index < (uint)rowCounts.Length)
+                rowCounts[index] = metadata.GetTableRowCount(table);
+        }
+
+        var pdbMetadata = new MetadataBuilder();
+        var malformedReference = new BlobBuilder();
+        malformedReference.WriteUTF8("Broken.dll");
+        malformedReference.WriteByte(0);
+        malformedReference.WriteByte(0);
+        pdbMetadata.AddCustomDebugInformation(
+            EntityHandle.ModuleDefinition,
+            pdbMetadata.GetOrAddGuid(new Guid("7E4D4708-096E-4C5C-AEDA-CB10BA6A740D")),
+            pdbMetadata.GetOrAddBlob(malformedReference));
+
+        var builder = new PortablePdbBuilder(
+            pdbMetadata,
+            ImmutableArray.Create(rowCounts),
+            default,
+            _ => new BlobContentId(codeView.Guid, stamp: 0));
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        File.WriteAllBytes(pdbPath, image.ToArray());
     }
 
     static ImmutableArray<Finding<T>> Findings<T>(FindingInspection<T> inspection)

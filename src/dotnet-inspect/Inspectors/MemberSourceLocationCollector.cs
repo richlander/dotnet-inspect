@@ -37,38 +37,48 @@ internal static class MemberSourceLocationCollector
 
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
             var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+            var membersByToken = targetMembers
+                .Where(static member => member.MetadataToken is not null)
+                .GroupBy(static member => member.MetadataToken!.Value)
+                .ToDictionary(static group => group.Key, static group => group.ToArray());
+            if (membersByToken.Count == 0)
+                return pdbPath;
 
-            foreach (var member in targetMembers)
+            var sourceInspection = MetadataFindings.InspectMemberSources(
+                service,
+                subject,
+                new MemberSourceQuery(membersByToken.Keys.ToHashSet()));
+            if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Complete complete)
             {
-                if (member.MetadataToken is not { } token)
-                    continue;
+                ApplySourceLocations(membersByToken, complete);
+                return pdbPath;
+            }
 
-                var sourceInspection = MetadataFindings.InspectMemberSources(
+            if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Absent)
+                return pdbPath;
+
+            // A malformed method must not suppress source locations for healthy selected
+            // members. Token queries are direct lookups, so this fallback remains O(selected).
+            foreach (var (token, members) in membersByToken)
+            {
+                var tokenInspection = MetadataFindings.InspectMemberSources(
                     service,
                     subject,
                     new MemberSourceQuery(new HashSet<int> { token }));
-                if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
+                if (tokenInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
                 {
                     logger.Log(
-                        $"Warning: Failed to resolve source location for {member.Name}: "
+                        $"Warning: Failed to resolve source location for {members[0].Name}: "
                         + failed.Error.Reason);
                     continue;
                 }
 
-                if (sourceInspection.Value is not FindingInspection<MemberSourceObservation>.Complete complete)
+                if (tokenInspection.Value is not FindingInspection<MemberSourceObservation>.Complete tokenComplete)
                     continue;
 
-                var mapping = complete.Findings
-                    .Select(static finding => finding.Payload)
-                    .OrderBy(static candidate => candidate.DocumentRowId)
-                    .FirstOrDefault();
-                if (mapping is null)
-                    continue;
-
-                member.SourceFilePath = mapping.OriginalPath;
-                member.SourceUrl = mapping.ResolvedUrl;
-                member.SourceLineNumber = mapping.StartLine;
-                member.SourceEndLineNumber = mapping.EndLine;
+                ApplySourceLocations(
+                    new Dictionary<int, ApiMember[]> { [token] = members },
+                    tokenComplete);
             }
 
             return pdbPath;
@@ -77,6 +87,32 @@ internal static class MemberSourceLocationCollector
         {
             logger.Log($"Warning: Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
             return null;
+        }
+    }
+
+    private static void ApplySourceLocations(
+        IReadOnlyDictionary<int, ApiMember[]> membersByToken,
+        FindingInspection<MemberSourceObservation>.Complete inspection)
+    {
+        foreach (var mappings in inspection.Findings
+            .Select(static finding => finding.Payload)
+            .GroupBy(static mapping => mapping.MetadataToken))
+        {
+            if (!membersByToken.TryGetValue(mappings.Key, out var members))
+                continue;
+
+            // Preserve the legacy resolver's preference for MethodDebugInformation.Document.
+            var mapping = mappings
+                .OrderByDescending(static candidate => candidate.IsPrimaryDocument)
+                .ThenBy(static candidate => candidate.DocumentRowId)
+                .First();
+            foreach (var member in members)
+            {
+                member.SourceFilePath = mapping.OriginalPath;
+                member.SourceUrl = mapping.ResolvedUrl;
+                member.SourceLineNumber = mapping.StartLine;
+                member.SourceEndLineNumber = mapping.EndLine;
+            }
         }
     }
 

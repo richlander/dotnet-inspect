@@ -40,7 +40,8 @@ public sealed record MemberSourceInfo(
     string CanonicalPath,
     string? ResolvedUrl,
     int StartLine,
-    int EndLine);
+    int EndLine,
+    bool IsPrimaryDocument = false);
 
 public record ILOffsetMemberContextInfo(
     string? Assembly,
@@ -930,14 +931,12 @@ public class PdbContext : IDisposable
             yield break;
 
         var metadata = _peReader.GetMetadataReader();
-        foreach (var methodHandle in metadata.MethodDefinitions)
+        foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
-            if (metadataTokens is not null && !metadataTokens.Contains(metadataToken))
-                continue;
-
             var debugInfo = _pdbReader.GetMethodDebugInformation(methodHandle.ToDebugInformationHandle());
             var currentDocument = debugInfo.Document;
+            var primaryDocument = debugInfo.Document;
             Dictionary<DocumentHandle, (int StartLine, int EndLine)> ranges = [];
 
             foreach (var point in debugInfo.GetSequencePoints())
@@ -946,6 +945,10 @@ public class PdbContext : IDisposable
                     currentDocument = point.Document;
                 if (point.IsHidden || currentDocument.IsNil)
                     continue;
+                // Multi-document methods may omit the root document; in that case,
+                // the first visible sequence point is the stable presentation choice.
+                if (primaryDocument.IsNil)
+                    primaryDocument = currentDocument;
 
                 if (ranges.TryGetValue(currentDocument, out var range))
                 {
@@ -981,8 +984,34 @@ public class PdbContext : IDisposable
                     SourceDocumentPath.Canonicalize(filePath, SourceLinkJson),
                     _resolver?.ApplySourceLinkMapping(filePath),
                     range.StartLine,
-                    range.EndLine);
+                    range.EndLine,
+                    IsPrimaryDocument: documentHandle == primaryDocument);
             }
+        }
+    }
+
+    private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(
+        MetadataReader metadata,
+        IReadOnlySet<int>? metadataTokens)
+    {
+        if (metadataTokens is null)
+        {
+            foreach (var methodHandle in metadata.MethodDefinitions)
+                yield return methodHandle;
+            yield break;
+        }
+
+        int methodCount = metadata.GetTableRowCount(TableIndex.MethodDef);
+        foreach (int token in metadataTokens.Order())
+        {
+            const int methodDefinitionToken = 0x06000000;
+            const int tokenTypeMask = unchecked((int)0xFF000000);
+            const int rowMask = 0x00FFFFFF;
+            int row = token & rowMask;
+            if ((token & tokenTypeMask) != methodDefinitionToken || row == 0 || row > methodCount)
+                continue;
+
+            yield return MetadataTokens.MethodDefinitionHandle(row);
         }
     }
 
