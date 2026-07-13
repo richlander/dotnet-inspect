@@ -1240,29 +1240,36 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        int nonTargetConstructorCount = targetMembers.Count(member =>
+            member.Kind == CompileBackMemberKind.Constructor
+            && member.StubBody != CompileBackStubBodyKind.TargetBody);
         bool chainedConstructorReconstructed =
             chainCallee is { } chainCtor
             // The chained-to constructor is reconstructed only when its signature
             // is fully supported (an unsupported parameter such as a function
             // pointer makes the planner drop it, mirroring MethodRequirement).
             && chainCtor.ParameterTypes.All(type => !IsUnsupportedChainParameterType(type))
-            // Exactly one same-arity non-target constructor must be present. The
-            // printer can render chain arguments without disambiguating casts
-            // (e.g. a `box` to `object` prints without the `(object)` cast), so if
-            // two same-arity siblings exist the emitted `: this(args)` could
-            // silently bind to the wrong overload. Requiring a unique same-arity
-            // sibling keeps binding unambiguous; otherwise fall back to an empty
-            // body.
-            && targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
+            // The chained-to constructor must be the ONLY reconstructed
+            // constructor in the shell. The printer can render chain arguments
+            // without a disambiguating cast (e.g. a `box` to `object` prints
+            // without the `(object)` cast), and C# overload resolution can bind
+            // across arities (params arrays, optional parameters), so any other
+            // reconstructed constructor — regardless of arity — could silently
+            // hijack the `: this(args)` binding. Emitting only when it is
+            // unambiguous keeps the chain faithful; otherwise fall back to an
+            // empty body.
+            && nonTargetConstructorCount == 1
+            && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Parameters.Count == chainCtor.ParameterTypes.Length) == 1;
+                && member.Parameters.Count == chainCtor.ParameterTypes.Length);
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to sibling constructor was not reconstructed in the
-            // shell (or is ambiguous with another same-arity sibling), so
-            // `: this(args)` might not bind, or could silently bind to the wrong
-            // overload (CS1503 or a semantic mismatch). Drop the initializer and
-            // keep the body rather than emit an uncompilable or wrong chain.
+            // shell (or another reconstructed constructor could hijack overload
+            // resolution), so `: this(args)` might not bind, or could silently
+            // bind to the wrong overload (CS1503 or a semantic mismatch). Drop the
+            // initializer and keep the body rather than emit an uncompilable or
+            // wrong chain.
             int targetIndex = targetMembers.FindIndex(member =>
                 member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody == CompileBackStubBodyKind.TargetBody);

@@ -571,11 +571,11 @@ public class ReturnToSenderPrototypeTests
     {
         // Issue #2678 guard: the printer can render chain arguments without a
         // disambiguating cast (a `box` to `object` prints without `(object)`), so
-        // when two same-arity siblings are reconstructed the emitted
-        // `: this(args)` could silently bind to the wrong overload. The guard
-        // requires a unique same-arity sibling; here `C(object)` and `C(int)` are
-        // both present (the latter pulled in by `new C(2)`), so the initializer
-        // must be stripped rather than emit a wrong-binding chain.
+        // any second reconstructed constructor could silently hijack the
+        // `: this(args)` binding. The guard emits the initializer only when the
+        // chained-to constructor is the sole reconstructed sibling; here
+        // `C(object)` and `C(int)` are both present (the latter pulled in by
+        // `new C(2)`), so the initializer must be stripped.
         var assemblyPath = CompileFixture("""
             public class C
             {
@@ -590,6 +590,47 @@ public class ReturnToSenderPrototypeTests
                 public C(string z) : this((object)1)
                 {
                     _ = new C(2);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenSiblingConstructorCrossesArity()
+    {
+        // Issue #2678 guard: overload resolution can bind a chain-call argument
+        // list to a constructor of a DIFFERENT IL arity (a `params` array absorbs
+        // extra arguments). A same-arity check alone would miss this, so the guard
+        // requires the chained-to constructor to be the sole reconstructed
+        // sibling. Here `C(params int[])` and `C(int, int)` are both present, so
+        // `: this(1, 2)` could bind to either; the initializer must be stripped.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(params int[] xs)
+                {
+                }
+
+                public C(int a, int b)
+                {
+                }
+
+                public C(string z) : this(1, 2)
+                {
+                    _ = new C(9);
                 }
             }
             """);
