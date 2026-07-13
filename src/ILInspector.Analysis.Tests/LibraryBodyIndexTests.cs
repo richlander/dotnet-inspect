@@ -1519,6 +1519,42 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_RetainAllocationFindingProvenance()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+            opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.BoxesGuidValue)
+            && opportunity.Shape == "box-value-type"));
+        var occurrence = Assert.Single(index.GetAllocationOccurrences()[opportunity.Method.MetadataToken]
+            .Where(occurrence => occurrence.ILOffset == opportunity.ILOffset));
+
+        Assert.Equal(AnalysisFindings.AllocationDescriptor.Id, opportunity.SourceFinding);
+        Assert.Equal("box", opportunity.Operation);
+        Assert.Equal(occurrence.OperandToken, opportunity.OperandToken);
+        Assert.StartsWith("pt~", opportunity.CandidateId, StringComparison.Ordinal);
+        Assert.Equal(13, opportunity.CandidateId!.Length);
+    }
+
+    [Fact]
+    public void OptimizationOpportunities_RetainCallSiteFindingProvenance()
+    {
+        var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);
+
+        var opportunity = Assert.Single(index.OptimizationOpportunities.Where(opportunity =>
+            opportunity.Method.Name == nameof(OptimizationOpportunityFixtures.AppendsStringInLoop)
+            && opportunity.Shape == "string-build-in-loop"));
+        var call = Assert.Single(index.GetDirectCallsByCaller()[opportunity.Method.MetadataToken]
+            .Where(call => call.ILOffset == opportunity.ILOffset));
+
+        Assert.Equal(AnalysisFindings.CallSiteDescriptor.Id, opportunity.SourceFinding);
+        Assert.Equal(call.Opcode, opportunity.Operation);
+        Assert.Equal(call.OperandToken, opportunity.OperandToken);
+        Assert.StartsWith("pt~", opportunity.CandidateId, StringComparison.Ordinal);
+        Assert.Equal(13, opportunity.CandidateId!.Length);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DoesNotFlagListToArrayAsCopy()
     {
         var index = LibraryBodyIndex.Open(typeof(OptimizationOpportunityFixtures).Assembly.Location);

@@ -108,3 +108,25 @@ trace join supplies. The static side's contribution to precision is a clean,
 semantically-grounded pruning of the un-actionable, plus the shape vocabulary that
 lets a join explain *why* a confirmed-hot site is hot (loop-intrinsic versus
 call-frequency-driven) and therefore *how* to fix it.
+
+## Finding provenance for joins
+
+Performance Triage keeps ranking and fix guidance as downstream judgments; it
+does not turn triage priority into a Finding. Exact rows do retain the native
+observation that supports them:
+
+- allocation-backed rows carry `Finding=analysis.allocation`;
+- call-backed rows carry `Finding=analysis.call-site`;
+- `Operation`, `Token`, and `IL` retain machine-readable occurrence
+  coordinates;
+- `Candidate` combines the descriptor, a fingerprint of the producer-owned
+  identity, the MethodDef token + IL offset, the occurrence ordinal, and the
+  triage shape.
+
+This separates two joins that have different stability contracts. `Candidate`
+is exact within one assembly build and is the key for runtime/static trace
+correlation. Cross-version onset still uses the producer-native
+`diff --finding` or `timeline --finding` matcher, where IL offsets and metadata
+tokens remain provenance rather than correspondence identity. Aggregate rows
+such as `allocation-hotspot` have no exact source occurrence and therefore keep
+their `Finding`, `Operation`, and `Token` fields empty.

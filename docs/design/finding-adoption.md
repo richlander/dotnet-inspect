@@ -197,6 +197,23 @@ still match while unequal payload content reports unequal, and that is correct.
 See [Finding Value Equality](finding-value-equality.md) and
 [`FindingValueEquality`](../../src/ILInspector.Findings/FindingValueEquality.cs).
 
+## 9. Retain provenance without promoting judgments
+
+**Rule.** A downstream judgment may retain the native Finding that supports it
+without turning the judgment itself into a Finding. Preserve the producer
+descriptor and identity separately from version-local coordinates, then keep
+matching with the producer rather than inventing correspondence for the
+judgment.
+
+**Model.** Performance Triage keeps ranking and fix guidance as downstream
+judgments. Exact rows retain the `analysis.allocation` or
+`analysis.call-site` descriptor and identity fingerprint together with the
+version-local MethodDef token, IL offset, occurrence ordinal, operation, and
+operand token. `Candidate` is therefore useful for a runtime/static join within
+one build, while `diff --finding` and `timeline --finding` remain the
+cross-version correspondence paths. Aggregate judgments such as
+`allocation-hotspot` deliberately have no exact source Finding.
+
 ## Adoption review
 
 Before calling a consumer migration complete, verify:
@@ -211,4 +228,6 @@ Before calling a consumer migration complete, verify:
   `Unevaluated` only as a presentation join and per-cell failure scoping;
 - matching remains key-driven, payload equality is content-only, and
   collection-bearing payloads declare their equality semantics;
+- downstream judgments retain native provenance without claiming a new
+  correspondence model;
 - sensors compare the same identities and docket entries remain checkable.

@@ -5,8 +5,10 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.ControlFlow;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
 
@@ -81,7 +83,7 @@ public sealed class LibraryBodyIndex
                 var reachByToken = new Dictionary<int, int>();
                 foreach (var entry in TopLeverage(int.MaxValue))
                     reachByToken[entry.Method.MetadataToken] = entry.RootReach;
-                _opportunities =
+                _opportunities = AttachFindingProvenance(
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
@@ -99,11 +101,108 @@ public sealed class LibraryBodyIndex
                         .Select(o => o.Method.MetadataToken)))
                         .Select(AddFallbackOpportunityMetadata),
                     .. ScanMethodsInvokedInLoops(reachByToken).Select(AddFallbackOpportunityMetadata),
-                ];
+                ]);
             }
             return _opportunities;
         }
     }
+
+    ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
+        ImmutableArray<OptimizationOpportunity> opportunities)
+    {
+        var allocationFindings = new Dictionary<int, ImmutableArray<Finding<AllocationOccurrence>>>();
+        var callSiteFindings = new Dictionary<int, ImmutableArray<Finding<DirectCall>>>();
+        var builder = ImmutableArray.CreateBuilder<OptimizationOpportunity>(opportunities.Length);
+
+        foreach (var opportunity in opportunities)
+        {
+            Finding<AllocationOccurrence>? allocation = null;
+            Finding<DirectCall>? callSite = null;
+            if (opportunity.ILOffset is { } offset)
+            {
+                int methodToken = opportunity.Method.MetadataToken;
+                if (_allocationOccurrences.TryGetValue(methodToken, out var occurrences))
+                {
+                    if (!allocationFindings.TryGetValue(methodToken, out var findings))
+                    {
+                        findings = AnalysisFindings.InspectAllocations(
+                            occurrences,
+                            FindingSubjectFor(opportunity.Method));
+                        allocationFindings[methodToken] = findings;
+                    }
+                    allocation = findings.FirstOrDefault(finding => finding.Payload.ILOffset == offset);
+                }
+
+                if (allocation is null
+                    && GetDirectCallsByCaller().TryGetValue(methodToken, out var calls))
+                {
+                    if (!callSiteFindings.TryGetValue(methodToken, out var findings))
+                    {
+                        findings = AnalysisFindings.InspectCallSites(
+                            calls,
+                            FindingSubjectFor(opportunity.Method));
+                        callSiteFindings[methodToken] = findings;
+                    }
+                    callSite = findings.FirstOrDefault(finding => finding.Payload.ILOffset == offset);
+                }
+            }
+
+            string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id;
+            string? identityKey = allocation?.Key.IdentityKey ?? callSite?.Key.IdentityKey;
+            int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
+            builder.Add(opportunity with
+            {
+                CandidateId = CandidateId(opportunity, sourceFinding, identityKey, ordinal),
+                SourceFinding = sourceFinding,
+                Operation = allocation is null
+                    ? CallOperation(callSite?.Payload)
+                    : AllocationOperation(allocation.Payload),
+                OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
+            });
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    static FindingSubject FindingSubjectFor(MethodIdentity method)
+        => new(
+            $"method:0x{method.MetadataToken:X8}",
+            $"{method.DeclaringType.ToQualifiedDisplayString()}::{method.Name}");
+
+    static string CandidateId(
+        OptimizationOpportunity opportunity,
+        string? descriptor,
+        string? identityKey,
+        int? ordinal)
+    {
+        string coordinate = opportunity.ILOffset is { } offset
+            ? $"0x{opportunity.Method.MetadataToken:X8}+0x{offset:X4}"
+            : $"0x{opportunity.Method.MetadataToken:X8}";
+        string source = descriptor is null || identityKey is null
+            ? "performance"
+            : $"{descriptor}|{identityKey}";
+        string occurrence = ordinal?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        string fingerprint = MemberAnchor.ComputeFingerprint(
+            $"{source}|{coordinate}|{occurrence}|{opportunity.Shape}");
+        return $"pt~{fingerprint}";
+    }
+
+    static string AllocationOperation(AllocationOccurrence occurrence)
+        => occurrence.Source switch
+        {
+            AllocationFactSource.Newobj => "newobj",
+            AllocationFactSource.Newarr => "newarr",
+            AllocationFactSource.Box => "box",
+            AllocationFactSource.GetEnumeratorCall => "call.get-enumerator",
+            _ => occurrence.Source.ToString().ToLowerInvariant(),
+        };
+
+    static string? CallOperation(DirectCall? call)
+        => call is null
+            ? null
+            : string.IsNullOrWhiteSpace(call.Opcode)
+                ? call.Kind.ToString().ToLowerInvariant()
+                : call.Opcode;
 
     bool IsExceptionConstruction(TypeRef type)
     {

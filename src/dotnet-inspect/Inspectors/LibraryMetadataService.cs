@@ -790,8 +790,12 @@ internal static class LibraryMetadataService
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
                     Member = FormatMethod(opportunity.Method),
+                    Candidate = opportunity.CandidateId,
+                    Finding = opportunity.SourceFinding,
                     RootReach = opportunity.RootReach,
                     Shape = opportunity.Shape,
+                    Operation = opportunity.Operation,
+                    Token = FormatToken(opportunity.OperandToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
@@ -999,7 +1003,11 @@ internal static class LibraryMetadataService
         => field switch
         {
             "Member" => FormatMethod(opportunity.Method),
+            "Candidate" => opportunity.CandidateId,
+            "Finding" => opportunity.SourceFinding,
             "Shape" => opportunity.Shape,
+            "Operation" => opportunity.Operation,
+            "Token" => FormatToken(opportunity.OperandToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
             "Confidence" => opportunity.Confidence,
@@ -1013,6 +1021,9 @@ internal static class LibraryMetadataService
             "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
             _ => null,
         };
+
+    static string? FormatToken(int? token)
+        => token is { } value ? $"0x{value:X8}" : null;
 
     static string ShortMemberSignature(Analysis.MethodIdentity method)
         => $"{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";

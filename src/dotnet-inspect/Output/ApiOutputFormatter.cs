@@ -2016,8 +2016,12 @@ public static class ApiOutputFormatter
                 options)
             .Select(opportunity => new OptimizationOpportunityRow(
                 MarkoutInline.Code(FormatMember(null, opportunity.Method.Name, opportunity.Method.ParameterTypes, [])),
+                opportunity.CandidateId is null ? null : MarkoutInline.Code(opportunity.CandidateId),
+                opportunity.SourceFinding,
                 opportunity.RootReach.ToString(),
                 opportunity.Shape,
+                opportunity.Operation,
+                opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
                 opportunity.Evidence,
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,
