@@ -730,6 +730,54 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DropsInitializerWhenChainArgumentIsAmbiguousLambda()
+    {
+        // Issue #2678 guard (Gemini R6): a lambda argument prints typeless
+        // (`() => ...`) and relies on C# target-typing, so its IR result type
+        // matching the parameter does NOT prove an unambiguous bind. Here `C()`
+        // chains `: this((Func<int>)(() => 1))`; the shell also contains
+        // `C(Expression<Func<int>>)` (pulled in by the body). Both constructors
+        // accept `() => 1`, so the printed `: this(() => 1)` is ambiguous (CS0121).
+        // The lambda must not be treated as faithful; with a same-arity sibling in
+        // the shell, unique-arity does not hold either, so the initializer is
+        // stripped and the body (which references the sibling through a typed local,
+        // so it stays unambiguous) still compiles.
+        var assemblyPath = CompileFixture("""
+            using System;
+            using System.Linq.Expressions;
+            public class C
+            {
+                public C(Func<int> x)
+                {
+                }
+
+                public C(Expression<Func<int>> y)
+                {
+                }
+
+                public C() : this((Func<int>)(() => 1))
+                {
+                    Expression<Func<int>> e = () => 2;
+                    _ = new C(e);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""

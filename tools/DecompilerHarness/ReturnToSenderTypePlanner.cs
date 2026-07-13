@@ -1704,9 +1704,19 @@ public static class CompileBackSourceComposer
         // Box (prints its inner value, dropping the `(object)` cast), Coerce,
         // Convert, IsInstance, and bare constants can each be spelled at a static
         // type other than the parameter's, so overload resolution could bind them
-        // elsewhere. Every other expression prints at its result type, so it is
-        // faithful exactly when that type matches the parameter type.
-        => argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance or ILInspector.Decompiler.Pipeline.Constant)
+        // elsewhere. Lambdas, collection expressions, tuple literals, and
+        // interpolated strings print in a target-typed form with no intrinsic
+        // static type (a lambda `() => ...` and a collection `[...]` have none; a
+        // tuple `(a, b)` target-types per element; an interpolated string `$"..."`
+        // also converts to FormattableString/IFormattable), so a matching
+        // ResultType does not prove they bind only to the chained-to constructor —
+        // a lambda-, collection-, tuple-, or string-accepting sibling can make the
+        // printed initializer ambiguous (CS0121) or bind it elsewhere. Every other
+        // expression prints at its result type, so it is faithful exactly when
+        // that type matches the parameter type.
+        => argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance
+                or ILInspector.Decompiler.Pipeline.Constant
+                or Lambda or CollectionExpression or TupleExpression or InterpolatedStringExpression)
             && argument.ResultType is { } type
             && type.Equals(parameterType);
 
