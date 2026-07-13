@@ -1981,21 +1981,42 @@ public static class CompileBackSourceComposer
         return param.Kind switch
         {
             // T[] -> U[] by array covariance when the element is reference-covariant.
-            TypeRefKind.SzArray => param.ElementType is { } targetElement
-                && ElementReferenceCovariant(element, targetElement),
-            // T[] -> IEnumerable<U>/IReadOnlyList<U>/... when element reference-covariant to U.
-            TypeRefKind.GenericInstance => param.TypeArguments.Length == 1
-                && param.ElementType is { } definition
-                && IsCovariantArrayInterfaceDefinition(definition)
-                && ElementReferenceCovariant(element, param.TypeArguments[0]),
-            // object, System.Array, ICloneable, and the non-generic collection /
-            // structural interfaces are the only named types an array converts to.
+            TypeRefKind.SzArray => param.ElementType is not { } targetElement
+                || ElementReferenceCovariant(element, targetElement),
+            // A covariant System.Collections.Generic interface over a
+            // reference-covariant element is convertible; any OTHER generic
+            // instance (Span<T>/ReadOnlySpan<T>/Memory<T>/ReadOnlyMemory<T> with a
+            // built-in array conversion, or a user generic with an implicit
+            // conversion operator we cannot see) is not provably non-convertible,
+            // so it stays in play. Only a covariant interface with a provably
+            // non-covariant element (value-type mismatch) is ruled out.
+            TypeRefKind.GenericInstance =>
+                !(param.TypeArguments.Length == 1
+                    && param.ElementType is { } definition
+                    && IsCovariantArrayInterfaceDefinition(definition))
+                || ElementReferenceCovariant(element, param.TypeArguments[0]),
+            // object, System.Array, ICloneable, the non-generic collection /
+            // structural interfaces, and any user-defined type (which may declare
+            // an implicit conversion from an array) stay in play; only enumerable
+            // corelib types with no array conversion are ruled out.
             TypeRefKind.Definition => IsArrayCompatibleNonGenericType(param),
             // ByRef/Pointer/GenericParameter/Unsupported/etc.: cannot rule out.
             _ => true,
         };
     }
 
+    /// <summary>
+    /// Whether a <c>T[]</c> argument might convert to the non-generic
+    /// <paramref name="type"/>. Over-approximates: returns <c>true</c> for the
+    /// corelib types an array converts to (<c>object</c>, <c>System.Array</c>,
+    /// <c>ICloneable</c>, the non-generic collection / structural interfaces) AND
+    /// for any user-defined type, which could declare an <c>implicit operator</c>
+    /// from an array we cannot observe from the parameter type alone. Returns
+    /// <c>false</c> only for enumerable corelib (<c>System.*</c>) types that
+    /// provably have no array conversion (<c>String</c>, the primitives,
+    /// <c>Version</c>, ...), so a <c>false</c> result stays a proof of
+    /// non-convertibility.
+    /// </summary>
     static bool IsArrayCompatibleNonGenericType(TypeRef type)
     {
         if (type.Kind != TypeRefKind.Definition)
@@ -2009,8 +2030,15 @@ public static class CompileBackSourceComposer
             return true;
         }
 
-        return false;
+        // Corelib/System.* types other than the array-convertible set above have no
+        // implicit conversion from an array, so they can be ruled out. A type in a
+        // non-System namespace is user-defined and may declare a conversion
+        // operator we cannot see, so it must stay in play (fail-closed).
+        return !IsSystemNamespace(type.Namespace);
     }
+
+    static bool IsSystemNamespace(string? ns)
+        => ns is not null && (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal));
 
     /// <summary>
     /// OVER-approximation of "is there an identity or reference conversion from

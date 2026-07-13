@@ -935,10 +935,12 @@ public class ReturnToSenderPrototypeTests
     public void CompileBackTargets_DropsInitializerWhenArrayCovariantTargetHasParamsConstructor()
     {
         // Issue #2726 guard: a `params` constructor absorbs calls of other arities,
-        // so competitor applicability can no longer be decided position-by-position.
-        // The covariance model bails (strips) when any reconstructable constructor
-        // is variadic or has an optional parameter. The `new C("a", "b")` forces the
-        // `params` sibling into the shell so the unique-arity path does not decide.
+        // so a `params string[]` sibling is applicable to the two-argument chain.
+        // At the params slot `string[]` binds as the whole array, so the covariance
+        // model cannot exclude it (exclusion requires ruling out both element and
+        // whole-array binding), and the chain must strip. The `new C("a", "b")`
+        // forces the `params` sibling into the shell so the unique-arity path does
+        // not decide.
         var assemblyPath = CompileFixture("""
             using System.Collections.Generic;
 
@@ -958,6 +960,64 @@ public class ReturnToSenderPrototypeTests
                 public C(params string[] parts)
                 {
                     Count = parts.Length;
+                }
+
+                public int Count { get; }
+
+                private static string[] Parse(string tag) => tag.Split('.');
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsInitializerWhenArrayCovariantArgumentAlsoBindsSpanSibling()
+    {
+        // Issue #2726 guard (adversarial, from PR #2730 review): a library can use
+        // [OverloadResolutionPriority(-1)] to keep an IEnumerable<string> overload
+        // selected for a string[] argument while ALSO offering a first-class
+        // ReadOnlySpan<string> overload. The original chain then binds to the
+        // IEnumerable ctor (so the covariance emit path is eligible), but `string[]`
+        // implicitly converts to ReadOnlySpan<string> too, and RTS does not re-emit
+        // the priority attribute, so a recompiled `: this(...)` would prefer the span
+        // ctor. `ArrayCanConvertTo` must NOT prove the span competitor
+        // non-convertible; the chain must strip. The `new C(...)` forces the span
+        // sibling into the shell so the assignability gate is the decider.
+        var assemblyPath = CompileFixture("""
+            using System;
+            using System.Collections.Generic;
+            using System.Runtime.CompilerServices;
+
+            public class C
+            {
+                public C(string tag)
+                    : this(Parse(tag), tag.Length)
+                {
+                    _ = new C(default(ReadOnlySpan<string>), 0);
+                }
+
+                public C(IEnumerable<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                [OverloadResolutionPriority(-1)]
+                public C(ReadOnlySpan<string> labels, int count)
+                {
+                    Count = count;
                 }
 
                 public int Count { get; }
