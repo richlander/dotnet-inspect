@@ -13,7 +13,7 @@ public sealed record PrintableDocument(
 
 public sealed record PrintProjectionOptions(
     bool PrintAll,
-    int? Row,
+    RowSelector? Row,
     bool JsonOutput,
     bool Jsonl,
     bool JsonArray,
@@ -47,11 +47,12 @@ public static class PrintProjectionOutput
 
             selected = documents;
         }
-        else if (options.Row is { } row)
+        else if (options.Row is { } selector)
         {
+            var row = selector.Resolve(documents.Count);
             if (row < 1 || row > documents.Count)
             {
-                Console.Error.WriteLine($"Error: printable row {row} is out of range. Use 1 through {documents.Count}.");
+                Console.Error.WriteLine($"Error: printable row {row} is out of range. Use 1 through {documents.Count}, first, or last.");
                 return 1;
             }
 
@@ -61,7 +62,7 @@ public static class PrintProjectionOutput
         {
             if (documents.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use --row N to choose one row or --print-all.");
+                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use --row N|first|last to choose one row or --print-all.");
                 return 1;
             }
 

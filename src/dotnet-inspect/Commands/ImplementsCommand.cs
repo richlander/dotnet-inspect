@@ -141,7 +141,7 @@ public class ImplementsCommand
         Console.WriteLine(results.Count);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, int? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 

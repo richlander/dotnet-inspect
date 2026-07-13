@@ -1687,7 +1687,7 @@ public record DiffOptions
     public HashSet<string>? IncludeSections { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

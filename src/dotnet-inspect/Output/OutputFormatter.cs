@@ -26,7 +26,7 @@ public static class OutputFormatter
         return sw.ToString();
     }
 
-    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, int? maxRows = null)
+    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, RowWindow? maxRows = null)
     {
         // Row-limiting operates on the rendered text, so the capped path must materialize
         // the table first. Without a cap, serialize straight to the destination writer and
@@ -36,7 +36,7 @@ public static class OutputFormatter
         // so a single buffered Write(string) is not interchangeable with row-by-row writes
         // (it changes which trailing content survives the limit). Keep the buffered path for
         // those wrappers to preserve byte-identical output; their output is already small.
-        if (maxRows is null or < 0 && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
+        if (maxRows is null or { Count: < 0 } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
             serialize(output, new TableFormatter(showHeader));
             return;
@@ -53,9 +53,9 @@ public static class OutputFormatter
     /// table mode is a Markdown table delimited by a separator line. A null/negative limit
     /// (no <c>--rows</c>) leaves the output untouched.
     /// </summary>
-    public static string LimitRenderedTableRows(string rendered, int? maxRows, bool hasHeader)
+    public static string LimitRenderedTableRows(string rendered, RowWindow? maxRows, bool hasHeader)
     {
-        if (maxRows is null or < 0 || string.IsNullOrEmpty(rendered))
+        if (maxRows is not { Count: >= 0 } limit || string.IsNullOrEmpty(rendered))
             return rendered;
 
         var trailingNewline = rendered.EndsWith('\n');
@@ -75,7 +75,17 @@ public static class OutputFormatter
         if (lines.Length <= headerLines)
             return rendered;
 
-        var kept = string.Join('\n', lines.Take(headerLines + maxRows.Value));
+        var header = lines.Take(headerLines);
+        var dataRows = lines.Skip(headerLines);
+        var windowed = limit.FromEnd
+            ? dataRows.Skip(Math.Max(0, (lines.Length - headerLines) - limit.Count))
+            : dataRows.Take(limit.Count);
+        var kept = string.Join('\n', header.Concat(windowed));
+        // A zero-width window over a headerless format (JSONL, --no-header TSV) keeps
+        // nothing; return empty rather than re-adding the trailing newline, which would
+        // emit a phantom blank row / invalid empty JSONL record.
+        if (kept.Length == 0)
+            return string.Empty;
         return trailingNewline ? kept + "\n" : kept;
     }
 
@@ -119,13 +129,13 @@ public static class OutputFormatter
         string[]? columns,
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
-        int? maxRows = null) =>
+        RowWindow? maxRows = null) =>
         output.Write(LimitRenderedTableRows(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize), maxRows, showHeader));
 
-    public static string ApplyRowLimit(string markdown, int? rows) =>
+    public static string ApplyRowLimit(string markdown, RowWindow? rows) =>
         MarkdownTableRowLimiter.Apply(markdown.TrimEnd(), rows);
 
-    public static void WriteLimitedMarkdown(TextWriter output, string markdown, int? rows) =>
+    public static void WriteLimitedMarkdown(TextWriter output, string markdown, RowWindow? rows) =>
         output.WriteLine(ApplyRowLimit(markdown, rows));
 
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,

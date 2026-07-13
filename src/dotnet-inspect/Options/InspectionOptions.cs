@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
@@ -110,7 +111,7 @@ public record InspectionOptions
 
     public bool PrintAll { get; init; }
 
-    public int? PrintRow { get; init; }
+    public RowSelector? PrintRow { get; init; }
 
     public bool Value { get; init; }
 
@@ -256,7 +257,7 @@ public record InspectionOptions
     /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

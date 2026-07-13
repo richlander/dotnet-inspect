@@ -455,6 +455,7 @@ public sealed class CSharpTypePrinter
             ReturnType = member.ReturnType,
             Signature = member.Signature,
             SignatureModel = signatureModel is null ? null : SnapshotSignature(signatureModel),
+            SignatureDecodeStatus = member.SignatureDecodeStatus,
             IsStatic = member.IsStatic,
             IsVirtual = member.IsVirtual,
             IsAbstract = member.IsAbstract,

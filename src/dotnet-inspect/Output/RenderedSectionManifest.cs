@@ -66,34 +66,51 @@ internal sealed class RenderManifestFormatter :
     ITableFormatter,
     IStreamingTableFormatter
 {
+    private readonly HashSet<string> _fieldSections;
     private string? _currentHeading;
     private string? _streamingTableSection;
     private bool _streamingFieldTable;
+    private int _sectionHeadingLevel;
+
+    internal RenderManifestFormatter(DocumentSchema schema)
+    {
+        _fieldSections = schema.SectionNames
+            .Select(schema.GetSection)
+            .Where(section => section is not null
+                && section.ItemKind.Equals("field", StringComparison.OrdinalIgnoreCase))
+            .Select(section => section!.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 
     internal RenderedSectionManifest Manifest { get; } = new();
 
     internal static RenderedSectionManifest Capture<T>(
         T value,
         MarkoutSerializerContext context,
-        MarkoutWriterOptions options)
+        MarkoutWriterOptions options,
+        DocumentSchema schema)
     {
-        var formatter = new RenderManifestFormatter();
-        formatter.BeginDocument();
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(options);
         var writer = new MarkoutWriter(TextWriter.Null, formatter, options);
         context.Serialize(value, writer);
         writer.Flush();
         return formatter.Manifest;
     }
 
-    internal void BeginDocument()
+    internal void BeginDocument(MarkoutWriterOptions options)
     {
         _currentHeading = null;
         _streamingTableSection = null;
         _streamingFieldTable = false;
+        _sectionHeadingLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
     }
 
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
-        => _currentHeading = text;
+    {
+        if (level == _sectionHeadingLevel)
+            _currentHeading = text;
+    }
 
     public void FormatFieldName(TextWriter writer, string key, bool bold)
         => Manifest.RecordField(_currentHeading, key);
@@ -112,7 +129,7 @@ internal sealed class RenderManifestFormatter :
         MarkoutWriterOptions options)
     {
         Manifest.RecordTable(_currentHeading, headers);
-        if (!IsFieldTable(headers))
+        if (!IsFieldSection(_currentHeading))
             return;
 
         foreach (var row in rows)
@@ -129,7 +146,7 @@ internal sealed class RenderManifestFormatter :
     {
         Manifest.RecordTable(_currentHeading, headers);
         _streamingTableSection = _currentHeading;
-        _streamingFieldTable = IsFieldTable(headers);
+        _streamingFieldTable = IsFieldSection(_currentHeading);
     }
 
     public void WriteRow(TextWriter writer, ReadOnlySpan<string> values)
@@ -144,7 +161,6 @@ internal sealed class RenderManifestFormatter :
         _streamingFieldTable = false;
     }
 
-    private static bool IsFieldTable(ReadOnlySpan<string> headers)
-        => headers.Length > 0
-            && headers[0].Equals("Field", StringComparison.OrdinalIgnoreCase);
+    private bool IsFieldSection(string? section)
+        => section is not null && _fieldSections.Contains(section);
 }

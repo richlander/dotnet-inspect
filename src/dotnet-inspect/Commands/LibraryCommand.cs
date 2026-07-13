@@ -133,7 +133,7 @@ public class LibraryCommand
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N to select a projected row.");
+                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return 1;
             }
         }
@@ -155,7 +155,7 @@ public class LibraryCommand
 
         if ((options.Print || options.PrintAll) && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
             return 1;
         }
 
@@ -1382,7 +1382,8 @@ public class LibraryCommand
         var renderManifest = RenderManifestFormatter.Capture(
             view,
             InspectionContext.Default,
-            writerOpts);
+            writerOpts,
+            schema);
 
         return DiscoverOutput.FilterSchemaToRenderedFields(
             effectiveSections,

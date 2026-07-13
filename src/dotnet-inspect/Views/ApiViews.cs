@@ -487,13 +487,14 @@ public record MemberRow(
     [property: MarkoutSkipNull] string? Select,
     string Name,
     string Signature,
+    [property: MarkoutSkipNull] string? Decode,
     string? Description)
 {
     /// <summary>
     /// Creates a MemberRow without Select column.
     /// </summary>
-    public MemberRow(string name, string signature, string? description)
-        : this(null, name, signature, description) { }
+    public MemberRow(string name, string signature, string? decode, string? description)
+        : this(null, name, signature, decode, description) { }
 }
 
 [MarkoutSerializable]
@@ -501,6 +502,7 @@ public record MemberIndexRow(
     string Selector,
     string Stable,
     [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
+    [property: MarkoutSkipNull] string? Decode,
     [property: MarkoutIgnore] string Digest);
 
 [MarkoutSerializable]
@@ -519,6 +521,7 @@ public record MemberSourceLocationRow(
 [MarkoutSerializable]
 public record MemberSignatureRow(
     string Signature,
+    [property: MarkoutSkipNull] string? Decode,
     [property: MarkoutSkipNull] string? Description);
 
 /// <summary>
@@ -528,21 +531,27 @@ public record MemberSignatureRow(
 public record MethodSummaryRow(
     string Name,
     [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    string Overloads);
+    string Overloads,
+    [property: MarkoutSkipNull] string? Decode);
 
 [MarkoutSerializable]
-public record ConstructorSummaryRow(string Name, string Overloads);
+public record ConstructorSummaryRow(
+    string Name,
+    string Overloads,
+    [property: MarkoutSkipNull] string? Decode);
 
 [MarkoutSerializable]
 public record PropertySummaryRow(
     string Name,
     [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    string Accessors);
+    string Accessors,
+    [property: MarkoutSkipNull] string? Decode);
 
 [MarkoutSerializable]
 public record FieldSummaryRow(
     string Name,
-    [property: MarkoutPropertyName("Return Type")] string ReturnType);
+    [property: MarkoutPropertyName("Return Type")] string ReturnType,
+    [property: MarkoutSkipNull] string? Decode);
 
 [MarkoutSerializable]
 public record EventSummaryRow(string Name, string Type);

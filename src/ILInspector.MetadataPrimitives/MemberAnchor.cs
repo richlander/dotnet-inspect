@@ -35,4 +35,7 @@ public sealed record MemberAnchor(
         var hash = SHA256.HashData(input);
         return Convert.ToHexString(hash).ToLowerInvariant()[..10];
     }
+
+    public static string ComputeFingerprint(string canonicalSignature, bool isDegraded)
+        => ComputeFingerprint(isDegraded ? $"D:{canonicalSignature}" : canonicalSignature);
 }

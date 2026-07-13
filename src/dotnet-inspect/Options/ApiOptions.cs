@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using Markout;
 using Markout.Formatting;
@@ -58,7 +59,7 @@ public partial record ApiOptions
 
     public bool PrintAll { get; init; }
 
-    public int? PrintRow { get; init; }
+    public RowSelector? PrintRow { get; init; }
 
     public bool Value { get; init; }
 
@@ -87,7 +88,7 @@ public partial record ApiOptions
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }
     public bool Count { get; init; }
-    public int? Rows { get; init; }
+    public RowWindow? Rows { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 

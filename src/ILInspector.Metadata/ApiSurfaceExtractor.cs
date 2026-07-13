@@ -174,6 +174,9 @@ public static class ApiSurfaceExtractor
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
+                    SignatureDecodeStatus = signature.IsDegraded
+                        ? SignatureDecodeStatus.Degraded
+                        : null,
                     // Conversion operators overload on return type. SignatureModel is
                     // [JsonIgnore], so persist the return type on the serialized member
                     // too, letting the canonical-signature fallback disambiguate them on a
@@ -257,6 +260,9 @@ public static class ApiSurfaceExtractor
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
+                    SignatureDecodeStatus = propertySignature.IsDegraded
+                        ? SignatureDecodeStatus.Degraded
+                        : null,
                     IsStatic = isStaticProperty,
                     IsVirtual = isVirtualProperty,
                     IsAbstract = isAbstractProperty,
@@ -298,14 +304,23 @@ public static class ApiSurfaceExtractor
                 // the underlying type; literal fields are constants, not fields in
                 // source, so they do not need a field declaration type.
                 string? fieldType = null;
+                bool fieldSignatureDegraded = false;
                 if (isEnum)
                 {
                     if (fieldName == "value__")
-                        apiType.EnumUnderlyingType = DecodeFieldType(reader, typeDef, field, typeNullableContext);
+                        apiType.EnumUnderlyingType = DecodeFieldType(
+                            reader,
+                            typeDef,
+                            field,
+                            typeNullableContext).Text;
                 }
                 else
                 {
-                    fieldType = DecodeFieldType(reader, typeDef, field, typeNullableContext);
+                    (fieldType, fieldSignatureDegraded) = DecodeFieldType(
+                        reader,
+                        typeDef,
+                        field,
+                        typeNullableContext);
                 }
 
                 var member = new ApiMember
@@ -318,6 +333,9 @@ public static class ApiSurfaceExtractor
                         ReturnType = fieldType,
                         MemberName = fieldName
                     },
+                    SignatureDecodeStatus = fieldSignatureDegraded
+                        ? SignatureDecodeStatus.Degraded
+                        : null,
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
@@ -562,18 +580,23 @@ public static class ApiSurfaceExtractor
         return name;
     }
 
-    private static string DecodeFieldType(
+    private static (string Text, bool IsDegraded) DecodeFieldType(
         MetadataReader reader,
         TypeDefinition typeDef,
         FieldDefinition field,
         byte typeNullableContext)
     {
         var context = GenericContext.ForType(reader, typeDef);
-        var fieldNode = GuardedProviderDecode.Field(reader, field, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true));
+        var fieldNode = GuardedProviderDecode.Field(
+            reader,
+            field,
+            TypeNodeProvider.Instance,
+            context,
+            (TypeNode)new DegradedTypeNode());
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
         int pos = 0;
         fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
-        return fieldNode.Render();
+        return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
     private static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
@@ -637,6 +660,7 @@ public static class ApiSurfaceExtractor
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
                     SignatureModel = extension.SignatureModel,
+                    SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MetadataToken = extension.MetadataToken,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
@@ -740,11 +764,20 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static (string Text, ApiSignature Model) GetMethodSignature(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, byte typeNullableContext)
+    private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        byte typeNullableContext)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
-        var treeSignature = GuardedProviderDecode.Method(reader, method, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true));
+        var treeSignature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            TypeNodeProvider.Instance,
+            context,
+            (TypeNode)new DegradedTypeNode());
 
         // Determine the effective nullable default: method overrides type
         byte methodContext = NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes());
@@ -821,7 +854,8 @@ public static class ApiSurfaceExtractor
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
             Parameters = parameterModels
-        });
+        }, treeSignature.ReturnType.IsDegraded
+            || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
 
     private static List<string> ReturnParameterAttributes(MetadataReader reader, ParameterHandleCollection handles)
@@ -1278,11 +1312,22 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static (string Text, ApiSignature Model) GetPropertySignature(MetadataReader reader, TypeDefinition typeDef, PropertyDefinition prop, PropertyAccessors accessors, byte typeNullableContext, bool includeAll = false)
+    private static (string Text, ApiSignature Model, bool IsDegraded) GetPropertySignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        PropertyDefinition prop,
+        PropertyAccessors accessors,
+        byte typeNullableContext,
+        bool includeAll = false)
     {
         string name = reader.GetString(prop.Name);
         var context = GenericContext.ForType(reader, typeDef);
-        var treeSignature = GuardedProviderDecode.Property(reader, prop, TypeNodeProvider.Instance, context, (TypeNode)new NamedTypeNode("object", isReferenceType: true));
+        var treeSignature = GuardedProviderDecode.Property(
+            reader,
+            prop,
+            TypeNodeProvider.Instance,
+            context,
+            (TypeNode)new DegradedTypeNode());
 
         // Apply nullability to the property type
         var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());
@@ -1431,9 +1476,17 @@ public static class ApiSurfaceExtractor
         };
 
         if (indexerParameters.Count > 0)
-            return ($"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}", model);
+            return (
+                $"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}",
+                model,
+                treeSignature.ReturnType.IsDegraded
+                    || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
 
-        return ($"{requiredPrefix}{returnType} {name} {accessorStr}", model);
+        return (
+            $"{requiredPrefix}{returnType} {name} {accessorStr}",
+            model,
+            treeSignature.ReturnType.IsDegraded
+                || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
 
     /// <summary>

@@ -114,24 +114,19 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
     RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
 // Install line-limiting writer when -NN shorthand was used (e.g. -30).
-// With --rows, -n/-NN is interpreted by commands as per-table row limits.
+// With --rows, -n/-NN is interpreted by commands as per-table row limits, and the
+// head/tail conflict is validated by SharedOptions.BuildRowWindow against the real
+// System.CommandLine parse (see the RowWindowValidationException catch below), not
+// the token scan here — the scan misses =-syntax and concatenated forms.
 var rowLimitMode = args.Any(a => a == "--rows");
-if (rowLimitMode && CommandLineBuilder.TailLines != null)
-{
-    Console.Error.WriteLine("Error: --rows cannot be combined with --tail.");
-    return 1;
-}
-if (rowLimitMode && CommandLineBuilder.HeadLines == null)
-{
-    Console.Error.WriteLine("Error: --rows requires -n/--head or -N.");
-    return 1;
-}
+// Line/tail windows apply only outside --rows mode; in --rows mode the count is a
+// per-table data-row window rendered by the commands, not an output-line window.
 if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
     Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
 
 // Install tail writer when --tail N was used
 TailLineLimitingTextWriter? tailWriter = null;
-if (CommandLineBuilder.TailLines is int tailLines)
+if (!rowLimitMode && CommandLineBuilder.TailLines is int tailLines)
 {
     tailWriter = new TailLineLimitingTextWriter(Console.Out, tailLines);
     Console.SetOut(tailWriter);
@@ -150,6 +145,11 @@ int exitCode;
 try
 {
     exitCode = await result.InvokeAsync();
+}
+catch (RowWindowValidationException ex)
+{
+    Console.Error.WriteLine($"Error: {ex.Message}");
+    return 1;
 }
 catch (OperationCanceledException)
 {

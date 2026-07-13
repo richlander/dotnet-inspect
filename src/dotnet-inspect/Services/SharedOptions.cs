@@ -32,13 +32,13 @@ public class SharedOptions
 
     // Output control options
     public Option<int?> Limit { get; }
-    public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/-N as data rows per rendered table instead of output lines" };
+    public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/--head N or --tail N as data rows per rendered table instead of output lines" };
     public Option<int?> Tail { get; }
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
-    public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N to choose a row when multiple rows are printable" };
+    public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable" };
     public Option<bool> PrintAll { get; } = new("--print-all") { Description = "Print all documents behind rows in the selected printable section, separated by item headers" };
-    public Option<int?> Row { get; } = new("--row") { Description = "With --print, select the Nth printable row" };
-    public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N when multiple rows exist" };
+    public Option<string?> Row { get; } = new("--row") { Description = "With --print or a shape projection, select a printable row: a 1-based index, first, or last" };
+    public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N|first|last when multiple rows exist" };
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
     public Option<bool> Paths { get; } = new("--paths") { Description = "Project path-bearing selected section rows to a path list or JSONL rows" };
     public Option<bool> JsonArray { get; } = new("--json-array") { Description = "With a shape projection, emit projected rows as one JSON array" };
@@ -137,6 +137,13 @@ public class SharedOptions
 
         NoHeaders.Aliases.Add("--no-header");
         NoHeaders.Aliases.Add("--nh");
+
+        Row.Validators.Add(result =>
+        {
+            var token = result.Tokens.Count > 0 ? result.Tokens[^1].Value : null;
+            if (token is not null && !RowSelector.TryParse(token, out _))
+                result.AddError($"--row must be a 1-based row number, 'first', or 'last' (got '{token}').");
+        });
     }
 
     /// <summary>
@@ -223,11 +230,31 @@ public class SharedOptions
             command.Options.Add(Row);
     }
 
-    public int? ParseRows(ParseResult parseResult)
-        => parseResult.GetValue(Rows) ? parseResult.GetValue(Limit) : null;
+    public RowWindow? ParseRows(ParseResult parseResult)
+        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Limit), parseResult.GetValue(Tail));
 
-    public int? ParsePrintRow(ParseResult parseResult)
-        => parseResult.GetValue(Row);
+    /// <summary>
+    /// Resolves the <c>--rows</c> data-row window from the parsed head/tail values.
+    /// Validation lives here (not in the arg preprocessor) so it sees the real
+    /// System.CommandLine parse — including <c>=</c>-syntax and concatenated forms
+    /// the token scanner misses. Throws <see cref="RowWindowValidationException"/>
+    /// when <c>--rows</c> is given both windows or neither.
+    /// </summary>
+    public static RowWindow? BuildRowWindow(bool rows, int? head, int? tail)
+    {
+        if (!rows)
+            return null;
+        if (head is not null && tail is not null)
+            throw new RowWindowValidationException("--rows cannot combine -n/--head with --tail; choose one row window.");
+        if (head is int h)
+            return new RowWindow(h, FromEnd: false);
+        if (tail is int t)
+            return new RowWindow(t, FromEnd: true);
+        throw new RowWindowValidationException("--rows requires -n/--head N or --tail N.");
+    }
+
+    public RowSelector? ParsePrintRow(ParseResult parseResult)
+        => RowSelector.TryParse(parseResult.GetValue(Row), out var selector) ? selector : null;
 
     public PerformanceTriageOptions ParsePerformanceTriageOptions(ParseResult parseResult)
     {

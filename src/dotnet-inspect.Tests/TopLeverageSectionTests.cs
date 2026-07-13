@@ -1,6 +1,7 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 
@@ -18,7 +19,7 @@ public class TopLeverageSectionTests
             AssemblyPath = typeof(LeverageSampleType).Assembly.Location,
             IncludeSections = [SectionNames.TopLeverage],
             Tsv = true,
-            Rows = 2,
+            Rows = new RowWindow(2, FromEnd: false),
             Tabular = true,
             TabularExplicitlySet = true,
             TipLevel = TipLevel.Quiet,

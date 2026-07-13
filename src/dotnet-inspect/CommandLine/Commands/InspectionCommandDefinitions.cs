@@ -17,7 +17,7 @@ public static class InspectionCommandDefinitions
     {
         var command = new Command(
             TimelineCommand.Name,
-            "Correlate type, member, or applied-attribute Findings across a package version range");
+            "Correlate API or member-body Findings across a package version range");
         var argsArgument = new Argument<string[]>("args")
         {
             Description = "Package@A..B and type focus when --package/--type are omitted",
@@ -32,9 +32,14 @@ public static class InspectionCommandDefinitions
             Description = "Type focus (full name or unique short name)",
         };
         typeOption.Aliases.Add("-t");
+        var memberOption = new Option<string?>("--member")
+        {
+            Description = "Exact member selector; required for Analysis Findings",
+        };
+        memberOption.Aliases.Add("-m");
         var findingOption = new Option<string?>("--finding")
         {
-            Description = "Observation census: api.type, api.member, or api.attribute",
+            Description = "Observation census: api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety",
         };
         var atOption = new Option<string[]>("--at")
         {
@@ -70,6 +75,7 @@ public static class InspectionCommandDefinitions
         command.Arguments.Add(argsArgument);
         command.Options.Add(packageOption);
         command.Options.Add(typeOption);
+        command.Options.Add(memberOption);
         command.Options.Add(findingOption);
         command.Options.Add(atOption);
         command.Options.Add(membersOption);
@@ -123,6 +129,7 @@ public static class InspectionCommandDefinitions
             {
                 PackageVersionRange = package ?? "",
                 TypeName = type ?? "",
+                MemberName = parseResult.GetValue(memberOption),
                 Finding = aliases.Count == 1
                     ? aliases[0]
                     : explicitFinding ?? MetadataFindings.MemberDescriptor.Id,

@@ -322,7 +322,7 @@ public class DependsCommand
         mdWriter.Flush();
     }
 
-    private static void WriteMarkdown(PackageDependenciesView view, int? rows)
+    private static void WriteMarkdown(PackageDependenciesView view, RowWindow? rows)
     {
         OutputFormatter.WriteLimitedMarkdown(Console.Out,
             MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default), rows);

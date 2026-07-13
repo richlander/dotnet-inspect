@@ -1,6 +1,7 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Tests;
@@ -95,7 +96,7 @@ public class IndexBuildInvariantTests
                 SectionNames.PerformanceTriage,
             ],
             Markdown = true,
-            Rows = 25,
+            Rows = new RowWindow(25, FromEnd: false),
         }));
 
         Assert.Equal(0, result.ExitCode);

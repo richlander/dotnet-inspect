@@ -42,7 +42,8 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
         ArgumentNullException.ThrowIfNull(body);
         var provider = new StackTypeSignatureProvider(reader);
         var definition = reader.GetMethodDefinition(method);
-        var signature = definition.DecodeSignature(provider, null);
+        if (!GuardedProviderDecode.TryMethod(reader, definition, provider, null, out var signature))
+            throw new BadImageFormatException("Method signature exceeds the safe structural depth.");
 
         var arguments = ImmutableArray.CreateBuilder<StackType>();
         if (signature.Header.IsInstance && !signature.Header.HasExplicitThis)
@@ -55,7 +56,11 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
         var locals = ImmutableArray<StackType>.Empty;
         if (!body.LocalSignature.IsNil)
         {
-            var localSig = reader.GetStandaloneSignature(body.LocalSignature).DecodeLocalSignature(provider, null);
+            var localSig = GuardedProviderDecode.LocalVariables(
+                reader,
+                reader.GetStandaloneSignature(body.LocalSignature),
+                provider,
+                null);
             locals = [.. localSig.Select(t => t.Stack)];
         }
 
@@ -73,8 +78,18 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
             var handle = MetadataTokens.EntityHandle(fieldToken);
             return handle.Kind switch
             {
-                HandleKind.FieldDefinition => _reader.GetFieldDefinition((FieldDefinitionHandle)handle).DecodeSignature(_provider, null).Stack,
-                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).DecodeFieldSignature(_provider, null).Stack,
+                HandleKind.FieldDefinition => GuardedProviderDecode.Field(
+                    _reader,
+                    _reader.GetFieldDefinition((FieldDefinitionHandle)handle),
+                    _provider,
+                    null,
+                    SigType.Of(StackType.Unknown)).Stack,
+                HandleKind.MemberReference => GuardedProviderDecode.MemberRefField(
+                    _reader,
+                    _reader.GetMemberReference((MemberReferenceHandle)handle),
+                    _provider,
+                    null,
+                    SigType.Of(StackType.Unknown)).Stack,
                 _ => StackType.Unknown,
             };
         }
@@ -133,7 +148,15 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
             var handle = MetadataTokens.EntityHandle(signatureToken);
             if (handle.Kind != HandleKind.StandaloneSignature)
                 return false;
-            var signature = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle).DecodeMethodSignature(_provider, null);
+            if (!GuardedProviderDecode.TryStandaloneMethod(
+                _reader,
+                _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle),
+                _provider,
+                null,
+                out var signature))
+            {
+                return false;
+            }
             popCount = signature.ParameterTypes.Length + (signature.Header.IsInstance && !signature.Header.HasExplicitThis ? 1 : 0);
             pushes = !signature.ReturnType.IsVoid;
             pushType = signature.ReturnType.Stack;
@@ -160,7 +183,8 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
             case HandleKind.MethodDefinition:
             {
                 var definition = _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                var signature = definition.DecodeSignature(_provider, null);
+                if (!GuardedProviderDecode.TryMethod(_reader, definition, _provider, null, out var signature))
+                    return false;
                 paramCount = signature.ParameterTypes.Length;
                 hasThis = signature.Header.IsInstance && !signature.Header.HasExplicitThis;
                 returnType = signature.ReturnType;
@@ -170,7 +194,8 @@ public sealed class MetadataStackTypeResolver : IStackTypeResolver
             case HandleKind.MemberReference:
             {
                 var member = _reader.GetMemberReference((MemberReferenceHandle)handle);
-                var signature = member.DecodeMethodSignature(_provider, null);
+                if (!GuardedProviderDecode.TryMemberRefMethod(_reader, member, _provider, null, out var signature))
+                    return false;
                 paramCount = signature.ParameterTypes.Length;
                 hasThis = signature.Header.IsInstance && !signature.Header.HasExplicitThis;
                 returnType = signature.ReturnType;
