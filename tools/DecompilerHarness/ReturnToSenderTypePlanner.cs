@@ -1801,6 +1801,23 @@ public static class CompileBackSourceComposer
         if (!anyArrayCovariant)
             return false;
 
+        // Types the inspected assembly DEFINES (not merely references) can declare
+        // an implicit conversion operator from an array that we cannot see, and the
+        // decoder canonicalizes a facade-simple-named inspected assembly
+        // (System.Runtime, mscorlib, netstandard, ...) to "corelib", so assembly
+        // identity alone cannot prove such a definition non-convertible. Collect the
+        // inspected definitions so competitor exclusion never rules one out.
+        var inspectedTypeNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var definitionHandle in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(definitionHandle);
+            string definitionNamespace = reader.GetString(definition.Namespace);
+            string definitionName = reader.GetString(definition.Name);
+            inspectedTypeNames.Add(definitionNamespace.Length == 0
+                ? definitionName
+                : definitionNamespace + "." + definitionName);
+        }
+
         // Enumerate the target type's instance constructors from metadata, each
         // with the arity range it can bind (a `params` array or optional parameters
         // let a constructor absorb calls of other declared arities). The metadata
@@ -1846,7 +1863,7 @@ public static class CompileBackSourceComposer
             for (int i = 0; i < paramCount; i++)
             {
                 if (argTypes[i].Kind == TypeRefKind.SzArray
-                    && CompetitorExcludedAtPosition(argTypes[i], shape, i))
+                    && CompetitorExcludedAtPosition(argTypes[i], shape, i, inspectedTypeNames))
                 {
                     excluded = true;
                     break;
@@ -1917,23 +1934,43 @@ public static class CompileBackSourceComposer
     /// which over-approximates convertibility, so a <c>true</c> result here proves
     /// non-applicability.
     /// </summary>
-    static bool CompetitorExcludedAtPosition(TypeRef arrayArg, CtorShape shape, int position)
+    static bool CompetitorExcludedAtPosition(TypeRef arrayArg, CtorShape shape, int position, HashSet<string> inspectedTypeNames)
     {
         var paramTypes = shape.ParamTypes;
         int count = paramTypes.Count;
         if (shape.HasParams && position >= count - 1)
         {
             var paramsArray = paramTypes[count - 1];
+            // A params array or its element defined in the inspected assembly could
+            // declare a conversion operator we cannot see; never rule it out.
+            if (IsInspectedDefinition(paramsArray, inspectedTypeNames)
+                || (paramsArray.ElementType is { } inspectedElement
+                    && IsInspectedDefinition(inspectedElement, inspectedTypeNames)))
+            {
+                return false;
+            }
+
             bool toElement = paramsArray.ElementType is { } element && ArrayCanConvertTo(arrayArg, element);
             bool toArray = ArrayCanConvertTo(arrayArg, paramsArray);
             return !toElement && !toArray;
         }
 
         if (position < count)
+        {
+            // A parameter type defined in the inspected assembly could declare an
+            // implicit array conversion operator; keep it in play (fail-closed).
+            if (IsInspectedDefinition(paramTypes[position], inspectedTypeNames))
+                return false;
             return !ArrayCanConvertTo(arrayArg, paramTypes[position]);
+        }
 
         return true;
     }
+
+    static bool IsInspectedDefinition(TypeRef type, HashSet<string> inspectedTypeNames)
+        => type.Kind == TypeRefKind.Definition
+            && inspectedTypeNames.Contains(
+                type.Namespace.Length == 0 ? type.Name : type.Namespace + "." + type.Name);
 
     /// <summary>
     /// Whether an argument's static type is a single-dimensional array
