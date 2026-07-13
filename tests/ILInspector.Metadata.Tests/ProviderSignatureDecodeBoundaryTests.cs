@@ -91,7 +91,8 @@ public class ProviderSignatureDecodeBoundaryTests
                 .OfType<InvocationExpressionSyntax>()
                 .Where(i => IsDecodeInvocation(i) && IsNestedTypeSpecReentry(i)))
             {
-                if (IsBoundedByTypeSpecGuard(invocation))
+                if (IsBoundedByTypeSpecGuard(invocation)
+                    || IsDepthAndCumulativeBoundedTypeSpecDecode(invocation))
                     continue;
 
                 var line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
@@ -248,10 +249,25 @@ public class ProviderSignatureDecodeBoundaryTests
             """
             class C
             {
-                object M()
+                object GetTypeFromSpecification()
                 {
                     TypeSpecGuard.TryEnter(reader, otherHandle, out var unrelated);
                     return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "TypeSpec local alias with prescan only",
+            """
+            class C
+            {
+                object GetTypeFromSpecification()
+                {
+                    var spec = reader.GetTypeSpecification(handle);
+                    return SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind)
+                        ? spec.DecodeSignature(provider, context)
+                        : fallback;
                 }
             }
             """
@@ -261,7 +277,7 @@ public class ProviderSignatureDecodeBoundaryTests
             """
             class C
             {
-                object M()
+                object GetTypeFromSpecification()
                 {
                     if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
                         return fallback;
@@ -280,7 +296,7 @@ public class ProviderSignatureDecodeBoundaryTests
             """
             class C
             {
-                object M()
+                object GetTypeFromSpecification()
                 {
                     if (!TypeSpecGuard.TryEnter(reader, otherHandle, out var scope))
                         return fallback;
@@ -297,7 +313,7 @@ public class ProviderSignatureDecodeBoundaryTests
             """
             class C
             {
-                object M()
+                object GetTypeFromSpecification()
                 {
                     if (!TypeSpecGuard.TryEnter(otherReader, handle, out var scope))
                         return fallback;
@@ -314,7 +330,7 @@ public class ProviderSignatureDecodeBoundaryTests
             """
             class C
             {
-                object M()
+                object GetTypeFromSpecification()
                 {
                     if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
                         return fallback;
@@ -323,6 +339,38 @@ public class ProviderSignatureDecodeBoundaryTests
                     using (scope)
                     {
                         return reader.GetTypeSpecification(handle).DecodeSignature(provider, context);
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder with constant blob length",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = 0;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
                     }
                 }
             }
@@ -605,29 +653,27 @@ public class ProviderSignatureDecodeBoundaryTests
             && DecodeMethodNames.Contains(member.Name.Identifier.Text);
 
     static bool IsSanctionedDecode(InvocationExpressionSyntax invocation)
-        => IsNestedTypeSpecReentry(invocation)
-            ? IsBoundedByTypeSpecGuard(invocation)
-            : IsPrescanGuardedTernary(invocation)
-                || IsPrescanGuardedIf(invocation)
-                || IsDepthAndCumulativeBoundedTypeSpecDecode(invocation);
+        => IsDepthAndCumulativeBoundedTypeSpecDecode(invocation)
+            || IsBoundedByTypeSpecGuard(invocation)
+            || (!IsNestedTypeSpecReentry(invocation)
+                && (IsPrescanGuardedTernary(invocation)
+                    || IsPrescanGuardedIf(invocation)));
 
     // `<expr>.GetTypeSpecification(...).Decode*Signature(...)`: the decode's
-    // immediate receiver is itself a GetTypeSpecification invocation.
+    // receiver is a GetTypeSpecification invocation, directly or through a
+    // local initialized from one, inside the provider callback where it is a
+    // cross-handle re-entry rather than a top-level TypeSpec gateway.
     static bool IsNestedTypeSpecReentry(InvocationExpressionSyntax invocation)
-        => invocation.Expression is MemberAccessExpressionSyntax member
-            && member.Expression is InvocationExpressionSyntax receiver
-            && receiver.Expression is MemberAccessExpressionSyntax receiverMember
-            && receiverMember.Name.Identifier.Text == "GetTypeSpecification";
+        => TryGetTypeSpecificationOrigin(invocation, out _, out _)
+            && invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault() is
+            {
+                Identifier.Text: "GetTypeFromSpecification"
+            };
 
     static bool IsBoundedByTypeSpecGuard(InvocationExpressionSyntax invocation)
     {
-        if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember
-            || decodeMember.Expression is not InvocationExpressionSyntax typeSpecReceiver
-            || typeSpecReceiver.Expression is not MemberAccessExpressionSyntax typeSpecAccess
-            || typeSpecReceiver.ArgumentList.Arguments.FirstOrDefault()?.Expression is not { } handle)
-        {
+        if (!TryGetTypeSpecificationOrigin(invocation, out var reader, out var handle))
             return false;
-        }
 
         foreach (var usingStatement in invocation.Ancestors().OfType<UsingStatementSyntax>())
         {
@@ -647,7 +693,7 @@ public class ProviderSignatureDecodeBoundaryTests
             if (ConditionRejectsFailedTypeSpecEntry(
                     guard.Condition,
                     scope.Identifier.Text,
-                    typeSpecAccess.Expression,
+                    reader,
                     handle)
                 && StatementAlwaysExits(guard.Statement))
             {
@@ -657,6 +703,50 @@ public class ProviderSignatureDecodeBoundaryTests
 
         return false;
     }
+
+    static bool TryGetTypeSpecificationOrigin(
+        InvocationExpressionSyntax decode,
+        out ExpressionSyntax reader,
+        out ExpressionSyntax handle)
+    {
+        reader = null!;
+        handle = null!;
+        if (decode.Expression is not MemberAccessExpressionSyntax decodeMember)
+            return false;
+
+        InvocationExpressionSyntax? getTypeSpec = decodeMember.Expression switch
+        {
+            InvocationExpressionSyntax direct => direct,
+            IdentifierNameSyntax identifier => FindLocalInitializer(decode, identifier.Identifier.Text)
+                as InvocationExpressionSyntax,
+            _ => null,
+        };
+        if (getTypeSpec?.Expression is not MemberAccessExpressionSyntax access
+            || access.Name.Identifier.Text != "GetTypeSpecification"
+            || getTypeSpec.ArgumentList.Arguments.Count != 1)
+        {
+            return false;
+        }
+
+        reader = access.Expression;
+        handle = getTypeSpec.ArgumentList.Arguments[0].Expression;
+        return true;
+    }
+
+    static ExpressionSyntax? FindLocalInitializer(
+        InvocationExpressionSyntax invocation,
+        string identifier)
+        => invocation.SyntaxTree.GetRoot()
+            .DescendantNodes()
+            .OfType<VariableDeclaratorSyntax>()
+            .Where(variable =>
+                variable.Identifier.Text == identifier
+                && variable.SpanStart < invocation.SpanStart
+                && variable.Ancestors().OfType<BlockSyntax>()
+                    .Any(block => block.Span.Contains(invocation.Span)))
+            .OrderByDescending(variable => variable.SpanStart)
+            .Select(variable => variable.Initializer?.Value)
+            .FirstOrDefault(value => value is not null);
 
     static bool ConditionRejectsFailedTypeSpecEntry(
         ExpressionSyntax condition,
@@ -818,17 +908,28 @@ public class ProviderSignatureDecodeBoundaryTests
             return false;
         }
 
-        bool receiverIsTypeSpec = method.DescendantNodes()
-            .OfType<VariableDeclaratorSyntax>()
-            .Any(variable =>
-                variable.Identifier.Text == receiver.Identifier.Text
-                && variable.SpanStart < invocation.SpanStart
-                && variable.Initializer?.Value is InvocationExpressionSyntax
+        if (!TryGetTypeSpecificationOrigin(invocation, out var reader, out _))
+            return false;
+
+        bool blobLengthIsBoundToReceiver =
+            FindLocalInitializer(invocation, "blobLength") is MemberAccessExpressionSyntax
+            {
+                Name.Identifier.Text: "Length",
+                Expression: InvocationExpressionSyntax
                 {
-                    Expression: MemberAccessExpressionSyntax member
-                }
-                && member.Name.Identifier.Text == "GetTypeSpecification");
-        if (!receiverIsTypeSpec
+                    Expression: MemberAccessExpressionSyntax blobReader
+                } getBlobReader
+            }
+            && blobReader.Name.Identifier.Text == "GetBlobReader"
+            && Equivalent(blobReader.Expression, reader)
+            && getBlobReader.ArgumentList.Arguments.Count == 1
+            && getBlobReader.ArgumentList.Arguments[0].Expression is MemberAccessExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax spec,
+                Name.Identifier.Text: "Signature"
+            }
+            && spec.Identifier.Text == receiver.Identifier.Text;
+        if (!blobLengthIsBoundToReceiver
             || !HasRejectingComparisonBefore(
                 body,
                 invocation,
