@@ -1,12 +1,12 @@
 namespace SectionRegistrySpike;
 
 /// <summary>
-/// Shared execution context passed to every capability. <see cref="NetworkAuthorized"/> mirrors
-/// production's authorization derived from <c>SectionPipeline.GetAuthorizedSections</c> — network
-/// capabilities must check it and refuse to run when it is false rather than silently no-op.
+/// Caller-owned per-run state. Capability executors are static and place reusable results here,
+/// matching the product's existing <c>ScannerContext</c> ownership.
 /// </summary>
 public sealed class SpikeContext
 {
     public required SpikeModel Model { get; init; }
-    public required bool NetworkAuthorized { get; init; }
+    public int BodyIndex { get; set; }
+    public int WorkCount { get; set; }
 }

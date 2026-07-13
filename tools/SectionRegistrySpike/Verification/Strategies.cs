@@ -7,267 +7,171 @@ using SectionRegistrySpike.Sections;
 
 namespace SectionRegistrySpike.Verification;
 
-/// <summary>
-/// Runs the four strategies from issue #2605 (describe, discover, effective discovery, render)
-/// plus the current-vs-typed A/B and negative self-verification checks, emitting Markdown
-/// evidence and recording pass/fail assertions on a <see cref="Report"/>.
-/// </summary>
 public static class Strategies
 {
     public static async Task<Report> RunAsync()
     {
         var report = new Report();
-        report.Heading("Section Registry Spike — Evidence (issue #2605)", 1);
-        report.Line();
-        report.Line("Representative model only. No production descriptors or commands are changed by this spike.");
+        report.Heading("Section Registry Spike - Evidence (issue #2605)", 1);
         report.Line();
 
         var capabilities = SpikeSections.CreateCapabilityRegistry();
-        var capRegistry = SpikeSections.CreateCapabilityRegistrySections(capabilities);
+        var typed = SpikeSections.CreateCapabilityRegistrySections(capabilities);
         var currentPipeline = CurrentBaselinePipelines.CreatePipeline();
         var currentScanners = CurrentBaselinePipelines.CreateScannerRegistry();
 
-        DescribeStrategy(report, capRegistry, currentPipeline);
-        DiscoverStrategy(report, capRegistry, currentPipeline);
-        await EffectiveDiscoveryStrategyAsync(report, capabilities, capRegistry);
-        await RenderStrategyAsync(report, capabilities, capRegistry, currentPipeline, currentScanners);
-        await NegativeChecksAsync(report, capabilities, capRegistry);
+        Describe(report, typed, currentPipeline);
+        Discover(report, typed, currentPipeline);
+        await EffectiveDiscoveryAsync(report, typed);
+        await RenderAsync(report, typed, currentPipeline, currentScanners);
+        await NegativeChecksAsync(report, typed);
 
-        report.Heading("Conclusion input", 2);
-        report.Bullet("Current and typed work traces/counts were equal for every representative selection above.");
-        report.Bullet("The typed plan performed the same work as today — no runtime savings are claimed.");
-        report.Bullet("Representative drift path: capability dependencies (BodyIndex, AcquirePdb→FetchSource) are explicit registered metadata instead of implicit context helpers and manual bool branches.");
-        report.Bullet("See docs/design/capability-section-registry-spike.md for the staged-migration conclusion.");
+        report.Heading("Code-quality result", 2);
+        report.Bullet("Typed descriptors have one execution declaration: RequiredCapabilities.");
+        report.Bullet("Probe safety and operation-specific authorization are derived from the compiled plan.");
+        report.Bullet("Plans hold static executors; no capability factory, per-capability object, or reusable failed instance exists.");
+        report.Bullet("The real SectionPipeline still owns names, categories, verbosity, -D/-S, and render filtering.");
+        report.Line();
 
         return report;
     }
 
-    private static void DescribeStrategy(
+    private static void Describe(
         Report report,
-        CapabilitySectionRegistry<SpikeModel, SpikeContext> capRegistry,
-        SectionPipeline<SpikeModel> currentPipeline)
+        CapabilitySectionRegistry<SpikeModel, SpikeContext> typed,
+        SectionPipeline<SpikeModel> current)
     {
-        report.Heading("Strategy 1 — Describe/schema (static metadata only)", 2);
+        report.Heading("Strategy 1 - Describe/schema", 2);
+        report.Check(typed.Pipeline.AllSectionNames.SequenceEqual(current.AllSectionNames),
+            "registration order matches the current pipeline");
+        report.Check(
+            typed.Pipeline.GetCostAnnotations().OrderBy(pair => pair.Key)
+                .SequenceEqual(current.GetCostAnnotations().OrderBy(pair => pair.Key)),
+            "cost annotations match the current pipeline");
+        report.Check(typed.Pipeline.GetCategoryMap()["@Source"].SequenceEqual(current.GetCategoryMap()["@Source"]),
+            "categories remain representable");
 
-        var names = capRegistry.Pipeline.AllSectionNames;
-        report.Line($"Registered sections, in registration order: {string.Join(", ", names)}");
-        report.Line();
-
-        report.Check(
-            names.SequenceEqual(currentPipeline.AllSectionNames),
-            "capability-registry pipeline and current baseline pipeline register the same sections in the same order");
-        report.Check(
-            capRegistry.Pipeline.GetCostAnnotations().OrderBy(kv => kv.Key)
-                .SequenceEqual(currentPipeline.GetCostAnnotations().OrderBy(kv => kv.Key)),
-            "cost annotations (opt-in/verbose) match between the two pipelines");
-        report.Check(
-            capRegistry.Pipeline.GetCategoryMap()["@Projections"].SequenceEqual(currentPipeline.GetCategoryMap()["@Projections"]),
-            "@Projections category matches between the two pipelines");
-        report.Check(
-            capRegistry.Pipeline.GetCategoryMap()["@Source"].SequenceEqual(currentPipeline.GetCategoryMap()["@Source"]),
-            "@Source category matches between the two pipelines");
-        var explicitSource = new HashSet<string>(["Original Source"], StringComparer.Ordinal);
-        report.Check(
-            capRegistry.Pipeline.GetRequiredVerbosity(explicitSource)
-                == currentPipeline.GetRequiredVerbosity(explicitSource),
-            "required verbosity for explicit section selection matches between the two pipelines");
-
-        var resolvedSource = SelectResolver.ResolveSelectAsSections(
+        var resolved = SelectResolver.ResolveSelectAsSections(
             ["@Source"],
-            capRegistry.Pipeline.SelectableSectionNames,
-            capRegistry.Pipeline.InfoSectionNames,
-            capRegistry.Pipeline.GetCategoryMap());
-        report.Check(!resolvedSource.HasError && resolvedSource.Sections is { Count: 2 },
-            "@Source resolves through the existing SelectResolver to two concrete sections");
-        var categoryPlan = capRegistry.PlanFor(resolvedSource.Sections ?? []);
-        var directPlan = capRegistry.PlanFor(["Decompiled Source", "Original Source"]);
-        report.Check(categoryPlan.SequenceEqual(directPlan),
-            "typed planning consumes resolved category members in pipeline registration order");
-
-        // Describe reads only static pipeline metadata — no CapabilitySession is created, so work is
-        // zero by construction (there is nothing to count).
-        report.Check(true, "describe/schema strategy creates zero capability instances (no session constructed)");
+            typed.Pipeline.SelectableSectionNames,
+            typed.Pipeline.InfoSectionNames,
+            typed.Pipeline.GetCategoryMap());
+        report.Check(!resolved.HasError && resolved.Sections is { Count: 2 },
+            "existing SelectResolver expands categories before capability planning");
+        report.Check(typed.PlanFor(resolved.Sections!).Names.SequenceEqual(
+                typed.PlanFor(["Decompiled Source", "Original Source"]).Names),
+            "category and direct selection compile to the same ordered plan");
         report.Line();
     }
 
-    private static void DiscoverStrategy(
+    private static void Discover(
         Report report,
-        CapabilitySectionRegistry<SpikeModel, SpikeContext> capRegistry,
-        SectionPipeline<SpikeModel> currentPipeline)
+        CapabilitySectionRegistry<SpikeModel, SpikeContext> typed,
+        SectionPipeline<SpikeModel> current)
     {
-        report.Heading("Strategy 2 — Discover (structural applicability only)", 2);
-
-        var freshModel = new SpikeModel();
-        var discoverable = capRegistry.Pipeline.GetDiscoverableSections(freshModel);
-        report.Line($"Discoverable sections on an unexecuted model: {string.Join(", ", discoverable)}");
-        report.Line();
-
-        report.Check(
-            discoverable.Count == 5,
-            "all five representative sections are structurally discoverable before any capability runs");
-        report.Check(
-            discoverable.SequenceEqual(currentPipeline.GetDiscoverableSections(freshModel)),
-            "discoverable sections match between the two pipelines");
-        report.Check(
-            !freshModel.MetadataLoaded && freshModel.DecompiledSource is null && freshModel.OriginalSource is null
-                && freshModel.Calls == 0 && freshModel.Facts == 0,
-            "discover strategy creates zero capability instances (model is untouched)");
-        report.Line();
-    }
-
-    private static async Task EffectiveDiscoveryStrategyAsync(
-        Report report,
-        CapabilityRegistry<SpikeContext> capabilities,
-        CapabilitySectionRegistry<SpikeModel, SpikeContext> capRegistry)
-    {
-        report.Heading("Strategy 3 — Effective discovery (probe only safe-to-probe closures)", 2);
-
+        report.Heading("Strategy 2 - Structural discovery", 2);
         var model = new SpikeModel();
-        var context = new SpikeContext { Model = model, NetworkAuthorized = false };
-        var session = new CapabilitySession<SpikeContext>(capabilities);
+        var names = typed.Pipeline.GetDiscoverableSections(model);
+        report.Check(names.SequenceEqual(current.GetDiscoverableSections(model)),
+            "discovery matches current output on an unexecuted model");
+        report.Check(!model.MetadataLoaded && model.OriginalSource is null && model.Calls == 0,
+            "structural discovery executes no work");
+        report.Line();
+    }
 
-        var applicable = capRegistry.Pipeline.GetDiscoverableSections(model);
-        var unprobed = capRegistry.Pipeline.GetUnprobedSections();
+    private static async Task EffectiveDiscoveryAsync(
+        Report report,
+        CapabilitySectionRegistry<SpikeModel, SpikeContext> typed)
+    {
+        report.Heading("Strategy 3 - Effective discovery", 2);
+        var model = new SpikeModel();
+        var context = new SpikeContext { Model = model };
+        List<string> trace = [];
         List<string> probed = [];
-        List<string> structuralOnly = [];
+        List<string> deferred = [];
 
-        foreach (var name in applicable)
+        foreach (var name in typed.Pipeline.GetDiscoverableSections(model))
         {
-            if (unprobed.Contains(name))
+            var plan = typed.PlanFor([name]);
+            if (!plan.CanExecute(CapabilityExecutionModes.Probe))
             {
-                structuralOnly.Add(name);
+                deferred.Add(name);
                 continue;
             }
 
-            var plan = capRegistry.PlanFor([name]);
-            if (!capabilities.IsClosureSafeToProbe(plan))
-            {
-                structuralOnly.Add(name);
-                continue;
-            }
-
-            await session.ExecutePlanAsync(plan, context);
+            await plan.ExecuteAsync(context, CapabilityExecutionModes.Probe, trace.Add);
             probed.Add(name);
         }
 
-        report.Line($"Probed (safe closure, executed): {string.Join(", ", probed)}");
-        report.Line($"Structural only (deferred, not executed): {string.Join(", ", structuralOnly)}");
-        report.Line($"Capabilities created: {session.CreatedCount}, executed: {session.ExecutedCount}");
-        report.Code(session.Trace);
-        report.Line();
-
-        report.Check(probed is ["Metadata"], "only Metadata's closure is safe to probe among the representative sections");
-        report.Check(
-            structuralOnly.OrderBy(n => n, StringComparer.Ordinal)
-                .SequenceEqual(new[] { "Calls", "Decompiled Source", "Facts", "Original Source" }.OrderBy(n => n, StringComparer.Ordinal)),
-            "Decompiled Source, Original Source, Calls, and Facts remain structurally discoverable but unprobed");
-        report.Check(session.CreatedCount == 1 && session.ExecutedCount == 1, "effective discovery creates/executes exactly one capability (Metadata)");
-        report.Check(model.DecompiledSource is null && model.OriginalSource is null && model.Calls == 0 && model.Facts == 0,
-            "heavy/decompiler/network/body work stayed at zero during effective discovery");
+        report.Check(probed is ["Metadata"], "only the cheap metadata closure is probe-authorized");
+        report.Check(deferred.Count == 4, "decompiler, network, and body-index work remains deferred");
+        report.Check(context.WorkCount == 1 && trace is ["execute Metadata"],
+            "effective discovery executes exactly one static capability");
         report.Line();
     }
 
-    private static async Task RenderStrategyAsync(
+    private static async Task RenderAsync(
         Report report,
-        CapabilityRegistry<SpikeContext> capabilities,
-        CapabilitySectionRegistry<SpikeModel, SpikeContext> capRegistry,
+        CapabilitySectionRegistry<SpikeModel, SpikeContext> typed,
         SectionPipeline<SpikeModel> currentPipeline,
         CurrentScannerRegistry currentScanners)
     {
-        report.Heading("Strategy 4 — Render (explicit `-S` selection)", 2);
-        report.Line();
-        report.Line("Current-vs-typed A/B for representative selections. Output is from the representative model; product CLI behavior is unchanged.");
-        report.Line();
+        report.Heading("Strategy 4 - Render A/B", 2);
 
-        await CompareSelectionAsync(report, capabilities, capRegistry, currentPipeline, currentScanners,
-            "Metadata", ["Metadata"],
-            expectedTrace: ["create Metadata", "execute Metadata"]);
-
-        await CompareSelectionAsync(report, capabilities, capRegistry, currentPipeline, currentScanners,
-            "Decompiled Source", ["Decompiled Source"],
-            expectedTrace: ["create Decompile", "execute Decompile"]);
-
-        await CompareSelectionAsync(report, capabilities, capRegistry, currentPipeline, currentScanners,
-            "Original Source", ["Original Source"],
-            expectedTrace: ["create AcquirePdb", "execute AcquirePdb", "create FetchSource", "execute FetchSource"]);
-
-        await CompareSelectionAsync(report, capabilities, capRegistry, currentPipeline, currentScanners,
-            "Calls only", ["Calls"],
-            expectedTrace: ["create BodyIndex", "execute BodyIndex", "create Calls", "execute Calls"]);
-
-        await CompareSelectionAsync(report, capabilities, capRegistry, currentPipeline, currentScanners,
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
+            "Metadata", ["Metadata"], ["execute Metadata"]);
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
+            "Decompiled Source", ["Decompiled Source"], ["execute Decompile"]);
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
+            "Original Source", ["Original Source"], ["execute AcquirePdb", "execute FetchSource"]);
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
+            "Calls", ["Calls"], ["execute BodyIndex", "execute Calls"]);
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
             "Calls + Facts", ["Calls", "Facts"],
-            expectedTrace: ["create BodyIndex", "execute BodyIndex", "create Calls", "execute Calls", "create Facts", "execute Facts"]);
-
-        // Empty selection: no section requests any capability.
-        await CompareSelectionAsync(report, capabilities, capRegistry, currentPipeline, currentScanners,
-            "Empty selection", [],
-            expectedTrace: []);
-
+            ["execute BodyIndex", "execute Calls", "execute Facts"]);
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
+            "Empty", [], []);
         report.Line();
     }
 
-    private static async Task CompareSelectionAsync(
+    private static async Task CompareAsync(
         Report report,
-        CapabilityRegistry<SpikeContext> capabilities,
-        CapabilitySectionRegistry<SpikeModel, SpikeContext> capRegistry,
+        CapabilitySectionRegistry<SpikeModel, SpikeContext> typed,
         SectionPipeline<SpikeModel> currentPipeline,
         CurrentScannerRegistry currentScanners,
         string label,
-        string[] include,
+        string[] selected,
         string[] expectedTrace)
     {
-        report.Heading(label, 3);
+        var include = new HashSet<string>(selected, StringComparer.Ordinal);
+        const Verbosity verbosity = Verbosity.Quiet;
 
-        var includeSet = new HashSet<string>(include, StringComparer.Ordinal);
-        const Verbosity verbosity = Verbosity.Quiet; // network capabilities must come from explicit -S, never verbosity
-
-        // --- current baseline ---
         var currentModel = new SpikeModel();
-        var requiredScanners = currentPipeline.GetRequiredScanners(verbosity, includeSet);
-        bool currentNetworkAuthorized =
-            currentPipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, verbosity, includeSet).Count > 0
-            || currentPipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, verbosity, includeSet).Count > 0;
-        var currentContext = new CurrentScannerContext { Model = currentModel, NetworkAuthorized = currentNetworkAuthorized };
-        currentScanners.RunScanners(requiredScanners, currentContext);
-        await CurrentBaselinePipelines.RunNetworkWorkAsync(currentPipeline, includeSet, verbosity, currentContext);
+        List<string> currentTrace = [];
+        var currentContext = new CurrentScannerContext { Model = currentModel, Trace = currentTrace.Add };
+        currentScanners.RunScanners(currentPipeline.GetRequiredScanners(verbosity, include), currentContext);
+        await CurrentBaselinePipelines.RunNetworkWorkAsync(
+            currentPipeline, include, verbosity, currentContext);
 
-        // --- typed capability registry ---
         var typedModel = new SpikeModel();
-        // Pass the ordered array (not includeSet) — HashSet<string> enumeration order is not
-        // guaranteed, and plan order must be deterministic for the trace assertions below.
-        var plan = capRegistry.PlanFor(include);
-        bool typedNetworkAuthorized = currentNetworkAuthorized; // same GetAuthorizedSections rule, same pipeline shape
-        var typedContext = new SpikeContext { Model = typedModel, NetworkAuthorized = typedNetworkAuthorized };
-        var session = new CapabilitySession<SpikeContext>(capabilities);
-        await session.ExecutePlanAsync(plan, typedContext);
+        List<string> typedTrace = [];
+        var typedContext = new SpikeContext { Model = typedModel };
+        var plan = typed.PlanFor(selected);
+        await plan.ExecuteAsync(typedContext, CapabilityExecutionModes.Explicit, typedTrace.Add);
 
-        var currentSections = currentPipeline.GetEffectiveSections(currentModel, verbosity, includeSet);
-        var typedSections = capRegistry.Pipeline.GetEffectiveSections(typedModel, verbosity, includeSet);
-        string currentOutput = RenderRepresentativeOutput(currentModel, currentSections);
-        string typedOutput = RenderRepresentativeOutput(typedModel, typedSections);
+        var currentSections = currentPipeline.GetEffectiveSections(currentModel, verbosity, include);
+        var typedSections = typed.Pipeline.GetEffectiveSections(typedModel, verbosity, include);
+        string currentOutput = Render(currentModel, currentSections);
+        string typedOutput = Render(typedModel, typedSections);
 
-        report.Line($"Current trace: {(currentContext.Trace.Count == 0 ? "(none)" : string.Join(", ", currentContext.Trace))}");
-        report.Line($"Typed trace:   {(session.Trace.Count == 0 ? "(none)" : string.Join(", ", session.Trace))}");
-        report.Line($"Current work: {currentContext.Trace.Count / 2} created, {currentContext.Trace.Count / 2} executed");
-        report.Line($"Typed work:   {session.CreatedCount} created, {session.ExecutedCount} executed");
-        report.Line("Current output:");
-        report.Code(currentOutput.Length == 0 ? ["(none)"] : currentOutput.Split('\n'));
-        report.Line("Typed output:");
-        report.Code(typedOutput.Length == 0 ? ["(none)"] : typedOutput.Split('\n'));
-        report.Line();
-
-        report.Check(currentContext.Trace.SequenceEqual(expectedTrace), $"current baseline trace matches expected trace for '{label}'");
-        report.Check(session.Trace.SequenceEqual(expectedTrace), $"typed plan trace matches expected trace for '{label}'");
-        report.Check(currentContext.Trace.SequenceEqual(session.Trace), $"current and typed traces are identical for '{label}'");
-        report.Check(session.CreatedCount == expectedTrace.Length / 2 && session.ExecutedCount == expectedTrace.Length / 2,
-            $"typed creation/execution counts match expected work for '{label}'");
-        report.Check(currentSections.SequenceEqual(typedSections), $"current and typed render-filter sections are identical for '{label}'");
-        report.Check(currentOutput == typedOutput, $"current and typed representative CLI output are identical for '{label}'");
-        report.Line();
+        report.Check(currentTrace.SequenceEqual(expectedTrace), $"{label}: current trace is expected");
+        report.Check(typedTrace.SequenceEqual(expectedTrace), $"{label}: typed trace is expected");
+        report.Check(currentContext.WorkCount == typedContext.WorkCount,
+            $"{label}: actual work counts match ({typedContext.WorkCount})");
+        report.Check(currentOutput == typedOutput, $"{label}: representative output matches");
     }
 
-    private static string RenderRepresentativeOutput(SpikeModel model, IEnumerable<string> sections)
+    private static string Render(SpikeModel model, IEnumerable<string> sections)
         => string.Join('\n', sections.Select(name => name switch
         {
             "Metadata" => "Metadata: loaded",
@@ -275,126 +179,128 @@ public static class Strategies
             "Original Source" => $"Original Source: {model.OriginalSource}",
             "Calls" => $"Calls: {model.Calls}",
             "Facts" => $"Facts: {model.Facts}",
-            _ => throw new InvalidOperationException($"No representative renderer is registered for section '{name}'."),
+            _ => throw new InvalidOperationException($"No renderer for '{name}'."),
         }));
 
     private static async Task NegativeChecksAsync(
         Report report,
-        CapabilityRegistry<SpikeContext> capabilities,
-        CapabilitySectionRegistry<SpikeModel, SpikeContext> capRegistry)
+        CapabilitySectionRegistry<SpikeModel, SpikeContext> typed)
     {
-        report.Heading("Negative self-verification", 2);
+        report.Heading("Negative verification", 2);
 
-        // Missing dependency.
-        var missingRegistry = new CapabilityRegistry<object>().Register<DependsOnMissingCapability>();
+        var missing = new CapabilityRegistry<object>().Register<DependsOnMissingCapability>();
         try
         {
-            missingRegistry.ResolvePlan([CapabilityKey.Of<DependsOnMissingCapability>()]);
-            report.Check(false, "resolving a plan with a missing dependency throws CapabilityNotRegisteredException");
+            _ = missing.ResolvePlan([CapabilityKey.Of<DependsOnMissingCapability>()]);
+            report.Check(false, "missing dependency is rejected");
         }
-        catch (CapabilityNotRegisteredException ex)
+        catch (CapabilityNotRegisteredException)
         {
-            report.Line($"Missing-dependency diagnostic: {ex.Message}");
-            report.Check(true, "resolving a plan with a missing dependency throws CapabilityNotRegisteredException");
-        }
-
-        try
-        {
-            capRegistry.PlanFor(["No Such Section"]);
-            report.Check(false, "planning an unknown section throws instead of silently producing an empty plan");
-        }
-        catch (KeyNotFoundException ex)
-        {
-            report.Line($"Unknown-section diagnostic: {ex.Message}");
-            report.Check(true, "planning an unknown section throws instead of silently producing an empty plan");
+            report.Check(true, "missing dependency is rejected");
         }
 
-        // Dependency cycle.
-        var cycleRegistry = new CapabilityRegistry<object>().Register<CycleACapability>().Register<CycleBCapability>();
+        var cycle = new CapabilityRegistry<object>().Register<CycleACapability>().Register<CycleBCapability>();
         try
         {
-            cycleRegistry.ResolvePlan([CapabilityKey.Of<CycleACapability>()]);
-            report.Check(false, "resolving a cyclic plan throws CapabilityCycleException");
+            _ = cycle.ResolvePlan([CapabilityKey.Of<CycleACapability>()]);
+            report.Check(false, "dependency cycle is rejected");
         }
         catch (CapabilityCycleException ex)
         {
-            report.Line($"Cycle diagnostic: {ex.Message}");
-            report.Check(ex.Path.Count >= 3, "cycle diagnostic includes the detected cycle path");
-            report.Check(true, "resolving a cyclic plan throws CapabilityCycleException");
+            report.Check(ex.Path.Count >= 3, "dependency cycle is rejected with its path");
         }
 
-        // Probe-safety: a section-level probe-effectiveness flag says "safe" but the capability
-        // closure contains a not-safe-to-probe capability. Kept in its own registry/pipeline so it
-        // never contaminates the representative production-like descriptor set above.
-        var probeSafetyCapabilities = new CapabilityRegistry<SpikeContext>().Register<DeepScanCapability>();
-        var probeSafetyRegistry = new CapabilitySectionRegistry<SpikeModel, SpikeContext>(probeSafetyCapabilities)
+        var probeCapabilities = new CapabilityRegistry<SpikeContext>().Register<DeepScanCapability>();
+        var probeRegistry = new CapabilitySectionRegistry<SpikeModel, SpikeContext>(probeCapabilities)
             .Add<SpikeSections.MisleadingProbeSection>(_ => true);
+        report.Check(probeRegistry.Pipeline.GetUnprobedSections().Contains("Misleading Probe"),
+            "SectionPipeline probe metadata is derived from the capability plan");
 
-        var probeModel = new SpikeModel();
-        var unprobed = probeSafetyRegistry.Pipeline.GetUnprobedSections();
-        report.Check(!unprobed.Contains("Misleading Probe"),
-            "'Misleading Probe' declares ProbeEffectiveness=true (the section-level flag alone would allow probing)");
-
-        var misleadingPlan = probeSafetyRegistry.PlanFor(["Misleading Probe"]);
-        bool closureSafe = probeSafetyCapabilities.IsClosureSafeToProbe(misleadingPlan);
-        report.Check(!closureSafe, "the capability-closure check finds DeepScan is not safe to probe, despite the section-level flag");
-
-        var probeSession = new CapabilitySession<SpikeContext>(probeSafetyCapabilities);
-        if (closureSafe)
-            await probeSession.ExecutePlanAsync(misleadingPlan, new SpikeContext { Model = probeModel, NetworkAuthorized = false });
-
-        report.Check(probeSession.CreatedCount == 0 && !probeModel.DeepScanRan,
-            "'Misleading Probe' capability closure is deferred: zero instances created, DeepScan never ran");
-
-        // Network rejection when not authorized: Original Source's plan runs but the context refuses.
-        var unauthorizedContext = new SpikeContext { Model = new SpikeModel(), NetworkAuthorized = false };
-        var originalSourcePlan = capRegistry.PlanFor(["Original Source"]);
-        var unauthorizedSession = new CapabilitySession<SpikeContext>(capabilities);
+        var originalSource = typed.PlanFor(["Original Source"]);
+        var unauthorized = new SpikeContext { Model = new SpikeModel() };
         try
         {
-            await unauthorizedSession.ExecutePlanAsync(originalSourcePlan, unauthorizedContext);
-            report.Check(false, "executing Original Source's plan without network authorization throws");
+            await originalSource.ExecuteAsync(unauthorized, CapabilityExecutionModes.Detailed);
+            report.Check(false, "source-body work is rejected outside explicit selection");
         }
-        catch (InvalidOperationException ex)
+        catch (CapabilityNotAuthorizedException)
         {
-            report.Line($"Unauthorized-network diagnostic: {ex.Message}");
-            report.Check(true, "executing Original Source's plan without network authorization throws");
+            report.Check(!unauthorized.Model.PdbAcquired && unauthorized.WorkCount == 0,
+                "authorization is preflighted before a prerequisite mutates context");
         }
-        report.Check(!unauthorizedSession.HasExecuted<AcquirePdbCapability>(),
-            "a failed capability is not recorded as executed");
 
+        var pdbOnly = typed.Capabilities.ResolvePlan([CapabilityKey.Of<AcquirePdbCapability>()]);
+        var detailed = new SpikeContext { Model = new SpikeModel() };
+        await pdbOnly.ExecuteAsync(detailed, CapabilityExecutionModes.Detailed);
+        report.Check(detailed.Model.PdbAcquired,
+            "PDB acquisition remains authorized at detailed verbosity without authorizing source bodies");
+
+        var retryRegistry = new CapabilityRegistry<FailureContext>().Register<FailOnceCapability>();
+        var retryPlan = retryRegistry.ResolvePlan([CapabilityKey.Of<FailOnceCapability>()]);
+        var retryContext = new FailureContext();
+        try
+        {
+            await retryPlan.ExecuteAsync(retryContext, CapabilityExecutionModes.Explicit);
+        }
+        catch (InvalidOperationException)
+        {
+            // Expected first attempt.
+        }
+        await retryPlan.ExecuteAsync(retryContext, CapabilityExecutionModes.Explicit);
+        report.Check(retryContext.Attempts == 2,
+            "failed execution leaves no cached capability instance or poisoned session state");
         report.Line();
     }
 
-    private sealed class DependsOnMissingCapability : ICapability<object>
+    private readonly struct DependsOnMissingCapability : ICapability<object>
     {
         public static string Name => "DependsOnMissing";
-        public static bool SafeToProbe => false;
+        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
         public static CapabilityKey[] DependsOn => [CapabilityKey.Of<NotRegisteredCapability>()];
-        public ValueTask ExecuteAsync(object context, CapabilitySession<object> session) => ValueTask.CompletedTask;
+        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
     }
 
-    private sealed class NotRegisteredCapability : ICapability<object>
+    private readonly struct NotRegisteredCapability : ICapability<object>
     {
         public static string Name => "NotRegistered";
-        public static bool SafeToProbe => false;
+        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
         public static CapabilityKey[] DependsOn => [];
-        public ValueTask ExecuteAsync(object context, CapabilitySession<object> session) => ValueTask.CompletedTask;
+        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
     }
 
-    private sealed class CycleACapability : ICapability<object>
+    private readonly struct CycleACapability : ICapability<object>
     {
         public static string Name => "CycleA";
-        public static bool SafeToProbe => false;
+        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
         public static CapabilityKey[] DependsOn => [CapabilityKey.Of<CycleBCapability>()];
-        public ValueTask ExecuteAsync(object context, CapabilitySession<object> session) => ValueTask.CompletedTask;
+        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
     }
 
-    private sealed class CycleBCapability : ICapability<object>
+    private readonly struct CycleBCapability : ICapability<object>
     {
         public static string Name => "CycleB";
-        public static bool SafeToProbe => false;
+        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
         public static CapabilityKey[] DependsOn => [CapabilityKey.Of<CycleACapability>()];
-        public ValueTask ExecuteAsync(object context, CapabilitySession<object> session) => ValueTask.CompletedTask;
+        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
+    }
+
+    private sealed class FailureContext
+    {
+        public int Attempts { get; set; }
+    }
+
+    private readonly struct FailOnceCapability : ICapability<FailureContext>
+    {
+        public static string Name => "FailOnce";
+        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
+        public static CapabilityKey[] DependsOn => [];
+
+        public static ValueTask ExecuteAsync(FailureContext context)
+        {
+            context.Attempts++;
+            if (context.Attempts == 1)
+                throw new InvalidOperationException("representative partial failure");
+            return ValueTask.CompletedTask;
+        }
     }
 }

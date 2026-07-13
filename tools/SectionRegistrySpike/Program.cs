@@ -6,16 +6,22 @@ internal static class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        if (!args.Contains("--verify"))
+        bool verify = args.Contains("--verify");
+        bool benchmark = args.Contains("--benchmark");
+        if (!verify && !benchmark)
         {
-            Console.Error.WriteLine("Usage: section-registry-spike --verify");
-            Console.Error.WriteLine("Runs the capability-registry evaluation spike for issue #2605 and prints Markdown evidence.");
+            Console.Error.WriteLine("Usage: section-registry-spike [--verify] [--benchmark]");
             return 2;
         }
 
+        if (benchmark)
+            Console.Out.Write(Performance.Run());
+
+        if (!verify)
+            return 0;
+
         var report = await Strategies.RunAsync();
         Console.Out.Write(report.Render());
-
         if (!report.Success)
         {
             Console.Error.WriteLine();

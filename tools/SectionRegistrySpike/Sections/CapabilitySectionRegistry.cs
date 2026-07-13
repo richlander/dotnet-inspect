@@ -4,86 +4,100 @@ using SectionRegistrySpike.Capabilities;
 namespace SectionRegistrySpike.Sections;
 
 /// <summary>
-/// Bridges <see cref="ICapabilitySectionDescriptor{TModel}"/> registrations into the real
-/// <see cref="SectionPipeline{TModel}"/> (selection, verbosity, <c>-D</c>/<c>-S</c>, categories,
-/// cost annotations, <c>ProbeEffectiveness</c> all stay exactly the current pipeline behavior)
-/// while also recording each section's typed capability requirements for planning.
-/// <c>Add&lt;TDescriptor&gt;</c> is the manual registration mechanism today. A source generator
-/// could later emit the same <c>Add</c> calls and the non-generic runtime entries they produce —
-/// the same relationship Markout's generated <c>MarkoutSerializerContext</c> has to
-/// <c>MarkoutTypeInfo&lt;T&gt;</c> — without changing this registry's shape.
+/// One authority for section selection metadata and executable requirements. It compiles each
+/// descriptor's capability closure at registration time, derives probe safety, and feeds the real
+/// <see cref="SectionPipeline{TModel}"/> a runtime entry.
 /// </summary>
-/// <typeparam name="TModel">The model type sections inspect.</typeparam>
-/// <typeparam name="TContext">The capability execution context type.</typeparam>
 public sealed class CapabilitySectionRegistry<TModel, TContext>
 {
-    private readonly Dictionary<string, CapabilityKey[]> _sectionCapabilities =
+    private sealed record RegisteredSection(
+        string Name,
+        CapabilityKey[] RequiredCapabilities,
+        CapabilityPlan<TContext> Plan);
+
+    private readonly Dictionary<string, RegisteredSection> _sections =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> _sectionOrder = [];
+    private readonly List<RegisteredSection> _sectionOrder = [];
 
     public CapabilitySectionRegistry(CapabilityRegistry<TContext> capabilities)
     {
         Capabilities = capabilities;
     }
 
-    /// <summary>The real section pipeline. Selection/schema/render-filter questions go through this unchanged.</summary>
     public SectionPipeline<TModel> Pipeline { get; } = new();
 
-    /// <summary>The capability registry backing this section registry's typed execution planning.</summary>
     public CapabilityRegistry<TContext> Capabilities { get; }
 
-    /// <summary>
-    /// Registers a section descriptor: calls the real <see cref="SectionPipeline{TModel}.Add{TDescriptor}"/>
-    /// (so registration order, categories, verbosity, and probe semantics are the real pipeline's),
-    /// then records the descriptor's <see cref="ICapabilitySectionDescriptor{TModel}.RequiredCapabilities"/>
-    /// for later planning.
-    /// </summary>
-    public CapabilitySectionRegistry<TModel, TContext> Add<TDescriptor>(Func<TModel, bool>? isApplicable = null)
-        where TDescriptor : ICapabilitySectionDescriptor<TModel>
+    public CapabilitySectionRegistry<TModel, TContext> Add<TDescriptor>(
+        Func<TModel, bool>? isApplicable = null)
+        where TDescriptor : ICapabilitySectionDescriptor<TModel, TContext>
     {
-        if (_sectionCapabilities.ContainsKey(TDescriptor.Name))
+        if (_sections.ContainsKey(TDescriptor.Name))
             throw new InvalidOperationException($"Section '{TDescriptor.Name}' is already registered.");
 
-        Pipeline.Add<TDescriptor>(isApplicable);
-        _sectionCapabilities.Add(TDescriptor.Name, [.. TDescriptor.RequiredCapabilities]);
-        _sectionOrder.Add(TDescriptor.Name);
+        CapabilityKey[] requirements = [.. TDescriptor.RequiredCapabilities];
+        var plan = Capabilities.ResolvePlan(requirements);
+        var section = new RegisteredSection(TDescriptor.Name, requirements, plan);
+
+        Pipeline.Add(new SectionEntry<TModel>
+        {
+            Name = TDescriptor.Name,
+            IsExpensive = TDescriptor.IsExpensive,
+            ExplicitOnly = TDescriptor.ExplicitOnly,
+            Info = TDescriptor.Info,
+            ProbeEffectiveness = plan.CanExecute(CapabilityExecutionModes.Probe),
+            Capabilities = SectionCapabilities.None,
+            ScannerKey = null,
+            HasExplicitApplicability = isApplicable != null,
+            IsApplicable = isApplicable ?? TDescriptor.CanRender,
+            CanRender = TDescriptor.CanRender,
+        });
+
+        _sections.Add(section.Name, section);
+        _sectionOrder.Add(section);
         return this;
     }
 
-    /// <summary>Delegates directly to the real pipeline's category registration.</summary>
     public CapabilitySectionRegistry<TModel, TContext> AddCategory(string name, params string[] sections)
     {
         Pipeline.AddCategory(name, sections);
         return this;
     }
 
-    /// <summary>Direct capability requirements declared by a single registered section.</summary>
     public IReadOnlyList<CapabilityKey> RequiredCapabilitiesFor(string sectionName)
-        => _sectionCapabilities.TryGetValue(sectionName, out var caps)
-            ? caps
-            : throw new KeyNotFoundException($"Section '{sectionName}' is not registered.");
+        => GetSection(sectionName).RequiredCapabilities;
 
     /// <summary>
-    /// Resolves the full dependency-ordered, deduplicated capability plan needed to populate every
-    /// section in <paramref name="sectionNames"/>.
+    /// Returns a precompiled plan without allocation for one section. Multi-section requests are
+    /// canonicalized by registration order and compiled into one deduplicated plan.
     /// </summary>
-    public IReadOnlyList<CapabilityKey> PlanFor(IEnumerable<string> sectionNames)
+    public CapabilityPlan<TContext> PlanFor(IEnumerable<string> sectionNames)
     {
+        if (sectionNames is IReadOnlyCollection<string> { Count: 0 })
+            return Capabilities.ResolvePlan([]);
+
+        if (sectionNames is IReadOnlyList<string> { Count: 1 } one)
+            return GetSection(one[0]).Plan;
+
         HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase);
         foreach (var name in sectionNames)
         {
-            if (!_sectionCapabilities.ContainsKey(name))
-                throw new KeyNotFoundException($"Section '{name}' is not registered.");
+            _ = GetSection(name);
             selected.Add(name);
         }
 
         List<CapabilityKey> requested = [];
-        foreach (var name in _sectionOrder)
+        foreach (var section in _sectionOrder)
         {
-            if (selected.Contains(name))
-                requested.AddRange(_sectionCapabilities[name]);
+            if (selected.Contains(section.Name))
+                requested.AddRange(section.RequiredCapabilities);
         }
 
         return Capabilities.ResolvePlan(requested);
     }
+
+    private RegisteredSection GetSection(string name)
+        => _sections.TryGetValue(name, out var section)
+            ? section
+            : throw new KeyNotFoundException($"Section '{name}' is not registered.");
 }

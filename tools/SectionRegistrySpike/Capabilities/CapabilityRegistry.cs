@@ -1,33 +1,34 @@
 namespace SectionRegistrySpike.Capabilities;
 
 /// <summary>
-/// Registry of capability types keyed by <see cref="CapabilityKey"/>. Registration is manual and
-/// ordered (<see cref="Register{TCapability}"/> per capability type) — there is no assembly
-/// scanning. The registry stores a <c>Func&lt;ICapabilityWork{TContext}&gt;</c> factory per capability;
-/// instances are created only when a resolved plan is executed by a
-/// <see cref="CapabilitySession{TContext}"/>.
+/// Registry of capability types keyed by <see cref="CapabilityKey"/>. Registration captures static
+/// executors into immutable plans; execution does not construct capability objects.
 /// </summary>
 /// <typeparam name="TContext">The execution context type shared by all capabilities in this registry.</typeparam>
 public sealed class CapabilityRegistry<TContext>
 {
-    /// <summary>Declarative metadata plus construction factory for one registered capability.</summary>
+    internal delegate ValueTask CapabilityExecutor(TContext context);
+
     internal sealed record Registration(
         CapabilityKey Key,
         string Name,
-        bool SafeToProbe,
+        CapabilityExecutionModes AllowedModes,
         CapabilityKey[] DependsOn,
-        Func<ICapabilityWork<TContext>> Factory);
+        CapabilityExecutor Execute);
 
     private readonly Dictionary<CapabilityKey, Registration> _registrations = [];
+    private readonly CapabilityPlan<TContext> _emptyPlan = new([]);
 
-    /// <summary>Registers a capability type. Throws if the same capability type is registered twice.</summary>
     public CapabilityRegistry<TContext> Register<TCapability>()
-        where TCapability : ICapability<TContext>, new()
+        where TCapability : ICapability<TContext>
     {
         var key = CapabilityKey.Of<TCapability>();
         var registration = new Registration(
-            key, TCapability.Name, TCapability.SafeToProbe, [.. TCapability.DependsOn],
-            static () => new TCapability());
+            key,
+            TCapability.Name,
+            TCapability.AllowedModes,
+            [.. TCapability.DependsOn],
+            static context => TCapability.ExecuteAsync(context));
 
         if (!_registrations.TryAdd(key, registration))
             throw new InvalidOperationException($"Capability '{TCapability.Name}' is already registered.");
@@ -35,7 +36,7 @@ public sealed class CapabilityRegistry<TContext>
         return this;
     }
 
-    internal Registration GetRegistration(CapabilityKey key)
+    private Registration GetRegistration(CapabilityKey key)
     {
         if (_registrations.TryGetValue(key, out var registration))
             return registration;
@@ -46,14 +47,15 @@ public sealed class CapabilityRegistry<TContext>
     }
 
     /// <summary>
-    /// Resolves <paramref name="requested"/> into a deterministic, deduplicated, topologically
-    /// ordered execution plan (dependencies before dependents). Throws
-    /// <see cref="CapabilityNotRegisteredException"/> for an unregistered capability and
-    /// <see cref="CapabilityCycleException"/> for a dependency cycle.
+    /// Compiles requested capabilities into a deterministic, deduplicated plan with dependencies
+    /// before dependents.
     /// </summary>
-    public IReadOnlyList<CapabilityKey> ResolvePlan(IReadOnlyList<CapabilityKey> requested)
+    public CapabilityPlan<TContext> ResolvePlan(IReadOnlyList<CapabilityKey> requested)
     {
-        List<CapabilityKey> order = [];
+        if (requested.Count == 0)
+            return _emptyPlan;
+
+        List<Registration> order = [];
         HashSet<CapabilityKey> visited = [];
         HashSet<CapabilityKey> visiting = [];
         List<CapabilityKey> path = [];
@@ -61,7 +63,7 @@ public sealed class CapabilityRegistry<TContext>
         foreach (var key in requested)
             Visit(key);
 
-        return order;
+        return new CapabilityPlan<TContext>([.. order]);
 
         void Visit(CapabilityKey key)
         {
@@ -86,22 +88,7 @@ public sealed class CapabilityRegistry<TContext>
             visiting.Remove(key);
 
             visited.Add(key);
-            order.Add(key);
+            order.Add(registration);
         }
-    }
-
-    /// <summary>
-    /// True when every capability in <paramref name="plan"/> is <see cref="ICapability{TContext}.SafeToProbe"/>.
-    /// Effective discovery uses this to decide whether a section's whole capability closure —
-    /// not just its own top-level flag — may run during probing.
-    /// </summary>
-    public bool IsClosureSafeToProbe(IReadOnlyList<CapabilityKey> plan)
-    {
-        foreach (var key in plan)
-        {
-            if (!GetRegistration(key).SafeToProbe)
-                return false;
-        }
-        return true;
     }
 }

@@ -1,22 +1,18 @@
-using DotnetInspector.Sections;
 using SectionRegistrySpike.Capabilities;
 
 namespace SectionRegistrySpike.Sections;
 
 /// <summary>
-/// Spike-only extension of the real <see cref="ISectionDescriptor{TModel}"/>. Adds a static list
-/// of typed <see cref="CapabilityKey"/> requirements alongside the existing selection metadata
-/// (<c>Name</c>, <c>IsExpensive</c>, <c>ScannerKey</c>, <c>Capabilities</c>, <c>CanRender</c>, ...).
-/// A descriptor still never needs to be instantiated — <see cref="RequiredCapabilities"/> is read
-/// the same way as every other static member on <see cref="ISectionDescriptor{TModel}"/>.
+/// Static section metadata plus typed executable requirements. Legacy scanner keys, network flags,
+/// and probe booleans are intentionally absent: the registry derives execution policy from the
+/// compiled capability plan and materializes a normal <c>SectionEntry</c> for SectionPipeline.
 /// </summary>
-/// <typeparam name="TModel">The model type this section inspects.</typeparam>
-public interface ICapabilitySectionDescriptor<TModel> : ISectionDescriptor<TModel>
+public interface ICapabilitySectionDescriptor<TModel, TContext>
 {
-    /// <summary>
-    /// Capabilities this section requires to populate its render data. The registry resolves the
-    /// full transitive, deduplicated, topologically ordered closure — descriptors only declare
-    /// their own direct requirements.
-    /// </summary>
+    static abstract string Name { get; }
+    static abstract bool IsExpensive { get; }
+    static virtual bool ExplicitOnly => false;
+    static virtual bool Info => false;
+    static abstract bool CanRender(TModel model);
     static abstract CapabilityKey[] RequiredCapabilities { get; }
 }
