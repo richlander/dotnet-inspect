@@ -109,6 +109,32 @@ public class TypeRefDecoderRecursionTests
     }
 
     [Fact]
+    public void HugeArrayShapeCount_IsRejectedBeforeDecode()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14); // ARRAY
+            signature.WriteByte(0x08); // I4
+            signature.WriteByte(0x01); // rank 1
+            signature.WriteByte(0xdf); // compressed ~536M sizes count
+            signature.WriteByte(0xff);
+            signature.WriteByte(0xff);
+            signature.WriteByte(0xff);
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
+    [Fact]
     public void SelfReferentialModreqUnderBlobCap_DoesNotStackOverflow()
     {
         var reader = BuildMetadata(metadata =>

@@ -659,6 +659,40 @@ public class ProviderSignatureDecodeBoundaryTests
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
                         return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder without structural prescan",
+            """
+            class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     try
@@ -690,6 +724,8 @@ public class ProviderSignatureDecodeBoundaryTests
                     if (blobLength > MaxSignatureBlobLength)
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
                         return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
@@ -728,6 +764,8 @@ public class ProviderSignatureDecodeBoundaryTests
                         int blobLength =
                             reader.GetBlobReader(spec.Signature).Length;
                     };
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
+                        return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     try
@@ -763,6 +801,8 @@ public class ProviderSignatureDecodeBoundaryTests
                         if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
                             return fallback;
                     }
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
+                        return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     try
@@ -794,6 +834,8 @@ public class ProviderSignatureDecodeBoundaryTests
                     if (blobLength > MaxSignatureBlobLength)
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
                         return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
@@ -827,6 +869,8 @@ public class ProviderSignatureDecodeBoundaryTests
                     if (blobLength > MaxSignatureBlobLength)
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
                         return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
@@ -864,6 +908,8 @@ public class ProviderSignatureDecodeBoundaryTests
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
                         return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
+                        return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     try
@@ -898,6 +944,8 @@ public class ProviderSignatureDecodeBoundaryTests
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
                         return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
+                        return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     try
@@ -929,6 +977,8 @@ public class ProviderSignatureDecodeBoundaryTests
                     var spec = reader.GetTypeSpecification(handle);
                     int blobLength = reader.GetBlobReader(spec.Signature).Length;
                     if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
                         return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
@@ -962,6 +1012,8 @@ public class ProviderSignatureDecodeBoundaryTests
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
                         return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
+                        return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
                     return spec.DecodeSignature(provider, context);
@@ -985,6 +1037,8 @@ public class ProviderSignatureDecodeBoundaryTests
                     if (blobLength > MaxSignatureBlobLength)
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
                         return fallback;
                     if (shouldCount)
                     {
@@ -1089,6 +1143,8 @@ public class ProviderSignatureDecodeBoundaryTests
                     if (blobLength > MaxSignatureBlobLength)
                         return fallback;
                     if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, spec.Signature, kind))
                         return fallback;
                     s_cumulativeSignatureBytes += blobLength;
                     s_recursionDepth++;
@@ -1457,7 +1513,7 @@ public class ProviderSignatureDecodeBoundaryTests
                 "s_cumulativeSignatureBytes",
             ],
             StringComparer.Ordinal);
-        if (tryIndex is not (7 or 8)
+        if (tryIndex != 8
             || !IsRejectingComparisonStatement(
                 body.Statements[0],
                 SyntaxKind.GreaterThanOrEqualExpression,
@@ -1481,10 +1537,9 @@ public class ProviderSignatureDecodeBoundaryTests
                 SyntaxKind.GreaterThanExpression,
                 "s_cumulativeSignatureBytes + blobLength",
                 "MaxCumulativeSignatureBytes")
-            || tryIndex == 8
-                && !IsRejectingPrescanStatement(
-                    body.Statements[5],
-                    receiver.Identifier.Text)
+            || !IsRejectingPrescanStatement(
+                body.Statements[5],
+                receiver.Identifier.Text)
             || !HasImmediatelyPrecedingCounterIncrements(guardedTry)
             || !HasExactCounterCleanup(finallyBlock)
             || HasProtectedMutation(
