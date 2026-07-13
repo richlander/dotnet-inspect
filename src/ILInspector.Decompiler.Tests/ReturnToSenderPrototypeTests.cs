@@ -1042,6 +1042,75 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DropsInitializerWhenArrayCovariantArgumentBindsSystemNamespaceUserConversion()
+    {
+        // Issue #2726 guard (adversarial, from PR #2730 round-2 review): a user type
+        // declared in a `System` namespace is NOT corelib and may declare an
+        // implicit conversion operator from an array. Excluding a competitor by
+        // namespace string would be unsound; corelib membership is decided by
+        // assembly identity (TypeRef.Assembly == "corelib"), so `System.MySink`
+        // (defined in the target assembly) stays in play and the chain strips. The
+        // body forces both the conversion operator and the competitor ctor into the
+        // reconstructed shell; [OverloadResolutionPriority(-1)] keeps the original
+        // chain bound to the IEnumerable ctor.
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+            using System.Runtime.CompilerServices;
+
+            namespace System
+            {
+                public class MySink
+                {
+                    public static implicit operator MySink(string[] value) => new MySink();
+                }
+            }
+
+            public class C
+            {
+                public C(string tag)
+                    : this(Parse(tag), tag.Length)
+                {
+                    _ = (System.MySink)Parse(tag);
+                    _ = new C(default(System.MySink), 0);
+                }
+
+                public C(IEnumerable<string> labels, int count)
+                {
+                    Count = count;
+                }
+
+                [OverloadResolutionPriority(-1)]
+                public C(System.MySink sink, int count)
+                {
+                    Count = count;
+                }
+
+                public int Count { get; }
+
+                private static string[] Parse(string tag) => tag.Split('.');
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            // The load-bearing invariant is that the gate STRIPS the unsound chain.
+            // This fixture is deliberately pathological (a user type in `namespace
+            // System` plus an implicit array operator), which RTS cannot round-trip
+            // as a whole shell, so the overall status is not asserted; emitting the
+            // initializer would fail or bind wrong, so stripping is the sound choice.
+            Assert.DoesNotContain(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""

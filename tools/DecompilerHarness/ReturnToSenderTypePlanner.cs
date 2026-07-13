@@ -2010,9 +2010,9 @@ public static class CompileBackSourceComposer
     /// <paramref name="type"/>. Over-approximates: returns <c>true</c> for the
     /// corelib types an array converts to (<c>object</c>, <c>System.Array</c>,
     /// <c>ICloneable</c>, the non-generic collection / structural interfaces) AND
-    /// for any user-defined type, which could declare an <c>implicit operator</c>
-    /// from an array we cannot observe from the parameter type alone. Returns
-    /// <c>false</c> only for enumerable corelib (<c>System.*</c>) types that
+    /// for any type that does not resolve to corelib, which could declare an
+    /// <c>implicit operator</c> from an array we cannot observe from the parameter
+    /// type alone. Returns <c>false</c> only for enumerable corelib types that
     /// provably have no array conversion (<c>String</c>, the primitives,
     /// <c>Version</c>, ...), so a <c>false</c> result stays a proof of
     /// non-convertibility.
@@ -2030,15 +2030,14 @@ public static class CompileBackSourceComposer
             return true;
         }
 
-        // Corelib/System.* types other than the array-convertible set above have no
-        // implicit conversion from an array, so they can be ruled out. A type in a
-        // non-System namespace is user-defined and may declare a conversion
-        // operator we cannot see, so it must stay in play (fail-closed).
-        return !IsSystemNamespace(type.Namespace);
+        // Corelib types other than the array-convertible set above have no implicit
+        // conversion from an array, so they can be ruled out. Any type that does NOT
+        // resolve to corelib is user-defined (even one spelled in a `System`
+        // namespace) and may declare a conversion operator we cannot see, so it must
+        // stay in play (fail-closed). Assembly identity, not the namespace string,
+        // is the sound corelib test.
+        return type.Assembly != TypeRef.CoreLibrary;
     }
-
-    static bool IsSystemNamespace(string? ns)
-        => ns is not null && (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal));
 
     /// <summary>
     /// OVER-approximation of "is there an identity or reference conversion from
