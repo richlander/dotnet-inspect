@@ -191,6 +191,22 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "receiver mutated through ref local after blob guard",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(reader, value.Signature, kind))
+                        return fallback;
+                    ref var alias = ref value;
+                    alias = other;
+                    return value.DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
             "member receiver reassigned after blob guard",
             """
             class C
@@ -732,6 +748,40 @@ public class ProviderSignatureDecodeBoundaryTests
                     {
                         (spec, blobLength) =
                             (reader.GetTypeSpecification(otherHandle), 0);
+                        return spec.DecodeSignature(provider, context);
+                    }
+                    finally
+                    {
+                        s_recursionDepth--;
+                        s_cumulativeSignatureBytes -= blobLength;
+                    }
+                }
+            }
+            """
+        },
+        {
+            "TypeRefDecoder pointer-mutates blob length",
+            """
+            unsafe class C
+            {
+                int s_recursionDepth;
+                int s_cumulativeSignatureBytes;
+                object GetTypeFromSpecification()
+                {
+                    if (s_recursionDepth >= MaxRecursionDepth)
+                        return fallback;
+                    var spec = reader.GetTypeSpecification(handle);
+                    int blobLength = reader.GetBlobReader(spec.Signature).Length;
+                    if (blobLength > MaxSignatureBlobLength)
+                        return fallback;
+                    if (s_cumulativeSignatureBytes + blobLength > MaxCumulativeSignatureBytes)
+                        return fallback;
+                    s_cumulativeSignatureBytes += blobLength;
+                    s_recursionDepth++;
+                    try
+                    {
+                        int* pointer = &blobLength;
+                        *pointer = 0;
                         return spec.DecodeSignature(provider, context);
                     }
                     finally
@@ -1440,6 +1490,17 @@ public class ProviderSignatureDecodeBoundaryTests
             RefKindKeyword.RawKind: not 0
         }
             && ContainsProtectedIdentity(argument, identifiers)
+        || node is RefExpressionSyntax
+        {
+            Expression: { } reference
+        }
+            && ContainsProtectedIdentity(reference, identifiers)
+        || node is PrefixUnaryExpressionSyntax
+        {
+            RawKind: (int)SyntaxKind.AddressOfExpression,
+            Operand: { } address
+        }
+            && ContainsProtectedIdentity(address, identifiers)
         || node is VariableDeclaratorSyntax variable
             && identifiers.Contains(variable.Identifier.Text)
         || node is SingleVariableDesignationSyntax designation
