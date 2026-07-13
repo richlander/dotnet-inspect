@@ -482,6 +482,47 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesThisConstructorChainOpcodes()
+    {
+        // Issue #2678: RTS used to reconstruct target constructors with empty
+        // bodies, dropping the `: this(...)` chain call. The recompiled ctor then
+        // emitted `ldarg call ret` instead of the original `ldarg ldarg call call
+        // ret`, producing an OpcodeDiff. The chain must be preserved so the ctor
+        // round-trips Exact.
+        var assemblyPath = CompileFixture("""
+            public class Versioned
+            {
+                public Versioned(string text) : this(Parse(text))
+                {
+                }
+
+                public Versioned(int value)
+                {
+                    Value = value;
+                }
+
+                public int Value { get; }
+
+                private static int Parse(string text) => text.Length;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Versioned", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_UsesTargetBackingFieldWriteForConstructorAssignment()
     {
         var assemblyPath = CompileFixture("""

@@ -476,7 +476,8 @@ public sealed record CompileBackMemberRequirement(
     bool IsSealed = false,
     bool IsAsync = false,
     bool IsExtension = false,
-    CompileBackAccessibility Accessibility = CompileBackAccessibility.Public)
+    CompileBackAccessibility Accessibility = CompileBackAccessibility.Public,
+    string? ConstructorInitializer = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -485,7 +486,10 @@ public sealed record CompileBackMemberRequirement(
 
 public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, string Detail);
 
-internal sealed record ProductTargetBody(string Source, IReadOnlyList<DecompilerDecision> Decisions);
+internal sealed record ProductTargetBody(
+    string Source,
+    IReadOnlyList<DecompilerDecision> Decisions,
+    string? ConstructorChain = null);
 
 public static class CompileBackSourceComposer
 {
@@ -498,7 +502,12 @@ public static class CompileBackSourceComposer
         var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
         if (printed.Output is null)
             throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
-        return new ProductTargetBody(printed.Output, printed.Decisions);
+        // The printer lifts an explicit base(...)/this(...) constructor-chain call
+        // out of the body into ConstructorChain (chain calls are invalid as body
+        // statements). Carry it so the reconstructed target constructor re-emits
+        // the initializer; dropping it silently compiles an empty body and loses
+        // the constructor-chain opcodes (issue #2678).
+        return new ProductTargetBody(printed.Output, printed.Decisions, printed.ConstructorChain);
     }
 
     internal static ProductArtifact Compose(ArtifactRequest request)
@@ -549,7 +558,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                request.TargetBody.ConstructorChain),
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -1138,7 +1148,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        string? constructorChain = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -1158,6 +1169,17 @@ public static class CompileBackSourceComposer
         };
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
+
+        var chainCallee = isConstructor ? ConstructorChainCallee(function) : null;
+        // Only this(...) self-chains are re-emitted as constructor initializers.
+        // RTS shells are flat (object-based, no reconstructed base class), so a
+        // base(args) initializer has no base constructor to bind to and would
+        // fail to compile (CS1729). Leaving those bodies empty keeps the prior
+        // implicit-base() behavior instead of introducing a recompile failure.
+        string? targetConstructorInitializer =
+            constructorChain is { } chain && chain.StartsWith("this(", StringComparison.Ordinal)
+                ? constructorChain
+                : null;
 
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
@@ -1179,7 +1201,8 @@ public static class CompileBackSourceComposer
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
                 IsSealed: false,
-                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier)
+                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier,
+                ConstructorInitializer: targetConstructorInitializer)
         ];
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
@@ -1217,6 +1240,22 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        if (targetConstructorInitializer is not null
+            && chainCallee is { } chainCtor
+            && !targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
+                && member.StubBody != CompileBackStubBodyKind.TargetBody
+                && member.Parameters.Count == chainCtor.ParameterTypes.Length))
+        {
+            // The chained-to sibling constructor was not reconstructed in the
+            // shell (e.g. an unsupported parameter signature was dropped), so
+            // `: this(args)` would not bind. Drop the initializer and keep the
+            // body rather than emit an uncompilable chain.
+            int targetIndex = targetMembers.FindIndex(member =>
+                member.Kind == CompileBackMemberKind.Constructor
+                && member.StubBody == CompileBackStubBodyKind.TargetBody);
+            if (targetIndex >= 0)
+                targetMembers[targetIndex] = targetMembers[targetIndex] with { ConstructorInitializer = null };
+        }
         if (includeRecordSurface)
         {
             // AddRequiredMembers above preserves every IR-gathered dependency (including a user
@@ -1512,6 +1551,12 @@ public static class CompileBackSourceComposer
                         new CSharpConstructorInitializer(
                             CSharpConstructorInitializerKind.This,
                             Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
+            CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
+                && ParseConstructorInitializer(requirement.ConstructorInitializer) is { } capturedInitializer
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(requirement.TargetBody!, capturedInitializer)),
             CompileBackStubBodyKind.TargetBody
                 => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(requirement.TargetBody!)),
             CompileBackStubBodyKind.TargetGetterWithSetter
@@ -1541,6 +1586,61 @@ public static class CompileBackSourceComposer
         => requirement.Kind == CompileBackMemberKind.PropertyGet
             ? new CSharpPropertyBody(body, null)
             : new CSharpPropertyBody(null, body);
+
+    /// <summary>
+    /// Parses a printer-form constructor-chain string (<c>this(args)</c> or
+    /// <c>base(args)</c>, with no leading <c>: </c> or trailing <c>;</c>) into a
+    /// <see cref="CSharpConstructorInitializer"/>. The whole argument list is
+    /// carried as a single initializer argument — the printer already rendered
+    /// it, so no top-level comma split is needed (and splitting would break
+    /// nested calls). Returns null when there is no captured chain.
+    /// </summary>
+    static CSharpConstructorInitializer? ParseConstructorInitializer(string? chain)
+    {
+        if (string.IsNullOrEmpty(chain))
+            return null;
+        var kind = chain.StartsWith("this(", StringComparison.Ordinal)
+            ? CSharpConstructorInitializerKind.This
+            : chain.StartsWith("base(", StringComparison.Ordinal)
+                ? CSharpConstructorInitializerKind.Base
+                : (CSharpConstructorInitializerKind?)null;
+        if (kind is null)
+            return null;
+        int open = chain.IndexOf('(', StringComparison.Ordinal);
+        int close = chain.LastIndexOf(')');
+        if (open < 0 || close <= open)
+            return null;
+        string arguments = chain[(open + 1)..close];
+        return new CSharpConstructorInitializer(
+            kind.Value,
+            arguments.Length == 0 ? [] : [arguments]);
+    }
+
+    /// <summary>
+    /// The base/this <c>.ctor</c> chain call's callee in the entry block, or null
+    /// when the constructor body has no chain call (a struct ctor, or a body that
+    /// never chains). Mirrors the printer's chain-call detection so the shell can
+    /// verify the chained-to constructor was reconstructed before emitting the
+    /// initializer.
+    /// </summary>
+    static MethodRef? ConstructorChainCallee(IrFunction function)
+    {
+        if (function.Body.Blocks is not [{ } entry, ..])
+            return null;
+        foreach (var child in entry.Children)
+        {
+            if (child is ExpressionStatement
+                {
+                    Expression: Call { Callee: { Name: ".ctor", HasThis: true } callee } call
+                }
+                && call.Arguments is [_, ..])
+            {
+                return callee;
+            }
+        }
+
+        return null;
+    }
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
