@@ -127,16 +127,23 @@ public class ProviderSignatureDecodeBoundaryTests
             && receiver.Expression is MemberAccessExpressionSyntax receiverMember
             && receiverMember.Name.Identifier.Text == "GetTypeSpecification";
 
-    // `SignatureBlobGuard.IsSafeToDecode(...) ? <decode> : <fallback>`: some
-    // enclosing conditional expression guards this decode in its true-branch
-    // with an IsSafeToDecode prescan.
+    // `SignatureBlobGuard.IsSafeToDecode(reader, <recv>.Signature, ...) ?
+    // <recv>.Decode*Signature(...) : <fallback>`: some enclosing conditional
+    // guards this decode in its true-branch with a prescan of the SAME
+    // receiver's signature blob. Binding the guard to the decoded blob prevents
+    // laundering an unguarded decode past the census behind an unrelated or
+    // nil-handle IsSafeToDecode call.
     static bool IsPrescanGuardedTernary(InvocationExpressionSyntax invocation)
     {
+        if (invocation.Expression is not MemberAccessExpressionSyntax decodeMember)
+            return false;
+        var decodeReceiver = decodeMember.Expression.ToString();
+
         foreach (var ancestor in invocation.Ancestors())
         {
             if (ancestor is ConditionalExpressionSyntax conditional
                 && conditional.WhenTrue.Span.Contains(invocation.Span)
-                && ConditionCallsIsSafeToDecode(conditional.Condition))
+                && ConditionGuardsReceiverSignature(conditional.Condition, decodeReceiver))
             {
                 return true;
             }
@@ -144,13 +151,17 @@ public class ProviderSignatureDecodeBoundaryTests
         return false;
     }
 
-    static bool ConditionCallsIsSafeToDecode(ExpressionSyntax condition)
+    static bool ConditionGuardsReceiverSignature(ExpressionSyntax condition, string decodeReceiver)
         => condition.DescendantNodesAndSelf()
             .OfType<InvocationExpressionSyntax>()
             .Any(i => i.Expression is MemberAccessExpressionSyntax member
                 && member.Name.Identifier.Text == "IsSafeToDecode"
                 && member.Expression is IdentifierNameSyntax id
-                && id.Identifier.Text == "SignatureBlobGuard");
+                && id.Identifier.Text == "SignatureBlobGuard"
+                && i.ArgumentList.Arguments.Any(a =>
+                    a.Expression is MemberAccessExpressionSyntax blob
+                    && blob.Name.Identifier.Text == "Signature"
+                    && blob.Expression.ToString() == decodeReceiver));
 
     static IEnumerable<string> EnumerateSourceFiles(string root)
     {
