@@ -9,9 +9,14 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class TypeSpecGuard
 {
-    const int MaxBlobLength = 1024;
-    const int MaxCumulativeBytes = 4096;
-    const int MaxDepth = 256;
+    /// <summary>
+    /// Maximum bytes across the active TypeSpec re-entry closure. A single wide,
+    /// shallow TypeSpec may use the entire budget.
+    /// </summary>
+    public const int MaxCumulativeBytes = 4096;
+
+    /// <summary>Maximum cross-handle TypeSpec re-entry depth.</summary>
+    public const int MaxDepth = 256;
 
     [ThreadStatic]
     static int s_cumulativeBytes;
@@ -20,23 +25,41 @@ public static class TypeSpecGuard
     static int s_depth;
 
     public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out int blobLength)
+        => TryEnter(reader, handle, out blobLength, out _);
+
+    internal static bool TryEnter(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        out int blobLength,
+        out SignatureDecodeRejectionKind rejectionKind)
     {
         blobLength = 0;
         if (s_depth >= MaxDepth)
+        {
+            rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
             return false;
+        }
 
         var signature = reader.GetTypeSpecification(handle).Signature;
         int length = reader.GetBlobReader(signature).Length;
-        if (length > MaxBlobLength
-            || s_cumulativeBytes + length > MaxCumulativeBytes
-            || !SignatureBlobGuard.IsSafeToDecode(reader, signature, SignatureBlobGuard.Kind.TypeSpecification))
+        if ((long)s_cumulativeBytes + length > MaxCumulativeBytes)
         {
+            rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
+            return false;
+        }
+        if (!SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            signature,
+            SignatureBlobGuard.Kind.TypeSpecification))
+        {
+            rejectionKind = SignatureDecodeRejectionKind.UnsafeStructure;
             return false;
         }
 
         s_depth++;
         s_cumulativeBytes += length;
         blobLength = length;
+        rejectionKind = default;
         return true;
     }
 

@@ -502,6 +502,20 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    public void Evaluate_OnInitializerOnlyFixture_RendersCompilableInitializer()
+    {
+        string path = typeof(TypeSourceInitializerOnlyFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceInitializerOnlyFixture).FullName);
+        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        Assert.NotNull(source);
+
+        Assert.Contains("public int Value = 42;", source);
+        AssertCompiles(type.FullName, source);
+    }
+
+    [Fact]
     public void Evaluate_OnUnsafeFieldFixture_RendersCompilableUnsafeBlocks()
     {
         string path = typeof(TypeSourceUnsafeFieldFixture).Assembly.Location;
@@ -652,6 +666,11 @@ public sealed class TypeSourcePrivateCtorInitFixture
     private TypeSourcePrivateCtorInitFixture() { }
 
     public static TypeSourcePrivateCtorInitFixture Create() => new();
+}
+
+public sealed class TypeSourceInitializerOnlyFixture
+{
+    public int Value = 42;
 }
 
 public unsafe interface ITypeSourceUnsafeConsumer

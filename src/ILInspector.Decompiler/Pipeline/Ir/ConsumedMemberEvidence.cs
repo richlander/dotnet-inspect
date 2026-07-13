@@ -44,7 +44,12 @@ public readonly record struct ConsumedMemberEvidence(
         switch (node)
         {
             case Call call:
-                evidence.Add(new(Method: call.Callee));
+                // A Call (not NewObject) to a constructor is a base(...)/this(...)
+                // chain (or an explicit struct ctor call) — a construction context
+                // that legitimately re-seeds the target root's own constructor, just
+                // like NewObject/ObjectInitializer below. Without this a this(...)
+                // self-chain reconstruction omits the chained-to ctor overload.
+                evidence.Add(new(Method: call.Callee, AllowTargetRoot: call.Callee.Name is ".ctor"));
                 break;
             case NewObject creation:
                 evidence.Add(new(Method: creation.Constructor, AllowTargetRoot: true));

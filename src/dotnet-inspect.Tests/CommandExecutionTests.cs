@@ -399,13 +399,28 @@ public class CommandExecutionTests
         {
             args = CommandLineBuilder.PreprocessArgs(args);
             var root = CommandLineBuilder.CreateRootCommand();
+            var result = root.Parse(args);
+            // Mirror Program.cs: surface parse/validation errors (including the --rows
+            // head/tail window validator) as a clean "Error: ..." line on stderr with
+            // exit 1, instead of letting InvokeAsync print usage help.
+            if (result.Errors.Count > 0)
+            {
+                foreach (var error in result.Errors)
+                {
+                    var message = error.Message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
+                        ? error.Message
+                        : $"Error: {error.Message}";
+                    Console.Error.WriteLine(message);
+                }
+                return 1;
+            }
             try
             {
-                return await root.Parse(args).InvokeAsync();
+                return await result.InvokeAsync();
             }
             catch (RowWindowValidationException ex)
             {
-                // Mirror Program.cs so --rows window validation surfaces as exit 1 + stderr.
+                // Defensive: matches the Program.cs safety-net catch.
                 Console.Error.WriteLine($"Error: {ex.Message}");
                 return 1;
             }
@@ -717,6 +732,33 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("ConstructorChainTarget(int value) : base(value)", output);
         Assert.DoesNotContain("\n    : base(value)", output);
+    }
+
+    [Fact]
+    public async Task InitializerOnlyConstructor_ProjectsThroughMemberAndTypeCommands()
+    {
+        string typeName = typeof(CommandInitializerOnlyFixture).FullName!;
+        var member = await RunAppAsync(
+            "member", typeName, ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-S", "Decompiled Source",
+            "--tips", "q");
+        var type = await RunAppAsync(
+            "type", typeName,
+            "--library", TestAssemblyPath,
+            "-S", "Decompiled Source",
+            "--tips", "q");
+
+        Assert.Equal(0, member.Exit);
+        Assert.Empty(member.Error);
+        Assert.Contains("CommandInitializerOnlyFixture()", member.Output);
+        Assert.DoesNotContain("Value = 42", member.Output);
+        Assert.DoesNotContain("DEC0003", member.Output);
+
+        Assert.Equal(0, type.Exit);
+        Assert.Empty(type.Error);
+        Assert.Contains("public int Value = 42;", type.Output);
+        Assert.DoesNotContain("DEC0003", type.Output);
     }
 
     [Fact]
@@ -1391,6 +1433,9 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows cannot combine -n/--head with --tail", error);
+        // Pin the failure shape, not just the message: a swallowed BuildRowWindow
+        // throw would dump a stack trace that also contains the message and exits 1.
+        Assert.DoesNotContain("Unhandled exception", error);
     }
 
     [Fact]
@@ -1402,6 +1447,8 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--rows requires -n/--head N or --tail N", error);
+        // Pin the failure shape, not just the message (see above).
+        Assert.DoesNotContain("Unhandled exception", error);
     }
 
     [Fact]
@@ -9512,6 +9559,11 @@ public sealed class CommandExecutionSourceDiffFixture
     {
         return value + 1;
     }
+}
+
+public sealed class CommandInitializerOnlyFixture
+{
+    public int Value = 42;
 }
 
 public static class FactsTableFixture

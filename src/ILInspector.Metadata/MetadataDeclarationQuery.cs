@@ -60,6 +60,10 @@ public sealed record MetadataFieldDeclaration(
 /// </summary>
 public static class MetadataDeclarationQuery
 {
+    const string DegradedType = "object";
+    static readonly MethodSignature<string> DegradedMethodSignature =
+        new(default, DegradedType, requiredParameterCount: 0, genericParameterCount: 0, []);
+
     public static ApiType GetTypeSurface(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -201,10 +205,14 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         MethodDefinition method)
     {
-        var result = GuardedSignatureText.MethodTextResult(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-        return GetMethod(reader, typeDef, method, result.Value) with
+        var result = GuardedSignatureText.MethodText(
+            reader,
+            method,
+            GenericContext.ForMethod(reader, typeDef, method));
+        var signature = ProjectDecode(result, DegradedMethodSignature, out var status);
+        return GetMethod(reader, typeDef, method, signature) with
         {
-            SignatureDecodeStatus = DecodeStatus(result.IsDegraded),
+            SignatureDecodeStatus = status,
         };
     }
 
@@ -213,7 +221,11 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         MethodDefinition method)
     {
-        var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
+        var signature = GuardedSignatureText.MethodText(
+            reader,
+            method,
+            GenericContext.ForMethod(reader, typeDef, method))
+            .GetValueOrThrow();
         return FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters());
     }
 
@@ -266,9 +278,24 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         PropertyDefinition property)
     {
+        var result = GuardedSignatureText.PropertyText(
+            reader,
+            property,
+            GenericContext.ForType(reader, typeDef));
+        var signature = ProjectDecode(result, DegradedMethodSignature, out var status);
+        return GetProperty(reader, typeDef, property, signature) with
+        {
+            SignatureDecodeStatus = status,
+        };
+    }
+
+    static MetadataPropertyDeclaration GetProperty(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        PropertyDefinition property,
+        MethodSignature<string> signature)
+    {
         var accessors = property.GetAccessors();
-        var result = GuardedSignatureText.PropertyTextResult(reader, property, GenericContext.ForType(reader, typeDef));
-        var signature = result.Value;
         var getter = accessors.Getter.IsNil ? default : reader.GetMethodDefinition(accessors.Getter);
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
@@ -340,10 +367,7 @@ public static class MetadataDeclarationQuery
             },
             RenderMemberAttributes(reader, property.GetCustomAttributes()),
             accessors.Getter,
-            accessors.Setter)
-        {
-            SignatureDecodeStatus = DecodeStatus(result.IsDegraded),
-        };
+            accessors.Setter);
     }
 
     public static MetadataFieldDeclaration GetField(
@@ -351,9 +375,25 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         FieldDefinition field)
     {
+        var result = GuardedSignatureText.FieldText(
+            reader,
+            field,
+            GenericContext.ForType(reader, typeDef));
+        var fieldType = ProjectDecode(result, DegradedType, out var status);
+        return GetField(reader, typeDef, field, fieldType) with
+        {
+            SignatureDecodeStatus = status,
+        };
+    }
+
+    static MetadataFieldDeclaration GetField(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        FieldDefinition field,
+        string fieldType)
+    {
         var attributes = field.Attributes;
         var access = attributes & FieldAttributes.FieldAccessMask;
-        var result = GuardedSignatureText.FieldTextResult(reader, field, GenericContext.ForType(reader, typeDef));
         return new MetadataFieldDeclaration(
             reader.GetString(field.Name),
             EscapeIdentifier(reader.GetString(field.Name)),
@@ -361,11 +401,8 @@ public static class MetadataDeclarationQuery
             (attributes & FieldAttributes.Static) != 0,
             (attributes & FieldAttributes.InitOnly) != 0,
             (attributes & FieldAttributes.Literal) != 0,
-            result.Value,
-            RenderMemberAttributes(reader, field.GetCustomAttributes()))
-        {
-            SignatureDecodeStatus = DecodeStatus(result.IsDegraded),
-        };
+            fieldType,
+            RenderMemberAttributes(reader, field.GetCustomAttributes()));
     }
 
     /// <summary>
@@ -680,7 +717,12 @@ public static class MetadataDeclarationQuery
         {
             HandleKind.TypeDefinition => TypeResolver.GetFullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)),
             HandleKind.TypeReference => TypeResolver.GetTypeNameFromReference(reader, (TypeReferenceHandle)handle),
-            HandleKind.TypeSpecification => GuardedSignatureText.TypeSpecText(reader, (TypeSpecificationHandle)handle, context),
+            HandleKind.TypeSpecification => GuardedSignatureText.TypeSpecText(
+                reader,
+                (TypeSpecificationHandle)handle,
+                context).TryGetValue(out var typeName)
+                    ? typeName
+                    : null,
             _ => null,
         };
 
@@ -739,8 +781,21 @@ public static class MetadataDeclarationQuery
     static string? NonPublicAccessibility(string accessibility)
         => accessibility == "public" ? null : accessibility;
 
-    static SignatureDecodeStatus? DecodeStatus(bool isDegraded)
-        => isDegraded ? SignatureDecodeStatus.Degraded : null;
+    static T ProjectDecode<T>(
+        SignatureDecodeResult<T> result,
+        T degradedValue,
+        out SignatureDecodeStatus? status)
+        where T : notnull
+    {
+        if (result.TryGetValue(out var value))
+        {
+            status = null;
+            return value;
+        }
+
+        status = SignatureDecodeStatus.Degraded;
+        return degradedValue;
+    }
 
     static (string? Namespace, string Name) GetApiTypeNameParts(MetadataReader reader, TypeDefinition typeDef)
     {
