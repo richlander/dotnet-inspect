@@ -251,6 +251,48 @@ public class ProviderSignatureDecodeBoundaryTests
             """
         },
         {
+            "base indexer receiver reassigned after blob guard",
+            """
+            class C : B
+            {
+                object M()
+                {
+                    if (!SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        base[0].Signature,
+                        kind))
+                    {
+                        return fallback;
+                    }
+                    base[0] = other;
+                    return base[0].DecodeSignature(provider, context);
+                }
+            }
+            """
+        },
+        {
+            "field receiver shadowed inside guarded block",
+            """
+            class C
+            {
+                object M()
+                {
+                    if (SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        value.Signature,
+                        kind))
+                    {
+                        {
+                            var value = other;
+                            return value.DecodeSignature(provider, context);
+                        }
+                    }
+                    return fallback;
+                }
+            }
+            """
+        },
+        {
             "disjunctive blob guard",
             """
             class C
@@ -1377,34 +1419,52 @@ public class ProviderSignatureDecodeBoundaryTests
         {
             Left: { } left
         }
-            && ContainsProtectedIdentifier(left, identifiers)
+            && ContainsProtectedIdentity(left, identifiers)
         || node is PrefixUnaryExpressionSyntax
         {
             Operand: { } operand
         } prefix
             && (prefix.IsKind(SyntaxKind.PreIncrementExpression)
                 || prefix.IsKind(SyntaxKind.PreDecrementExpression))
-            && ContainsProtectedIdentifier(operand, identifiers)
+            && ContainsProtectedIdentity(operand, identifiers)
         || node is PostfixUnaryExpressionSyntax
         {
             Operand: { } postOperand
         } postfix
             && (postfix.IsKind(SyntaxKind.PostIncrementExpression)
                 || postfix.IsKind(SyntaxKind.PostDecrementExpression))
-            && ContainsProtectedIdentifier(postOperand, identifiers)
+            && ContainsProtectedIdentity(postOperand, identifiers)
         || node is ArgumentSyntax
         {
             Expression: { } argument,
             RefKindKeyword.RawKind: not 0
         }
-            && ContainsProtectedIdentifier(argument, identifiers);
+            && ContainsProtectedIdentity(argument, identifiers)
+        || node is VariableDeclaratorSyntax variable
+            && identifiers.Contains(variable.Identifier.Text)
+        || node is SingleVariableDesignationSyntax designation
+            && identifiers.Contains(designation.Identifier.Text)
+        || node is ForEachStatementSyntax forEach
+            && identifiers.Contains(forEach.Identifier.Text)
+        || node is CatchDeclarationSyntax catchDeclaration
+            && identifiers.Contains(catchDeclaration.Identifier.Text);
 
-    static bool ContainsProtectedIdentifier(
+    static bool ContainsProtectedIdentity(
         SyntaxNode node,
         HashSet<string> identifiers)
-        => node.DescendantNodesAndSelf()
+    {
+        if (node.DescendantNodesAndSelf()
             .OfType<IdentifierNameSyntax>()
-            .Any(identifier => identifiers.Contains(identifier.Identifier.Text));
+            .Any(identifier => identifiers.Contains(identifier.Identifier.Text)))
+        {
+            return true;
+        }
+
+        return identifiers.Contains("\0this")
+                && node.DescendantNodesAndSelf().OfType<ThisExpressionSyntax>().Any()
+            || identifiers.Contains("\0base")
+                && node.DescendantNodesAndSelf().OfType<BaseExpressionSyntax>().Any();
+    }
 
     static bool HasImmediatelyPrecedingCounterIncrements(TryStatementSyntax guardedTry)
     {
@@ -1496,6 +1556,10 @@ public class ProviderSignatureDecodeBoundaryTests
             .OfType<IdentifierNameSyntax>()
             .Select(identifier => identifier.Identifier.Text)
             .ToHashSet(StringComparer.Ordinal);
+        if (expression.DescendantNodesAndSelf().OfType<ThisExpressionSyntax>().Any())
+            identifiers.Add("\0this");
+        if (expression.DescendantNodesAndSelf().OfType<BaseExpressionSyntax>().Any())
+            identifiers.Add("\0base");
         return IdentifiersMutatedBetween(
             root,
             identifiers,
