@@ -538,6 +538,8 @@ public class FindingPilotTests
 
     static readonly FindingMatchOptions IdentitySet = new() { MatchMode = FindingMatchMode.IdentitySet };
     static readonly FindingMatchTier SoftTier = new("test.role-change", 85);
+    static readonly FindingMatchTier WeakSoftTier = new("test.weak-role-change", 70);
+    static readonly FindingMatchTier FaintSoftTier = new("test.faint-role-change", 60);
 
     [Fact]
     public void IdentitySet_Permutation_IsAllMatched_NoAddRemoveOrMove()
@@ -609,6 +611,171 @@ public class FindingPilotTests
         Assert.Empty(match.SoftCandidates);
         Assert.Equal(2, Count(match, FindingEdgeKind.Removed));
         Assert.Equal(1, Count(match, FindingEdgeKind.Added));
+    }
+
+    [Fact]
+    public void IdentitySet_SoftTier_LargeCollisionBucketDoesNotMaterializeCandidateGraph()
+    {
+        const int count = 9000;
+        var old = Enumerable.Range(0, count)
+            .Select(index => SoftKey($"old-{index}", "shared", "extension"))
+            .ToArray();
+        var @new = Enumerable.Range(0, count)
+            .Select(index => SoftKey($"new-{index}", "shared", "instance"))
+            .ToArray();
+
+        var first = FindingMatcher.Match(old, @new, IdentitySet);
+        var second = FindingMatcher.Match(old, @new, IdentitySet);
+
+        Assert.Empty(first.SoftCandidates);
+        Assert.Equal(count, Count(first, FindingEdgeKind.Removed));
+        Assert.Equal(count, Count(first, FindingEdgeKind.Added));
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void IdentitySet_SoftTier_MultipleTiersForSamePairKeepStrongest()
+    {
+        var old = new FindingKey(
+            "old",
+            null,
+            [
+                new FindingSoftKey(WeakSoftTier, "weak", "extension"),
+                new FindingSoftKey(SoftTier, "strong", "extension"),
+            ]);
+        var @new = new FindingKey(
+            "new",
+            null,
+            [
+                new FindingSoftKey(WeakSoftTier, "weak", "instance"),
+                new FindingSoftKey(SoftTier, "strong", "instance"),
+            ]);
+
+        var candidate = Assert.Single(
+            FindingMatcher.Match([old], [@new], IdentitySet).SoftCandidates);
+
+        Assert.Equal(0, candidate.OldIndex);
+        Assert.Equal(0, candidate.NewIndex);
+        Assert.Equal(SoftTier, candidate.Match.Tier);
+    }
+
+    [Fact]
+    public void SoftTier_CompressedConstructionMatchesBruteForce()
+    {
+        var random = new Random(2585);
+        foreach (var options in (FindingMatchOptions[])[IdentitySet, FindingMatchOptions.Default])
+        {
+            for (int iteration = 0; iteration < 250; iteration++)
+            {
+                var old = RandomSoftKeys(random, random.Next(9));
+                var @new = RandomSoftKeys(random, random.Next(9));
+
+                var match = FindingMatcher.Match(old, @new, options);
+                var expected = BruteForceSoftCandidates(
+                    old,
+                    @new,
+                    match.Edges,
+                    match.MoveCandidates);
+
+                Assert.Equal(expected, match.SoftCandidates);
+            }
+        }
+    }
+
+    static FindingKey[] RandomSoftKeys(Random random, int count)
+    {
+        FindingMatchTier[] tiers = [SoftTier, WeakSoftTier, FaintSoftTier];
+        var keys = new FindingKey[count];
+        for (int index = 0; index < count; index++)
+        {
+            var softKeys = new List<FindingSoftKey>();
+            foreach (var tier in tiers)
+            {
+                if (random.Next(3) == 0)
+                    continue;
+                softKeys.Add(new FindingSoftKey(
+                    tier,
+                    $"projection-{random.Next(3)}",
+                    $"variant-{random.Next(3)}"));
+            }
+
+            keys[index] = new FindingKey(
+                $"exact-{random.Next(5)}",
+                null,
+                softKeys);
+        }
+
+        return keys;
+    }
+
+    static ImmutableArray<FindingSoftMatchCandidate> BruteForceSoftCandidates(
+        FindingKey[] old,
+        FindingKey[] @new,
+        ImmutableArray<FindingEdge> edges,
+        ImmutableArray<FindingMoveCandidate> moveCandidates)
+    {
+        var blockedOld = moveCandidates
+            .Select(candidate => candidate.OldIndex)
+            .ToHashSet();
+        var blockedNew = moveCandidates
+            .Select(candidate => candidate.NewIndex)
+            .ToHashSet();
+        var residualOld = edges
+            .Where(edge => edge.Kind == FindingEdgeKind.Removed)
+            .Select(edge => edge.OldIndex)
+            .Where(index => !blockedOld.Contains(index));
+        var residualNew = edges
+            .Where(edge => edge.Kind == FindingEdgeKind.Added)
+            .Select(edge => edge.NewIndex)
+            .Where(index => !blockedNew.Contains(index))
+            .ToArray();
+        var candidates = new List<FindingSoftMatchCandidate>();
+        foreach (int oldIndex in residualOld)
+        {
+            foreach (int newIndex in residualNew)
+            {
+                foreach (var oldKey in old[oldIndex].SoftKeys)
+                {
+                    foreach (var newKey in @new[newIndex].SoftKeys)
+                    {
+                        if (oldKey.Tier != newKey.Tier
+                            || !string.Equals(oldKey.IdentityKey, newKey.IdentityKey, StringComparison.Ordinal)
+                            || string.Equals(oldKey.Variant, newKey.Variant, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        candidates.Add(new FindingSoftMatchCandidate(
+                            oldIndex,
+                            newIndex,
+                            new FindingMatchProvenance(oldKey.Tier, oldKey.Tier.Confidence)));
+                    }
+                }
+            }
+        }
+
+        var distinct = candidates
+            .GroupBy(candidate => (candidate.OldIndex, candidate.NewIndex))
+            .Select(group => group
+                .OrderByDescending(candidate => candidate.Match.Confidence)
+                .ThenBy(candidate => candidate.Match.Tier.Id, StringComparer.Ordinal)
+                .First())
+            .ToArray();
+        var oldCounts = distinct
+            .GroupBy(candidate => candidate.OldIndex)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var newCounts = distinct
+            .GroupBy(candidate => candidate.NewIndex)
+            .ToDictionary(group => group.Key, group => group.Count());
+        return
+        [
+            .. distinct
+                .Where(candidate => oldCounts[candidate.OldIndex] == 1)
+                .Where(candidate => newCounts[candidate.NewIndex] == 1)
+                .OrderByDescending(candidate => candidate.Match.Confidence)
+                .ThenBy(candidate => candidate.OldIndex)
+                .ThenBy(candidate => candidate.NewIndex),
+        ];
     }
 
     [Fact]

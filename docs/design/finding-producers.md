@@ -138,6 +138,13 @@ becomes `Changed`; the default threshold of 100 remains exact-only. Accepted
 matched transitions retain `FindingMatchProvenance`, including tier and
 confidence.
 
+Structured equality tiers are blocked by tier and projected identity. Within
+each bucket the matcher computes only bounded endpoint-degree summaries, not
+the Cartesian candidate graph, then emits mutual degree-one pairs. Candidate
+construction is therefore linear in projected-key memberships even when a
+large collision bucket is wholly ambiguous. Future fuzzy/similarity tiers must
+add their own LSH blocking and explicit comparison cap before they land.
+
 Metadata's first soft tier is `api.member.extension-instance` at confidence 85.
 It projects structured method receiver, name, generic arity, return type, and
 non-receiver parameters while retaining extension/instance as the variant.
