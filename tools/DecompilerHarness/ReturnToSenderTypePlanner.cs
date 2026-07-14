@@ -3229,6 +3229,19 @@ public static class CompileBackSourceComposer
             bool includeMemberSurface = requirement.IncludeMemberSurface;
             if (includeMemberSurface && kind != CompileBackTypeKind.Delegate)
                 AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
+            // When this class is reconstructed as the base of another shell type, a
+            // derived stub constructor emits an implicit `: base()`. If the class has
+            // only parameterized constructors (no accessible parameterless one), that
+            // implicit call fails to bind (CS7036/CS1729). Synthesize a parameterless
+            // constructor so base-class reconstruction never breaks the derived shell;
+            // at worst the derived constructor stays at its pre-existing opcode diff.
+            if (kind == CompileBackTypeKind.Class
+                && members.Any(member => member.Kind == CompileBackMemberKind.Constructor)
+                && !members.Any(member => member.Kind == CompileBackMemberKind.Constructor && member.Parameters.Count == 0)
+                && IsReconstructedBaseOfAnotherType(reader, requirement, requirementsByMetadataName))
+            {
+                members.Add(SyntheticParameterlessConstructor(requirement.Type));
+            }
             var producedRequirement = requirement with { RequiredMembers = members };
             producedRequirements.Add(producedRequirement);
 
@@ -3244,7 +3257,7 @@ public static class CompileBackSourceComposer
                 Name = requirement.Type.MetadataName,
                 MetadataName = requirement.Type.MetadataName,
                 Kind = TypeKindText(kind),
-                BaseType = BaseTypeSignature(reader, typeDef)?.DisplayName,
+                BaseType = BaseTypeSignature(reader, typeDef, kind)?.DisplayName,
                 TypeParameters = TypeParameters(reader, typeDef)
                     .Select(ToApiTypeParameter)
                     .ToList(),
@@ -3422,18 +3435,116 @@ public static class CompileBackSourceComposer
         static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
             => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
 
-        static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef)
+        static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
         {
             if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
                 return null;
             if (typeDef.BaseType.IsNil)
                 return null;
 
-            string? baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
-            return baseType is "System.Attribute"
-                ? CompileBackTypeSignature.Display(baseType)
-                : null;
+            string? baseType;
+            try
+            {
+                baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            if (baseType is null)
+                return null;
+            // Attributes must derive from System.Attribute (existing behavior).
+            if (baseType is "System.Attribute")
+                return CompileBackTypeSignature.Display(baseType);
+            // Only reconstruct same-assembly base classes. External (TypeReference)
+            // and generic-instantiation (TypeSpecification) bases are dropped as
+            // before: the shell cannot own their construction, so an external base
+            // whose only constructor is parameterized would make the derived stub's
+            // implicit `: base()` fail (CS7036) where the baseline compiled without
+            // a base. This mirrors ReconstructedSameAssemblyBaseName's own gate.
+            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+                return null;
+            // Only plain classes reconstruct a real base class; records/structs/enums/
+            // delegates keep their compiler-implied base to avoid primary-constructor
+            // and value-type conflicts. A generic type's base can reference its own
+            // type parameters, which the flat shell does not carry, so skip it.
+            if (kind != CompileBackTypeKind.Class || typeDef.GetGenericParameters().Count != 0)
+                return null;
+            if (baseType is "System.Object" or "System.ValueType" or "System.Enum"
+                or "System.Delegate" or "System.MulticastDelegate")
+                return null;
+            if (IsUnsupportedSurfaceSignature(baseType))
+                return null;
+            return CompileBackTypeSignature.Display(baseType);
         }
+
+        // True when some other reconstructed shell type — top-level or nested —
+        // derives from this class via a reconstructed (same-assembly) base
+        // declaration, so its implicit `: base()` depends on this class exposing an
+        // accessible parameterless constructor. Nested types are emitted by
+        // NestedTypes() from their enclosing requirement and are not present in
+        // requirementsByMetadataName, so each requirement's nested tree is walked.
+        static bool IsReconstructedBaseOfAnotherType(
+            MetadataReader reader,
+            CompileBackTypeRequirement requirement,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName)
+        {
+            string metadataFullName = requirement.Type.MetadataFullName;
+            foreach (var other in requirementsByMetadataName.Values)
+            {
+                if (FindType(reader, other.Type.MetadataFullName) is not { } otherHandle)
+                    continue;
+                if (TypeOrNestedDerivesFrom(reader, otherHandle, metadataFullName))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static bool TypeOrNestedDerivesFrom(MetadataReader reader, TypeDefinitionHandle handle, string baseMetadataFullName)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (CompileBackTypeIdentity.FromDefinition(reader, typeDef).MetadataFullName != baseMetadataFullName
+                && ReconstructedSameAssemblyBaseName(reader, handle, ShellKind(reader, typeDef)) == baseMetadataFullName)
+            {
+                return true;
+            }
+
+            foreach (var nestedHandle in typeDef.GetNestedTypes())
+            {
+                if (TypeOrNestedDerivesFrom(reader, nestedHandle, baseMetadataFullName))
+                    return true;
+            }
+
+            return false;
+        }
+
+        // The metadata full name of the class's reconstructed same-assembly base, or
+        // null when the base is not reconstructed (external base, or a kind that keeps
+        // its compiler-implied base).
+        static string? ReconstructedSameAssemblyBaseName(MetadataReader reader, TypeDefinitionHandle handle, CompileBackTypeKind kind)
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+                return null;
+            if (BaseTypeSignature(reader, typeDef, kind) is null)
+                return null;
+            var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
+            return CompileBackTypeIdentity.FromDefinition(reader, baseDef).MetadataFullName;
+        }
+
+        static CompileBackMemberRequirement SyntheticParameterlessConstructor(CompileBackTypeIdentity typeIdentity)
+            => new(
+                new CompileBackMethodIdentity(typeIdentity.FullName, ".ctor", 0, "synthetic-base-parameterless-constructor()"),
+                CompileBackMemberKind.Constructor,
+                IsStatic: false,
+                Parameters: [],
+                ReturnType: null,
+                TypeParameters: [],
+                CompileBackStubBodyKind.Throw,
+                TargetBody: null,
+                [new CompileBackFact("synthetic", "base-parameterless-constructor", typeIdentity.MetadataFullName)]);
 
         static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(MetadataReader reader, TypeDefinition typeDef)
         {
