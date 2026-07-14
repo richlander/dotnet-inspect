@@ -1931,7 +1931,7 @@ public sealed partial class CSharpPrinter
         var arguments = call.Arguments.Skip(1).ToList();
         if (!isThis && arguments.Count == 0)
             return null;  // implicit base()
-        return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds)});";
+        return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds, chainFidelityCasts: true)});";
     }
 
     /// <summary>The index of the base/this <c>.ctor</c> chain call in the entry block, or null when the body has none (a struct ctor, a static method, a body that never chains).</summary>
