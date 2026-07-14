@@ -46,7 +46,8 @@ Research. Data flows up the arrows (each layer consumes those below it); nothing
 flows down.
 
 ```text
-base primitives (leaves): ControlFlow (CFG / block graph), MetadataPrimitives, Findings
+base primitives (leaf): ControlFlow (CFG / block graph)
+  — also MetadataPrimitives and Findings, pervasive leaves (edges omitted below)
 
 foundations (build on the primitives; independent of each other):
 
@@ -75,6 +76,14 @@ shared CFG primitive, **`ControlFlow`** (block graph), consumed by `Instructions
 absent from the surface: `Metadata` and `CSharp` reach neither `ControlFlow` nor
 `Instructions`, which is exactly what lets the surface scenarios (signatures,
 shells) avoid the decode graph — the property this note's payoff rests on.
+
+`ControlFlow` is the one leaf drawn above, because *where* it is consumed is
+load-bearing for that payoff (decode/body side only). The other two leaves are
+pervasive and carry no layering argument, so their edges are omitted:
+`MetadataPrimitives` (low SRM helpers) is consumed by `Metadata`, `Instructions`,
+and `CSharp.Decompiler`; `Findings` (the shared finding/diagnostic type) is
+consumed almost everywhere — `Metadata`, `Instructions`, `Analysis`,
+`CSharp.Decompiler`, `Research`, and `Text`.
 
 The same producers, read as a 2×2 of **representation** × **rung**, show why
 `Instructions` and `CSharp.Decompiler` are *rung-peers* (both the "body" rung)
@@ -225,8 +234,14 @@ with its raise facts), but the moment a rendering must reach into *another*
 component's stream, it stops being a producer's job.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
-C#" — a whole body or type in one language with no offset axis. Skeleton is the
-degenerate case where the body is empty.
+C#" — a whole body or type in one language. Skeleton is the degenerate case
+where the body is empty. The scalar render reads no offset axis, but that is a
+*read*-time choice, not a production-time one: a raised Decompiler body **always**
+carries its per-statement IL-offset spans, because they are a property of the
+raise itself — the statement→offset mapping the interval primitive buckets onto —
+not an add-on the joins request. The joins below (interleave, body subset) depend
+on those spans already existing; the scalar case simply does not read them. A
+"fast-path" render that dropped the spans would silently break interleave.
 
 ### Research is the join
 
@@ -314,20 +329,25 @@ balancing taste:
   `MemberInstructionProducer` would disambiguate nothing, misparse (*an
   instruction that is a member*, not a member's instructions), and stutter
   against its own namespace.
-- **A scope prefix (`Type…` / `Member…`) appears only where an assembly's output
-  is split by scope — nowhere else.** Metadata is flat: a type signature and a
-  member signature are the same standalone artifact, so `SignatureProducer` is
-  scope-flexible and bare. C# *nests* — a member signature is syntactically
-  inside the type declaration — so `TypeShellProducer` must absorb member
-  signatures into the type shell, which forces the bodies back out as a
-  member-scoped `MemberBodyProducer` to re-inject. `TypeShell` + `MemberBody` is
-  one output split at the scope boundary the grammar imposes; the prefixes are
-  load-bearing exactly there, marking both the split and the rejoin — `Type` names
+- **A scope prefix (`Type…` / `Member…`) marks a producer that must disambiguate
+  against a scope-*peer* — another producer at a different scope, in the same
+  assembly or a paired one. It is *not* "member-scoped ⇒ prefixed":
+  `Instructions` is member-scoped (an instruction stream is one member's body)
+  yet stays bare, because it has no scope-peer to be told apart from.** Metadata
+  is flat: a type signature and a member signature are the same standalone
+  artifact, so `SignatureProducer` is scope-flexible, has no peer, and is bare. C#
+  *nests* — a member signature is syntactically inside the type declaration — so
+  `TypeShellProducer` must absorb member signatures into the type shell, which
+  forces the bodies back out as a member-scoped `MemberBodyProducer` to re-inject.
+  Here the two are genuine scope-peers, so both take a prefix — `Type` names
   `TypeShellProducer`'s *output* scope, while `Member` names the *increment*
   `MemberBodyProducer` contributes (the bodies), which `CSharp.Decompiler`
-  assembles back into the type. `Metadata`
-  and `Instructions` each expose one producer with nothing to disambiguate, so
-  both stay bare.
+  assembles back into the type. Note the pair straddles an **assembly boundary**:
+  `TypeShellProducer` lives in `CSharp`, `MemberBodyProducer` in
+  `CSharp.Decompiler`, so the split/rejoin the prefixes mark is *between* the two
+  assemblies, not inside either one. The rule for a future producer is therefore
+  "is there a scope-peer I must disambiguate against, here or in a paired
+  assembly?" — not "is my own assembly's output split?".
 
 The umbrella interface obeys the same rule and therefore carries **no** scope
 word: it spans a scope-flexible producer (`Signature`), two member-scoped
@@ -425,7 +445,19 @@ sourced from Metadata/Analysis, not from the printed text:
   The substrate's contract is that this modifier is a **Metadata classification
   fact applied only when the body policy emits a body**, so the surface path is
   unchanged and both full-body renderers agree — but the runtime-async *body*
-  fidelity gap is upstream of that contract and out of its scope.
+  fidelity gap is upstream of that contract and out of its scope. One caveat the
+  contract inherits: the *classification signal* is only half-settled. Classic
+  state-machine async is keyed off the stable, long-standing
+  `[AsyncStateMachine]` / `[AsyncIteratorStateMachine]` attributes. Runtime async
+  is keyed off `MethodImplAttributes.Async` — encoded as the raw `0x2000` impl
+  bit and read via a **literal cast** (`MethodClassificationScanner.cs`, `const
+  MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000`) precisely
+  because the SDK enum does not yet define the value. That bit is a preview-era
+  encoding, so the cheap-classification promise for runtime async carries the
+  same preview instability as the reconstruction gap in #2742: if the runtime
+  moves the encoding, classification silently misfires. The classic path does not
+  share that risk; only the runtime-async signal should be re-pinned alongside
+  #2742.
 - **body-only unsafe** (`localloc`, `calli`, pointer deref) — from
   `MethodSignals.Unsafe` (**Analysis**), no Decompiler. Signature-only unsafe is
   already set on `ApiMember.IsUnsafe`. Same body-gating applies: the `unsafe`
