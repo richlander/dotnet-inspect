@@ -219,9 +219,29 @@ public sealed partial class CSharpPrinter
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+            RequiresUnsafeBodyModifier = RequiresUnsafeBodyModifier(function),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
+
+    static bool RequiresUnsafeBodyModifier(IrFunction function)
+        => function.Descendants.Prepend(function).Any(IsUnsafeBodyModifierOperation);
+
+    static bool IsUnsafeBodyModifierOperation(IrNode node) => node switch
+    {
+        CallIndirect => true,
+        StackAllocate => true,
+        StackAllocArray => false,
+        Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
+        NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
+        LoadIndirect l => BodyOperationRendersAsPointerDeref(l.Address),
+        StoreIndirect s => BodyOperationRendersAsPointerDeref(s.Address),
+        InitObject o => BodyOperationRendersAsPointerDeref(o.Address),
+        _ => false,
+    };
+
+    static bool BodyOperationRendersAsPointerDeref(IrExpression address)
+        => address.ResultType?.Kind != TypeRefKind.ByRef;
 
     DecompilerOptions EffectiveDecompilerOptions()
         => new()

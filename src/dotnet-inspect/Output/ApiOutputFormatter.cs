@@ -2315,7 +2315,8 @@ public static class ApiOutputFormatter
             ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
         var bodyShape = new CSharpBlockBody(lowered)
         {
-            RequiresAsyncModifier = requiresAsyncBodyModifier
+            RequiresAsyncModifier = requiresAsyncBodyModifier,
+            RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier
         };
         var declaration = DefaultCSharpFormatter.FormatMemberWithBody(
             type,

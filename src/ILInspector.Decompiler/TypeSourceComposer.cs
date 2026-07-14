@@ -1019,40 +1019,12 @@ public static class TypeSourceComposer
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
-        requiresUnsafeContext = RequiresUnsafeMemberContext(function);
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
         constructorChain = result.ConstructorChain;
+        requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
-
-    static bool RequiresUnsafeMemberContext(Pipeline.IrFunction function)
-        => function.Descendants.Prepend(function).Any(IsUnsafeContextOperation);
-
-    static bool IsUnsafeContextOperation(Pipeline.IrNode node) => node switch
-    {
-        Pipeline.CallIndirect => true,
-        Pipeline.StackAllocate => true,
-        Pipeline.StackAllocArray => false,
-        Pipeline.Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
-        Pipeline.NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
-        Pipeline.LoadIndirect l => RendersAsPointerDeref(l.Address),
-        Pipeline.StoreIndirect s => RendersAsPointerDeref(s.Address),
-        Pipeline.InitObject o => RendersAsPointerDeref(o.Address),
-        _ => false,
-    };
-
-    static bool SignatureRequiresUnsafe(Pipeline.MethodRef callee)
-        => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
-
-    static bool ContainsPointer(Pipeline.TypeRef? type)
-        => type is not null
-            && (type.Kind is Pipeline.TypeRefKind.Pointer or Pipeline.TypeRefKind.FunctionPointer
-                || ContainsPointer(type.ElementType)
-                || type.TypeArguments.Any(ContainsPointer));
-
-    static bool RendersAsPointerDeref(Pipeline.IrExpression address)
-        => address.ResultType?.Kind != Pipeline.TypeRefKind.ByRef;
 
     /// <summary>
     /// Unions the namespaces of every definition type the function references

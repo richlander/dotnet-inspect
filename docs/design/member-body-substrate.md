@@ -273,8 +273,10 @@ sourced from Metadata/Analysis, not from the printed text:
 - **body-only unsafe** (`localloc`, `calli`, pointer deref) — from
   `MethodSignals.Unsafe` (**Analysis**), no Decompiler. Signature-only unsafe is
   already set on `ApiMember.IsUnsafe`. Same body-gating applies: the `unsafe`
-  context is a body concern, forced by the composer today
-  (`RequiresUnsafeMemberContext`).
+  context is a body concern. The current scalar path records the typed IR result
+  as `DecompilerResult.RequiresUnsafeBodyModifier`; both full-body consumers
+  carry it on `CSharpMemberBody`, while the Analysis fact remains the cheap
+  pre-filter for the planned vector path.
 
 ## What lands where
 

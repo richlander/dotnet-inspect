@@ -222,6 +222,13 @@ public sealed record DecompilerResult(
     /// </summary>
     public bool RequiresAsyncBodyModifier { get; init; }
 
+    /// <summary>
+    /// True when the rendered body contains operations that require an unsafe
+    /// member context. Full-body consumers carry this typed projection fact to
+    /// the C# declaration formatter instead of recovering it from rendered text.
+    /// </summary>
+    public bool RequiresUnsafeBodyModifier { get; init; }
+
     /// <summary>True when the rendered IR contains at least one recovered <c>await</c> expression.</summary>
     public bool ContainsAwaitExpression { get; init; }
 
@@ -260,6 +267,7 @@ public sealed record DecompilerResult(
             && EqualityComparer<string?>.Default.Equals(ConstructorChain, other.ConstructorChain)
             && EqualityComparer<IReadOnlyList<(string Field, string Value)>>.Default.Equals(FieldInitializers, other.FieldInitializers)
             && RequiresAsyncBodyModifier == other.RequiresAsyncBodyModifier
+            && RequiresUnsafeBodyModifier == other.RequiresUnsafeBodyModifier
             && ContainsAwaitExpression == other.ContainsAwaitExpression
             && EqualityComparer<DecompilerTrace?>.Default.Equals(Trace, other.Trace);
 
@@ -272,6 +280,7 @@ public sealed record DecompilerResult(
         hash.Add(ConstructorChain);
         hash.Add(FieldInitializers);
         hash.Add(RequiresAsyncBodyModifier);
+        hash.Add(RequiresUnsafeBodyModifier);
         hash.Add(ContainsAwaitExpression);
         hash.Add(Trace);
         return hash.ToHashCode();
