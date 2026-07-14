@@ -68,6 +68,7 @@ public sealed class LibraryBodyIndex
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
     ImmutableArray<OptimizationOpportunity> _allocationFanoutOpportunities;
+    IReadOnlyDictionary<int, CallerLoopEvidence>? _directCallerLoops;
     Dictionary<int, int>? _rootReachByToken;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
@@ -87,7 +88,7 @@ public sealed class LibraryBodyIndex
             if (_opportunities.IsDefault)
             {
                 var reachByToken = RootReachByToken;
-                _opportunities = AttachFindingProvenance(
+                _opportunities = AttachCallerLoopEvidence(AttachFindingProvenance(
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
@@ -105,11 +106,19 @@ public sealed class LibraryBodyIndex
                         .Select(o => o.Method.MetadataToken)))
                         .Select(AddFallbackOpportunityMetadata),
                     .. ScanMethodsInvokedInLoops(reachByToken).Select(AddFallbackOpportunityMetadata),
-                ]);
+                ]), DirectCallerLoops);
             }
             return _opportunities;
         }
     }
+
+    static ImmutableArray<OptimizationOpportunity> AttachCallerLoopEvidence(
+        ImmutableArray<OptimizationOpportunity> opportunities,
+        IReadOnlyDictionary<int, CallerLoopEvidence> evidenceByMethod)
+        => [.. opportunities.Select(opportunity =>
+            evidenceByMethod.TryGetValue(opportunity.Method.MetadataToken, out var evidence)
+                ? opportunity with { CallerLoop = evidence }
+                : opportunity)];
 
     /// <summary>
     /// Opt-in allocation fanout rows. Each row carries a sound IL-visible lower bound through
@@ -126,7 +135,7 @@ public sealed class LibraryBodyIndex
             {
                 var reachByToken = RootReachByToken;
 
-                _allocationFanoutOpportunities = AttachFindingProvenance(
+                _allocationFanoutOpportunities = AttachCallerLoopEvidence(AttachFindingProvenance(
                 [
                     .. AllocationFanout.Analyze(
                             Methods,
@@ -154,11 +163,17 @@ public sealed class LibraryBodyIndex
                             OpaqueCallPaths = summary.OpaquePaths,
                             AllocationCountSaturated = summary.Saturated,
                         }),
-                ]);
+                ]), DirectCallerLoops);
             }
             return _allocationFanoutOpportunities;
         }
     }
+
+    IReadOnlyDictionary<int, CallerLoopEvidence> DirectCallerLoops
+        => _directCallerLoops ??= CallerLoopEvidenceAnalysis.FindNearest(
+            Methods,
+            DirectCalls,
+            maxDepth: 1);
 
     Dictionary<int, int> RootReachByToken
     {

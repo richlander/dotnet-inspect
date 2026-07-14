@@ -18,7 +18,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.Analysis.Tests" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
-    <InternalsVisibleTo Include="analysis-harness" />
   </ItemGroup>
 
   <ItemGroup>

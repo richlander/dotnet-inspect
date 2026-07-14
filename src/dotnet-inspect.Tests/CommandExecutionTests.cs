@@ -499,6 +499,26 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageAllocationFanout_IncludesDirectCallerLoopEvidence()
+    {
+        string assemblyPath = FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "--triage-shape", "allocation-fanout",
+            "--where", "Member=*BoxDirect*",
+            "--where", "CallerLoop=direct",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"shape\":\"allocation-fanout\"", output);
+        Assert.Contains("\"caller_loop\":\"direct\"", output);
+        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
+        Assert.Contains("\"direct_sites\":\"1\"", output);
+    }
+
+    [Fact]
     public async Task PerformanceTriageWhere_FiltersRowsByField()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -535,6 +555,63 @@ public class CommandExecutionTests
         Assert.Contains("\"provenance\":\"exact\"", output);
         Assert.Contains("\"operation\":\"box\"", output);
         Assert.Contains("\"token\":\"0x", output);
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_ExposesDirectCallerLoopEvidenceWithoutChangingLocalLoop(string command)
+    {
+        const string typeName = "ILInspector.Analysis.CallerLoopFixtures.CallerLoopFixture";
+        string assemblyPath = FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        string[] sourceArgs = command switch
+        {
+            "library" => [command, assemblyPath],
+            "type" => [command, typeName, "--library", assemblyPath],
+            "member" => [command, typeName, "BoxDirect", "--library", assemblyPath],
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command, null),
+        };
+
+        var (exit, output, error) = await RunAppAsync(
+            [
+                .. sourceArgs,
+                "-S", "Performance Triage",
+                "--where", "CallerLoop=direct",
+                "--where", "CallerLoopDepth>=1",
+                "--order-by", "CallerLoopDepth desc",
+                "--jsonl",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("BoxDirect(int)", output);
+        Assert.Contains("\"caller_loop\":\"direct\"", output);
+        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
+        Assert.Contains("InvokeDirectInLoop", output);
+        Assert.Contains("\"loop\":\"\"", output);
+        Assert.Contains("\"candidate\":\"pt~", output);
+    }
+
+    [Theory]
+    [InlineData("asc")]
+    [InlineData("desc")]
+    public async Task PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast(string direction)
+    {
+        string assemblyPath = FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-S", "Performance Triage",
+            "--order-by", $"CallerLoopDepth {direction}",
+            "--top", "1",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"caller_loop\":\"direct\"", output);
+        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
     }
 
     [Fact]

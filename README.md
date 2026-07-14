@@ -207,6 +207,13 @@ points), and project per-node cost with `--fields`. Ranking rows carry a
 copyable `Stable` selector, `Visibility`, and `Selector`; add `--all` to drill
 non-public members.
 
+`CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
+cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
+of the row's method occurs inside an upstream caller's loop. It does not change
+the allocation's local `Loop`, multiplicity, confidence, weight, or ranking,
+and it does not claim runtime heat. Function loads such as `ldftn` are not
+invocations and do not produce this evidence.
+
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
 dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
@@ -217,6 +224,7 @@ dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --js
 dotnet-inspect library MyLib.dll --triage-shape allocation-fanout \
   --order-by "OncePaths desc" --top 20 --tsv
 dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
+dotnet-inspect library MyLib.dll --where "CallerLoop=direct" --order-by "CallerLoopDepth desc" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
 ```

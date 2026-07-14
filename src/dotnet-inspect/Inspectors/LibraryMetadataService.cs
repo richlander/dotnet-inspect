@@ -802,6 +802,9 @@ internal static class LibraryMetadataService
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
                     Loop = IteratesInLoop(opportunity) ? "loop" : "",
+                    CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
+                    CallerLoopDepth = opportunity.CallerLoop?.Depth,
+                    CallerLoopWitness = FormatCallerLoopWitness(opportunity.CallerLoop),
                     Allocation = opportunity.RuntimeAllocationType,
                     Path = opportunity.PathContext,
                     PathConfidence = opportunity.PathConfidence,
@@ -923,6 +926,14 @@ internal static class LibraryMetadataService
         {
             foreach (var term in orderTerms)
             {
+                if (term.Field == "CallerLoopDepth")
+                {
+                    bool leftMissing = left.CallerLoop is null;
+                    bool rightMissing = right.CallerLoop is null;
+                    if (leftMissing != rightMissing)
+                        return leftMissing ? 1 : -1;
+                }
+
                 int compare = CompareTriageField(left, right, term.Field);
                 if (compare != 0)
                     return term.Descending ? -compare : compare;
@@ -1055,6 +1066,9 @@ internal static class LibraryMetadataService
             "Fix" => opportunity.SafeFixDirection,
             "Confidence" => opportunity.Confidence,
             "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
+            "CallerLoop" => FormatCallerLoop(opportunity.CallerLoop),
+            "CallerLoopDepth" => opportunity.CallerLoop?.Depth.ToString(CultureInfo.InvariantCulture),
+            "CallerLoopWitness" => FormatCallerLoopWitness(opportunity.CallerLoop),
             "Allocation" => opportunity.RuntimeAllocationType,
             "Path" => opportunity.PathContext,
             "PathConfidence" => opportunity.PathConfidence,
@@ -1077,6 +1091,7 @@ internal static class LibraryMetadataService
         => field switch
         {
             "RootReach" => opportunity.RootReach,
+            "CallerLoopDepth" => opportunity.CallerLoop?.Depth,
             "DirectSites" => opportunity.DirectAllocationSites,
             "OncePaths" => opportunity.OnceAllocationPaths,
             "ConditionalPaths" => opportunity.ConditionalAllocationPaths,
@@ -1098,6 +1113,18 @@ internal static class LibraryMetadataService
             Analysis.PerformanceTriageProvenance.Unmatched => "unmatched",
             _ => null,
         };
+
+    internal static string? FormatCallerLoop(Analysis.CallerLoopEvidence? evidence)
+        => evidence is null ? null : evidence.Depth == 1 ? "direct" : "transitive";
+
+    internal static string? FormatCallerLoopWitness(Analysis.CallerLoopEvidence? evidence)
+    {
+        if (evidence is null || evidence.Witness.IsDefaultOrEmpty)
+            return null;
+
+        var calls = evidence.Witness.Select(step => $"{FormatMethod(step.Caller)} @ IL_{step.ILOffset:X4}");
+        return $"{string.Join(" -> ", calls)} -> {FormatMethod(evidence.Witness[^1].Callee)}";
+    }
 
     static bool TryParseMetadataToken(string value, out int token)
     {

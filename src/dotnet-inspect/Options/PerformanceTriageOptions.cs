@@ -32,6 +32,9 @@ public sealed record PerformanceTriageOptions
         "Fix",
         "Confidence",
         "Loop",
+        "CallerLoop",
+        "CallerLoopDepth",
+        "CallerLoopWitness",
         "Allocation",
         "Path",
         "PathConfidence",
@@ -54,6 +57,9 @@ public sealed record PerformanceTriageOptions
         "RootReach",
         "Confidence",
         "Loop",
+        "CallerLoop",
+        "CallerLoopDepth",
+        "CallerLoopWitness",
         "Member",
         "Candidate",
         "Finding",
@@ -324,6 +330,7 @@ public sealed record PerformanceTriageOptions
 
     internal static bool IsNumericField(string field)
         => field is "RootReach"
+            or "CallerLoopDepth"
             or "DirectSites"
             or "OncePaths"
             or "ConditionalPaths"
