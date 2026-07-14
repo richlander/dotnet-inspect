@@ -62,4 +62,20 @@ public sealed record OptimizationOpportunity(
     /// Separate from the allocation's local multiplicity, loop membership, and confidence.
     /// </summary>
     public CallerLoopEvidence? CallerLoop { get; init; }
+
+    /// <summary>Direct IL-visible heap-allocation sites in the declaring method.</summary>
+    public int? DirectAllocationSites { get; init; }
+
+    /// <summary>
+    /// IL-visible allocation paths classified once on normally returning control flow, including
+    /// exact intra-assembly callees reached only through call sites with the same classification.
+    /// </summary>
+    public long? OnceAllocationPaths { get; init; }
+
+    public long? ConditionalAllocationPaths { get; init; }
+    public long? RepeatedAllocationPaths { get; init; }
+    public long? UnknownAllocationPaths { get; init; }
+    public long? CachedAllocationSites { get; init; }
+    public long? OpaqueCallPaths { get; init; }
+    public bool AllocationCountSaturated { get; init; }
 }

@@ -283,6 +283,8 @@ public sealed record DirectCall(
 {
     public string Opcode { get; init; } = "";
     public int? ReturnAddress { get; init; }
+    public AllocationMultiplicity Multiplicity { get; init; }
+    public bool ExactTarget { get; init; }
 }
 
 public sealed record CalledTypeSummary(

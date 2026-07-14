@@ -785,7 +785,7 @@ internal static class LibraryMetadataService
             var index = openIndex();
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
-                    index.OptimizationOpportunities
+                    TriageOpportunities(index, options)
                         .Where(opportunity => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)),
                     options)
                 .Select(opportunity => new OptimizationOpportunitySummary
@@ -811,6 +811,14 @@ internal static class LibraryMetadataService
                     PostDominance = opportunity.PostDominance,
                     IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
                     Weight = opportunity.Weight,
+                    DirectSites = opportunity.DirectAllocationSites,
+                    OncePaths = opportunity.OnceAllocationPaths,
+                    ConditionalPaths = opportunity.ConditionalAllocationPaths,
+                    RepeatedPaths = opportunity.RepeatedAllocationPaths,
+                    UnknownPaths = opportunity.UnknownAllocationPaths,
+                    CachedSites = opportunity.CachedAllocationSites,
+                    OpaquePaths = opportunity.OpaqueCallPaths,
+                    Saturated = opportunity.AllocationCountSaturated ? "yes" : null,
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
@@ -884,11 +892,24 @@ internal static class LibraryMetadataService
                 filtered = filtered.Where(opportunity => MatchesTriagePredicate(opportunity, predicate));
         }
 
-        var ordered = options.TryGetOrderTerms(out var orderTerms, out _)
-            ? OrderTriageRows(filtered, orderTerms)
-            : OrderByTriagePriority(filtered);
+        var ordered = options.OrderBy is null && options.IncludesAllocationFanout
+            ? filtered
+                .OrderByDescending(opportunity => opportunity.OnceAllocationPaths ?? -1)
+                .ThenByDescending(opportunity => opportunity.RepeatedAllocationPaths ?? -1)
+                .ThenByDescending(opportunity => opportunity.ConditionalAllocationPaths ?? -1)
+                .ThenBy(opportunity => FormatMethod(opportunity.Method), StringComparer.Ordinal)
+            : options.TryGetOrderTerms(out var orderTerms, out _)
+                ? OrderTriageRows(filtered, orderTerms)
+                : OrderByTriagePriority(filtered);
         return options.Top is { } top ? ordered.Take(top) : ordered;
     }
+
+    internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
+        Analysis.LibraryBodyIndex index,
+        PerformanceTriageOptions? options)
+        => options?.IncludesAllocationFanout == true
+            ? index.OptimizationOpportunities.Concat(index.AllocationFanoutOpportunities)
+            : index.OptimizationOpportunities;
 
     static IEnumerable<Analysis.OptimizationOpportunity> OrderTriageRows(
         IEnumerable<Analysis.OptimizationOpportunity> opportunities,
@@ -930,24 +951,15 @@ internal static class LibraryMetadataService
 
     static bool MatchesTriagePredicate(Analysis.OptimizationOpportunity opportunity, PerformanceTriageOptions.RowPredicate predicate)
     {
-        if (predicate.Field == "RootReach")
+        if (NumericTriageField(opportunity, predicate.Field) is { } actualNumber)
         {
-            if (!int.TryParse(predicate.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+            if (!long.TryParse(predicate.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value))
                 return false;
-            int compare = opportunity.RootReach.CompareTo(value);
+            int compare = actualNumber.CompareTo(value);
             return MatchCompare(compare, predicate.Operator);
         }
-
-        if (predicate.Field == "CallerLoopDepth")
-        {
-            if (opportunity.CallerLoop is not { } evidence
-                || !int.TryParse(predicate.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
-            {
-                return false;
-            }
-            int compare = evidence.Depth.CompareTo(value);
-            return MatchCompare(compare, predicate.Operator);
-        }
+        if (PerformanceTriageOptions.IsNumericField(predicate.Field))
+            return false;
 
         if (predicate.Field == "Confidence")
         {
@@ -1021,10 +1033,11 @@ internal static class LibraryMetadataService
 
     static int CompareTriageField(Analysis.OptimizationOpportunity left, Analysis.OptimizationOpportunity right, string field)
     {
-        if (field == "RootReach")
-            return left.RootReach.CompareTo(right.RootReach);
-        if (field == "CallerLoopDepth")
-            return (left.CallerLoop?.Depth ?? 0).CompareTo(right.CallerLoop?.Depth ?? 0);
+        if (NumericTriageField(left, field) is { } leftNumber
+            && NumericTriageField(right, field) is { } rightNumber)
+        {
+            return leftNumber.CompareTo(rightNumber);
+        }
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")
@@ -1061,8 +1074,31 @@ internal static class LibraryMetadataService
             "PathConfidence" => opportunity.PathConfidence,
             "PostDominance" => opportunity.PostDominance,
             "Weight" => opportunity.Weight,
+            "DirectSites" => opportunity.DirectAllocationSites?.ToString(CultureInfo.InvariantCulture),
+            "OncePaths" => opportunity.OnceAllocationPaths?.ToString(CultureInfo.InvariantCulture),
+            "ConditionalPaths" => opportunity.ConditionalAllocationPaths?.ToString(CultureInfo.InvariantCulture),
+            "RepeatedPaths" => opportunity.RepeatedAllocationPaths?.ToString(CultureInfo.InvariantCulture),
+            "UnknownPaths" => opportunity.UnknownAllocationPaths?.ToString(CultureInfo.InvariantCulture),
+            "CachedSites" => opportunity.CachedAllocationSites?.ToString(CultureInfo.InvariantCulture),
+            "OpaquePaths" => opportunity.OpaqueCallPaths?.ToString(CultureInfo.InvariantCulture),
+            "Saturated" => opportunity.AllocationCountSaturated ? "yes" : null,
             "IL" => opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
             "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
+            _ => null,
+        };
+
+    static long? NumericTriageField(Analysis.OptimizationOpportunity opportunity, string field)
+        => field switch
+        {
+            "RootReach" => opportunity.RootReach,
+            "CallerLoopDepth" => opportunity.CallerLoop?.Depth,
+            "DirectSites" => opportunity.DirectAllocationSites,
+            "OncePaths" => opportunity.OnceAllocationPaths,
+            "ConditionalPaths" => opportunity.ConditionalAllocationPaths,
+            "RepeatedPaths" => opportunity.RepeatedAllocationPaths,
+            "UnknownPaths" => opportunity.UnknownAllocationPaths,
+            "CachedSites" => opportunity.CachedAllocationSites,
+            "OpaquePaths" => opportunity.OpaqueCallPaths,
             _ => null,
         };
 

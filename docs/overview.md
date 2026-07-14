@@ -54,6 +54,7 @@ Agents working in this repo should preserve these principles:
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
 - [Section model](design/section-model.md): section selection and query behavior.
+- [Capability section registry spike](design/capability-section-registry-spike.md): measured static lambda-table and precompiled-plan pilot layered on `SectionPipeline`.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
 - [Member Index](design/member-index.md): overload selector and digest contract.
 - [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.

@@ -925,7 +925,22 @@ public record OptimizationOpportunityRow(
     [property: MarkoutPropertyName("Post Dominance")]
     [property: MarkoutSkipNull] string? PostDominance,
     [property: MarkoutSkipNull] string? IL,
-    [property: MarkoutSkipNull] string? Weight);
+    [property: MarkoutSkipNull] string? Weight,
+    [property: MarkoutPropertyName("Direct Sites")]
+    [property: MarkoutSkipNull] string? DirectSites,
+    [property: MarkoutPropertyName("Once Paths")]
+    [property: MarkoutSkipNull] string? OncePaths,
+    [property: MarkoutPropertyName("Conditional Paths")]
+    [property: MarkoutSkipNull] string? ConditionalPaths,
+    [property: MarkoutPropertyName("Repeated Paths")]
+    [property: MarkoutSkipNull] string? RepeatedPaths,
+    [property: MarkoutPropertyName("Unknown Paths")]
+    [property: MarkoutSkipNull] string? UnknownPaths,
+    [property: MarkoutPropertyName("Cached Sites")]
+    [property: MarkoutSkipNull] string? CachedSites,
+    [property: MarkoutPropertyName("Opaque Paths")]
+    [property: MarkoutSkipNull] string? OpaquePaths,
+    [property: MarkoutSkipNull] string? Saturated);
 
 [MarkoutSerializable]
 public record TopLeverageRow(

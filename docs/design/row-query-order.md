@@ -164,12 +164,14 @@ Default order:
 Filterable fields:
   Member, Candidate, Finding, Provenance, RootReach, Shape, Operation, Token,
   Evidence, Fix, Confidence, Loop, Allocation, Path, PathConfidence,
-  PostDominance, IL, Weight
+  PostDominance, IL, Weight, DirectSites, OncePaths, ConditionalPaths,
+  RepeatedPaths, UnknownPaths, CachedSites, OpaquePaths, Saturated
 
 Sortable fields:
   Triage, RootReach, Confidence, Loop, Member, Candidate, Finding, Provenance,
   Shape, Operation, Token, IL, Allocation, Path, PathConfidence, PostDominance,
-  Weight
+  Weight, DirectSites, OncePaths, ConditionalPaths, RepeatedPaths, UnknownPaths,
+  CachedSites, OpaquePaths
 ```
 
 This makes the default sort order visible exactly where users and agents already

@@ -161,3 +161,72 @@ such as `allocation-hotspot` have no exact source occurrence and therefore use
 fields empty. Candidate IDs are checked for uniqueness when an index is built;
 a truncated-prefix collision is deterministically lengthened rather than
 creating an ambiguous join.
+
+## Opt-in allocation fanout
+
+Local rewrite shapes intentionally suppress ordinary once-per-call object
+construction. That is the right default for broad performance triage, but it
+can hide the dominant design cost in registries and fluent pipeline builders:
+one root method repeatedly calls the same generic registration method, and each
+call constructs another runtime entry.
+
+`--triage-shape allocation-fanout` adds one aggregate row per method with known
+IL-visible allocation impact:
+
+```bash
+dotnet-inspect library MyLib.dll \
+  --triage-shape allocation-fanout \
+  --order-by "OncePaths desc" --top 20 --tsv
+```
+
+The fields are deliberately not byte estimates:
+
+| Field | Meaning |
+| --- | --- |
+| `Direct Sites` | Heap-allocation sites in the method body |
+| `Once Paths` | Allocation paths classified once on normally returning control flow; exact intra-assembly callsites compose and repeated callsites count separately |
+| `Conditional Paths` | Allocation paths behind a branch or conditional call |
+| `Repeated Paths` | Allocation paths in a loop or reached through a loop callsite; trip count remains unknown |
+| `Unknown Paths` | Allocation paths whose multiplicity cannot be proven |
+| `Cached Sites` | Compiler-cached sites, deduplicated by method and IL offset across exact paths |
+| `Opaque Paths` | Invocation paths not traversed because the target is external, virtual, indirect, recursive, or unresolved |
+| `Saturated` | A call-path count exceeded the representable range |
+
+This is not a runtime allocation count. Exceptions can interrupt a
+normal-return path, the JIT can optimize IL-visible constructions, and opaque
+callees can allocate additional objects. The value is structural: it exposes
+how many allocation-producing paths a design creates and where static analysis
+stops. Recursive components are condensed into one graph node: their known
+allocation sites and exact outbound effects remain visible as `Unknown Paths`,
+while intra-component recurrence remains opaque.
+
+The aggregate remains opt-in. In an alternating 20-run process-level timing
+against `ILInspector.Analysis.dll`, the default Performance Triage median was
+unchanged at 0.370 seconds versus `origin/main`; enabling `allocation-fanout`
+raised the median to 0.400 seconds (+0.030 seconds, about 8%). The measurement
+used `/usr/bin/time` around the built CLI on macOS arm64 and includes process
+startup.
+
+### Registry dogfood
+
+A 2026-07-13 run against the current product and the #2605 registry spike
+surfaced the construction cost that method-scoped allocation diff missed:
+
+| Method/design | Direct sites | Once paths | Conditional paths | Cached sites | Opaque paths |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `LibrarySections.CreatePipeline` | 10 | 53 | 52 | 9 | 493 |
+| `ApiMemberOverloadSectionDescriptors.CreatePipeline` | 16 | 40 | 38 | 16 | 381 |
+| `ApiMemberSectionDescriptors.CreatePipeline` | 6 | 33 | 31 | 6 | 301 |
+| Original spike `CreateCapabilityRegistry` | 1 | 9 | 7 | 1 | 79 |
+| Revised spike `CreateCapabilityRegistry` | 1 | 10 | 14 | 1 | 84 |
+| Original `CapabilitySession` constructor | 3 | 3 | 0 | 0 | 4 |
+| Original `CapabilitySession.ExecutePlanAsync` | 1 | 1 | 0 | 0 | 23 |
+| Revised `CapabilityPlan.ExecuteAsync` | 3 | 0 | 2 | 0 | 14 |
+
+The result changes the registry recommendation. Stateless plan execution removes
+successful normal-path allocation, but the current typed spike does not improve
+registry construction. The production target should therefore generate or
+reuse one registry and its compiled plans rather than rebuilding them per
+command or assembly. Factory-created capability instances remain behind opaque
+delegate/generic activation edges in the original spike, so the table does not
+claim to count them.

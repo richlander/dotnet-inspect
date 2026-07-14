@@ -2009,7 +2009,7 @@ public static class ApiOutputFormatter
             ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
             : null;
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                index.OptimizationOpportunities
+                LibraryMetadataService.TriageOpportunities(index, options)
                     .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
                     .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
                     .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken)),
@@ -2035,7 +2035,15 @@ public static class ApiOutputFormatter
                 opportunity.PathConfidence,
                 opportunity.PostDominance,
                 opportunity.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
-                opportunity.Weight))
+                opportunity.Weight,
+                opportunity.DirectAllocationSites?.ToString(),
+                opportunity.OnceAllocationPaths?.ToString(),
+                opportunity.ConditionalAllocationPaths?.ToString(),
+                opportunity.RepeatedAllocationPaths?.ToString(),
+                opportunity.UnknownAllocationPaths?.ToString(),
+                opportunity.CachedAllocationSites?.ToString(),
+                opportunity.OpaqueCallPaths?.ToString(),
+                opportunity.AllocationCountSaturated ? "yes" : null))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.PerformanceTriage))

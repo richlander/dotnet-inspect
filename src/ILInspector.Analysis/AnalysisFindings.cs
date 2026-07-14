@@ -98,8 +98,8 @@ public static class AnalysisFindings
 
     /// <summary>
     /// Projects one method's direct calls into IL order. The callee signature establishes exact
-    /// correspondence; call opcode, dispatch kind, loop context, and version-local coordinates
-    /// remain payload facets or provenance.
+    /// correspondence; call opcode, dispatch kind, loop/multiplicity context, and version-local
+    /// coordinates remain payload facets or provenance.
     /// </summary>
     public static ImmutableArray<Finding<DirectCall>> InspectCallSites(
         IEnumerable<DirectCall> calls,
@@ -130,7 +130,8 @@ public static class AnalysisFindings
 
     /// <summary>
     /// Compares two direct-call censuses. Exact correspondence requires the same instantiated
-    /// callee signature; dispatch, opcode, and loop-context changes remain classified transitions.
+    /// callee signature; dispatch, opcode, multiplicity, and loop-context changes remain
+    /// classified transitions.
     /// </summary>
     public static FindingComparison<DirectCall> CompareCallSites(
         IEnumerable<DirectCall> oldCalls,
@@ -375,6 +376,7 @@ public static class AnalysisFindings
         // explicitly opted into transition classification here.
         => oldCall.Kind == newCall.Kind
             && oldCall.InLoop == newCall.InLoop
+            && oldCall.Multiplicity == newCall.Multiplicity
             && string.Equals(oldCall.Opcode, newCall.Opcode, StringComparison.Ordinal);
 
     static string DescribeCallSiteFacetChanges(DirectCall oldCall, DirectCall newCall)
@@ -382,6 +384,7 @@ public static class AnalysisFindings
         var changes = new List<string>();
         AddChange(changes, "kind", oldCall.Kind, newCall.Kind);
         AddChange(changes, "in loop", oldCall.InLoop, newCall.InLoop);
+        AddChange(changes, "multiplicity", oldCall.Multiplicity, newCall.Multiplicity);
         AddChange(changes, "opcode", oldCall.Opcode, newCall.Opcode);
         return changes.Count == 0 ? "other facets changed" : string.Join("; ", changes);
     }
