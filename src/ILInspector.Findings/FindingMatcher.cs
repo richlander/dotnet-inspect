@@ -495,74 +495,38 @@ public static class FindingMatcher
         IReadOnlySet<int>? blockedOld = null,
         IReadOnlySet<int>? blockedNew = null)
     {
-        var newByProjection = new Dictionary<SoftProjectionKey, List<(int Index, FindingSoftKey Key)>>();
-        foreach (int newIndex in residualNew)
-        {
-            if (blockedNew?.Contains(newIndex) == true)
-                continue;
-
-            foreach (var softKey in newStream[newIndex].SoftKeys)
-            {
-                var projection = new SoftProjectionKey(
-                    softKey.Tier.Id,
-                    softKey.Tier.Confidence,
-                    softKey.IdentityKey);
-                if (!newByProjection.TryGetValue(projection, out var bucket))
-                    newByProjection.Add(projection, bucket = []);
-                bucket.Add((newIndex, softKey));
-            }
-        }
+        var oldBuckets = BuildSoftProjectionBuckets(oldStream, residualOld, blockedOld);
+        var newBuckets = BuildSoftProjectionBuckets(newStream, residualNew, blockedNew);
+        var oldCandidates = BuildEndpointCandidates(
+            oldStream,
+            residualOld,
+            blockedOld,
+            newBuckets);
+        var newCandidates = BuildEndpointCandidates(
+            newStream,
+            residualNew,
+            blockedNew,
+            oldBuckets);
 
         var candidates = new List<FindingSoftMatchCandidate>();
         foreach (int oldIndex in residualOld)
         {
-            if (blockedOld?.Contains(oldIndex) == true)
-                continue;
-
-            foreach (var oldSoftKey in oldStream[oldIndex].SoftKeys)
+            if (!oldCandidates[oldIndex].TryGetSingle(out int newIndex, out var tier)
+                || !newCandidates[newIndex].TryGetSingle(out int candidateOldIndex, out _)
+                || candidateOldIndex != oldIndex)
             {
-                var projection = new SoftProjectionKey(
-                    oldSoftKey.Tier.Id,
-                    oldSoftKey.Tier.Confidence,
-                    oldSoftKey.IdentityKey);
-                if (!newByProjection.TryGetValue(projection, out var newEntries))
-                    continue;
-
-                foreach (var (newIndex, newSoftKey) in newEntries)
-                {
-                    if (string.Equals(oldSoftKey.Variant, newSoftKey.Variant, StringComparison.Ordinal))
-                        continue;
-
-                    candidates.Add(new FindingSoftMatchCandidate(
-                        oldIndex,
-                        newIndex,
-                        new FindingMatchProvenance(oldSoftKey.Tier, oldSoftKey.Tier.Confidence)));
-                }
+                continue;
             }
-        }
 
-        // Multiple tiers may independently project the same pair. Keep only its strongest tier,
-        // then suppress every endpoint that still participates in more than one pair. Under-match
-        // is safer than choosing among ambiguous near misses.
-        var distinctPairs = candidates
-            .GroupBy(candidate => (candidate.OldIndex, candidate.NewIndex))
-            .Select(group => group
-                .OrderByDescending(candidate => candidate.Match.Confidence)
-                .ThenBy(candidate => candidate.Match.Tier.Id, StringComparer.Ordinal)
-                .First())
-            .ToArray();
-        var oldCounts = distinctPairs
-            .GroupBy(candidate => candidate.OldIndex)
-            .ToDictionary(group => group.Key, group => group.Count());
-        var newCounts = distinctPairs
-            .GroupBy(candidate => candidate.NewIndex)
-            .ToDictionary(group => group.Key, group => group.Count());
+            candidates.Add(new FindingSoftMatchCandidate(
+                oldIndex,
+                newIndex,
+                new FindingMatchProvenance(tier, tier.Confidence)));
+        }
 
         return
         [
-            .. distinctPairs
-                .Where(candidate => oldCounts[candidate.OldIndex] == 1)
-                .Where(candidate => newCounts[candidate.NewIndex] == 1)
+            .. candidates
                 .OrderByDescending(candidate => candidate.Match.Confidence)
                 .ThenBy(candidate => candidate.OldIndex)
                 .ThenBy(candidate => candidate.NewIndex),
@@ -573,6 +537,135 @@ public static class FindingMatcher
         string TierId,
         int Confidence,
         string IdentityKey);
+
+    static Dictionary<SoftProjectionKey, SoftProjectionBucket> BuildSoftProjectionBuckets(
+        FindingKey[] stream,
+        int[] residual,
+        IReadOnlySet<int>? blocked)
+    {
+        var buckets = new Dictionary<SoftProjectionKey, SoftProjectionBucket>();
+        foreach (int index in residual)
+        {
+            if (blocked?.Contains(index) == true)
+                continue;
+
+            foreach (var softKey in stream[index].SoftKeys)
+            {
+                var projection = ToProjectionKey(softKey);
+                if (!buckets.TryGetValue(projection, out var bucket))
+                    buckets.Add(projection, bucket = new SoftProjectionBucket());
+                bucket.Add(index, softKey.Variant);
+            }
+        }
+
+        return buckets;
+    }
+
+    static EndpointCandidateSet[] BuildEndpointCandidates(
+        FindingKey[] stream,
+        int[] residual,
+        IReadOnlySet<int>? blocked,
+        IReadOnlyDictionary<SoftProjectionKey, SoftProjectionBucket> oppositeBuckets)
+    {
+        var candidates = new EndpointCandidateSet[stream.Length];
+        foreach (int index in residual)
+        {
+            if (blocked?.Contains(index) == true)
+                continue;
+
+            foreach (var softKey in stream[index].SoftKeys)
+            {
+                if (!oppositeBuckets.TryGetValue(ToProjectionKey(softKey), out var bucket))
+                    continue;
+
+                int count = bucket.CountExcept(softKey.Variant);
+                if (count == 1)
+                    candidates[index].Add(
+                        bucket.SoleIndexExcept(softKey.Variant),
+                        softKey.Tier);
+                else if (count > 1)
+                    candidates[index].MarkAmbiguous();
+            }
+        }
+
+        return candidates;
+    }
+
+    static SoftProjectionKey ToProjectionKey(FindingSoftKey key)
+        => new(key.Tier.Id, key.Tier.Confidence, key.IdentityKey);
+
+    sealed class SoftProjectionBucket
+    {
+        readonly Dictionary<string, VariantAggregate> _variants =
+            new(StringComparer.Ordinal);
+        int _indexXor;
+
+        public int Count { get; private set; }
+
+        public void Add(int index, string variant)
+        {
+            Count++;
+            _indexXor ^= index;
+            _variants.TryGetValue(variant, out var aggregate);
+            _variants[variant] = new VariantAggregate(
+                aggregate.Count + 1,
+                aggregate.IndexXor ^ index);
+        }
+
+        public int CountExcept(string variant)
+            => Count - (_variants.TryGetValue(variant, out var aggregate)
+                ? aggregate.Count
+                : 0);
+
+        public int SoleIndexExcept(string variant)
+        {
+            _variants.TryGetValue(variant, out var aggregate);
+            return _indexXor ^ aggregate.IndexXor;
+        }
+    }
+
+    readonly record struct VariantAggregate(int Count, int IndexXor);
+
+    struct EndpointCandidateSet
+    {
+        int _index;
+        bool _hasCandidate;
+        bool _ambiguous;
+        FindingMatchTier? _tier;
+
+        public void Add(int index, FindingMatchTier tier)
+        {
+            if (_ambiguous)
+                return;
+            if (!_hasCandidate)
+            {
+                _index = index;
+                _hasCandidate = true;
+                _tier = tier;
+            }
+            else if (_index != index)
+            {
+                _ambiguous = true;
+            }
+            else if (tier.Confidence > _tier!.Confidence
+                || (tier.Confidence == _tier.Confidence
+                    && string.CompareOrdinal(tier.Id, _tier.Id) < 0))
+            {
+                _tier = tier;
+            }
+        }
+
+        public void MarkAmbiguous() => _ambiguous = true;
+
+        public readonly bool TryGetSingle(
+            out int index,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out FindingMatchTier? tier)
+        {
+            index = _index;
+            tier = _tier;
+            return _hasCandidate && !_ambiguous;
+        }
+    }
 
     // Same construction and tiebreak as ILInspector.Instructions.IlBodyDiff so the committed
     // core reproduces the existing IL sequence diff exactly on move-free inputs.

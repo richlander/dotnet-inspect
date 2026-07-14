@@ -107,6 +107,12 @@ consumer fold. At threshold 100, soft candidates remain one `Added` and one
 `Removed`; an accepted soft candidate becomes `Changed` and retains its named
 tier and confidence through `FindingMatchProvenance`.
 
+For structured equality tiers, the matcher blocks on tier plus projected
+identity and summarizes each endpoint's degree without materializing all pairs
+inside a collision bucket. Only mutual degree-one endpoints survive. This keeps
+the false-positive discipline and runtime bound aligned: ambiguity costs input
+size, not the product of both residual streams.
+
 ## Sparse correlation and onset
 
 Neither correlation outcome traverses a version range. The caller chooses which
