@@ -235,6 +235,16 @@ public static class AttributeReader
         MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly = true)
         => ReadMethodAttributes(reader, FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly));
 
+    /// <summary>
+    /// Overload for callers that already hold the method's own
+    /// <see cref="MethodDefinitionHandle"/> — the canonical same-reader address
+    /// (see docs/design/member-body-substrate.md), free of the overload-ordinal
+    /// drift the name+index overloads are subject to.
+    /// </summary>
+    public static List<(string Name, string? Value)> GetMethodAttributes(
+        MetadataReader reader, MethodDefinitionHandle methodHandle)
+        => ReadMethodAttributes(reader, methodHandle);
+
     private static List<(string Name, string? Value)> ReadMethodAttributes(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
         List<(string Name, string? Value)> results = [];

@@ -91,11 +91,21 @@ internal static class MemberCodeProvider
             if (!typeIndex.TryGetValue(lookupType, out var typeHandle))
                 continue;
 
+            // Resolve the member's own metadata handle once (validated against
+            // this reader) and address every section by it, so none drifts onto
+            // a different overload. A non-validating token — e.g. carried over
+            // from a type-forwarded surface — falls back to the name+ordinal
+            // path. This is the same drift class the whole-type composition path
+            // fixes (see docs/design/member-body-substrate.md).
+            var memberHandle = ResolveMethodHandle(reader, typeHandle, method.MetadataToken, method.Name);
+
             IReadOnlyList<(string Name, string? Value)>? attributes = null;
             if (request.Attributes)
             {
-                var found = AttributeReader.GetMethodAttributes(
-                    reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+                var found = memberHandle is { } attrHandle
+                    ? AttributeReader.GetMethodAttributes(reader, attrHandle)
+                    : AttributeReader.GetMethodAttributes(
+                        reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
                 if (found.Count > 0)
                     attributes = found.Select(a => (a.Name, a.Value)).ToList();
             }
@@ -104,10 +114,14 @@ internal static class MemberCodeProvider
             // the decompiled-source declaration formatter. Sourced here (not from
             // a decompiler pass) so it is available whenever a method body is
             // shown, independent of which sections were requested.
-            var methodGenericParameters = MethodGenericParameterNames(
-                reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
-            var methodHasBody = SelectedMethodHasBody(
-                reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+            var methodGenericParameters = memberHandle is { } genHandle
+                ? MethodGenericParameterNames(reader, genHandle)
+                : MethodGenericParameterNames(
+                    reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+            var methodHasBody = memberHandle is { } bodyHandle
+                ? SelectedMethodHasBody(reader, bodyHandle)
+                : SelectedMethodHasBody(
+                    reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
@@ -121,6 +135,7 @@ internal static class MemberCodeProvider
                     method.Name,
                     lookupOverloadIndex,
                     publicOnly,
+                    memberHandle ?? default,
                     out raisedFunction));
                 projectionResult = projectionResult with
                 {
@@ -173,7 +188,8 @@ internal static class MemberCodeProvider
                         AnnotatedSource: request.AnnotatedSource,
                         CostOverlay: request.CostOverlay,
                         SemanticsOverlay: request.SemanticsOverlay,
-                        FactRows: request.Facts));
+                        FactRows: request.Facts,
+                        MethodHandle: memberHandle ?? default));
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
@@ -207,8 +223,10 @@ internal static class MemberCodeProvider
             {
                 try
                 {
-                    var instructions = ILInstructionPrinter.DisassembleMethod(
-                        peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+                    var instructions = memberHandle is { } ilHandle
+                        ? ILInstructionPrinter.DisassembleMethod(peReader, reader, ilHandle)
+                        : ILInstructionPrinter.DisassembleMethod(
+                            peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
                     if (instructions is { Count: > 0 })
                         ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
                 }
@@ -277,6 +295,17 @@ internal static class MemberCodeProvider
         return null;
     }
 
+    /// <summary>
+    /// Handle-addressed generic parameter names: reads directly from the
+    /// method's own definition, free of the name+overload-ordinal drift.
+    /// </summary>
+    static IReadOnlyList<string>? MethodGenericParameterNames(
+        MetadataReader reader, MethodDefinitionHandle methodHandle)
+    {
+        var handles = reader.GetMethodDefinition(methodHandle).GetGenericParameters();
+        return handles.Count == 0 ? null : handles.Select(reader.GetGenericParameterName).ToList();
+    }
+
     static bool SelectedMethodHasBody(
         MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly)
     {
@@ -294,6 +323,41 @@ internal static class MemberCodeProvider
             return method.RelativeVirtualAddress != 0;
         }
         return false;
+    }
+
+    static bool SelectedMethodHasBody(MetadataReader reader, MethodDefinitionHandle methodHandle)
+        => reader.GetMethodDefinition(methodHandle).RelativeVirtualAddress != 0;
+
+    /// <summary>
+    /// Validates a surface member's metadata token to a
+    /// <see cref="MethodDefinitionHandle"/> that belongs to
+    /// <paramref name="typeHandle"/> in <paramref name="reader"/> and carries
+    /// the member's name, or null when the token is absent, is not a method
+    /// definition, or does not validate (e.g. a type-forwarded surface whose
+    /// token points into another assembly). A null result asks the caller to
+    /// fall back to name+ordinal addressing.
+    /// </summary>
+    static MethodDefinitionHandle? ResolveMethodHandle(
+        MetadataReader reader, TypeDefinitionHandle typeHandle, int? token, string memberName)
+    {
+        if (token is not { } value)
+            return null;
+        var entity = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(value);
+        if (entity.Kind != HandleKind.MethodDefinition)
+            return null;
+        var methodHandle = (MethodDefinitionHandle)entity;
+        MethodDefinition method;
+        try
+        {
+            method = reader.GetMethodDefinition(methodHandle);
+        }
+        catch
+        {
+            return null;
+        }
+        if (method.GetDeclaringType() != typeHandle)
+            return null;
+        return reader.GetString(method.Name) == memberName ? methodHandle : null;
     }
 
     internal static FindingInspection<Decompiler.DecompilerFidelityCause> BuildFidelityCauseInspection(
@@ -355,12 +419,15 @@ internal static class MemberCodeProvider
         string method,
         int overloadIndex,
         bool publicOnly,
+        MethodDefinitionHandle methodHandle,
         out IrFunction? imported)
     {
         imported = null;
         try
         {
-            imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+            imported = (methodHandle.IsNil
+                ? IrImporter.Import(source, type, method, overloadIndex, publicOnly)
+                : IrImporter.Import(source, methodHandle))
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
             var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
                 imported,
