@@ -96,13 +96,18 @@ dotnet run --project tools/AnalysisHarness -c Release -- \
   --caller-loop-census /tmp/performance-triage-assemblies.txt --max-depth 4 --json
 ```
 
-The census is measurement-only and does not alter product rows, ranking, local
-`Loop`, multiplicity, or confidence. It builds one invocation-only graph per
-assembly (`call`, `callvirt`, and `newobj`; function loads and unresolved
-`calli` signatures are excluded), then records the nearest deterministic path
-from a loop invocation to each triage method. Results separate direct,
-transitive, beyond-bound, and no-witness rows and report both row and distinct
-method denominators, provenance, and
+The census remains measurement-only and does not alter rows or ranking. It
+shares the product's typed invocation analysis, which projects direct evidence
+as `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` while leaving local
+`Loop`, multiplicity, confidence, weight, and candidate identity unchanged.
+The census extends the same graph beyond one hop to classify the broader
+population.
+
+The graph includes resolved `call`, `callvirt`, and `newobj` edges; function
+loads and unresolved `calli` signatures are excluded. It records the nearest
+deterministic path from a loop invocation to each triage method. Results
+separate direct, transitive, beyond-bound, and no-witness rows and report both
+row and distinct-method denominators, provenance, and
 caller-loop/shape/confidence/local-multiplicity cross-tabs. JSON includes every
 row and its exact witness path for classification.
 

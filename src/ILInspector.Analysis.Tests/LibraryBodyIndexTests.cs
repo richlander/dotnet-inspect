@@ -16,6 +16,55 @@ namespace ILInspector.Analysis.Tests;
 public class LibraryBodyIndexTests
 {
     [Fact]
+    public void OptimizationOpportunities_AttachOnlyDirectCallerLoopInvocations()
+    {
+        var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        var opportunities = index.OptimizationOpportunities
+            .Where(opportunity => opportunity.Method.DeclaringType.Name == "CallerLoopFixture")
+            .ToArray();
+
+        var direct = Assert.Single(opportunities, opportunity =>
+            opportunity.Method.Name == "BoxDirect"
+            && opportunity.Shape == "box-value-type");
+        var evidence = Assert.IsType<CallerLoopEvidence>(direct.CallerLoop);
+        var witness = Assert.Single(evidence.Witness);
+        Assert.Equal(1, evidence.Depth);
+        Assert.Equal("InvokeDirectInLoop", witness.Caller.Name);
+        Assert.Equal("BoxDirect", witness.Callee.Name);
+        Assert.True(witness.InLoop);
+        Assert.False(direct.InLoop);
+        Assert.Equal("once", direct.Multiplicity);
+        Assert.Equal(PerformanceTriageProvenance.Exact, direct.Provenance);
+        Assert.StartsWith("pt~", direct.CandidateId, StringComparison.Ordinal);
+
+        var callVirtual = Assert.Single(opportunities, opportunity =>
+            opportunity.Method.Name == "BoxVirtual"
+            && opportunity.Shape == "box-value-type");
+        Assert.Equal(CallKind.CallVirtual, Assert.Single(callVirtual.CallerLoop!.Witness).Kind);
+
+        var constructor = Assert.Single(index.OptimizationOpportunities, opportunity =>
+            opportunity.Method.DeclaringType.Name == "CallerLoopConstructorTarget"
+            && opportunity.Method.Name == ".ctor"
+            && opportunity.Shape == "box-value-type");
+        Assert.Equal(CallKind.NewObject, Assert.Single(constructor.CallerLoop!.Witness).Kind);
+
+        var conditional = Assert.Single(opportunities, opportunity =>
+            opportunity.Method.Name == "BoxConditionally"
+            && opportunity.Shape == "box-value-type");
+        Assert.NotNull(conditional.CallerLoop);
+        Assert.False(conditional.InLoop);
+        Assert.NotEqual("loop", conditional.Multiplicity);
+
+        foreach (string method in new[] { "BoxOutsideLoop", "BoxFunctionTarget", "RecursiveBox" })
+        {
+            var nearMiss = Assert.Single(opportunities, opportunity =>
+                opportunity.Method.Name == method
+                && opportunity.Shape == "box-value-type");
+            Assert.Null(nearMiss.CallerLoop);
+        }
+    }
+
+    [Fact]
     public void FindCalls_FindsConsoleWriteLine()
     {
         var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);

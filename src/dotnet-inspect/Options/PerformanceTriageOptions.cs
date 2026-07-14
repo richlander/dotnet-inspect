@@ -32,6 +32,9 @@ public sealed record PerformanceTriageOptions
         "Fix",
         "Confidence",
         "Loop",
+        "CallerLoop",
+        "CallerLoopDepth",
+        "CallerLoopWitness",
         "Allocation",
         "Path",
         "PathConfidence",
@@ -46,6 +49,9 @@ public sealed record PerformanceTriageOptions
         "RootReach",
         "Confidence",
         "Loop",
+        "CallerLoop",
+        "CallerLoopDepth",
+        "CallerLoopWitness",
         "Member",
         "Candidate",
         "Finding",
@@ -247,15 +253,15 @@ public sealed record PerformanceTriageOptions
             }
 
             if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
-                && field is not ("RootReach" or "Confidence" or "Weight"))
+                && field is not ("RootReach" or "Confidence" or "Weight" or "CallerLoopDepth"))
             {
                 error = $"Error: Field '{field}' supports only = and != predicates.";
                 return false;
             }
-            if (field == "RootReach"
+            if (field is "RootReach" or "CallerLoopDepth"
                 && !int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
             {
-                error = $"Error: Field 'RootReach' expects an integer value in --where predicate '{expression}'.";
+                error = $"Error: Field '{field}' expects an integer value in --where predicate '{expression}'.";
                 return false;
             }
             if (field is "Confidence" or "Weight" && !IsKnownConfidence(value))

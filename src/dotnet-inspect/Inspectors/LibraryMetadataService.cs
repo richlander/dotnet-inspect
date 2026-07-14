@@ -802,6 +802,9 @@ internal static class LibraryMetadataService
                     Fix = opportunity.SafeFixDirection,
                     Confidence = opportunity.Confidence,
                     Loop = IteratesInLoop(opportunity) ? "loop" : "",
+                    CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
+                    CallerLoopDepth = opportunity.CallerLoop?.Depth,
+                    CallerLoopWitness = FormatCallerLoopWitness(opportunity.CallerLoop),
                     Allocation = opportunity.RuntimeAllocationType,
                     Path = opportunity.PathContext,
                     PathConfidence = opportunity.PathConfidence,
@@ -927,6 +930,17 @@ internal static class LibraryMetadataService
             return MatchCompare(compare, predicate.Operator);
         }
 
+        if (predicate.Field == "CallerLoopDepth")
+        {
+            if (opportunity.CallerLoop is not { } evidence
+                || !int.TryParse(predicate.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+            {
+                return false;
+            }
+            int compare = evidence.Depth.CompareTo(value);
+            return MatchCompare(compare, predicate.Operator);
+        }
+
         if (predicate.Field == "Confidence")
         {
             int expected = ConfidenceRank(predicate.Value);
@@ -1001,6 +1015,8 @@ internal static class LibraryMetadataService
     {
         if (field == "RootReach")
             return left.RootReach.CompareTo(right.RootReach);
+        if (field == "CallerLoopDepth")
+            return (left.CallerLoop?.Depth ?? 0).CompareTo(right.CallerLoop?.Depth ?? 0);
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")
@@ -1029,6 +1045,9 @@ internal static class LibraryMetadataService
             "Fix" => opportunity.SafeFixDirection,
             "Confidence" => opportunity.Confidence,
             "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
+            "CallerLoop" => FormatCallerLoop(opportunity.CallerLoop),
+            "CallerLoopDepth" => opportunity.CallerLoop?.Depth.ToString(CultureInfo.InvariantCulture),
+            "CallerLoopWitness" => FormatCallerLoopWitness(opportunity.CallerLoop),
             "Allocation" => opportunity.RuntimeAllocationType,
             "Path" => opportunity.PathContext,
             "PathConfidence" => opportunity.PathConfidence,
@@ -1050,6 +1069,18 @@ internal static class LibraryMetadataService
             Analysis.PerformanceTriageProvenance.Unmatched => "unmatched",
             _ => null,
         };
+
+    internal static string? FormatCallerLoop(Analysis.CallerLoopEvidence? evidence)
+        => evidence is null ? null : evidence.Depth == 1 ? "direct" : "transitive";
+
+    internal static string? FormatCallerLoopWitness(Analysis.CallerLoopEvidence? evidence)
+    {
+        if (evidence is null || evidence.Witness.IsDefaultOrEmpty)
+            return null;
+
+        var calls = evidence.Witness.Select(step => $"{FormatMethod(step.Caller)} @ IL_{step.ILOffset:X4}");
+        return $"{string.Join(" -> ", calls)} -> {FormatMethod(evidence.Witness[^1].Callee)}";
+    }
 
     static bool TryParseMetadataToken(string value, out int token)
     {

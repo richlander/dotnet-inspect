@@ -87,7 +87,8 @@ public sealed class LibraryBodyIndex
                 var reachByToken = new Dictionary<int, int>();
                 foreach (var entry in TopLeverage(int.MaxValue))
                     reachByToken[entry.Method.MetadataToken] = entry.RootReach;
-                _opportunities = AttachFindingProvenance(
+                var directCallerLoops = CallerLoopEvidenceAnalysis.FindNearest(Methods, DirectCalls, maxDepth: 1);
+                _opportunities = AttachCallerLoopEvidence(AttachFindingProvenance(
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
@@ -105,11 +106,19 @@ public sealed class LibraryBodyIndex
                         .Select(o => o.Method.MetadataToken)))
                         .Select(AddFallbackOpportunityMetadata),
                     .. ScanMethodsInvokedInLoops(reachByToken).Select(AddFallbackOpportunityMetadata),
-                ]);
+                ]), directCallerLoops);
             }
             return _opportunities;
         }
     }
+
+    static ImmutableArray<OptimizationOpportunity> AttachCallerLoopEvidence(
+        ImmutableArray<OptimizationOpportunity> opportunities,
+        IReadOnlyDictionary<int, CallerLoopEvidence> evidenceByMethod)
+        => [.. opportunities.Select(opportunity =>
+            evidenceByMethod.TryGetValue(opportunity.Method.MetadataToken, out var evidence)
+                ? opportunity with { CallerLoop = evidence }
+                : opportunity)];
 
     ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
         ImmutableArray<OptimizationOpportunity> opportunities)

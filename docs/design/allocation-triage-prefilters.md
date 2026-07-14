@@ -79,6 +79,30 @@ scoped deliberately: it applies only to the vague catch-all row, never to
 specific-shape rows. Specific-shape rows stay visible regardless of loop
 membership, so a hot once-per-call closure or delegate is not hidden.
 
+## Cross-method repetition stays separate
+
+`CallerLoop` evidence answers a narrower static question: can one invocation of
+an upstream caller repeat this method through a resolved invocation inside its
+loop? The direct product slice records the deterministic invocation site,
+depth, and witness path without changing the allocation's local `Loop`,
+multiplicity, confidence, weight, candidate identity, or default rank.
+
+This is not runtime heat. The caller may itself be cold, the loop may execute
+zero times, and a conditional allocation may not execute on every iteration.
+The evidence is therefore a queryable receipt for selecting instrumentation
+targets, not a promotion signal:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Performance Triage" \
+  --where "CallerLoop=direct" --jsonl
+```
+
+Only resolved `call`, `callvirt`, and `newobj` edges qualify. `ldftn` and
+`ldvirtftn` create function values rather than invoking their targets, and an
+unresolved `calli` identifies no concrete callee. Deferred callback creation
+and consumption requires its own discriminator rather than weakening this
+invocation contract.
+
 ## Negative results worth keeping
 
 Active use ruled out two plausible-looking filters:

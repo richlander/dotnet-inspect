@@ -56,4 +56,10 @@ public sealed record OptimizationOpportunity(
 
     /// <summary>Whether this row has exact, aggregate, or unresolved producer provenance.</summary>
     public PerformanceTriageProvenance Provenance { get; init; }
+
+    /// <summary>
+    /// Objective invocation path showing that an upstream loop can repeat this method.
+    /// Separate from the allocation's local multiplicity, loop membership, and confidence.
+    /// </summary>
+    public CallerLoopEvidence? CallerLoop { get; init; }
 }

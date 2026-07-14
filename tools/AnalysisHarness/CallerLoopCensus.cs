@@ -105,27 +105,12 @@ public static class CallerLoopCensus
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDepth, 1);
 
-        var methodByToken = methods.ToDictionary(static method => method.MetadataToken);
-        var methodMap = MethodDefinitionMap.Create(methods);
-        var edges = directCalls
-            .Where(IsInvocation)
-            .Select(call => new GraphEdge(call, methodMap.Resolve(call)))
-            .Where(static edge => edge.CalleeToken != 0)
-            .OrderBy(edge => EdgeKey(edge.Call, methodByToken[edge.CalleeToken]), StringComparer.Ordinal)
-            .ToArray();
-
-        var adjacency = edges
-            .GroupBy(static edge => edge.Call.Caller.MetadataToken)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.ToArray());
-
-        var bestByToken = NearestLoopWitnesses(edges, adjacency);
+        var bestByToken = CallerLoopEvidenceAnalysis.FindNearest(methods, directCalls);
         return opportunities
             .OrderBy(static opportunity => opportunity.Method.MetadataToken)
             .ThenBy(static opportunity => opportunity.ILOffset ?? -1)
             .ThenBy(static opportunity => opportunity.Shape, StringComparer.Ordinal)
-            .Select(opportunity => CreateRow(assembly, opportunity, bestByToken, methodByToken, maxDepth))
+            .Select(opportunity => CreateRow(assembly, opportunity, bestByToken, maxDepth))
             .ToArray();
     }
 
@@ -165,60 +150,10 @@ public static class CallerLoopCensus
         return sb.ToString();
     }
 
-    static Dictionary<int, WitnessState> NearestLoopWitnesses(
-        IReadOnlyList<GraphEdge> edges,
-        IReadOnlyDictionary<int, GraphEdge[]> adjacency)
-    {
-        var best = new Dictionary<int, WitnessState>();
-        var seeds = new List<WitnessState>();
-        foreach (var edge in edges.Where(static edge =>
-            edge.Call.InLoop
-            && edge.Call.Caller.MetadataToken != edge.CalleeToken))
-        {
-            if (best.ContainsKey(edge.CalleeToken))
-                continue;
-            var state = WitnessState.Seed(edge);
-            best[edge.CalleeToken] = state;
-            seeds.Add(state);
-        }
-
-        WitnessState[] frontier = [.. seeds];
-        while (frontier.Length > 0)
-        {
-            var next = new Dictionary<int, WitnessState>();
-            var orderedNext = new List<WitnessState>();
-            foreach (var state in frontier)
-            {
-                if (!adjacency.TryGetValue(state.Token, out var outgoing))
-                    continue;
-                foreach (var edge in outgoing)
-                {
-                    if (best.ContainsKey(edge.CalleeToken))
-                        continue;
-                    // Returning to the loop owner is recursive repetition, not evidence that
-                    // a distinct upstream caller loop repeats the method.
-                    if (edge.CalleeToken == state.LoopCallerToken)
-                        continue;
-                    if (next.ContainsKey(edge.CalleeToken))
-                        continue;
-                    var candidate = state.Append(edge);
-                    next[edge.CalleeToken] = candidate;
-                    orderedNext.Add(candidate);
-                }
-            }
-
-            frontier = [.. orderedNext];
-            foreach (var state in frontier)
-                best[state.Token] = state;
-        }
-        return best;
-    }
-
     static CallerLoopCensusRow CreateRow(
         string assembly,
         OptimizationOpportunity opportunity,
-        IReadOnlyDictionary<int, WitnessState> bestByToken,
-        IReadOnlyDictionary<int, MethodIdentity> methodByToken,
+        IReadOnlyDictionary<int, CallerLoopEvidence> bestByToken,
         int maxDepth)
     {
         bestByToken.TryGetValue(opportunity.Method.MetadataToken, out var witness);
@@ -243,7 +178,12 @@ public static class CallerLoopCensus
             opportunity.Provenance,
             classification,
             witness?.Depth,
-            witness?.BuildSteps(methodByToken) ?? []);
+            witness?.Witness.Select(step => new CallerLoopWitnessStep(
+                MethodDisplay(step.Caller),
+                MethodDisplay(step.Callee),
+                step.ILOffset,
+                step.Kind,
+                step.InLoop)).ToArray() ?? []);
     }
 
     static CallerLoopCensusReport BuildReport(
@@ -283,20 +223,8 @@ public static class CallerLoopCensus
             rows);
     }
 
-    static bool IsInvocation(DirectCall call)
-        => call.Kind is CallKind.Call or CallKind.CallVirtual or CallKind.NewObject;
-
-    static string EdgeKey(DirectCall call, MethodIdentity callee)
-        => $"{MethodKey(call.Caller)}|{call.ILOffset:X8}|{MethodKey(callee)}|{call.Kind}";
-
-    static string MethodKey(MethodIdentity method)
-        => $"{method.AssemblyName}|{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
-
     static string MethodDisplay(MethodIdentity method)
         => $"{method.DeclaringType.ToQualifiedDisplayString()}::{method.Name}({string.Join(", ", method.ParameterTypes.Select(static type => type.ToQualifiedDisplayString()))})";
-
-    static string MethodDisplay(MemberRef member)
-        => $"{member.DeclaringType.ToQualifiedDisplayString()}::{member.Name}({string.Join(", ", member.ParameterTypes.Select(static type => type.ToQualifiedDisplayString()))})";
 
     static string Text(string? value)
         => string.IsNullOrWhiteSpace(value) ? Empty : value;
@@ -326,47 +254,4 @@ public static class CallerLoopCensus
             sb.AppendLine($"    ... {counts.Count - top} more");
     }
 
-    sealed record GraphEdge(DirectCall Call, int CalleeToken);
-
-    sealed record WitnessState(
-        int Token,
-        int Depth,
-        int LoopCallerToken,
-        GraphEdge Incoming,
-        WitnessState? Previous)
-    {
-        public static WitnessState Seed(GraphEdge edge)
-            => new(
-                edge.CalleeToken,
-                1,
-                edge.Call.Caller.MetadataToken,
-                edge,
-                null);
-
-        public WitnessState Append(GraphEdge edge)
-            => new(
-                edge.CalleeToken,
-                Depth + 1,
-                LoopCallerToken,
-                edge,
-                this);
-
-        public IReadOnlyList<CallerLoopWitnessStep> BuildSteps(IReadOnlyDictionary<int, MethodIdentity> methodByToken)
-        {
-            var reversed = new List<GraphEdge>(Depth);
-            for (WitnessState? state = this; state is not null; state = state.Previous)
-                reversed.Add(state.Incoming);
-            reversed.Reverse();
-            return reversed.Select(edge =>
-            {
-                var callee = methodByToken[edge.CalleeToken];
-                return new CallerLoopWitnessStep(
-                    MethodDisplay(edge.Call.Caller),
-                    MethodDisplay(callee),
-                    edge.Call.ILOffset,
-                    edge.Call.Kind,
-                    edge.Call.InLoop);
-            }).ToArray();
-        }
-    }
 }
