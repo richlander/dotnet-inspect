@@ -253,7 +253,9 @@ public sealed class CSharpTypePrinter
         if (member.Member.Kind == "property")
             return RenderProperty(type, member, formatter, propertyFormatter, indent);
 
-        string memberDeclaration = formatter.FormatMember(type.Type, member.Member);
+        string memberDeclaration = member.Body is null
+            ? formatter.FormatMember(type.Type, member.Member)
+            : formatter.FormatMemberWithBody(type.Type, member.Member, member.Body);
         if (type.Type.Kind == "interface"
             || member.Member.IsAbstract
             || member.Policy == CSharpBodyPolicy.Skeleton)
@@ -292,7 +294,10 @@ public sealed class CSharpTypePrinter
         }
 
         var body = (CSharpPropertyBody)member.Body!;
-        string declaration = propertyFormatter.FormatMember(type.Type, member.Member);
+        string declaration = propertyFormatter.FormatMemberWithBody(
+            type.Type,
+            member.Member,
+            member.Body!);
         if (AllAuto(body))
         {
             var accessors = new List<string>();

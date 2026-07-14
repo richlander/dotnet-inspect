@@ -19,9 +19,6 @@ namespace ILInspector.Decompiler;
 public static class TypeSourceComposer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
-    static readonly CSharpFormatter UnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true);
-    static readonly CSharpFormatter AsyncDeclarationFormatter = CreateDeclarationFormatter(forceAsync: true);
-    static readonly CSharpFormatter AsyncUnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true, forceAsync: true);
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
 
     /// <summary>
@@ -185,27 +182,14 @@ public static class TypeSourceComposer
     }
 
     static CSharpFormatter CreateDeclarationFormatter(
-        bool forceUnsafe = false,
-        bool forceAsync = false,
         bool terminateMemberDeclaration = false)
         => new(new CSharpFormatOptions
         {
-            ForceAsync = forceAsync,
-            ForceUnsafe = forceUnsafe,
             IncludeCustomAttributes = false,
             IncludeObsoleteAttribute = false,
             OmitInterfaceMemberModifiers = true,
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
-
-    static CSharpFormatter DeclarationFormatter(bool forceUnsafe, bool forceAsync)
-        => (forceUnsafe, forceAsync) switch
-        {
-            (false, false) => DefaultDeclarationFormatter,
-            (true, false) => UnsafeDeclarationFormatter,
-            (false, true) => AsyncDeclarationFormatter,
-            (true, true) => AsyncUnsafeDeclarationFormatter
-        };
 
     static string DisplayName(ApiType type)
     {
@@ -413,11 +397,10 @@ public static class TypeSourceComposer
                         sb.AppendLine($"    [{attribute}]");
 
                     string? constructorChain = null;
-                    bool requiresAsync = false;
                     bool requiresUnsafeContext = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -466,8 +449,17 @@ public static class TypeSourceComposer
                         break;
                     }
 
-                    var declaration = DeclarationFormatter(requiresUnsafeContext, requiresAsync)
-                        .FormatMember(type, member);
+                    var bodyShape = body is null
+                        ? null
+                        : new CSharpBlockBody(body)
+                        {
+                            RequiresAsyncModifier = memberHandle is { } asyncHandle
+                                && CSharpTypeProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
+                            RequiresUnsafeModifier = requiresUnsafeContext
+                        };
+                    var declaration = bodyShape is null
+                        ? DefaultDeclarationFormatter.FormatMember(type, member)
+                        : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
                     AppendMember(sb, declaration, body, constructorChain);
                     break;
                 }
@@ -789,7 +781,10 @@ public static class TypeSourceComposer
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
-            signature = UnsafeDeclarationFormatter.FormatMember(type, member);
+            signature = DefaultDeclarationFormatter.FormatMemberWithBody(
+                type,
+                member,
+                new CSharpPropertyBody(null, null) { RequiresUnsafeModifier = true });
             accessorList = signature.IndexOf('{');
             head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         }
@@ -891,7 +886,7 @@ public static class TypeSourceComposer
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -902,7 +897,7 @@ public static class TypeSourceComposer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -911,7 +906,7 @@ public static class TypeSourceComposer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext);
     }
 
     /// <summary>
@@ -990,9 +985,9 @@ public static class TypeSourceComposer
         => accessorHandle is { } handle
             ? DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out _, out requiresUnsafeContext)
+                bodyNamespaces, out _, out requiresUnsafeContext)
             : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out _, out requiresUnsafeContext);
+            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -1004,10 +999,10 @@ public static class TypeSourceComposer
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
-        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
+        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -1017,10 +1012,9 @@ public static class TypeSourceComposer
     /// </summary>
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
     {
         constructorChain = null;
-        requiresAsync = false;
         requiresUnsafeContext = false;
         if (function is null)
             return null;
@@ -1029,7 +1023,6 @@ public static class TypeSourceComposer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
         constructorChain = result.ConstructorChain;
-        requiresAsync = result.ContainsAwaitExpression;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

@@ -215,10 +215,10 @@ public sealed record DecompilerResult(
     public IReadOnlyList<(string Field, string Value)> FieldInitializers { get; init; } = [];
 
     /// <summary>
-    /// True when the body must be emitted under a C# <c>async</c> method modifier
-    /// to recompile to equivalent IL. Classic async state-machine reconstruction
-    /// sets this; runtime-async helper-call recovery does not, because compiling it
-    /// as C# async would emit a different lowering.
+    /// True when classic state-machine reconstruction installed an async body
+    /// contract. The printer uses this to shape fallback returns. Final C# member
+    /// modifiers are body-gated metadata facts owned by <c>ILInspector.CSharp</c>,
+    /// not inferred from this projection result.
     /// </summary>
     public bool RequiresAsyncBodyModifier { get; init; }
 

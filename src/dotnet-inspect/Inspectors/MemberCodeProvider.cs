@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Services;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
@@ -36,7 +37,8 @@ internal static class MemberCodeProvider
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
-        FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null);
+        FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null,
+        bool RequiresAsyncBodyModifier = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -122,6 +124,8 @@ internal static class MemberCodeProvider
                 ? SelectedMethodHasBody(reader, bodyHandle)
                 : SelectedMethodHasBody(
                     reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+            bool requiresAsyncBodyModifier = memberHandle is { } asyncHandle
+                && CSharpTypeProducer.RequiresAsyncBodyModifier(reader, asyncHandle);
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
@@ -253,7 +257,8 @@ internal static class MemberCodeProvider
                 ilDiagnostic,
                 attributes,
                 facts,
-                fidelityCauses)));
+                fidelityCauses,
+                requiresAsyncBodyModifier)));
         }
 
         return results;

@@ -237,31 +237,34 @@ cheapest home rather than recovered from print. Both are **body-gated
 modifiers** — they belong on a member only when a body is emitted, and are
 sourced from Metadata/Analysis, not from the printed text:
 
-- **async / iterator** — sourced from `[AsyncStateMachine]` /
-  `MethodImplAttributes.Async`, classified by
+- **async / iterator** — async method headers are sourced from
+  `[AsyncStateMachine]` / `MethodImplAttributes.Async`, classified by
   `MethodClassificationScanner.ClassifyAsyncMethod` (**Metadata**). `async` is
   *not* part of an API surface — a caller cannot observe it, and reference
   assemblies strip it — so the **skeleton/surface** path deliberately omits it,
   and `ApiMember.IsAsync` (`ApiSurface.cs`) is intentionally left unpopulated
-  there. It matters only on the **full-body** path, and today that path derives
-  the modifier from the printed body rather than from metadata, which has two
-  problems the substrate fixes:
-  - **Signal inconsistency.** `TypeSourceComposer` forces `async` from
-    `ContainsAwaitExpression` alone, while `ApiOutputFormatter` uses
-    `ContainsAwaitExpression || RequiresAsyncBodyModifier`. The latter (set by
-    `ClassicAsyncReconstructionPass`) catches classic-async methods with no
-    reachable `await`; the composer drops `async` on them.
-  - **Runtime async is not reconstructed at all.** For runtime-async methods
-    (`MethodImplAttributes.Async`, no compiler state machine — the shape the
-    preview SDK emitted for the probe fixture, distinct from the classic
-    compiler state-machine async that remains the language default), *neither*
-    signal is set — the reconstruction pass only handles classic state-machine
-    async. Verified: composing an `async Task`/`async Task<int>` fixture built
-    with the preview SDK renders the methods **without** `async` and exposes the
-    raw `AsyncHelpers.UnsafeAwaitAwaiter<...>` lowering instead of `await`.
-    Recovering runtime async is a decompiler raise in its own right (full A/B +
-    adversarial discipline), tracked separately from this substrate as
-    [#2742](https://github.com/richlander/dotnet-inspect/issues/2742).
+  there. It matters only on the **full-body** path. `CSharpTypeProducer`
+  classifies the selected MethodDef, and both full-body consumers carry that
+  body-only fact on `CSharpMemberBody`; skeleton requests remain unchanged.
+  This removes the former signal inconsistency where `TypeSourceComposer`
+  consulted `ContainsAwaitExpression` while `ApiOutputFormatter` also consulted
+  `RequiresAsyncBodyModifier`.
+
+  `[AsyncIteratorStateMachine]` is intentionally not enough to add the modifier:
+  until iterator reconstruction replaces the kickoff's state-machine-return
+  expression with a source `yield` body, adding `async` would make the emitted
+  method invalid. The metadata fact remains available, but the body gate declines
+  it until that upstream reconstruction exists.
+
+  Runtime-async bodies are not yet fully reconstructed. For runtime-async
+  methods (`MethodImplAttributes.Async`, no compiler state machine — the shape
+  the preview SDK emitted for the probe fixture, distinct from the classic
+  compiler state-machine async that remains the language default), metadata now
+  preserves the `async` header, but awaiter-helper shapes still expose the raw
+  `AsyncHelpers.UnsafeAwaitAwaiter<...>` lowering instead of `await`. Recovering
+  runtime async is a decompiler raise in its own right (full A/B + adversarial
+  discipline), tracked separately from this substrate as
+  [#2742](https://github.com/richlander/dotnet-inspect/issues/2742).
 
   The substrate's contract is that this modifier is a **Metadata classification
   fact applied only when the body policy emits a body**, so the surface path is
