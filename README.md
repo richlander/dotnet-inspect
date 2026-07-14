@@ -214,10 +214,20 @@ dotnet-inspect library MyLib.dll -S "Performance Triage"
 dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
+dotnet-inspect library MyLib.dll --triage-shape allocation-fanout \
+  --order-by "OncePaths desc" --top 20 --tsv
 dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
 ```
+
+`allocation-fanout` is an opt-in aggregate view for construction-heavy
+registries, pipelines, and object graphs that do not match a local rewrite
+shape. It counts direct allocation sites and composes repeated exact
+intra-assembly callsites into `Once Paths`, while keeping conditional, repeated,
+unknown, cached, and opaque paths separate. The counts describe IL-visible
+normal-return paths, not runtime bytes or workload frequency; virtual, external,
+delegate, recursive, and runtime-library effects remain opaque.
 
 Common `--triage-shape` values include `capturing-delegate`,
 `async-state-machine`, `box-value-type`, `small-array`, `linq-scan-in-loop`,

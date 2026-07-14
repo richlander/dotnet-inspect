@@ -56,4 +56,20 @@ public sealed record OptimizationOpportunity(
 
     /// <summary>Whether this row has exact, aggregate, or unresolved producer provenance.</summary>
     public PerformanceTriageProvenance Provenance { get; init; }
+
+    /// <summary>Direct IL-visible heap-allocation sites in the declaring method.</summary>
+    public int? DirectAllocationSites { get; init; }
+
+    /// <summary>
+    /// IL-visible allocation paths classified once on normally returning control flow, including
+    /// exact intra-assembly callees reached only through call sites with the same classification.
+    /// </summary>
+    public long? OnceAllocationPaths { get; init; }
+
+    public long? ConditionalAllocationPaths { get; init; }
+    public long? RepeatedAllocationPaths { get; init; }
+    public long? UnknownAllocationPaths { get; init; }
+    public long? CachedAllocationSites { get; init; }
+    public long? OpaqueCallPaths { get; init; }
+    public bool AllocationCountSaturated { get; init; }
 }

@@ -464,6 +464,41 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceTriageAllocationFanout_ReportsOncePathQuantity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--triage-shape", "allocation-fanout",
+            "--where", "Member=*CreateAllocationFanout*",
+            "--where", "OncePaths>=4",
+            "--order-by", "OncePaths desc",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"shape\":\"allocation-fanout\"", output);
+        Assert.Contains("\"provenance\":\"aggregate\"", output);
+        Assert.Contains("\"direct_sites\":\"1\"", output);
+        Assert.Contains("\"once_paths\":\"4\"", output);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageAllocationFanout_IsOptIn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--where", "Member=*CreateAllocationFanout*",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("\"shape\":\"allocation-fanout\"", output);
+    }
+
+    [Fact]
     public async Task PerformanceTriageWhere_FiltersRowsByField()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -5640,6 +5675,8 @@ public class CommandExecutionTests
         Assert.Contains("| Loop desc | order-step |", output);
         Assert.Contains("| Allocation | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
+        Assert.Contains("| Once Paths | column |", output);
+        Assert.Contains("| OncePaths | sortable |", output);
         Assert.Contains("| IL | column |", output);
     }
 

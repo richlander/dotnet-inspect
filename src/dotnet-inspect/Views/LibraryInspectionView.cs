@@ -801,7 +801,15 @@ public class LibraryInspectionView
                 o.PathConfidence,
                 o.PostDominance,
                 o.IL is null ? null : MarkoutInline.Code(o.IL),
-                o.Weight))
+                o.Weight,
+                o.DirectSites?.ToString(),
+                o.OncePaths?.ToString(),
+                o.ConditionalPaths?.ToString(),
+                o.RepeatedPaths?.ToString(),
+                o.UnknownPaths?.ToString(),
+                o.CachedSites?.ToString(),
+                o.OpaquePaths?.ToString(),
+                o.Saturated))
             .ToList();
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
