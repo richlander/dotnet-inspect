@@ -38,34 +38,58 @@ substrate removes.
 
 ## The layering
 
-The substrate respects the existing dependency direction. The surface→body work
-is a single **spine** — each layer depends on the one below it — with two **side
-inputs** that feed the spine without being part of it:
+The substrate respects the existing dependency direction. It is a DAG, not a
+single spine: two independent **foundations** (the IL surface and the IL body)
+fan up through the C# surface and the fact-source, **converge** at the C# body
+producer — which raises IL over C# shells — and are finally **joined** by
+Research. Data flows up the arrows (each layer consumes those below it); nothing
+flows down.
 
 ```text
-spine (each layer consumes the one below):
+foundations (independent siblings; neither depends on the other):
 
-  Research ── the join: interleave (IL+C#), diff, body-subset
-     │
-  CSharp.Decompiler ── C# bodies over CSharp shells (full/partial type shape)
-     │
-  CSharp ── type shells / skeleton; C# surface facts
-     │
-  Metadata ── type/member signatures; PDB/source-link; ApiType/ApiMember
+  Metadata      ── IL surface: signatures, PDB/source-link, ApiType/ApiMember
+  Instructions  ── IL body: readable IL; metadata-free (operand-name-resolver inversion)
 
-side inputs (feed the spine; not part of it):
+consumers ("→" = depends on / consumes):
 
-  Instructions ── readable IL for a member body; metadata-free (names arrive via
-                  the operand-name-resolver inversion). Feeds Research's interleave.
-  Analysis ───── offset-keyed body facts (unsafe, throws, allocations). Feeds the
-                  member pre-filter (cheap) and Research's body-subset join.
+  CSharp             → Metadata
+  Analysis           → Metadata, Instructions           (side fact-source)
+  CSharp.Decompiler  → CSharp, Metadata, Instructions   (convergence: raises IL over shells)
+  Research           → CSharp.Decompiler, Analysis, Instructions, Metadata   (the join)
 ```
 
-Analysis is **not** the base of the spine: it depends on `Metadata` +
-`Instructions` + `ControlFlow`, so it sits beside the spine, not beneath it. Only
-Research (and the pre-filter) consume it.
+Two foundations, not one base: **`Metadata`** (IL/metadata *surface* —
+signatures, PDB/source-link) and **`Instructions`** (IL *body* — decode) are
+independent siblings; post-refactor neither depends on the other. `CSharp` builds
+on `Metadata`; `CSharp.Decompiler` is the **convergence node** (it consumes
+`CSharp` shells, `Metadata`, and `Instructions` to raise IL into C# bodies);
+`Analysis` is the one true **side fact-source** (it depends on `Metadata` +
+`Instructions` and is consumed only by Research and the member pre-filter, never
+raised *from*); `Research` joins them.
+
+The same producers, read as a 2×2 of **representation** × **rung**, show why
+`Instructions` and `CSharp.Decompiler` are *rung-peers* (both the "body" rung)
+even though the C# body is built *from* the IL body:
+
+| | IL | C# |
+| --- | --- | --- |
+| **surface** | `Metadata` — `SignatureProducer` | `CSharp` — `TypeShellProducer` |
+| **body** | `Instructions` — `InstructionProducer` | `CSharp.Decompiler` — `MemberBodyProducer` |
 
 The consequence that pins the design: **each layer is a producer that renders
+its own stream, and Research is the only layer that joins streams.** CSharp
+never references Decompiler, so it cannot decompile — it owns the type shells and
+*consumes* body data (`CSharpMemberBody`) that Decompiler hands down. A mix of
+skeletal and full-bodied members is therefore a Decompiler concern (it supplies
+the bodies over CSharp's shells), while the *shape* and the shell **member
+subset** are a CSharp concern (it owns `ApiType` and the shell producer).
+Analysis sits to the side of Decompiler: it derives body-level facts
+(`MethodSignals.Unsafe`, throw sites, allocation offsets) directly over
+`Instructions` + `ControlFlow` without the Decompiler, so "which members are
+unsafe" is answerable cheaply, before any IR import — and those same
+offset-keyed facts are what Research joins onto a body to answer "which
+*regions*."
 its own stream, and Research is the only layer that joins streams.** CSharp
 never references Decompiler, so it cannot decompile — it owns the type shells and
 *consumes* body data (`CSharpMemberBody`) that Decompiler hands down. A mix of
