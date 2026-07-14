@@ -11,7 +11,30 @@ public sealed record CallerLoopWitnessStep(
 
 public sealed record CallerLoopEvidence(
     int Depth,
-    ImmutableArray<CallerLoopWitnessStep> Witness);
+    ImmutableArray<CallerLoopWitnessStep> Witness)
+{
+    ImmutableArray<CallerLoopWitnessStep> _witness
+        = ImmutableArrayValueEquality.RequireInitialized(Witness, nameof(Witness));
+
+    public ImmutableArray<CallerLoopWitnessStep> Witness
+    {
+        get => _witness;
+        init => _witness = ImmutableArrayValueEquality.RequireInitialized(value, nameof(Witness));
+    }
+
+    public bool Equals(CallerLoopEvidence? other)
+        => other is not null
+            && Depth == other.Depth
+            && ImmutableArrayValueEquality.SequenceEqual(Witness, other.Witness);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Depth);
+        ImmutableArrayValueEquality.AddToHash(ref hash, Witness);
+        return hash.ToHashCode();
+    }
+}
 
 public static class CallerLoopEvidenceAnalysis
 {

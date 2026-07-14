@@ -41,6 +41,24 @@ public class CallerLoopEvidenceTests
         Assert.Empty(evidence);
     }
 
+    [Fact]
+    public void CallerLoopEvidence_ComposesStructuralWitnessEquality()
+    {
+        var first = new CallerLoopEvidence(
+            1,
+            [new CallerLoopWitnessStep(Method(1, "Caller"), Method(2, "Target"), 4, CallKind.Call, true)]);
+        var equivalent = new CallerLoopEvidence(
+            1,
+            [new CallerLoopWitnessStep(Method(1, "Caller"), Method(2, "Target"), 4, CallKind.Call, true)]);
+        var different = new CallerLoopEvidence(
+            1,
+            [new CallerLoopWitnessStep(Method(1, "Caller"), Method(2, "Target"), 8, CallKind.Call, true)]);
+
+        Assert.Equal(first, equivalent);
+        Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.NotEqual(first, different);
+    }
+
     static MethodIdentity Method(int token, string name)
         => new(
             "Fixture",

@@ -105,6 +105,7 @@ public static class CallerLoopCensus
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxDepth, 1);
 
+        // Traverse beyond the reporting bound so BeyondBound remains distinct from None.
         var bestByToken = CallerLoopEvidenceAnalysis.FindNearest(methods, directCalls);
         return opportunities
             .OrderBy(static opportunity => opportunity.Method.MetadataToken)
