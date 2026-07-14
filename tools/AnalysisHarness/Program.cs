@@ -36,6 +36,11 @@ const string Usage =
           loop invocation. Reports direct/transitive/none/beyond-bound populations, nearest depth,
           deterministic witness paths, provenance, and shape/confidence/local-multiplicity cross-tabs.
 
+      --deferred-callback-census <file> [--max-depth N] [--top N] [--json]
+          Measurement-only census of in-loop function loads that form an exact delegate construction
+          and immediate consumer/registration shape. Separates proven immediate Invoke calls from
+          trusted framework registration and unknown consumers, then reports downstream triage rows.
+
       --allocation-parity <expected-annotations.json> <actual-annotations.json> [--json]
           Compare allocation annotations from the legacy decompiler classifier and a candidate
           occurrence-derived projection. The gate is exact on id, IL offset, detail, and
@@ -92,6 +97,7 @@ string? referenceFile = null;
 string? precisionAssembly = null;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
+string? deferredCallbackCensusList = null;
 string? allocationParityExpected = null;
 string? allocationParityActual = null;
 string? annotationParityCategory = null;
@@ -134,6 +140,9 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--caller-loop-census":
             callerLoopCensusList = NextValue(args, ref i);
+            break;
+        case "--deferred-callback-census":
+            deferredCallbackCensusList = NextValue(args, ref i);
             break;
         case "--allocation-parity":
             allocationParityExpected = NextPathValue(args, ref i);
@@ -212,6 +221,9 @@ if (allocationReadoutList is not null)
 
 if (callerLoopCensusList is not null)
     return RunCallerLoopCensus(callerLoopCensusList, maxDepth, top, json);
+
+if (deferredCallbackCensusList is not null)
+    return RunDeferredCallbackCensus(deferredCallbackCensusList, maxDepth, top, json);
 
 if (allocationParityExpected is not null)
     return RunAnnotationParity("Allocation", allocationParityExpected, allocationParityActual, json);
@@ -307,6 +319,31 @@ static int RunCallerLoopCensus(string corpusList, int maxDepth, int top, bool js
 
     var report = CallerLoopCensus.Measure(paths, maxDepth);
     Console.Write(json ? CallerLoopCensus.ToJson(report) : CallerLoopCensus.FormatCard(report, top));
+    if (json)
+        Console.WriteLine();
+    return report.Failed == 0 ? 0 : 1;
+}
+
+static int RunDeferredCallbackCensus(string corpusList, int maxDepth, int top, bool json)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = DeferredCallbackCensus.Measure(paths, maxDepth);
+    Console.Write(json ? DeferredCallbackCensus.ToJson(report) : DeferredCallbackCensus.FormatCard(report, top));
     if (json)
         Console.WriteLine();
     return report.Failed == 0 ? 0 : 1;

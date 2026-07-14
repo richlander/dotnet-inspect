@@ -16,6 +16,7 @@
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
     <Optimize>true</Optimize>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

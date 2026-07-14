@@ -127,6 +127,43 @@ That run is also an invocation-edge near miss: the current Caller Graph path to
 correctly reports no witness. Proving that callback is repeatedly consumed
 requires a separate deferred-callback discriminator.
 
+A deferred-callback census measures that separate construction boundary:
+
+```bash
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --deferred-callback-census /tmp/performance-triage-assemblies.txt \
+  --max-depth 4 --top 20
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --deferred-callback-census /tmp/aspire-dashboard-assemblies.txt \
+  --max-depth 4 --json
+```
+
+The census joins an in-loop function load to an adjacent delegate constructor
+and immediate consumer, then reuses the typed invocation graph downstream from
+the callback target. It distinguishes cached or unconsumed constructions,
+unknown consumers, trusted `RenderTreeBuilder.AddAttribute` registration, and
+an immediately constructed parameterless delegate invocation. Only the last
+classification sets `ConsumptionProven=true`. Framework registration proves
+which callback object was passed to which API, but not whether, when, or how
+often the framework invokes it. This measurement does not alter Performance
+Triage candidates, local `Loop`, multiplicity, confidence, weight, or ranking.
+When more than one callback path reaches a row, the report keeps the strongest
+available class (`Invoke`, registration, then unknown) and the nearest
+deterministic witness within that class.
+
+The 2026-07-14 pinned run found no statically proven callback consumption. The
+six-library corpus had 2,176 function loads and 2,459 opportunities; 10
+opportunity rows were reachable through 39 unknown consumers, and none had
+proven consumption. Aspire Dashboard had 1,019 function loads and 488
+opportunities; 12 sites were trusted framework registrations, eight
+opportunity rows were reachable, and none had proven consumption.
+`ColorGenerator.GetColorIndex` is reached at downstream depth 2 through the
+expected `RenderFragment` registration, with `ConsumptionProven=false`.
+Consequently this census records an explicit non-action: registration evidence
+is useful diagnostic provenance, but is not strong enough for a product-side
+caller-loop projection or ranking change without runtime evidence or a stronger
+framework invocation contract.
+
 A 2026-07-01 fixed-corpus run (`14/14` assemblies opened) showed 41,890
 allocation occurrences and 6,587 optimization opportunities. `return-post-dominates`
 was common (29,175 occurrences; 4,817 opportunities), but not selective by
