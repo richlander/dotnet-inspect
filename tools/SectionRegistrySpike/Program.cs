@@ -8,11 +8,20 @@ internal static class Program
     {
         bool verify = args.Contains("--verify");
         bool benchmark = args.Contains("--benchmark");
-        if (!verify && !benchmark)
+        bool benchmarkCurrentInitialization = args.Contains("--benchmark-init-current");
+        bool benchmarkStaticInitialization = args.Contains("--benchmark-init-static");
+        if (!verify && !benchmark && !benchmarkCurrentInitialization && !benchmarkStaticInitialization)
         {
-            Console.Error.WriteLine("Usage: section-registry-spike [--verify] [--benchmark]");
+            Console.Error.WriteLine(
+                "Usage: section-registry-spike [--verify] [--benchmark] " +
+                "[--benchmark-init-current] [--benchmark-init-static]");
             return 2;
         }
+
+        if (benchmarkCurrentInitialization)
+            Console.Out.Write(Performance.RunInitialization(staticTable: false));
+        if (benchmarkStaticInitialization)
+            Console.Out.Write(Performance.RunInitialization(staticTable: true));
 
         if (benchmark)
             Console.Out.Write(Performance.Run());

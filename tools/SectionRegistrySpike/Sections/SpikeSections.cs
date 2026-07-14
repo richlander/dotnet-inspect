@@ -3,81 +3,188 @@ using SectionRegistrySpike.Capabilities;
 namespace SectionRegistrySpike.Sections;
 
 /// <summary>
-/// Representative typed descriptors. They contain no scanner key, network flag, or independent
-/// probe-safety declaration; capability requirements are the sole execution metadata.
+/// SmoothMarkdown-style static table: section metadata, applicability, rendering predicates,
+/// execution lambdas, dependency order, and authorization live in one reusable definition.
 /// </summary>
 public static class SpikeSections
 {
-    public readonly struct MetadataSection : ICapabilitySectionDescriptor<SpikeModel, SpikeContext>
+    static SpikeSections()
     {
-        public static string Name => "Metadata";
-        public static bool IsExpensive => false;
-        public static bool Info => true;
-        public static bool CanRender(SpikeModel model) => model.MetadataLoaded;
-        public static CapabilityKey[] RequiredCapabilities => [CapabilityKey.Of<MetadataCapability>()];
     }
 
-    public readonly struct DecompiledSourceSection : ICapabilitySectionDescriptor<SpikeModel, SpikeContext>
-    {
-        public static string Name => "Decompiled Source";
-        public static bool IsExpensive => true;
-        public static bool ExplicitOnly => true;
-        public static bool CanRender(SpikeModel model) => model.DecompiledSource != null;
-        public static CapabilityKey[] RequiredCapabilities => [CapabilityKey.Of<DecompileCapability>()];
-    }
+    private static readonly CapabilityPlanEntry<SpikeContext> s_metadata = new(
+        0,
+        "Metadata",
+        CapabilityExecutionModes.All,
+        static context =>
+        {
+            context.WorkCount++;
+            context.Model.MetadataLoaded = true;
+            return ValueTask.CompletedTask;
+        });
 
-    public readonly struct OriginalSourceSection : ICapabilitySectionDescriptor<SpikeModel, SpikeContext>
-    {
-        public static string Name => "Original Source";
-        public static bool IsExpensive => true;
-        public static bool ExplicitOnly => true;
-        public static bool CanRender(SpikeModel model) => model.OriginalSource != null;
-        public static CapabilityKey[] RequiredCapabilities => [CapabilityKey.Of<FetchSourceCapability>()];
-    }
+    private static readonly CapabilityPlanEntry<SpikeContext> s_decompile = new(
+        1,
+        "Decompile",
+        CapabilityExecutionModes.Explicit,
+        static context =>
+        {
+            context.WorkCount++;
+            context.Model.DecompiledSource = "// decompiled source (representative)";
+            return ValueTask.CompletedTask;
+        });
 
-    public readonly struct CallsSection : ICapabilitySectionDescriptor<SpikeModel, SpikeContext>
-    {
-        public static string Name => "Calls";
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static bool CanRender(SpikeModel model) => model.Calls > 0;
-        public static CapabilityKey[] RequiredCapabilities => [CapabilityKey.Of<CallsCapability>()];
-    }
+    private static readonly CapabilityPlanEntry<SpikeContext> s_acquirePdb = new(
+        2,
+        "AcquirePdb",
+        CapabilityExecutionModes.Detailed | CapabilityExecutionModes.Explicit,
+        static context =>
+        {
+            context.WorkCount++;
+            context.Model.PdbAcquired = true;
+            return ValueTask.CompletedTask;
+        });
 
-    public readonly struct FactsSection : ICapabilitySectionDescriptor<SpikeModel, SpikeContext>
-    {
-        public static string Name => "Facts";
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static bool CanRender(SpikeModel model) => model.Facts > 0;
-        public static CapabilityKey[] RequiredCapabilities => [CapabilityKey.Of<FactsCapability>()];
-    }
+    private static readonly CapabilityPlanEntry<SpikeContext> s_fetchSource = new(
+        3,
+        "FetchSource",
+        CapabilityExecutionModes.Explicit,
+        static async context =>
+        {
+            if (!context.Model.PdbAcquired)
+                throw new InvalidOperationException("FetchSource ran before its AcquirePdb prerequisite.");
 
-    public readonly struct MisleadingProbeSection : ICapabilitySectionDescriptor<SpikeModel, SpikeContext>
-    {
-        public static string Name => "Misleading Probe";
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static bool CanRender(SpikeModel model) => model.DeepScanRan;
-        public static CapabilityKey[] RequiredCapabilities => [CapabilityKey.Of<DeepScanCapability>()];
-    }
+            await Task.Yield();
+            context.WorkCount++;
+            context.Model.OriginalSource = "// original source text (representative)";
+        });
 
-    public static CapabilityRegistry<SpikeContext> CreateCapabilityRegistry() => new CapabilityRegistry<SpikeContext>()
-        .Register<MetadataCapability>()
-        .Register<DecompileCapability>()
-        .Register<AcquirePdbCapability>()
-        .Register<FetchSourceCapability>()
-        .Register<BodyIndexCapability>()
-        .Register<CallsCapability>()
-        .Register<FactsCapability>();
+    private static readonly CapabilityPlanEntry<SpikeContext> s_bodyIndex = new(
+        4,
+        "BodyIndex",
+        CapabilityExecutionModes.Explicit,
+        static context =>
+        {
+            context.WorkCount++;
+            context.BodyIndex = 42;
+            return ValueTask.CompletedTask;
+        });
 
-    public static CapabilitySectionRegistry<SpikeModel, SpikeContext> CreateCapabilityRegistrySections(
-        CapabilityRegistry<SpikeContext> capabilities) => new CapabilitySectionRegistry<SpikeModel, SpikeContext>(capabilities)
-        .Add<MetadataSection>(m => m.IsManagedAssembly)
-        .Add<DecompiledSourceSection>(m => m.IsManagedAssembly)
-        .Add<OriginalSourceSection>(m => m.HasSourceLink)
-        .Add<CallsSection>(m => m.HasMethodBodies)
-        .Add<FactsSection>(m => m.HasMethodBodies)
-        .AddCategory("@Projections", "Calls", "Facts")
-        .AddCategory("@Source", "Decompiled Source", "Original Source");
+    private static readonly CapabilityPlanEntry<SpikeContext> s_calls = new(
+        5,
+        "Calls",
+        CapabilityExecutionModes.Explicit,
+        static context =>
+        {
+            context.WorkCount++;
+            context.Model.Calls = context.BodyIndex;
+            return ValueTask.CompletedTask;
+        });
+
+    private static readonly CapabilityPlanEntry<SpikeContext> s_facts = new(
+        6,
+        "Facts",
+        CapabilityExecutionModes.Explicit,
+        static context =>
+        {
+            context.WorkCount++;
+            context.Model.Facts = context.BodyIndex;
+            return ValueTask.CompletedTask;
+        });
+
+    private static readonly CapabilityPlanEntry<SpikeContext> s_deepScan = new(
+        7,
+        "DeepScan",
+        CapabilityExecutionModes.Explicit,
+        static context =>
+        {
+            context.WorkCount++;
+            context.Model.DeepScanRan = true;
+            return ValueTask.CompletedTask;
+        });
+
+    private static readonly CapabilityPlan<SpikeContext> s_deepScanPlan = new(s_deepScan);
+    private static readonly CapabilityPlan<SpikeContext> s_pdbPlan = new(s_acquirePdb);
+    private static readonly CapabilityPlan<SpikeContext> s_sourcePlan =
+        new(s_decompile, s_acquirePdb, s_fetchSource);
+    private static readonly CapabilityPlan<SpikeContext> s_projectionPlan =
+        new(s_bodyIndex, s_calls, s_facts);
+
+    private static readonly CapabilitySectionDefinition<SpikeModel, SpikeContext>[] s_sections =
+    [
+        new(
+            "Metadata",
+            IsExpensive: false,
+            ExplicitOnly: false,
+            Info: true,
+            static model => model.IsManagedAssembly,
+            static model => model.MetadataLoaded,
+            new CapabilityPlan<SpikeContext>(s_metadata)),
+        new(
+            "Decompiled Source",
+            IsExpensive: true,
+            ExplicitOnly: true,
+            Info: false,
+            static model => model.IsManagedAssembly,
+            static model => model.DecompiledSource is not null,
+            new CapabilityPlan<SpikeContext>(s_decompile)),
+        new(
+            "Original Source",
+            IsExpensive: true,
+            ExplicitOnly: true,
+            Info: false,
+            static model => model.HasSourceLink,
+            static model => model.OriginalSource is not null,
+            new CapabilityPlan<SpikeContext>(s_acquirePdb, s_fetchSource)),
+        new(
+            "Calls",
+            IsExpensive: false,
+            ExplicitOnly: true,
+            Info: false,
+            static model => model.HasMethodBodies,
+            static model => model.Calls > 0,
+            new CapabilityPlan<SpikeContext>(s_bodyIndex, s_calls)),
+        new(
+            "Facts",
+            IsExpensive: false,
+            ExplicitOnly: true,
+            Info: false,
+            static model => model.HasMethodBodies,
+            static model => model.Facts > 0,
+            new CapabilityPlan<SpikeContext>(s_bodyIndex, s_facts)),
+    ];
+
+    private static readonly CapabilityCategoryDefinition[] s_categories =
+    [
+        new("@Projections", ["Calls", "Facts"]),
+        new("@Source", ["Decompiled Source", "Original Source"]),
+    ];
+
+    public static CapabilitySectionRegistry<SpikeModel, SpikeContext> Registry { get; } =
+        new(
+            s_sections,
+            s_categories,
+            static selection => selection switch
+            {
+                0b00110 => s_sourcePlan,
+                0b11000 => s_projectionPlan,
+                _ => null,
+            });
+
+    public static CapabilityPlan<SpikeContext> PdbPlan => s_pdbPlan;
+
+    public static CapabilitySectionRegistry<SpikeModel, SpikeContext> CreateProbeTestRegistry()
+        => new(
+            [
+                new(
+                    "Misleading Probe",
+                    IsExpensive: false,
+                    ExplicitOnly: true,
+                    Info: false,
+                    static _ => true,
+                    static model => model.DeepScanRan,
+                    s_deepScanPlan),
+            ],
+            [],
+            static _ => null);
 }

@@ -15,8 +15,7 @@ public static class Strategies
         report.Heading("Section Registry Spike - Evidence (issue #2605)", 1);
         report.Line();
 
-        var capabilities = SpikeSections.CreateCapabilityRegistry();
-        var typed = SpikeSections.CreateCapabilityRegistrySections(capabilities);
+        var typed = SpikeSections.Registry;
         var currentPipeline = CurrentBaselinePipelines.CreatePipeline();
         var currentScanners = CurrentBaselinePipelines.CreateScannerRegistry();
 
@@ -27,9 +26,10 @@ public static class Strategies
         await NegativeChecksAsync(report, typed);
 
         report.Heading("Code-quality result", 2);
-        report.Bullet("Typed descriptors have one execution declaration: RequiredCapabilities.");
+        report.Bullet("Each operation has one noncapturing execution lambda in the static table.");
         report.Bullet("Probe safety and operation-specific authorization are derived from the compiled plan.");
-        report.Bullet("Plans hold static executors; no capability factory, per-capability object, or reusable failed instance exists.");
+        report.Bullet("One static table holds noncapturing execution, applicability, and rendering lambdas.");
+        report.Bullet("Dependency order plus single-section/category plans are precompiled by selection mask.");
         report.Bullet("The real SectionPipeline still owns names, categories, verbosity, -D/-S, and render filtering.");
         report.Line();
 
@@ -58,9 +58,31 @@ public static class Strategies
             typed.Pipeline.GetCategoryMap());
         report.Check(!resolved.HasError && resolved.Sections is { Count: 2 },
             "existing SelectResolver expands categories before capability planning");
-        report.Check(typed.PlanFor(resolved.Sections!).Names.SequenceEqual(
-                typed.PlanFor(["Decompiled Source", "Original Source"]).Names),
+        report.Check(typed.PlanFor(resolved.Sections!).HasSameEntries(
+                typed.PlanFor(["Decompiled Source", "Original Source"])),
             "category and direct selection compile to the same ordered plan");
+
+        var mergeRegistry = new CapabilitySectionRegistry<SpikeModel, SpikeContext>(
+            [
+                new("Later", false, true, false, static _ => true, static _ => true,
+                    new CapabilityPlan<SpikeContext>(
+                        new CapabilityPlanEntry<SpikeContext>(
+                            2, "Later", CapabilityExecutionModes.All, static _ => ValueTask.CompletedTask))),
+                new("Earlier", false, true, false, static _ => true, static _ => true,
+                    new CapabilityPlan<SpikeContext>(
+                        new CapabilityPlanEntry<SpikeContext>(
+                            1, "Earlier", CapabilityExecutionModes.All, static _ => ValueTask.CompletedTask))),
+            ],
+            [],
+            static _ => null);
+        report.Check(
+            mergeRegistry.PlanFor(["Later", "Earlier"]).HasSameEntries(
+                new CapabilityPlan<SpikeContext>(
+                    new CapabilityPlanEntry<SpikeContext>(
+                        1, "Earlier", CapabilityExecutionModes.All, static _ => ValueTask.CompletedTask),
+                    new CapabilityPlanEntry<SpikeContext>(
+                        2, "Later", CapabilityExecutionModes.All, static _ => ValueTask.CompletedTask))),
+            "cold arbitrary plans preserve generated topological order");
         report.Line();
     }
 
@@ -130,6 +152,9 @@ public static class Strategies
             "Calls + Facts", ["Calls", "Facts"],
             ["execute BodyIndex", "execute Calls", "execute Facts"]);
         await CompareAsync(report, typed, currentPipeline, currentScanners,
+            "Metadata + Facts", ["Metadata", "Facts"],
+            ["execute Metadata", "execute BodyIndex", "execute Facts"]);
+        await CompareAsync(report, typed, currentPipeline, currentScanners,
             "Empty", [], []);
         report.Line();
     }
@@ -165,7 +190,7 @@ public static class Strategies
         string typedOutput = Render(typedModel, typedSections);
 
         report.Check(currentTrace.SequenceEqual(expectedTrace), $"{label}: current trace is expected");
-        report.Check(typedTrace.SequenceEqual(expectedTrace), $"{label}: typed trace is expected");
+        report.Check(typedTrace.SequenceEqual(expectedTrace), $"{label}: static-plan trace is expected");
         report.Check(currentContext.WorkCount == typedContext.WorkCount,
             $"{label}: actual work counts match ({typedContext.WorkCount})");
         report.Check(currentOutput == typedOutput, $"{label}: representative output matches");
@@ -188,31 +213,40 @@ public static class Strategies
     {
         report.Heading("Negative verification", 2);
 
-        var missing = new CapabilityRegistry<object>().Register<DependsOnMissingCapability>();
+        var duplicateEntry = new CapabilityPlanEntry<object>(
+            0,
+            "Duplicate",
+            CapabilityExecutionModes.Explicit,
+            static _ => ValueTask.CompletedTask);
         try
         {
-            _ = missing.ResolvePlan([CapabilityKey.Of<DependsOnMissingCapability>()]);
-            report.Check(false, "missing dependency is rejected");
+            _ = new CapabilityPlan<object>(duplicateEntry, duplicateEntry);
+            report.Check(false, "duplicate static plan entries are rejected");
         }
-        catch (CapabilityNotRegisteredException)
+        catch (InvalidOperationException)
         {
-            report.Check(true, "missing dependency is rejected");
+            report.Check(true, "duplicate static plan entries are rejected");
         }
 
-        var cycle = new CapabilityRegistry<object>().Register<CycleACapability>().Register<CycleBCapability>();
         try
         {
-            _ = cycle.ResolvePlan([CapabilityKey.Of<CycleACapability>()]);
-            report.Check(false, "dependency cycle is rejected");
+            _ = new CapabilitySectionRegistry<SpikeModel, SpikeContext>(
+                [
+                    new("Duplicate", false, false, false, static _ => true, static _ => true,
+                        new CapabilityPlan<SpikeContext>()),
+                    new("Duplicate", false, false, false, static _ => true, static _ => true,
+                        new CapabilityPlan<SpikeContext>()),
+                ],
+                [],
+                static _ => null);
+            report.Check(false, "duplicate static section names are rejected");
         }
-        catch (CapabilityCycleException ex)
+        catch (InvalidOperationException)
         {
-            report.Check(ex.Path.Count >= 3, "dependency cycle is rejected with its path");
+            report.Check(true, "duplicate static section names are rejected");
         }
 
-        var probeCapabilities = new CapabilityRegistry<SpikeContext>().Register<DeepScanCapability>();
-        var probeRegistry = new CapabilitySectionRegistry<SpikeModel, SpikeContext>(probeCapabilities)
-            .Add<SpikeSections.MisleadingProbeSection>(_ => true);
+        var probeRegistry = SpikeSections.CreateProbeTestRegistry();
         report.Check(probeRegistry.Pipeline.GetUnprobedSections().Contains("Misleading Probe"),
             "SectionPipeline probe metadata is derived from the capability plan");
 
@@ -229,14 +263,23 @@ public static class Strategies
                 "authorization is preflighted before a prerequisite mutates context");
         }
 
-        var pdbOnly = typed.Capabilities.ResolvePlan([CapabilityKey.Of<AcquirePdbCapability>()]);
         var detailed = new SpikeContext { Model = new SpikeModel() };
-        await pdbOnly.ExecuteAsync(detailed, CapabilityExecutionModes.Detailed);
+        await SpikeSections.PdbPlan.ExecuteAsync(detailed, CapabilityExecutionModes.Detailed);
         report.Check(detailed.Model.PdbAcquired,
             "PDB acquisition remains authorized at detailed verbosity without authorizing source bodies");
 
-        var retryRegistry = new CapabilityRegistry<FailureContext>().Register<FailOnceCapability>();
-        var retryPlan = retryRegistry.ResolvePlan([CapabilityKey.Of<FailOnceCapability>()]);
+        var retryPlan = new CapabilityPlan<FailureContext>(
+            new CapabilityPlanEntry<FailureContext>(
+                0,
+                "FailOnce",
+                CapabilityExecutionModes.Explicit,
+                static context =>
+                {
+                    context.Attempts++;
+                    if (context.Attempts == 1)
+                        throw new InvalidOperationException("representative partial failure");
+                    return ValueTask.CompletedTask;
+                }));
         var retryContext = new FailureContext();
         try
         {
@@ -252,55 +295,8 @@ public static class Strategies
         report.Line();
     }
 
-    private readonly struct DependsOnMissingCapability : ICapability<object>
-    {
-        public static string Name => "DependsOnMissing";
-        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
-        public static CapabilityKey[] DependsOn => [CapabilityKey.Of<NotRegisteredCapability>()];
-        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
-    }
-
-    private readonly struct NotRegisteredCapability : ICapability<object>
-    {
-        public static string Name => "NotRegistered";
-        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
-        public static CapabilityKey[] DependsOn => [];
-        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
-    }
-
-    private readonly struct CycleACapability : ICapability<object>
-    {
-        public static string Name => "CycleA";
-        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
-        public static CapabilityKey[] DependsOn => [CapabilityKey.Of<CycleBCapability>()];
-        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
-    }
-
-    private readonly struct CycleBCapability : ICapability<object>
-    {
-        public static string Name => "CycleB";
-        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
-        public static CapabilityKey[] DependsOn => [CapabilityKey.Of<CycleACapability>()];
-        public static ValueTask ExecuteAsync(object context) => ValueTask.CompletedTask;
-    }
-
     private sealed class FailureContext
     {
         public int Attempts { get; set; }
-    }
-
-    private readonly struct FailOnceCapability : ICapability<FailureContext>
-    {
-        public static string Name => "FailOnce";
-        public static CapabilityExecutionModes AllowedModes => CapabilityExecutionModes.Explicit;
-        public static CapabilityKey[] DependsOn => [];
-
-        public static ValueTask ExecuteAsync(FailureContext context)
-        {
-            context.Attempts++;
-            if (context.Attempts == 1)
-                throw new InvalidOperationException("representative partial failure");
-            return ValueTask.CompletedTask;
-        }
     }
 }

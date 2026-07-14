@@ -3,101 +3,169 @@ using SectionRegistrySpike.Capabilities;
 
 namespace SectionRegistrySpike.Sections;
 
+public readonly record struct CapabilitySectionDefinition<TModel, TContext>(
+    string Name,
+    bool IsExpensive,
+    bool ExplicitOnly,
+    bool Info,
+    Func<TModel, bool> IsApplicable,
+    Func<TModel, bool> CanRender,
+    CapabilityPlan<TContext> Plan);
+
+public readonly record struct CapabilityCategoryDefinition(string Name, string[] Sections);
+
 /// <summary>
-/// One authority for section selection metadata and executable requirements. It compiles each
-/// descriptor's capability closure at registration time, derives probe safety, and feeds the real
-/// <see cref="SectionPipeline{TModel}"/> a runtime entry.
+/// Reusable section registry materialized from a static lambda table. Single-section plans are
+/// precompiled, named/common combinations use a generated-style selection lambda, and uncommon
+/// arbitrary combinations take the explicit cold compile path.
 /// </summary>
 public sealed class CapabilitySectionRegistry<TModel, TContext>
 {
-    private sealed record RegisteredSection(
-        string Name,
-        CapabilityKey[] RequiredCapabilities,
-        CapabilityPlan<TContext> Plan);
+    private readonly Dictionary<string, int> _sectionIndexes;
+    private readonly CapabilitySectionDefinition<TModel, TContext>[] _sectionOrder;
+    private readonly Func<ulong, CapabilityPlan<TContext>?> _precompiledPlan;
+    private readonly CapabilityPlan<TContext> _emptyPlan = new();
 
-    private readonly Dictionary<string, RegisteredSection> _sections =
-        new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<RegisteredSection> _sectionOrder = [];
-
-    public CapabilitySectionRegistry(CapabilityRegistry<TContext> capabilities)
+    public CapabilitySectionRegistry(
+        CapabilitySectionDefinition<TModel, TContext>[] sections,
+        CapabilityCategoryDefinition[] categories,
+        Func<ulong, CapabilityPlan<TContext>?> precompiledPlan)
     {
-        Capabilities = capabilities;
+        if (sections.Length > 64)
+            throw new ArgumentException("The spike selection mask supports at most 64 sections.", nameof(sections));
+
+        _sectionOrder = sections;
+        _precompiledPlan = precompiledPlan;
+        _sectionIndexes = new Dictionary<string, int>(sections.Length, StringComparer.OrdinalIgnoreCase);
+
+        for (int index = 0; index < sections.Length; index++)
+        {
+            var section = sections[index];
+            if (!_sectionIndexes.TryAdd(section.Name, index))
+                throw new InvalidOperationException($"Section '{section.Name}' is already registered.");
+
+            Pipeline.Add(new SectionEntry<TModel>
+            {
+                Name = section.Name,
+                IsExpensive = section.IsExpensive,
+                ExplicitOnly = section.ExplicitOnly,
+                Info = section.Info,
+                ProbeEffectiveness = section.Plan.CanExecute(CapabilityExecutionModes.Probe),
+                Capabilities = SectionCapabilities.None,
+                ScannerKey = null,
+                HasExplicitApplicability = true,
+                IsApplicable = section.IsApplicable,
+                CanRender = section.CanRender,
+            });
+        }
+
+        foreach (var category in categories)
+            Pipeline.AddCategory(category.Name, category.Sections);
     }
 
     public SectionPipeline<TModel> Pipeline { get; } = new();
 
-    public CapabilityRegistry<TContext> Capabilities { get; }
-
-    public CapabilitySectionRegistry<TModel, TContext> Add<TDescriptor>(
-        Func<TModel, bool>? isApplicable = null)
-        where TDescriptor : ICapabilitySectionDescriptor<TModel, TContext>
-    {
-        if (_sections.ContainsKey(TDescriptor.Name))
-            throw new InvalidOperationException($"Section '{TDescriptor.Name}' is already registered.");
-
-        CapabilityKey[] requirements = [.. TDescriptor.RequiredCapabilities];
-        var plan = Capabilities.ResolvePlan(requirements);
-        var section = new RegisteredSection(TDescriptor.Name, requirements, plan);
-
-        Pipeline.Add(new SectionEntry<TModel>
-        {
-            Name = TDescriptor.Name,
-            IsExpensive = TDescriptor.IsExpensive,
-            ExplicitOnly = TDescriptor.ExplicitOnly,
-            Info = TDescriptor.Info,
-            ProbeEffectiveness = plan.CanExecute(CapabilityExecutionModes.Probe),
-            Capabilities = SectionCapabilities.None,
-            ScannerKey = null,
-            HasExplicitApplicability = isApplicable != null,
-            IsApplicable = isApplicable ?? TDescriptor.CanRender,
-            CanRender = TDescriptor.CanRender,
-        });
-
-        _sections.Add(section.Name, section);
-        _sectionOrder.Add(section);
-        return this;
-    }
-
-    public CapabilitySectionRegistry<TModel, TContext> AddCategory(string name, params string[] sections)
-    {
-        Pipeline.AddCategory(name, sections);
-        return this;
-    }
-
-    public IReadOnlyList<CapabilityKey> RequiredCapabilitiesFor(string sectionName)
-        => GetSection(sectionName).RequiredCapabilities;
-
-    /// <summary>
-    /// Returns a precompiled plan without allocation for one section. Multi-section requests are
-    /// canonicalized by registration order and compiled into one deduplicated plan.
-    /// </summary>
     public CapabilityPlan<TContext> PlanFor(IEnumerable<string> sectionNames)
     {
-        if (sectionNames is IReadOnlyCollection<string> { Count: 0 })
-            return Capabilities.ResolvePlan([]);
-
-        if (sectionNames is IReadOnlyList<string> { Count: 1 } one)
-            return GetSection(one[0]).Plan;
-
-        HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in sectionNames)
+        ulong selection = 0;
+        if (sectionNames is IReadOnlyList<string> names)
         {
-            _ = GetSection(name);
-            selected.Add(name);
+            for (int index = 0; index < names.Count; index++)
+                selection |= SelectionBit(names[index]);
+        }
+        else
+        {
+            foreach (var name in sectionNames)
+                selection |= SelectionBit(name);
         }
 
-        List<CapabilityKey> requested = [];
-        foreach (var section in _sectionOrder)
-        {
-            if (selected.Contains(section.Name))
-                requested.AddRange(section.RequiredCapabilities);
-        }
-
-        return Capabilities.ResolvePlan(requested);
+        if (selection == 0)
+            return _emptyPlan;
+        if ((selection & (selection - 1)) == 0)
+            return _sectionOrder[System.Numerics.BitOperations.TrailingZeroCount(selection)].Plan;
+        if (_precompiledPlan(selection) is { } plan)
+            return plan;
+        return CompilePlan(selection);
     }
 
-    private RegisteredSection GetSection(string name)
-        => _sections.TryGetValue(name, out var section)
-            ? section
-            : throw new KeyNotFoundException($"Section '{name}' is not registered.");
+    private ulong SelectionBit(string name)
+    {
+        if (!_sectionIndexes.TryGetValue(name, out int index))
+            throw new KeyNotFoundException($"Section '{name}' is not registered.");
+        return 1UL << index;
+    }
+
+    private CapabilityPlan<TContext> CompilePlan(ulong selection)
+    {
+        int entryCount = 0;
+        for (int sectionIndex = 0; sectionIndex < _sectionOrder.Length; sectionIndex++)
+        {
+            if ((selection & (1UL << sectionIndex)) == 0)
+                continue;
+
+            var sectionEntries = _sectionOrder[sectionIndex].Plan.Entries;
+            for (int entryIndex = 0; entryIndex < sectionEntries.Length; entryIndex++)
+            {
+                if (!AppearsInEarlierSelectedSection(
+                    selection,
+                    sectionIndex,
+                    sectionEntries[entryIndex].Id))
+                {
+                    entryCount++;
+                }
+            }
+        }
+
+        var entries = new CapabilityPlanEntry<TContext>[entryCount];
+        int destination = 0;
+        for (int sectionIndex = 0; sectionIndex < _sectionOrder.Length; sectionIndex++)
+        {
+            if ((selection & (1UL << sectionIndex)) == 0)
+                continue;
+
+            var sectionEntries = _sectionOrder[sectionIndex].Plan.Entries;
+            for (int entryIndex = 0; entryIndex < sectionEntries.Length; entryIndex++)
+            {
+                var entry = sectionEntries[entryIndex];
+                if (!AppearsInEarlierSelectedSection(selection, sectionIndex, entry.Id))
+                    entries[destination++] = entry;
+            }
+        }
+
+        SortById(entries);
+        return new CapabilityPlan<TContext>(entries);
+    }
+
+    private static void SortById(CapabilityPlanEntry<TContext>[] entries)
+    {
+        for (int current = 1; current < entries.Length; current++)
+        {
+            var entry = entries[current];
+            int destination = current;
+            while (destination > 0 && entries[destination - 1].Id > entry.Id)
+            {
+                entries[destination] = entries[destination - 1];
+                destination--;
+            }
+            entries[destination] = entry;
+        }
+    }
+
+    private bool AppearsInEarlierSelectedSection(ulong selection, int sectionIndex, int entryId)
+    {
+        for (int priorSection = 0; priorSection < sectionIndex; priorSection++)
+        {
+            if ((selection & (1UL << priorSection)) == 0)
+                continue;
+
+            var priorEntries = _sectionOrder[priorSection].Plan.Entries;
+            for (int priorEntry = 0; priorEntry < priorEntries.Length; priorEntry++)
+            {
+                if (priorEntries[priorEntry].Id == entryId)
+                    return true;
+            }
+        }
+
+        return false;
+    }
 }

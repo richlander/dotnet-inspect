@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Evaluation spike for issue #2605: a capability-driven, lazy section registry that
-    reuses the real DotnetInspector.Sections.SectionPipeline<T> for selection while
-    layering typed, dependency-ordered async capability execution on top. This project
-    is a contained runnable evaluation, not a production migration — see
+    Evaluation spike for issue #2605: a static lambda section registry that reuses the
+    real DotnetInspector.Sections.SectionPipeline<T> for selection while layering
+    precompiled, dependency-ordered async execution on top. This project is a contained
+    runnable evaluation, not a production migration — see
     docs/design/capability-section-registry-spike.md.
   -->
 
