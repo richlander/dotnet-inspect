@@ -189,20 +189,20 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            // Decide network work from section selection + capability authorization (keyed off the
-            // user's original verbosity, never an internally force-bumped value). PDB download and
-            // source verification are authorized only when a selected section declares the capability.
-            var pipeline = LibrarySections.CreatePipeline();
-            var include = options.IncludeSections;
-            var pdbSections = pipeline.GetAuthorizedSections(
-                SectionCapabilities.MayDownloadPdb, options.UserVerbosity, include);
-            bool allowPdbDownload = pdbSections.Count > 0;
-            bool runHeadAudit = pipeline.GetAuthorizedSections(
-                SectionCapabilities.MayAuditSources, options.UserVerbosity, include).Count > 0;
-            bool runIntegrity = pipeline.GetAuthorizedSections(
-                SectionCapabilities.MayFetchSources, options.UserVerbosity, include).Count > 0;
+            var sourcePlan = LibrarySourcePlans.For(
+                options.UserVerbosity,
+                options.IncludeSections);
 
-            await AuditAsync(service, inspection, path, packageName, packageVersion, logger, httpClient, isPlatformAssembly, allowPdbDownload: allowPdbDownload);
+            await AuditAsync(
+                service,
+                inspection,
+                path,
+                packageName,
+                packageVersion,
+                logger,
+                httpClient,
+                isPlatformAssembly,
+                allowPdbDownload: sourcePlan.AllowPdbDownload);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(
@@ -218,7 +218,7 @@ internal static class LibraryMetadataService
             if (needsAuditSignals)
                 AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
 
-            if (runHeadAudit && service.HasSourceLink && pdbContext.HasPdb)
+            if (sourcePlan.RunHeadAudit && service.HasSourceLink && pdbContext.HasPdb)
             {
                 // SourceLink URLs are untrusted: probe them with the SSRF-hardened client, not the
                 // shared client used for trusted NuGet/symbol endpoints.
@@ -231,7 +231,7 @@ internal static class LibraryMetadataService
                     AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }
 
-            if (runIntegrity && service.HasSourceLink && pdbContext.HasPdb)
+            if (sourcePlan.RunIntegrity && service.HasSourceLink && pdbContext.HasPdb)
             {
                 await SourceIntegrityService.PopulateAsync(
                     inspection.SourceDocumentInspection,
@@ -241,7 +241,7 @@ internal static class LibraryMetadataService
                     AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
             }
 
-            if (include?.Contains("Source Files") == true)
+            if (sourcePlan.CollectSourceFiles)
             {
                 inspection.SourceFiles = await SourceFileCollector.CollectAsync(
                     service,

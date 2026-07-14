@@ -1,12 +1,15 @@
 # Capability-driven section registry spike
 
-Status: **static lambda-table pilot recommendation**.
+Status: **static mechanics validated; source/PDB pilot narrowed to static
+authorization data**.
 
 This is the runnable evaluation for
 [issue #2605](https://github.com/richlander/dotnet-inspect/issues/2605).
-It does not migrate a production command. It compares the current planning
-shape with a reusable registry, measures initialization, lookup, execution, and
-allocations, and records the code-quality tradeoff.
+It compares the current planning shape with a reusable registry, measures
+initialization, lookup, execution, and allocations, and records the
+code-quality tradeoff. The production follow-up in
+[issue #2747](https://github.com/richlander/dotnet-inspect/issues/2747)
+migrates the library source/PDB authorization seam.
 
 ## Current split and drift points
 
@@ -271,6 +274,61 @@ The principal quality gain is one inspectable table:
 - one authorization and execution path;
 - no reusable mutable execution state.
 
+## Production source/PDB pilot
+
+The production pilot found a smaller useful boundary than the complete spike
+design. `LibraryMetadataService.InspectAsync` previously rebuilt the full
+library section pipeline for every inspected assembly, then queried it three
+times to authorize PDB download, SourceLink HEAD auditing, and source-content
+integrity checks. Package inspection repeated that construction for each
+library.
+
+The migrated path uses a seven-row typed static table. Each row references its
+real section descriptor, derives the descriptor name and explicit-only mode,
+and declares four source decisions:
+
+- allow PDB download;
+- run the SourceLink HEAD audit;
+- verify source integrity;
+- collect source files.
+
+The service retains the fixed execution order: PDB acquisition, source metadata
+projection, HEAD audit, integrity verification, and source-file collection.
+The table owns authorization; the service owns orchestration.
+
+The pilot initially modeled those five steps as async operation lambdas and
+bitmask execution plans. That version was rejected:
+
+- it added roughly 200 production lines for one fixed order;
+- retaining span-backed operation data across an async continuation caused
+  later operations to disappear in a combined selection;
+- a generator would add attributes or another declaration form for only five
+  operations and seven sections;
+- generated dispatch would duplicate the service's readable domain sequence
+  without removing another variable execution path.
+
+The static data-only plan is smaller and has no async plan lifetime. Exhaustive
+tests compare all 128 source-section combinations at every verbosity against
+the previous authorization matrix.
+
+Representative managed measurements on .NET 11 preview 5, macOS arm64:
+
+| Scenario | Previous | Static plan |
+| --- | ---: | ---: |
+| First source planning | 19,904 B | 3,512 B |
+| Repeated source planning | 3,780 ns / 5,616 B | 126 ns / 0 B |
+| Allocation-fanout once paths | 53 per `CreatePipeline` | 1 in the static initializer |
+
+The fanout values are structural paths, not object counts. The runtime byte
+measurements supply the allocation quantity. The broader
+`LibrarySections.CreatePipeline` factory remains for rendering and other
+callers; this pilot removes it only from the per-assembly source authorization
+path.
+
+Managed output matched the merge base byte-for-byte for each migrated section
+and for their 884-line combined selection. The NativeAOT binary produced the
+same combined output as the managed binary.
+
 ## NativeAOT and generation
 
 The design uses static lambdas, arrays, dictionaries, and concrete generic
@@ -278,7 +336,8 @@ types. It does not use reflection enumeration, `Activator`, expression
 compilation, runtime code generation, Roslyn, or inspected-assembly loading.
 The spike publishes and runs as an `osx-arm64` NativeAOT binary.
 
-A production generator should emit:
+A broader variable-order registry may eventually justify a generator that
+emits:
 
 - operation entries and noncapturing lambdas;
 - ordered single-section plans;
@@ -286,9 +345,11 @@ A production generator should emit:
 - section rows and the selection-mask switch;
 - diagnostics for missing prerequisites, cycles, duplicate IDs, and names.
 
-Generation is valuable here because it removes runtime graph work and makes the
-single table the source of truth. The checked-in hand-authored table proves the
-runtime shape without making a generator part of this spike.
+Generation is valuable only when it removes real graph work or enough repeated
+declarations to offset another representation. The source/PDB pilot did not
+meet that threshold. Its hand-authored typed rows already provide compile-time
+descriptor name/mode coupling, and invariant tests cover duplicate names and
+the full authorization matrix.
 
 ## Boundaries
 
@@ -305,21 +366,21 @@ assembly loading.
 
 ## Conclusion
 
-Proceed with a static-table production pilot:
+Use the smallest static table that removes repeated construction:
 
 1. Keep `SectionPipeline` as the selection/schema/render-filter authority and
    Markout as the renderer.
-2. Generate one process-wide lambda table and precompiled plans for source/PDB
-   and body-index-backed library sections.
-3. Replace legacy `ScannerKey`, `SectionCapabilities`, and
-   `ProbeEffectiveness` metadata for each migrated section.
-4. A/B product output and actual work counts for every migrated section.
-5. Measure fresh-process initialization and realistic reuse count, not only hot
-   lookup.
-6. Reject the migration if the CLI initializes the table for a single use and
-   cannot recover the cold cost, or if execution loses the measured advantage.
+2. Use typed static authorization data for the source/PDB cluster while its
+   execution order remains fixed and explicit.
+3. Preserve `options.UserVerbosity` as the network authorization input; internal
+   verbosity promotion must not broaden access.
+4. Require output A/B, full authorization-matrix tests, fresh-process
+   initialization, realistic reuse, allocation fanout, and NativeAOT evidence
+   for each production migration.
+5. Add generated lambda dispatch only when a later cluster has enough shared,
+   variable prerequisites to remove more complexity than generation adds.
 
 The dynamic registry was the wrong final shape. The static lambda table
-preserves its semantic gains, removes repeated construction, improves
-steady-state planning and acquisition, and states the remaining cold cost
-explicitly.
+proved the performance model. The production source/PDB result is narrower:
+static typed authorization removes repeated construction and metadata
+duplication, while explicit service orchestration remains the clearest code.

@@ -634,52 +634,94 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_SourceIntegrityAuthorizedOnlyByExplicitSelection()
+    public void LibrarySourcePlan_SourceIntegrityAuthorizedOnlyByExplicitSelection()
     {
-        var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink Integrity" };
 
-        // MayFetchSources is authorized only via explicit include, never by verbosity.
-        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, Verbosity.Detailed, null));
-        Assert.Contains("SourceLink Integrity",
-            pipeline.GetAuthorizedSections(SectionCapabilities.MayFetchSources, Verbosity.Normal, include));
+        Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunIntegrity);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, include).RunIntegrity);
     }
 
     [Fact]
-    public void LibraryPipeline_PdbDownloadAuthorizedByDetailedOrInclude()
+    public void LibrarySourcePlan_PdbDownloadAuthorizedByDetailedOrInclude()
     {
-        var pipeline = LibrarySections.CreatePipeline();
-
-        // Signals declares MayDownloadPdb: not authorized at Normal without include...
-        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Normal, null));
-
-        // ...authorized at Detailed (verbosity ceiling)...
-        Assert.Contains("Signals",
-            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Detailed, null));
-
-        // ...and authorized at Normal when explicitly included.
-        Assert.Contains("Signals",
-            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Normal,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" }));
-
-        // SourceLink Integrity also declares MayDownloadPdb but is ExplicitOnly: the verbosity ceiling
-        // must NOT authorize it without an explicit include (regression guard for the ordering of
-        // ExplicitOnly filtering vs. capability authorization).
-        Assert.DoesNotContain("SourceLink Integrity",
-            pipeline.GetAuthorizedSections(SectionCapabilities.MayDownloadPdb, Verbosity.Detailed, null));
+        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).AllowPdbDownload);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Detailed, null).AllowPdbDownload);
+        Assert.True(LibrarySourcePlans.For(
+            Verbosity.Normal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" })
+            .AllowPdbDownload);
     }
 
     [Fact]
-    public void LibraryPipeline_SourceAuditAuthorizedBySignals()
+    public void LibrarySourcePlan_SourceAuditAuthorizedBySignals()
     {
-        var pipeline = LibrarySections.CreatePipeline();
         var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
 
-        Assert.Empty(pipeline.GetAuthorizedSections(SectionCapabilities.MayAuditSources, Verbosity.Normal, null));
-        Assert.Contains("Signals",
-            pipeline.GetAuthorizedSections(SectionCapabilities.MayAuditSources, Verbosity.Normal, include));
-        Assert.Contains("Signals",
-            pipeline.GetAuthorizedSections(SectionCapabilities.MayAuditSources, Verbosity.Detailed, null));
+        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).RunHeadAudit);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, include).RunHeadAudit);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Detailed, null).RunHeadAudit);
+    }
+
+    [Fact]
+    public void LibrarySourcePlan_PreservesAuthorizationForEverySelection()
+    {
+        string[] sourceSections =
+        [
+            SectionNames.ILOffset,
+            "Source Files",
+            "Symbols",
+            "Signals",
+            "SourceLink Availability",
+            "SourceLink Missing Files",
+            "SourceLink Integrity",
+        ];
+
+        foreach (var verbosity in Enum.GetValues<Verbosity>())
+        {
+            for (int selection = 0; selection < 1 << sourceSections.Length; selection++)
+            {
+                HashSet<string>? include = selection == 0
+                    ? null
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int index = 0; index < sourceSections.Length; index++)
+                {
+                    if ((selection & (1 << index)) != 0)
+                        include!.Add(sourceSections[index]);
+                }
+
+                var plan = LibrarySourcePlans.For(verbosity, include);
+                bool expectedPdb = include is null
+                    ? verbosity >= Verbosity.Detailed
+                    : include.Overlaps(sourceSections);
+                bool expectedAudit = include is null
+                    ? verbosity >= Verbosity.Detailed
+                    : include.Overlaps(
+                        ["Signals", "SourceLink Availability", "SourceLink Missing Files"]);
+                bool expectedIntegrity = include?.Contains("SourceLink Integrity") == true;
+
+                Assert.Equal(
+                    expectedPdb,
+                    plan.AllowPdbDownload);
+                Assert.Equal(expectedAudit, plan.RunHeadAudit);
+                Assert.Equal(expectedIntegrity, plan.RunIntegrity);
+                Assert.Equal(
+                    include?.Contains("Source Files") == true,
+                    plan.CollectSourceFiles);
+            }
+        }
+    }
+
+    [Fact]
+    public void LibrarySourcePlans_HaveUniqueNamesAndValidModes()
+    {
+        HashSet<string> sectionNames = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in LibrarySourcePlans.Sections)
+        {
+            Assert.True(sectionNames.Add(section.Name));
+            Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
+            Assert.True(section.DownloadPdb);
+        }
     }
 
     [Fact]
