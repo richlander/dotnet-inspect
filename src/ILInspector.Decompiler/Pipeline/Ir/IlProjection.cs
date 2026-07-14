@@ -53,12 +53,23 @@ public static class IlProjection
         MetadataSource source, string typeFullName, string methodName,
         IlProjectionDepth depth, int overloadIndex = 0, bool publicOnly = false)
         => DecompilerResult.Run(
-            () => Render(source, typeFullName, methodName, depth, overloadIndex, publicOnly),
+            () => Render(source, Locate(source.Reader, typeFullName, methodName, overloadIndex, publicOnly), depth),
             emptyOutputIsFailure: true);
 
-    static string Render(MetadataSource source, string type, string method, IlProjectionDepth depth, int overloadIndex, bool publicOnly)
+    /// <summary>
+    /// Handle-addressed projection: the caller already holds the method's own
+    /// <see cref="MethodDefinitionHandle"/> (see docs/design/member-body-substrate.md),
+    /// bypassing the name+overload-ordinal walk and its drift.
+    /// </summary>
+    public static DecompilerResult Project(
+        MetadataSource source, MethodDefinitionHandle methodHandle, IlProjectionDepth depth)
+        => DecompilerResult.Run(
+            () => Render(source, Locate(source.Reader, methodHandle), depth),
+            emptyOutputIsFailure: true);
+
+    static string Render(MetadataSource source, (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) located, IlProjectionDepth depth)
     {
-        var (typeDef, methodDef, methodHandle) = Locate(source.Reader, type, method, overloadIndex, publicOnly);
+        var (typeDef, methodDef, methodHandle) = located;
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
         var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
@@ -92,6 +103,16 @@ public static class IlProjection
             sb.AppendLine(Format(i) + types);
         }
         return sb.ToString();
+    }
+
+    static (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) Locate(
+        MetadataReader reader, MethodDefinitionHandle methodHandle)
+    {
+        var method = reader.GetMethodDefinition(methodHandle);
+        if (method.RelativeVirtualAddress == 0)
+            throw new InvalidOperationException($"0x{MetadataTokens.GetToken(methodHandle):X8} has no IL body");
+        var typeDef = reader.GetTypeDefinition(method.GetDeclaringType());
+        return (typeDef, method, methodHandle);
     }
 
     static (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) Locate(
@@ -443,8 +464,21 @@ public static class IlProjection
     /// </summary>
     public static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
         MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
+        => AnnotatedInstrLines(source, Locate(source.Reader, type, method, overloadIndex, publicOnly));
+
+    /// <summary>
+    /// Handle-addressed annotated IL lines: the caller already holds the
+    /// method's own <see cref="MethodDefinitionHandle"/>, bypassing the
+    /// name+overload-ordinal walk and its drift.
+    /// </summary>
+    public static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+        MetadataSource source, MethodDefinitionHandle methodHandle)
+        => AnnotatedInstrLines(source, Locate(source.Reader, methodHandle));
+
+    static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+        MetadataSource source, (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) located)
     {
-        var (typeDef, methodDef, methodHandle) = Locate(source.Reader, type, method, overloadIndex, publicOnly);
+        var (typeDef, methodDef, methodHandle) = located;
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
         var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());

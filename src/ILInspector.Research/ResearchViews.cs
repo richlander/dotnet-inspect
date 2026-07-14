@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Text;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -33,7 +34,8 @@ public static class ResearchViews
         bool SemanticsOverlay = false,
         bool FactRows = false,
         AnnotationStage AnnotatedStage = AnnotationStage.Raised,
-        ResearchFactRegistry? Registry = null);
+        ResearchFactRegistry? Registry = null,
+        MethodDefinitionHandle MethodHandle = default);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -46,12 +48,14 @@ public static class ResearchViews
     {
         try
         {
-            var imported = IrImporter.Import(
-                request.Source,
-                request.Type,
-                request.Method,
-                request.OverloadIndex,
-                request.PublicOnly)
+            var imported = (request.MethodHandle.IsNil
+                ? IrImporter.Import(
+                    request.Source,
+                    request.Type,
+                    request.Method,
+                    request.OverloadIndex,
+                    request.PublicOnly)
+                : IrImporter.Import(request.Source, request.MethodHandle))
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
             var assembly = imported.AssemblyPath is { Length: > 0 } path
@@ -76,7 +80,8 @@ public static class ResearchViews
                         facts,
                         request.AnnotatedStage,
                         request.OverloadIndex,
-                        request.PublicOnly),
+                        request.PublicOnly,
+                        request.MethodHandle),
                         emptyOutputIsFailure: false),
                     request.Source);
             }
@@ -269,7 +274,8 @@ public static class ResearchViews
         IReadOnlyList<Annotation> annotations,
         AnnotationStage stage,
         int overloadIndex,
-        bool publicOnly)
+        bool publicOnly,
+        MethodDefinitionHandle methodHandle = default)
     {
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
@@ -295,7 +301,10 @@ public static class ResearchViews
 
         var ilByLine = new Dictionary<int, List<string>>();
         var factsByOffset = FactsByOffset(annotations);
-        foreach (var instr in IlProjection.AnnotatedInstrLines(source, type, method, overloadIndex, publicOnly))
+        var annotatedInstrLines = methodHandle.IsNil
+            ? IlProjection.AnnotatedInstrLines(source, type, method, overloadIndex, publicOnly)
+            : IlProjection.AnnotatedInstrLines(source, methodHandle);
+        foreach (var instr in annotatedInstrLines)
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
                 continue;

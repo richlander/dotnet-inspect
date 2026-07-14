@@ -100,6 +100,48 @@ Two resolution paths, chosen by scope:
 makes handle addressing the rule and the two paths above the only way to obtain
 one.
 
+### Caller migration status
+
+The same-reader body-composition callers are migrated onto handle addressing:
+
+- **`TypeSourceComposer`** — whole-type field-initializer collection
+  (`CollectFieldInitializers`) and per-member body composition (`DecompileBody`)
+  import by `MethodDefinitionHandle`. `DecompileBody` resolves
+  `ApiMember.MetadataToken` and validates it against the composing reader (a
+  method of the composed type whose name matches the member) before use; a token
+  that does not validate — e.g. carried over from a type-forwarded surface —
+  falls back to the legacy name+ordinal path rather than mis-addressing.
+- **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
+  `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
+  `(type, method, overloadIndex)` tuple.
+- **`TypeSourceComposer` attributes + accessors** — `ComposeMembers` resolves the
+  validated member handle once and addresses both the member **body** and its
+  **custom attributes** by it (`AttributeReader.RenderMethodAttributes(reader,
+  handle, ns)`); `ComposeProperty` addresses get/set/init accessors by the
+  property's `GetterToken`/`SetterToken` (fixing indexer `get_Item`/`set_Item`
+  drift, where `overloadIndex:0` always picked the first indexer).
+- **`MemberCodeProvider` (`member` CLI) + `ResearchViews`** — `Collect` resolves
+  the surface member's validated metadata token once and threads it into
+  attributes, generic-parameter names, `HasBody`, decompiled source, the
+  `ResearchViews` mixed IL+C# projection (`MemberProjectionRequest.MethodHandle`),
+  and IL disassembly. Layer overloads were added at each seam
+  (`AttributeReader.GetMethodAttributes`, `ILInstructionPrinter.DisassembleMethod`,
+  `IlProjection.Locate/Project/AnnotatedInstrLines`). Other `ResearchViews` entry
+  points keep the name path (nil handle → fallback) — they are not the CLI's drift
+  surface.
+
+This closes an observed correctness bug: the extractor drops some public methods
+from the API surface (e.g. `EditorBrowsable(Never)` overloads) that the by-name
+importer's public-only counting still counts, so a surviving overload's running
+surface index no longer matches its metadata overload index and the ordinal path
+pairs its signature with a *different* overload's body (often referencing
+out-of-scope locals — invalid C#), or misattributes the hidden overload's
+attributes (`[EditorBrowsable]`/`[Obsolete]`) onto the survivor. Handle addressing
+renders each member's own body and attributes. Every same-reader body/attribute
+path in whole-type composition and the `member` CLI is now handle-addressed; a
+token that does not validate (type-forwarded surface) falls back to the legacy
+name+ordinal path rather than mis-addressing.
+
 ## Scope: one load per type
 
 The addressable unit lives in a scope. `MetadataSource : IDisposable` is that

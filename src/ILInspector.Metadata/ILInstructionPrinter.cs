@@ -148,6 +148,15 @@ public static class ILInstructionPrinter
         return null;
     }
 
+    /// <summary>
+    /// Handle-addressed disassembly: the caller already holds the method's own
+    /// <see cref="MethodDefinitionHandle"/> (see docs/design/member-body-substrate.md),
+    /// bypassing the name+overload-ordinal walk and its drift.
+    /// </summary>
+    public static List<ILInstructionText>? DisassembleMethod(
+        PEReader peReader, MetadataReader reader, MethodDefinitionHandle methodHandle)
+        => Disassemble(peReader, reader, reader.GetMethodDefinition(methodHandle));
+
     static string? FormatOperand(DecodedInstruction instruction, MetadataReader reader, ILSyntax syntax)
     {
         bool canonical = syntax == ILSyntax.Canonical;

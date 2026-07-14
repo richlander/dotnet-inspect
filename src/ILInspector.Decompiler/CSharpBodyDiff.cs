@@ -400,7 +400,7 @@ public static class CSharpBodyDiff
         if (!entry.HasBody)
             return new CSharpMethodRender(CSharpRenderState.Absent, ["/* no method body */"], DecompilationFidelity.IlOnly);
 
-        var function = IrImporter.Import(source, entry.TypeFullName, entry.MethodName, entry.OverloadIndex, publicOnly: false);
+        var function = IrImporter.Import(source, entry.MethodHandle);
         if (function is null)
             return new CSharpMethodRender(CSharpRenderState.Absent, ["/* no method body */"], DecompilationFidelity.IlOnly);
 

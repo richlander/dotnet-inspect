@@ -235,6 +235,16 @@ public static class AttributeReader
         MetadataReader reader, TypeDefinitionHandle typeHandle, string methodName, int overloadIndex, bool publicOnly = true)
         => ReadMethodAttributes(reader, FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly));
 
+    /// <summary>
+    /// Overload for callers that already hold the method's own
+    /// <see cref="MethodDefinitionHandle"/> — the canonical same-reader address
+    /// (see docs/design/member-body-substrate.md), free of the overload-ordinal
+    /// drift the name+index overloads are subject to.
+    /// </summary>
+    public static List<(string Name, string? Value)> GetMethodAttributes(
+        MetadataReader reader, MethodDefinitionHandle methodHandle)
+        => ReadMethodAttributes(reader, methodHandle);
+
     private static List<(string Name, string? Value)> ReadMethodAttributes(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
         List<(string Name, string? Value)> results = [];
@@ -503,6 +513,16 @@ public static class AttributeReader
         var handle = FindMethodHandleInType(reader, typeHandle, methodName, overloadIndex, publicOnly);
         return handle.IsNil ? [] : RenderAttributes(reader, handle, namespaces);
     }
+
+    /// <summary>
+    /// Renders the attributes on a method addressed directly by its
+    /// <see cref="MethodDefinitionHandle"/> — the canonical same-reader address
+    /// (see docs/design/member-body-substrate.md), free of the overload-ordinal
+    /// drift the name+index overload is subject to.
+    /// </summary>
+    public static List<string> RenderMethodAttributes(
+        MetadataReader reader, MethodDefinitionHandle handle, SortedSet<string>? namespaces = null)
+        => handle.IsNil ? [] : RenderAttributes(reader, handle, namespaces);
 
     /// <summary>Renders the attributes on a property, found by name within the type.</summary>
     public static List<string> RenderPropertyAttributes(
