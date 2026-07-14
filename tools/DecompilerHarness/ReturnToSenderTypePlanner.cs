@@ -3437,13 +3437,13 @@ public static class CompileBackSourceComposer
 
         static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
         {
-            // The product skeleton (CompileBackTypeSkeleton) owns the metadata-level
+            // The product skeleton (CSharpTypeProducer) owns the metadata-level
             // gates that decide which base is reconstructable (interface/nil/same-
             // assembly/non-generic/object-family). The harness applies its own C#
             // surface-representability gate on the display form here, where the Clean
             // normalization lives: Clean strips generated <> segments (so a <>-named
             // base is kept) but not { or delegate*, matching origin/main exactly.
-            var baseType = CompileBackTypeSkeleton.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
+            var baseType = CSharpTypeProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
             if (baseType is null)
                 return null;
             if (IsUnsupportedSurfaceSignature(baseType))
@@ -3779,7 +3779,7 @@ public static class CompileBackSourceComposer
             // harness's own naming concern: strips modreq/modopt, maps `!`-typed and
             // generated `<>` segments), then defer the representability heuristic to
             // the product skeleton so every consumer judges surfaces the same way.
-            => CompileBackTypeSkeleton.IsUnsupportedSurfaceSignature(CompileBackTypeSignature.Display(signature).DisplayName);
+            => CSharpTypeProducer.IsUnsupportedSurfaceSignature(CompileBackTypeSignature.Display(signature).DisplayName);
 
         static bool IsGeneratedMetadataName(string name)
             => name.Contains('<', StringComparison.Ordinal) || name.Contains('>', StringComparison.Ordinal);

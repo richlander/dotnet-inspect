@@ -5,25 +5,26 @@ using ILInspector.Metadata;
 namespace ILInspector.CSharp;
 
 /// <summary>
-/// Product-owned composition of compile-back type skeletons: the minimal,
-/// compilable type-shell facts a consumer needs to reconstruct a member's
-/// referenced types without loading the inspected assembly or using Roslyn.
+/// Produces C#-flavored type <em>shapes</em> — the skeletal facts a consumer needs
+/// to render a type declaration and its members without decompiling method bodies,
+/// loading the inspected assembly, or using Roslyn. It is the C#-spelling companion
+/// to the metadata-spelling producer (<c>System.Int32</c> vs <c>int</c>), and stays
+/// SRM-only and NativeAOT-friendly so consumers that only want skeletons never take
+/// the decompiler dependency. The decompiler layer coordinates with this producer to
+/// fill selected members with full bodies.
 ///
-/// This is the first seam extracted from the ReturnToSender harness so the
-/// knowledge of how to shape a compile-back shell lives in the product (and is
-/// validated by the harness compile-back oracle) rather than being re-derived by
-/// every consumer. It stays SRM-only and NativeAOT-friendly.
+/// These are its first capabilities; type/member/stubbed-shell shaping migrates here
+/// as the shell composition currently trapped in the ReturnToSender harness folds in.
 /// </summary>
-public static class CompileBackTypeSkeleton
+public static class CSharpTypeProducer
 {
     /// <summary>
-    /// True when a C# type display name cannot be represented on a compile-back
-    /// shell surface (function pointers, compiler-generated <c>&lt;&gt;</c> names, or
+    /// True when a C# type display name cannot be represented on a skeletal type
+    /// surface (function pointers, compiler-generated <c>&lt;&gt;</c> names, or
     /// anonymous/tuple <c>{</c> shapes). Consumers drop such members.
     ///
-    /// Callers must pass an already-normalized C# display name (e.g. the harness
-    /// applies its <c>CompileBackTypeSignature.Display</c>/<c>Clean</c> pass first);
-    /// this method is a pure substring heuristic and does not itself normalize.
+    /// Callers must pass an already-normalized C# display name; this method is a pure
+    /// substring heuristic and does not itself normalize.
     /// </summary>
     public static bool IsUnsupportedSurfaceSignature(string signature)
         => signature.Contains("delegate*", StringComparison.Ordinal)
@@ -32,7 +33,7 @@ public static class CompileBackTypeSkeleton
             || signature.Contains('{', StringComparison.Ordinal);
 
     /// <summary>
-    /// The base type name a compile-back shell should reconstruct for
+    /// The base type name a skeletal type shape should reconstruct for
     /// <paramref name="typeDef"/>, or <see langword="null"/> when the base should
     /// be dropped (left to its compiler-implied default).
     ///
