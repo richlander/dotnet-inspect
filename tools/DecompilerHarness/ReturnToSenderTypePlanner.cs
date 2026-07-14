@@ -3437,42 +3437,14 @@ public static class CompileBackSourceComposer
 
         static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
         {
-            if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
-                return null;
-            if (typeDef.BaseType.IsNil)
-                return null;
-
-            string? baseType;
-            try
-            {
-                baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-            {
-                return null;
-            }
-
+            // The product skeleton (CSharpTypeProducer) owns the metadata-level
+            // gates that decide which base is reconstructable (interface/nil/same-
+            // assembly/non-generic/object-family). The harness applies its own C#
+            // surface-representability gate on the display form here, where the Clean
+            // normalization lives: Clean strips generated <> segments (so a <>-named
+            // base is kept) but not { or delegate*, matching origin/main exactly.
+            var baseType = CSharpTypeProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
             if (baseType is null)
-                return null;
-            // Attributes must derive from System.Attribute (existing behavior).
-            if (baseType is "System.Attribute")
-                return CompileBackTypeSignature.Display(baseType);
-            // Only reconstruct same-assembly base classes. External (TypeReference)
-            // and generic-instantiation (TypeSpecification) bases are dropped as
-            // before: the shell cannot own their construction, so an external base
-            // whose only constructor is parameterized would make the derived stub's
-            // implicit `: base()` fail (CS7036) where the baseline compiled without
-            // a base. This mirrors ReconstructedSameAssemblyBaseName's own gate.
-            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
-                return null;
-            // Only plain classes reconstruct a real base class; records/structs/enums/
-            // delegates keep their compiler-implied base to avoid primary-constructor
-            // and value-type conflicts. A generic type's base can reference its own
-            // type parameters, which the flat shell does not carry, so skip it.
-            if (kind != CompileBackTypeKind.Class || typeDef.GetGenericParameters().Count != 0)
-                return null;
-            if (baseType is "System.Object" or "System.ValueType" or "System.Enum"
-                or "System.Delegate" or "System.MulticastDelegate")
                 return null;
             if (IsUnsupportedSurfaceSignature(baseType))
                 return null;
@@ -3803,13 +3775,11 @@ public static class CompileBackSourceComposer
         }
 
         static bool IsUnsupportedSurfaceSignature(string signature)
-        {
-            string displayName = CompileBackTypeSignature.Display(signature).DisplayName;
-            return displayName.Contains("delegate*", StringComparison.Ordinal)
-                || displayName.Contains("@delegate*", StringComparison.Ordinal)
-                || displayName.Contains("<>", StringComparison.Ordinal)
-                || displayName.Contains('{', StringComparison.Ordinal);
-        }
+            // Normalize the raw signature text to its C# display form first (the
+            // harness's own naming concern: strips modreq/modopt, maps `!`-typed and
+            // generated `<>` segments), then defer the representability heuristic to
+            // the product skeleton so every consumer judges surfaces the same way.
+            => CSharpTypeProducer.IsUnsupportedSurfaceSignature(CompileBackTypeSignature.Display(signature).DisplayName);
 
         static bool IsGeneratedMetadataName(string name)
             => name.Contains('<', StringComparison.Ordinal) || name.Contains('>', StringComparison.Ordinal);
