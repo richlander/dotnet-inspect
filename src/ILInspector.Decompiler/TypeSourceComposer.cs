@@ -772,8 +772,8 @@ public static class TypeSourceComposer
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
 
-        var getterHandle = ResolveMethodHandle(reader, typeHandle, member.GetterToken);
-        var setterHandle = ResolveMethodHandle(reader, typeHandle, member.SetterToken);
+        var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
+        var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
 
         var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext)>();
         if (accessorList >= 0)
@@ -957,6 +957,25 @@ public static class TypeSourceComposer
             return null;
         }
         return method.GetDeclaringType() == typeHandle ? methodHandle : null;
+    }
+
+    /// <summary>
+    /// Resolves a property accessor token to its <see cref="MethodDefinitionHandle"/>,
+    /// applying the same rigor as <see cref="ResolveMemberHandle"/>: the token must
+    /// resolve to a method of <paramref name="typeHandle"/> whose name equals the
+    /// expected accessor name (e.g. <c>get_Item</c>). A stale token carried over
+    /// from a type-forwarded or round-tripped surface that lands on a different
+    /// method of the same type — a private helper or a sibling property's accessor —
+    /// is rejected, asking the caller to fall back to name+ordinal addressing rather
+    /// than decompiling an unrelated body as the accessor.
+    /// </summary>
+    static MethodDefinitionHandle? ResolveAccessorHandle(MetadataReader reader, TypeDefinitionHandle typeHandle, int? token, string accessorName)
+    {
+        if (ResolveMethodHandle(reader, typeHandle, token) is not { } handle)
+            return null;
+        if (reader.GetString(reader.GetMethodDefinition(handle).Name) != accessorName)
+            return null;
+        return handle;
     }
 
     static string? DecompileAccessor(
