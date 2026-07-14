@@ -2306,7 +2306,8 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            if (CSharpTypeProducer.IsUnsupportedSurfaceSignature(fieldType))
+            if (fieldType.Contains("delegate*", StringComparison.Ordinal)
+                || fieldType.Contains("@delegate*", StringComparison.Ordinal))
                 return null;
 
             parameters.Add(new CompileBackParameter(
