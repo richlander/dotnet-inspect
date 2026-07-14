@@ -31,6 +31,29 @@ public class TypeSourceComposerOverloadAddressingTests
         Assert.NotNull(source);
         Assert.Contains("VISIBLE_OVERLOAD_BODY", source);
         Assert.DoesNotContain("HIDDEN_OVERLOAD_BODY", source);
+        // The attribute path drifts on the same running-index mismatch: ordinal
+        // addressing pulls the hidden overload's [EditorBrowsable] onto the
+        // survivor. The hidden overload is not composed, so its attribute must
+        // not appear anywhere in the output.
+        Assert.DoesNotContain("EditorBrowsable", source);
+    }
+
+    [Fact]
+    public void OverloadedIndexers_EachAccessorRendersItsOwnBody()
+    {
+        string assemblyPath = typeof(IndexerDriftSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(IndexerDriftSpecimen).FullName);
+
+        string? source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null);
+
+        Assert.NotNull(source);
+        // Both indexers compile to get_Item accessors; ordinal addressing
+        // (overloadIndex:0) renders the first indexer's body for both. Handle
+        // addressing via the property's GetterToken renders each own body.
+        Assert.Contains("INT_INDEXER_BODY", source);
+        Assert.Contains("STRING_INDEXER_BODY", source);
     }
 }
 
@@ -44,4 +67,14 @@ public class OverloadDriftSpecimen
 
     // Surviving overload: running surface index 0, metadata public index 1.
     public string Describe(string value) => "VISIBLE_OVERLOAD_BODY";
+}
+
+public class IndexerDriftSpecimen
+{
+    // Two indexers, both emitted as get_Item accessors. Ordinal accessor
+    // addressing (overloadIndex:0) selects the first for both; handle addressing
+    // keys each accessor by the property's own GetterToken.
+    public string this[int index] => "INT_INDEXER_BODY";
+
+    public string this[string key] => "STRING_INDEXER_BODY";
 }

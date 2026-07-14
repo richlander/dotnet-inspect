@@ -504,6 +504,16 @@ public static class AttributeReader
         return handle.IsNil ? [] : RenderAttributes(reader, handle, namespaces);
     }
 
+    /// <summary>
+    /// Renders the attributes on a method addressed directly by its
+    /// <see cref="MethodDefinitionHandle"/> — the canonical same-reader address
+    /// (see docs/design/member-body-substrate.md), free of the overload-ordinal
+    /// drift the name+index overload is subject to.
+    /// </summary>
+    public static List<string> RenderMethodAttributes(
+        MetadataReader reader, MethodDefinitionHandle handle, SortedSet<string>? namespaces = null)
+        => handle.IsNil ? [] : RenderAttributes(reader, handle, namespaces);
+
     /// <summary>Renders the attributes on a property, found by name within the type.</summary>
     public static List<string> RenderPropertyAttributes(
         MetadataReader reader, TypeDefinitionHandle typeHandle, string propertyName, SortedSet<string>? namespaces = null)

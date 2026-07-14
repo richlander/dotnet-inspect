@@ -400,8 +400,16 @@ public static class TypeSourceComposer
                     any = true;
 
                     bool publicOnly = member.Kind != "explicit-interface-implementation";
-                    foreach (var attribute in AttributeReader.RenderMethodAttributes(
-                        reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces))
+                    // Resolve the member's metadata handle once (validated
+                    // against this reader) and address both its attributes and
+                    // its body by it, so neither drifts onto a different
+                    // overload. A non-validating token falls back to the
+                    // name+ordinal path.
+                    var memberHandle = ResolveMemberHandle(reader, typeHandle, member);
+                    var attributes = memberHandle is { } attrHandle
+                        ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
+                        : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
+                    foreach (var attribute in attributes)
                         sb.AppendLine($"    [{attribute}]");
 
                     string? constructorChain = null;
@@ -409,7 +417,7 @@ public static class TypeSourceComposer
                     bool requiresUnsafeContext = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, reader, typeHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -472,7 +480,7 @@ public static class TypeSourceComposer
                     foreach (var attribute in AttributeReader.RenderPropertyAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
                         sb.AppendLine($"    [{attribute}]");
-                    ComposeProperty(sb, pipelineSource, type, member, bodyNamespaces);
+                    ComposeProperty(sb, pipelineSource, reader, typeHandle, type, member, bodyNamespaces);
                     break;
                 }
 
@@ -754,7 +762,8 @@ public static class TypeSourceComposer
     }
 
     static void ComposeProperty(
-        StringBuilder sb, Pipeline.MetadataSource pipelineSource, ApiType type, ApiMember member,
+        StringBuilder sb, Pipeline.MetadataSource pipelineSource,
+        MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
         SortedSet<string> bodyNamespaces)
     {
         string typeFullName = type.FullName;
@@ -763,16 +772,19 @@ public static class TypeSourceComposer
         string head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         bool requiresUnsafeContext = member.IsUnsafe || signature.Contains('*', StringComparison.Ordinal);
 
+        var getterHandle = ResolveMethodHandle(reader, typeHandle, member.GetterToken);
+        var setterHandle = ResolveMethodHandle(reader, typeHandle, member.SetterToken);
+
         var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext)>();
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe), getRequiresUnsafe));
+                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe), getRequiresUnsafe));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe), setRequiresUnsafe));
+                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe), setRequiresUnsafe));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe), initRequiresUnsafe));
+                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe), initRequiresUnsafe));
         }
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
@@ -877,16 +889,17 @@ public static class TypeSourceComposer
     }
 
     static string? DecompileBody(
-        Pipeline.MetadataSource pipelineSource, MetadataReader reader, TypeDefinitionHandle typeHandle,
+        Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
-        // addressing (see docs/design/member-body-substrate.md). The token is
-        // validated against this reader (a method of this type with this name)
-        // before use, so a stale token from a type-forwarded surface falls back
-        // to the name+ordinal path rather than mis-addressing.
-        if (ResolveMemberHandle(reader, typeHandle, member) is { } methodHandle)
+        // addressing (see docs/design/member-body-substrate.md). The caller has
+        // already validated the token against this reader (a method of this type
+        // with this name); a stale token from a type-forwarded surface resolves
+        // to null and falls back to the name+ordinal path rather than
+        // mis-addressing.
+        if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
                 bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
@@ -911,9 +924,26 @@ public static class TypeSourceComposer
     /// </summary>
     static MethodDefinitionHandle? ResolveMemberHandle(MetadataReader reader, TypeDefinitionHandle typeHandle, ApiMember member)
     {
-        if (member.MetadataToken is not { } token)
+        if (ResolveMethodHandle(reader, typeHandle, member.MetadataToken) is not { } handle)
             return null;
-        var handle = MetadataTokens.EntityHandle(token);
+        if (reader.GetString(reader.GetMethodDefinition(handle).Name) != member.Name)
+            return null;
+        return handle;
+    }
+
+    /// <summary>
+    /// Resolves a raw metadata token to a <see cref="MethodDefinitionHandle"/>
+    /// that belongs to <paramref name="typeHandle"/> in
+    /// <paramref name="reader"/>, or null when the token is absent, is not a
+    /// method definition, or does not belong to the type (e.g. carried over from
+    /// a type-forwarded surface). The shared validation behind member and
+    /// accessor handle addressing.
+    /// </summary>
+    static MethodDefinitionHandle? ResolveMethodHandle(MetadataReader reader, TypeDefinitionHandle typeHandle, int? token)
+    {
+        if (token is not { } value)
+            return null;
+        var handle = MetadataTokens.EntityHandle(value);
         if (handle.Kind != HandleKind.MethodDefinition)
             return null;
         var methodHandle = (MethodDefinitionHandle)handle;
@@ -926,19 +956,23 @@ public static class TypeSourceComposer
         {
             return null;
         }
-        if (method.GetDeclaringType() != typeHandle)
-            return null;
-        if (reader.GetString(method.Name) != member.Name)
-            return null;
-        return methodHandle;
+        return method.GetDeclaringType() == typeHandle ? methodHandle : null;
     }
 
     static string? DecompileAccessor(
-        Pipeline.MetadataSource pipelineSource, string typeFullName, string accessorName,
+        Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
+        string typeFullName, string accessorName,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext)
-        // Accessors are non-public special-name methods; count across all
-        // visibilities (a property has one get_/set_ per name anyway).
-        => DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
+        // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
+        // drift, where name+index:0 always selects the first indexer's
+        // accessor). Fall back to the by-name path — accessors are non-public
+        // special-name methods, counted across all visibilities — when no valid
+        // handle is available.
+        => accessorHandle is { } handle
+            ? DecompileFunction(pipelineSource,
+                Pipeline.IrImporter.Import(pipelineSource, handle),
+                bodyNamespaces, out _, out _, out requiresUnsafeContext)
+            : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
             publicOnly: false, bodyNamespaces, out _, out _, out requiresUnsafeContext);
 
     /// <summary>
