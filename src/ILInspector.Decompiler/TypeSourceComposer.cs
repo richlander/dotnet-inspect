@@ -384,12 +384,21 @@ public static class TypeSourceComposer
                     any = true;
 
                     bool publicOnly = member.Kind != "explicit-interface-implementation";
+                    bool bodyPublicOnly = publicOnly
+                        && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
+                        && member.Accessibility is null;
                     // Resolve the member's metadata handle once (validated
                     // against this reader) and address both its attributes and
-                    // its body by it, so neither drifts onto a different
-                    // overload. A non-validating token falls back to the
-                    // name+ordinal path.
-                    var memberHandle = ResolveMemberHandle(reader, typeHandle, member);
+                    // its body by it, so neither drifts onto a different overload.
+                    // A non-validating token resolves the legacy name+ordinal
+                    // selector to its concrete handle before any projection.
+                    var memberHandle = ResolveMemberHandle(reader, typeHandle, member)
+                        ?? Pipeline.IrImporter.ResolveMethodHandle(
+                            reader,
+                            member.DeclaringType ?? type.FullName,
+                            member.Name,
+                            index,
+                            bodyPublicOnly);
                     var attributes = memberHandle is { } attrHandle
                         ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
                         : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);

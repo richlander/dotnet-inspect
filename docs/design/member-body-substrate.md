@@ -124,7 +124,8 @@ The same-reader body-composition callers are migrated onto handle addressing:
   the surface member's validated metadata token once and threads it into
   attributes, generic-parameter names, `HasBody`, decompiled source, the
   `ResearchViews` mixed IL+C# projection (`MemberProjectionRequest.MethodHandle`),
-  and IL disassembly. Layer overloads were added at each seam
+  body-only modifier classification, and IL disassembly. Layer overloads were
+  added at each seam
   (`AttributeReader.GetMethodAttributes`, `ILInstructionPrinter.DisassembleMethod`,
   `IlProjection.Locate/Project/AnnotatedInstrLines`). Other `ResearchViews` entry
   points keep the name path (nil handle → fallback) — they are not the CLI's drift
@@ -139,8 +140,10 @@ out-of-scope locals — invalid C#), or misattributes the hidden overload's
 attributes (`[EditorBrowsable]`/`[Obsolete]`) onto the survivor. Handle addressing
 renders each member's own body and attributes. Every same-reader body/attribute
 path in whole-type composition and the `member` CLI is now handle-addressed; a
-token that does not validate (type-forwarded surface) falls back to the legacy
-name+ordinal path rather than mis-addressing.
+token that does not validate (type-forwarded surface) resolves the legacy
+name+ordinal selector to its concrete MethodDef before projecting the body,
+attributes, or body-only modifiers, rather than mis-addressing or allowing those
+projections to diverge.
 
 ## Scope: one load per type
 

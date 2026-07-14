@@ -5,8 +5,11 @@ namespace ILInspector.Decompiler.Tests;
 
 public sealed class TypeSourceComposerAsyncTests
 {
-    [Fact]
-    public void ClassicAsyncWithoutAwait_UsesMetadataBodyModifier()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClassicAsyncWithoutAwait_UsesResolvedMethodBodyModifier(
+        bool invalidateMetadataToken)
     {
         string configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
         string path = Path.GetFullPath(Path.Combine(
@@ -21,6 +24,13 @@ public sealed class TypeSourceComposerAsyncTests
         var type = Assert.Single(
             surface.Types,
             candidate => candidate.FullName == "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures");
+        if (invalidateMetadataToken)
+        {
+            var member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "NoAwait");
+            member.MetadataToken = 0x02000001;
+        }
 
         var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
 

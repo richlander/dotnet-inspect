@@ -294,8 +294,11 @@ public class ApiOutputFormatterTests
         Assert.Contains(" unsafe ", Declaration(sections.SemanticsOverlayCode.Content));
     }
 
-    [Fact]
-    public void RuntimeAsyncBodyConsumers_UseMetadataModifier()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RuntimeAsyncBodyConsumers_UseResolvedMethodModifier(
+        bool invalidateMetadataToken)
     {
         string path = typeof(RuntimeAsyncHeaderFixture).Assembly.Location;
         using var pe = new PEReader(File.OpenRead(path));
@@ -304,6 +307,8 @@ public class ApiOutputFormatterTests
             surface.Types,
             candidate => candidate.FullName == typeof(RuntimeAsyncHeaderFixture).FullName);
         var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(RuntimeAsyncHeaderFixture.YieldAsync));
+        if (invalidateMetadataToken)
+            member.MetadataToken = 0x02000001;
         var collected = Assert.Single(MemberCodeProvider.Collect(
             type,
             [member],

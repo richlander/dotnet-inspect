@@ -97,9 +97,16 @@ internal static class MemberCodeProvider
             // this reader) and address every section by it, so none drifts onto
             // a different overload. A non-validating token — e.g. carried over
             // from a type-forwarded surface — falls back to the name+ordinal
-            // path. This is the same drift class the whole-type composition path
-            // fixes (see docs/design/member-body-substrate.md).
-            var memberHandle = ResolveMethodHandle(reader, typeHandle, method.MetadataToken, method.Name);
+            // path, resolved to its concrete handle before any projection. This
+            // is the same drift class the whole-type composition path fixes
+            // (see docs/design/member-body-substrate.md).
+            var memberHandle = ResolveMethodHandle(reader, typeHandle, method.MetadataToken, method.Name)
+                ?? IrImporter.ResolveMethodHandle(
+                    reader,
+                    typeHandle,
+                    method.Name,
+                    lookupOverloadIndex,
+                    publicOnly);
 
             IReadOnlyList<(string Name, string? Value)>? attributes = null;
             if (request.Attributes)
