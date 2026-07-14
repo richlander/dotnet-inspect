@@ -1669,12 +1669,10 @@ public static class CompileBackSourceComposer
     /// <c>: this(args)</c> initializer targeting it cannot bind.
     /// </summary>
     static bool IsUnsupportedChainParameterType(TypeRef type)
-    {
-        string display = type.ToDisplayString();
-        return display.Contains("delegate*", StringComparison.Ordinal)
-            || display.Contains("<>", StringComparison.Ordinal)
-            || display.Contains('{', StringComparison.Ordinal);
-    }
+        // Route surface-representability through the product seam (CSharpTypeProducer)
+        // so every RTS consumer judges droppable surfaces identically, instead of
+        // re-inlining the delegate*/<>/{ heuristic here.
+        => CSharpTypeProducer.IsUnsupportedSurfaceSignature(type.ToDisplayString());
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
@@ -2308,8 +2306,7 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            if (fieldType.Contains("delegate*", StringComparison.Ordinal)
-                || fieldType.Contains("@delegate*", StringComparison.Ordinal))
+            if (CSharpTypeProducer.IsUnsupportedSurfaceSignature(fieldType))
                 return null;
 
             parameters.Add(new CompileBackParameter(
