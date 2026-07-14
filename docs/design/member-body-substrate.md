@@ -38,24 +38,32 @@ substrate removes.
 
 ## The layering
 
-The substrate respects the existing dependency direction — data flows **down**
-the arrows, nothing flows up:
+The substrate respects the existing dependency direction. The surface→body work
+is a single **spine** — each layer depends on the one below it — with two **side
+inputs** that feed the spine without being part of it:
 
 ```text
-Research (the join)  ── interleave (IL+C#), diff, body-subset
-   │
-CSharp.Decompiler ── C# bodies over CSharp shells (full/partial type shape)
-   │
-CSharp ── type shells / skeleton; C# surface facts
-   │
-Metadata ── type/member signatures; PDB/source-link; ApiType/ApiMember
-   │
-Analysis ── offset-keyed body facts (unsafe, throws, allocations)
+spine (each layer consumes the one below):
 
-Instructions ── readable IL for a member body; metadata-free (names arrive via the
-                operand-name-resolver inversion) — the IL-representation sibling,
-                joined by Research for the interleave
+  Research ── the join: interleave (IL+C#), diff, body-subset
+     │
+  CSharp.Decompiler ── C# bodies over CSharp shells (full/partial type shape)
+     │
+  CSharp ── type shells / skeleton; C# surface facts
+     │
+  Metadata ── type/member signatures; PDB/source-link; ApiType/ApiMember
+
+side inputs (feed the spine; not part of it):
+
+  Instructions ── readable IL for a member body; metadata-free (names arrive via
+                  the operand-name-resolver inversion). Feeds Research's interleave.
+  Analysis ───── offset-keyed body facts (unsafe, throws, allocations). Feeds the
+                  member pre-filter (cheap) and Research's body-subset join.
 ```
+
+Analysis is **not** the base of the spine: it depends on `Metadata` +
+`Instructions` + `ControlFlow`, so it sits beside the spine, not beneath it. Only
+Research (and the pre-filter) consume it.
 
 The consequence that pins the design: **each layer is a producer that renders
 its own stream, and Research is the only layer that joins streams.** CSharp
