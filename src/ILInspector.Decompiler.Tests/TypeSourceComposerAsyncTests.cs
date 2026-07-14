@@ -8,12 +8,13 @@ public sealed class TypeSourceComposerAsyncTests
     [Fact]
     public void ClassicAsyncWithoutAwait_UsesMetadataBodyModifier()
     {
+        string configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
         string path = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
             "..",
             "..",
             "ILInspector.Decompiler.Fixtures.ClassicAsync",
-            "release",
+            configuration,
             "ILInspector.Decompiler.Fixtures.ClassicAsync.dll"));
         using var pe = new PEReader(File.OpenRead(path));
         var surface = ApiSurfaceExtractor.Extract(pe);
