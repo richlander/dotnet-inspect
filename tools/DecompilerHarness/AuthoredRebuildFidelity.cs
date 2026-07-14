@@ -184,7 +184,11 @@ static class AuthoredRebuildFidelity
                 ImplementationDiff: null);
         }
 
-        if (!TryExtractTargetBody(authoredBody, request.MethodName, out string targetBody))
+        if (!TryExtractTargetBody(
+            authoredBody,
+            request.MethodName,
+            request.Function.Signature.Parameters.Length,
+            out string targetBody))
         {
             return new AuthoredRebuildFidelityResult(
                 decompilerResult,
@@ -206,6 +210,28 @@ static class AuthoredRebuildFidelity
         string memberSource,
         string metadataMethodName,
         out string body)
+        => TryExtractTargetBody(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount: null,
+            out body);
+
+    internal static bool TryExtractTargetBody(
+        string memberSource,
+        string metadataMethodName,
+        int expectedParameterCount,
+        out string body)
+        => TryExtractTargetBody(
+            memberSource,
+            metadataMethodName,
+            (int?)expectedParameterCount,
+            out body);
+
+    static bool TryExtractTargetBody(
+        string memberSource,
+        string metadataMethodName,
+        int? expectedParameterCount,
+        out string body)
     {
         ArgumentNullException.ThrowIfNull(memberSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataMethodName);
@@ -221,7 +247,7 @@ static class AuthoredRebuildFidelity
             .OfType<MemberDeclarationSyntax>()
             .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
         {
-            var candidate = MemberBody(member, identity);
+            var candidate = MemberBody(member, identity, expectedParameterCount);
             if (candidate.Score < bestScore)
                 continue;
             if (candidate.Score == bestScore)
@@ -241,7 +267,8 @@ static class AuthoredRebuildFidelity
 
     static (int Score, string Body) MemberBody(
         MemberDeclarationSyntax member,
-        MetadataMethodIdentity identity)
+        MetadataMethodIdentity identity,
+        int? expectedParameterCount)
         => member switch
         {
             MethodDeclarationSyntax method
@@ -249,6 +276,9 @@ static class AuthoredRebuildFidelity
                     method.Identifier.ValueText,
                     identity.SimpleName,
                     StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        method.ParameterList.Parameters.Count,
+                        expectedParameterCount)
                 => ScoredBody(
                     method.ExplicitInterfaceSpecifier,
                     identity,
@@ -256,8 +286,10 @@ static class AuthoredRebuildFidelity
             ConstructorDeclarationSyntax constructor
                 when identity.SimpleName is ".ctor" or ".cctor"
                     && identity.ExplicitInterface is null
-                // Metadata names do not encode constructor arity. Multiple constructors in the
-                // checksum-verified sequence-point window tie and are rejected as ambiguous.
+                    && ConstructorKindMatches(constructor, identity.SimpleName)
+                    && ParameterCountMatches(
+                        constructor.ParameterList.Parameters.Count,
+                        expectedParameterCount)
                 => (2, BodyText(
                     constructor.Body,
                     constructor.ExpressionBody,
@@ -312,6 +344,16 @@ static class AuthoredRebuildFidelity
                     AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration)),
             _ => (-1, ""),
         };
+
+    static bool ParameterCountMatches(int actual, int? expected)
+        => expected is null || actual == expected.Value;
+
+    static bool ConstructorKindMatches(
+        ConstructorDeclarationSyntax constructor,
+        string metadataMethodName)
+        => constructor.Modifiers.Any(SyntaxKind.StaticKeyword)
+            ? metadataMethodName == ".cctor"
+            : metadataMethodName == ".ctor";
 
     static (int Score, string Body) ScoredBody(
         ExplicitInterfaceSpecifierSyntax? syntax,

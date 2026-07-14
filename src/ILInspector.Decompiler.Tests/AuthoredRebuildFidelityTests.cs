@@ -198,6 +198,46 @@ public sealed class AuthoredRebuildFidelityTests
             out _));
     }
 
+    [Fact]
+    public void AuthoredMemberSource_UsesConstructorArity()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public Sample() { Value = 1; } "
+                + "public Sample(int value) { Value = value; }",
+            ".ctor",
+            expectedParameterCount: 1,
+            out string body));
+        Assert.Contains("Value = value;", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthoredMemberSource_UsesMethodArity()
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public int M() { return 1; } "
+                + "public int M(int value) { return value; }",
+            "M",
+            expectedParameterCount: 0,
+            out string body));
+        Assert.Contains("return 1;", body, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(".ctor", "Value = 1;")]
+    [InlineData(".cctor", "Value = 2;")]
+    public void AuthoredMemberSource_DistinguishesConstructorKind(
+        string methodName,
+        string expected)
+    {
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBody(
+            "public Sample() { Value = 1; } "
+                + "static Sample() { Value = 2; }",
+            methodName,
+            expectedParameterCount: 0,
+            out string body));
+        Assert.Contains(expected, body, StringComparison.Ordinal);
+    }
+
     static FindingInspection<CompilationOptionInfo> CompleteOptions(
         params CompilationOptionInfo[] options)
         => MetadataFindings.InspectCompilationOptions(options, Subject);
