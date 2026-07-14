@@ -146,7 +146,6 @@ public static class LibrarySections
         public static string Name => SectionNames.ILOffset;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.ILOffset != null;
     }
@@ -230,7 +229,6 @@ public static class LibrarySections
         public static string Name => "Source Files";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
     }
@@ -239,7 +237,6 @@ public static class LibrarySections
     {
         public static string Name => "Symbols";
         public static bool IsExpensive => false;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => ScannerSymbols;
         public static bool CanRender(LibraryInspection model) => true;
     }
@@ -248,8 +245,6 @@ public static class LibrarySections
     {
         public static string Name => "Signals";
         public static bool IsExpensive => false;
-        public static SectionCapabilities Capabilities =>
-            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
@@ -422,8 +417,6 @@ public static class LibrarySections
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
         // slow to render as a full default section. Signals may still summarize this high-value audit.
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities =>
-            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
@@ -435,8 +428,6 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         // Opt-in only: derived from the same per-file HEAD pass as SourceLink Availability.
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities =>
-            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayAuditSources;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.MissingSourceFiles is { Count: > 0 };
@@ -447,8 +438,6 @@ public static class LibrarySections
         public static string Name => "SourceLink Integrity";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionCapabilities Capabilities =>
-            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
