@@ -48,7 +48,7 @@ Decompiler ── C# bodies; full/partial type shape (CSharp shells + bodies)
    │
 CSharp ── type shells / skeleton; C# surface facts
    │
-Metadata ── IL; ApiType/ApiMember, MemberAnchor, cheap shape facts
+Metadata ── signatures (type/member, singular or list); IL; ApiType/ApiMember
    │
 Analysis ── offset-keyed body facts (unsafe, throws, allocations)
 ```
@@ -167,9 +167,18 @@ is a live option):
 
 | Producer | Layer | Renders | Self-facts it may annotate |
 | --- | --- | --- | --- |
-| IL | Metadata | one member's / type's IL | metadata facts (its own) |
-| shells | CSharp | type skeleton / declarations | C# surface facts (its own) |
-| bodies | Decompiler | one member's C# body; a full/partial type shape (CSharp shells + bodies) | raise facts (its own) |
+| signatures | Metadata | type signatures and member signatures, singular or as a list — **no shells** | metadata facts (its own) |
+| IL | Metadata | one member's / type's IL instructions | metadata facts (its own) |
+| shells | CSharp | Metadata signatures expanded into a type skeleton (declarations, braces, member grouping — no bodies) | C# surface facts (its own) |
+| bodies | Decompiler | CSharp shells expanded with C# bodies — a full or partial type shape | raise facts (its own) |
+
+This is a **capability ladder**: each layer expands the one below by exactly one
+step — Metadata prints the signature, CSharp expands the signature into a shell,
+Decompiler expands the shell into a body, and Research joins streams. Metadata's
+signature printer is a genuine growth in capability (Metadata previously printed
+only IL): it prints type *and* member signatures, one or a list, and stops at the
+signature — shells are CSharp's increment. (Metadata prints signatures in its own
+spelling; CSharp, as the C# layer, owns the C# spelling of the shells it expands.)
 
 Each producer is **singular**: one stream, one input. It renders a whole body,
 or a whole (possibly member-subset) type, in one language, optionally annotated
@@ -297,15 +306,16 @@ sourced from Metadata/Analysis, not from the printed text:
 
 | Layer | Role | Adds |
 | --- | --- | --- |
-| Metadata | IL producer + identity | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); expose the IL producer and async classification for the body path |
+| Metadata | signature + IL producer + identity | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); add the signature printer (type/member, singular or list, no shells) alongside the IL producer; expose async classification for the body path |
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
-| CSharp | shell producer | own `ApiType` shape + the shell/skeleton producer and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
-| Decompiler | body producer | produce singular C# bodies and full/partial type shapes (CSharp shells + bodies); collapse `TypeSourceComposer`'s duplicate declaration rendering onto the CSharp shell producer; no diffs, no interleave |
+| CSharp | shell producer | own `ApiType` shape + the shell/skeleton producer that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
+| Decompiler | body producer | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `TypeSourceComposer`'s duplicate declaration rendering onto the CSharp shell producer; no diffs, no interleave |
 | Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), and body-subset — all on the IL-offset axis |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**
 (identity: `MetadataToken` same-reader, normalized `ResearchMemberIdentity`
-cross-reader) → **scope** (`MetadataSource`, one load) → **producers** (IL,
-shells, bodies — each `filter → render` over its own stream, self-annotated) →
-**join** (Research: interleave, diff, body-subset on the IL-offset axis). No
-experience owns a body stack of its own, and only Research combines streams.
+cross-reader) → **scope** (`MetadataSource`, one load) → **producers**
+(signatures, IL, shells, bodies — a capability ladder, each `filter → render`
+over its own stream, self-annotated) → **join** (Research: interleave, diff,
+body-subset on the IL-offset axis). No experience owns a body stack of its own,
+and only Research combines streams.
