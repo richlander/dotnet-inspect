@@ -905,6 +905,14 @@ internal static class LibraryMetadataService
         {
             foreach (var term in orderTerms)
             {
+                if (term.Field == "CallerLoopDepth")
+                {
+                    bool leftMissing = left.CallerLoop is null;
+                    bool rightMissing = right.CallerLoop is null;
+                    if (leftMissing != rightMissing)
+                        return leftMissing ? 1 : -1;
+                }
+
                 int compare = CompareTriageField(left, right, term.Field);
                 if (compare != 0)
                     return term.Descending ? -compare : compare;

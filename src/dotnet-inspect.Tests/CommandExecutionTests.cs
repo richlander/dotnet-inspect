@@ -539,6 +539,26 @@ public class CommandExecutionTests
         Assert.Contains("\"candidate\":\"pt~", output);
     }
 
+    [Theory]
+    [InlineData("asc")]
+    [InlineData("desc")]
+    public async Task PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast(string direction)
+    {
+        string assemblyPath = FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-S", "Performance Triage",
+            "--order-by", $"CallerLoopDepth {direction}",
+            "--top", "1",
+            "--jsonl",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"caller_loop\":\"direct\"", output);
+        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
+    }
+
     [Fact]
     public async Task PerformanceTriageWhere_NormalizesMetadataToken()
     {
