@@ -503,7 +503,8 @@ public sealed partial class CSharpPrinter
         IEnumerable<IrExpression> arguments,
         IReadOnlyList<TypeRef> parameterTypes,
         ImmutableArray<ArgumentRefKind> refKinds,
-        bool explicitIn = false)
+        bool explicitIn = false,
+        bool chainFidelityCasts = false)
     {
         var parts = new List<string>();
         int i = 0;
@@ -511,12 +512,59 @@ public sealed partial class CSharpPrinter
         {
             var parameter = i < parameterTypes.Count ? parameterTypes[i] : null;
             var refKind = i < refKinds.Length ? refKinds[i] : ArgumentRefKind.Value;
-            parts.Add(RefArgument(argument, parameter, refKind, explicitIn)
-                ?? (parameter is not null ? CoerceText(argument, parameter) : Expression(argument)));
+            if (RefArgument(argument, parameter, refKind, explicitIn) is { } refSpelling)
+                parts.Add(refSpelling);
+            else if (chainFidelityCasts && parameter is not null && refKind == ArgumentRefKind.Value
+                && ChainFidelityCast(argument, parameter) is { } fidelityCast)
+                parts.Add(fidelityCast);
+            else
+                parts.Add(parameter is not null ? CoerceText(argument, parameter) : Expression(argument));
             i++;
         }
         return string.Join(", ", parts);
     }
+
+    /// <summary>
+    /// A constructor-chain argument spelled at its exact parameter type. C#
+    /// overload resolution re-runs on the recompiled <c>: this(args)</c> /
+    /// <c>: base(args)</c> initializer, so an argument whose natural spelling is a
+    /// subtype of — or type-less against — its parameter (a <c>null</c> literal,
+    /// an array flowing into a covariant interface, any reference upcast) can
+    /// silently rebind to a narrower same-arity sibling overload. Spelling
+    /// <c>(Param)arg</c> pins the parameter type the IL selected. IL verification
+    /// guarantees the argument is already assignable to the parameter, so the cast
+    /// is a widening reference conversion that emits no opcode — the recompiled
+    /// body stays byte-identical. Only concrete reference-like parameters get the
+    /// cast (value/numeric/enum/pointer/type-parameter parameters keep the
+    /// coercion spelling). Null when no fidelity cast is needed: an identity
+    /// argument, or one whose type is unknown.
+    /// </summary>
+    string? ChainFidelityCast(IrExpression argument, TypeRef parameter)
+    {
+        if (!IsConcreteReferenceParameter(parameter))
+            return null;
+        string paramText = TypeText(parameter);
+        // A type-less null literal re-resolves against every sibling overload, so
+        // it always needs its parameter type pinned.
+        if (argument is Constant { Value: null })
+            return $"({paramText})null";
+        var argumentType = EffectiveType(argument);
+        if (argumentType is null || argumentType.Equals(parameter))
+            return null;
+        return $"({paramText}){Operand(argument)}";
+    }
+
+    /// <summary>
+    /// A parameter whose spelled type is a concrete, nameable reference type (a
+    /// class, interface, delegate, or array) — the targets for which a widening
+    /// reference conversion is a no-op the recompiled IL reproduces exactly.
+    /// Excludes by-ref/pointer/function-pointer, value/enum/numeric, and bare
+    /// type-parameter parameters (where a <c>(T)</c> cast can box or unbox).
+    /// </summary>
+    bool IsConcreteReferenceParameter(TypeRef parameter)
+        => parameter.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            or TypeRefKind.SzArray or TypeRefKind.Array
+            && IsReferenceLike(parameter);
 
     /// <summary>
     /// Spells a by-ref argument with the keyword its parameter demands:

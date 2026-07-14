@@ -1241,9 +1241,19 @@ public static class CompileBackSourceComposer
             targetMembers.Add(typedEqualsSibling);
         }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
+        // RTS is an orchestrator: it reconstructs the shell and re-emits the
+        // product's constructor-chain source, then lets the Roslyn oracle judge
+        // binding by recompiling and comparing IL. It deliberately does NOT model
+        // C# overload resolution to predict whether `: this(args)` binds to the
+        // chained-to constructor — that knowledge belongs to the product (which
+        // prints the chain) and to Roslyn (which validates it). A mis-binding
+        // cannot produce a false Exact: a wrong bind changes the emitted call
+        // token (OpcodeDiff) or fails to compile (RecompileFail), both of which
+        // the oracle surfaces honestly. The only preconditions are structural:
+        // the chained-to constructor must be reconstructable in the shell, and a
+        // same-arity sibling must be present to serve as its binding target.
         bool chainedConstructorReconstructed =
             chainCallee is { } chainCtor
-            && chainCall is { } chainCallNode
             // The chained-to constructor is reconstructed only when its signature
             // is fully supported (an unsupported parameter such as a function
             // pointer makes the planner drop it, mirroring MethodRequirement).
@@ -1252,36 +1262,13 @@ public static class CompileBackSourceComposer
             // shell for `: this(args)` to have a binding target.
             && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Parameters.Count == chainCtor.ParameterTypes.Length)
-            // The printed `: this(args)` must bind to exactly the chained-to
-            // constructor. Two independent conditions each guarantee that:
-            //
-            //  * Faithful arguments — every argument's printed form already carries
-            //    its parameter's exact type. The printer can drop a disambiguating
-            //    cast (a `box` to `object` prints as its inner value; a reference
-            //    upcast prints bare), so only faithful arguments bind unambiguously
-            //    regardless of the other constructors in the shell (this also
-            //    excludes binding back to the target constructor itself, CS0516).
-            //
-            //  * Unique-arity binding — exactly one constructor in the whole shell
-            //    (the target constructor included) can bind to a call with the
-            //    chained-to constructor's argument count. Applicability accounts for
-            //    `params`/optional expansion, not just declared arity: a cross-arity
-            //    `params`/optional sibling can absorb an N-argument call and, for a
-            //    lossy argument (a bare constant or `null`), offer a better
-            //    conversion that steals the bind. Requiring a single applicable
-            //    candidate guarantees `: this(a1..aN)` binds to the chained-to
-            //    constructor even when an argument cannot be typed precisely.
-            && (ChainArgumentsAreFaithful(chainCallNode, chainCtor)
-                || targetMembers.Count(member => member.Kind == CompileBackMemberKind.Constructor
-                    && ConstructorCouldBindToArgCount(member, chainCtor.ParameterTypes.Length)) == 1);
+                && member.Parameters.Count == chainCtor.ParameterTypes.Length);
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
-            // The chained-to constructor was not reconstructed in the shell, or the
-            // printed `: this(args)` could not be proven to bind to it (a lossy
-            // argument could bind to a sibling or the target constructor). Drop the
-            // initializer and keep the body rather than emit an uncompilable or
-            // wrong chain.
+            // The chained-to constructor was not reconstructed in the shell: either
+            // an unsupported parameter dropped it, or no same-arity sibling is
+            // present to bind to. Drop the initializer and keep the body rather
+            // than emit a `: this(args)` with no binding target in the shell.
             int targetIndex = targetMembers.FindIndex(member =>
                 member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody == CompileBackStubBodyKind.TargetBody);
@@ -1652,8 +1639,8 @@ public static class CompileBackSourceComposer
     /// The base/this <c>.ctor</c> chain call in the entry block, or null when the
     /// constructor body has no chain call (a struct ctor, or a body that never
     /// chains). Mirrors the printer's chain-call detection so the shell can verify
-    /// the chained-to constructor was reconstructed and its arguments bind
-    /// faithfully before emitting the initializer.
+    /// the chained-to constructor was reconstructed before emitting the initializer
+    /// and letting the Roslyn oracle judge binding.
     /// </summary>
     static Call? ConstructorChainCall(IrFunction function)
     {
@@ -1672,84 +1659,6 @@ public static class CompileBackSourceComposer
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Whether every argument of a constructor-chain call prints in a form that
-    /// binds to exactly the chained-to constructor. The C# printer can drop a
-    /// disambiguating cast (a <c>box</c> to <c>object</c> prints as its inner
-    /// value; a reference upcast prints bare), so a lossy argument could re-bind
-    /// to a different reconstructed constructor — a sibling or the target
-    /// constructor itself. An argument is faithful only when its printed form
-    /// already carries the parameter's exact type: a non-lossy expression whose
-    /// result type structurally equals the parameter type. Faithful arguments
-    /// bind unambiguously regardless of the other constructors in the shell.
-    /// </summary>
-    static bool ChainArgumentsAreFaithful(Call chainCall, MethodRef callee)
-    {
-        var arguments = chainCall.Arguments;
-        // Arguments[0] is the `this` receiver; the ctor arguments follow it.
-        if (arguments.Count - 1 != callee.ParameterTypes.Length)
-            return false;
-        for (int i = 0; i < callee.ParameterTypes.Length; i++)
-        {
-            if (!ChainArgumentIsFaithful(arguments[i + 1], callee.ParameterTypes[i]))
-                return false;
-        }
-
-        return true;
-    }
-
-    static bool ChainArgumentIsFaithful(IrExpression argument, TypeRef parameterType)
-        // Box (prints its inner value, dropping the `(object)` cast), Coerce,
-        // Convert, IsInstance, and bare constants can each be spelled at a static
-        // type other than the parameter's, so overload resolution could bind them
-        // elsewhere. Lambdas, collection expressions, tuple literals, and
-        // interpolated strings print in a target-typed form with no intrinsic
-        // static type (a lambda `() => ...` and a collection `[...]` have none; a
-        // tuple `(a, b)` target-types per element; an interpolated string `$"..."`
-        // also converts to FormattableString/IFormattable), so a matching
-        // ResultType does not prove they bind only to the chained-to constructor —
-        // a lambda-, collection-, tuple-, or string-accepting sibling can make the
-        // printed initializer ambiguous (CS0121) or bind it elsewhere. Every other
-        // expression prints at its result type, so it is faithful exactly when
-        // that type matches the parameter type.
-        => argument is not (Box or Coerce or ILInspector.Decompiler.Pipeline.Convert or IsInstance
-                or ILInspector.Decompiler.Pipeline.Constant
-                or Lambda or CollectionExpression or TupleExpression or InterpolatedStringExpression)
-            && argument.ResultType is { } type
-            && type.Equals(parameterType);
-
-    /// <summary>
-    /// Whether a reconstructed constructor could be an applicable candidate for a
-    /// call with <paramref name="argCount"/> arguments. This is stronger than a
-    /// declared-arity match: a <c>params</c> array absorbs any number of trailing
-    /// arguments (including zero), and optional parameters may be omitted, so a
-    /// constructor of a different nominal arity can still bind an N-argument call.
-    /// The unique-arity guard uses this so a cross-arity <c>params</c>/optional
-    /// sibling that could steal a lossy-argument bind is counted as a competing
-    /// candidate rather than ignored.
-    /// </summary>
-    static bool ConstructorCouldBindToArgCount(CompileBackMemberRequirement member, int argCount)
-    {
-        var parameters = member.Parameters;
-        int total = parameters.Count;
-        bool hasParams = total > 0 && parameters[total - 1].Modifier == "params";
-        // Minimum required arguments: leading parameters that are neither optional
-        // (C# requires all parameters after the first optional to be optional too)
-        // nor the trailing `params` array (which is satisfied by zero arguments).
-        int required = 0;
-        for (int i = 0; i < total; i++)
-        {
-            if (hasParams && i == total - 1)
-                break;
-            if (parameters[i].HasDefault)
-                break;
-            required++;
-        }
-
-        int max = hasParams ? int.MaxValue : total;
-        return argCount >= required && argCount <= max;
     }
 
     /// <summary>

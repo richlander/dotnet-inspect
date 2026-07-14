@@ -691,15 +691,17 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsInitializerWhenChainedConstructorIsOverloadAmbiguous()
+    public void CompileBackTargets_ValueBoxChainArgumentIsVisibleOpcodeDiffNotFalseExact()
     {
-        // Issue #2678 guard: the printer can render chain arguments without a
-        // disambiguating cast (a `box` to `object` prints as its inner value), and
-        // C# overload resolution — including the target constructor — can then
-        // re-bind the call. A boxed argument is never faithful, and here three
-        // same-arity constructors (`C(object)`, `C(int)`, the target `C(string)`)
-        // share the callee's arity, so unique-arity binding does not hold either.
-        // The initializer must be stripped rather than emit a wrong-binding chain.
+        // Issue #2726 / adversarial review: a value-type box in a chain argument
+        // (`: this((object)1)` — `ldc.i4.1; box int32; call C::.ctor(object)`) is
+        // NOT the oracle blind spot. If the printer drops the boxing cast and
+        // prints `: this(1)`, the shell binds `C(int)` and the recompiled body
+        // OMITS the `box` opcode — a difference the opcode-name comparison already
+        // sees, so it surfaces as an honest OpcodeDiff, never a false Exact. (The
+        // real blind spot is a REFERENCE upcast/`null`, which emits no distinguishing
+        // opcode; the product printer now spells those at their parameter type — see
+        // the SelfRecursive/CrossArity/ReviewerFixture canaries below.)
         var assemblyPath = CompileFixture("""
             public class C
             {
@@ -723,8 +725,8 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
-            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
-            Assert.DoesNotContain(": this(", result.Source);
+            Assert.Contains(": this(", result.Source);
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
@@ -733,16 +735,17 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsInitializerWhenChainBindsToTargetConstructor()
+    public void CompileBackTargets_PreservesReferenceUpcastChainArgument()
     {
-        // Issue #2678 guard: overload resolution also considers the target
-        // constructor itself. The printer drops the `(object)` cast from
-        // `: this((object)text)`, printing `: this(text)`; with the target
-        // `C(string)` in the shell, `text` (a string) binds back to the target
-        // constructor — `C(string)` calling itself (CS0516). The argument is not
-        // faithful (its printed string type differs from the `object` parameter)
-        // and the callee shares the target's arity, so the initializer must be
-        // stripped.
+        // Issue #2726 / adversarial review (GPT-5.5 + Gemini 3.1 Pro): a reference
+        // upcast chain argument (`: this((object)text)`, `text` a `string`) emits
+        // NO IL conversion opcode, so a wrong rebind is invisible to the oracle's
+        // opcode-name comparison — the false-Exact blind spot. The product printer
+        // now spells the argument at its parameter type (`: this((object)text)`),
+        // so the shell rebinds to the original `C(object)` instead of the target
+        // `C(string)` calling itself (CS0516). RTS stays a C#-free orchestrator; the
+        // fidelity knowledge lives in the printer and the recompile round-trips
+        // Exact.
         var assemblyPath = CompileFixture("""
             public class C
             {
@@ -761,8 +764,8 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 1)]));
 
-            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
-            Assert.DoesNotContain(": this(", result.Source);
+            Assert.Contains(": this((object)", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
@@ -810,17 +813,63 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsInitializerWhenCrossArityParamsSiblingCanBind()
+    public void CompileBackTargets_PreservesConstructorChainWhenArgumentIsAssignableNotIdentity()
     {
-        // Issue #2678 guard (Gemini R5): unique *declared* arity is not enough — a
-        // cross-arity `params` (or optional) sibling can absorb an N-argument call
-        // and, for a lossy argument the printer cannot type precisely, offer a
-        // better conversion that steals the bind. Here `C()` chains
-        // `: this((object)null)`; the printer drops the `(object)` cast, printing
-        // `: this(null)`. `C(object)` is the only one-parameter constructor, but
-        // `C(string, params int[])` is also applicable to a one-argument call and
-        // `null` binds to `string` (more derived than `object`) via params
-        // expansion — the wrong overload. The initializer must be stripped.
+        // Issue #2726: a chain argument whose printed type is assignable but not
+        // identity-equal to the chained-to parameter (`string[]` -> covariant
+        // `IEnumerable<string>`) binds unambiguously in the shell even though a
+        // same-arity sibling exists — no other one-parameter constructor accepts a
+        // `string[]`. The old RTS gate modelled C# overload resolution and, seeing
+        // a non-faithful argument sharing arity with a sibling, stripped the
+        // initializer (OpcodeDiff). RTS no longer predicts binding: it emits the
+        // product's chain and lets the Roslyn oracle judge, so this now round-trips
+        // Exact. Mirrors the NuGet.Versioning SemanticVersion chains this issue
+        // targeted (`this(version, ParseReleaseLabels(label), metadata)`).
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+            public class V
+            {
+                public V(string label) : this(Parse(label))
+                {
+                }
+
+                public V(IEnumerable<string> labels)
+                {
+                    Labels = labels;
+                }
+
+                public IEnumerable<string> Labels { get; }
+
+                private static string[] Parse(string s) => new[] { s };
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("V", ".ctor", 0,
+                    "(corelib:System.String) -> corelib:System.Void")]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(": this(", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesNullLiteralChainArgumentAgainstCrossAritySibling()
+    {
+        // Issue #2726 / adversarial review: a type-less `null` chain argument
+        // re-resolves against every same- and cross-arity sibling in the shell. Here
+        // `C()` chains `: this((object)null)` while `C(string, params int[])` can
+        // absorb a single `null` and offers a better conversion (string is more
+        // derived than object). A bare `: this(null)` would silently rebind to the
+        // params sibling — invisible to the opcode-name oracle. The product printer
+        // now spells `: this((object)null)`, pinning the original `C(object)` bind,
+        // so the recompile round-trips Exact.
         var assemblyPath = CompileFixture("""
             public class C
             {
@@ -844,8 +893,8 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
-            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
-            Assert.DoesNotContain(": this(", result.Source);
+            Assert.Contains(": this((object)null)", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
@@ -854,18 +903,59 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DropsInitializerWhenChainArgumentIsAmbiguousLambda()
+    public void CompileBackTargets_ReviewerNullRebindFixtureRoundTripsExact()
     {
-        // Issue #2678 guard (Gemini R6): a lambda argument prints typeless
-        // (`() => ...`) and relies on C# target-typing, so its IR result type
-        // matching the parameter does NOT prove an unambiguous bind. Here `C()`
-        // chains `: this((Func<int>)(() => 1))`; the shell also contains
-        // `C(Expression<Func<int>>)` (pulled in by the body). Both constructors
-        // accept `() => 1`, so the printed `: this(() => 1)` is ambiguous (CS0121).
-        // The lambda must not be treated as faithful; with a same-arity sibling in
-        // the shell, unique-arity does not hold either, so the initializer is
-        // stripped and the body (which references the sibling through a typed local,
-        // so it stays unambiguous) still compiles.
+        // Regression canary for the exact fixture two adversarial reviewers (GPT-5.5
+        // and Gemini 3.1 Pro) used to prove the pre-fix false Exact: `: this((object)
+        // null)` rendered as `: this(null)` rebound `null` to the more-derived
+        // `C(string)` while the opcode-name sequence (`ldnull call`) stayed
+        // identical, so the oracle reported a false Exact. The product printer now
+        // spells the parameter type, so the shell binds the original `C(object)` and
+        // the round-trip is a TRUE Exact.
+        var assemblyPath = CompileFixture("""
+            public class C
+            {
+                public C(object x)
+                {
+                }
+
+                public C(string s)
+                {
+                }
+
+                public C() : this((object)null)
+                {
+                    _ = new C("body");
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
+
+            Assert.Contains(": this((object)null)", result.Source);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_LambdaTargetTypedChainArgumentRemainsHonestNonExact()
+    {
+        // Issue #2726: a lambda argument prints typeless (`() => ...`) and relies on
+        // C# target-typing, which the chain-argument parameter-type cast does not
+        // reconstruct (the argument's IR type already equals the parameter, so no
+        // reference-upcast cast applies). Here `C()` chains `: this((Func<int>)(() =>
+        // 1))` while the shell also contains `C(Expression<Func<int>>)` (pulled in by
+        // the body). Both constructors accept `() => 1`, so the printed
+        // `: this(() => 1)` is ambiguous (CS0121). This is a distinct, lower-risk
+        // fidelity gap (lambda cast preservation, not reference rebinding) and it
+        // surfaces as an honest non-Exact — never a false Exact.
         var assemblyPath = CompileFixture("""
             using System;
             using System.Linq.Expressions;
@@ -892,8 +982,8 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("C", ".ctor", 2)]));
 
-            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
-            Assert.DoesNotContain(": this(", result.Source);
+            Assert.Contains(": this(", result.Source);
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
         {
