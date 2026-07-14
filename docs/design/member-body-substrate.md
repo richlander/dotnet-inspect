@@ -110,7 +110,8 @@ The same-reader body-composition callers are migrated onto handle addressing:
   `ApiMember.MetadataToken` and validates it against the composing reader (a
   method of the composed type whose name matches the member) before use; a token
   that does not validate — e.g. carried over from a type-forwarded surface —
-  falls back to the legacy name+ordinal path rather than mis-addressing.
+  resolves the legacy name+ordinal selector to its concrete MethodDef before
+  projection rather than mis-addressing.
 - **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
   `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
   `(type, method, overloadIndex)` tuple.
