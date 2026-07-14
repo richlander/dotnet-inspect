@@ -142,10 +142,52 @@ public static class IrImporter
     }
 
     /// <summary>
+    /// Imports a method body addressed directly by its
+    /// <see cref="MethodDefinitionHandle"/> within <paramref name="typeDefHandle"/>
+    /// — the canonical addressing the member-body substrate uses. A caller that
+    /// holds a handle (resolved from an <c>ApiMember.MetadataToken</c> same-reader,
+    /// or a <c>MemberAnchor</c> match cross-reader) avoids the by-name overload's
+    /// positional <c>overloadIndex</c>/<c>publicOnly</c> selection, which cannot
+    /// distinguish overloads that differ only by visibility ordering. Carries the
+    /// same no-crash guarantee as the by-name front door: any importer bug or
+    /// malformed-metadata read surfaces as a diagnosed crash function, never a
+    /// thrown exception. Returns <see langword="null"/> for a bodyless method
+    /// (abstract/extern/interface, RVA 0), matching the by-name overload.
+    /// </summary>
+    public static IrFunction? Import(MetadataSource source, TypeDefinitionHandle typeDefHandle, MethodDefinitionHandle methodHandle)
+    {
+        var reader = source.Reader;
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (method.RelativeVirtualAddress == 0)
+                return null;
+            return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
+        }
+        catch (Exception ex)
+        {
+            return CrashFunction(SafeName(reader, methodHandle), SafeTypeName(reader, typeDefHandle), ex);
+        }
+    }
+
+    static string SafeName(MetadataReader reader, MethodDefinitionHandle handle)
+    {
+        try { return reader.GetString(reader.GetMethodDefinition(handle).Name); }
+        catch { return "<method>"; }
+    }
+
+    static string SafeTypeName(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        try { return reader.GetFullTypeName(reader.GetTypeDefinition(handle)); }
+        catch { return "<type>"; }
+    }
+
+    /// <summary>
     /// Every same-name overload on the type, in metadata order, with its decoded
     /// signature and whether it carries an IL body. The harness uses this to
     /// disambiguate <c>--dump</c> when a name resolves to more than one method —
-    /// the index lines up 1:1 with the <c>overloadIndex</c> of <see cref="Import"/>.
+    /// the index lines up 1:1 with the <c>overloadIndex</c> of <see cref="Import(MetadataSource, string, string, int, bool)"/>.
     /// Returns an empty list when the type or name is not found.
     /// </summary>
     public static IReadOnlyList<OverloadInfo> Overloads(MetadataSource source, string typeFullName, string methodName)
