@@ -215,7 +215,7 @@ parallel, similarly-named producer types with the same shape (they share the
 | `SignatureProducer` | `Metadata` | type signatures and member signatures, singular or as a list — **no shells** | metadata facts (its own) |
 | `InstructionProducer` | `Instructions` | one member's readable IL | resolved operand names (via the operand-name-resolver) |
 | `TypeShellProducer` | `CSharp` | Metadata signatures expanded into a type skeleton (declarations, braces, member grouping — no bodies) | C# surface facts (its own) |
-| `MemberBodyProducer` | `CSharp.Decompiler` | C# member bodies re-injected over CSharp shells — Decompiler assembles the full or partial type render | raise facts (its own) |
+| `MemberBodyProducer` | `CSharp.Decompiler` | the member-body increment, which this producer (as the top of the C# stack) re-injects and assembles over the `CSharp` shells into the full or partial type render | raise facts (its own) |
 
 This is a **capability ladder**: each layer expands the one below by exactly one
 step — Metadata prints the signature, CSharp expands the signature into a shell,
