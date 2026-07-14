@@ -52,11 +52,7 @@ public sealed class SectionPipeline<TModel>
     public SectionPipeline<TModel> Add<TDescriptor>(
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
     {
-        if (!TDescriptor.ProbeEffectiveness && !TDescriptor.ExplicitOnly)
-            throw new InvalidOperationException(
-                $"{TDescriptor.Name} sets ProbeEffectiveness=false and must also set ExplicitOnly=true.");
-
-        _entries.Add(new SectionEntry<TModel>
+        return Add(new SectionEntry<TModel>
         {
             Name = TDescriptor.Name,
             IsExpensive = TDescriptor.IsExpensive,
@@ -69,6 +65,21 @@ public sealed class SectionPipeline<TModel>
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
             CanRender = TDescriptor.CanRender,
         });
+    }
+
+    /// <summary>
+    /// Registers an already-materialized section entry. Registry adapters use this overload to
+    /// derive runtime selection metadata from a richer descriptor without duplicating it on
+    /// <see cref="ISectionDescriptor{TModel}"/>.
+    /// </summary>
+    public SectionPipeline<TModel> Add(SectionEntry<TModel> entry)
+    {
+        if (!entry.ProbeEffectiveness && !entry.ExplicitOnly && !entry.HasExplicitApplicability)
+            throw new InvalidOperationException(
+                $"{entry.Name} sets ProbeEffectiveness=false and must be explicit-only or " +
+                "provide a structural applicability predicate.");
+
+        _entries.Add(entry);
         return this;
     }
 

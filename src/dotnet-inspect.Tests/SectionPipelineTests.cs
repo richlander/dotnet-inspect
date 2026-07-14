@@ -73,6 +73,52 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void Add_RuntimeEntry_PreservesPipelineSemantics()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add(new SectionEntry<TestModel>
+            {
+                Name = "Runtime",
+                IsExpensive = false,
+                ExplicitOnly = false,
+                Info = true,
+                ProbeEffectiveness = true,
+                Capabilities = SectionCapabilities.None,
+                ScannerKey = null,
+                HasExplicitApplicability = true,
+                IsApplicable = model => model.Name != null,
+                CanRender = model => model.Count > 0,
+            });
+
+        Assert.Equal(["Runtime"], pipeline.AllSectionNames);
+        Assert.Equal(["Runtime"], pipeline.GetDiscoverableSections(new TestModel("target", 0)));
+        Assert.Empty(pipeline.GetEffectiveSections(new TestModel("target", 0), Verbosity.Minimal));
+        Assert.Equal(["Runtime"], pipeline.GetEffectiveSections(new TestModel("target", 1), Verbosity.Minimal));
+    }
+
+    [Fact]
+    public void Add_UnprobedRuntimeEntry_AllowsStructuralApplicability()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add(new SectionEntry<TestModel>
+            {
+                Name = "Heavy",
+                IsExpensive = true,
+                ExplicitOnly = false,
+                Info = false,
+                ProbeEffectiveness = false,
+                Capabilities = SectionCapabilities.None,
+                ScannerKey = null,
+                HasExplicitApplicability = true,
+                IsApplicable = model => model.Name != null,
+                CanRender = model => model.Count > 0,
+            });
+
+        Assert.Equal(["Heavy"], pipeline.GetDiscoverableSections(new TestModel("target", 0)));
+        Assert.Contains("Heavy", pipeline.GetUnprobedSections());
+    }
+
+    [Fact]
     public void GetEffectiveSections_MinimalVerbosity_ReturnsPrimarySections()
     {
         var pipeline = CreateTestPipeline();
