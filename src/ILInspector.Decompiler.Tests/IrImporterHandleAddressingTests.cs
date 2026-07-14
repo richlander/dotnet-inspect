@@ -8,7 +8,7 @@ using ILInspector.MetadataPrimitives;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The handle-direct <see cref="IrImporter.Import(MetadataSource, TypeDefinitionHandle, MethodDefinitionHandle)"/>
+/// The handle-direct <see cref="IrImporter.Import(MetadataSource, MethodDefinitionHandle)"/>
 /// front door — the canonical addressing the member-body substrate builds on —
 /// must resolve to the same body the by-name/overload-index front door does for
 /// the same method. These tests prove that equivalence broadly over a real
@@ -45,7 +45,7 @@ public class IrImporterHandleAddressingTests
                 ordinals[name] = ordinal + 1;
 
                 var byName = Render(IrImporter.Import(source, typeFullName, name, ordinal, publicOnly: false));
-                var byHandle = Render(IrImporter.Import(source, typeDefHandle, methodHandle));
+                var byHandle = Render(IrImporter.Import(source, methodHandle));
 
                 Assert.Equal(byName, byHandle);
                 compared++;
@@ -82,13 +82,26 @@ public class IrImporterHandleAddressingTests
             if (reader.GetString(method.Name) != nameof(InterleavedVisibilityOverloads.Marker))
                 continue;
 
-            var body = Render(IrImporter.Import(source, typeDefHandle, methodHandle));
+            var body = Render(IrImporter.Import(source, methodHandle));
             Assert.NotNull(body);
             bodies.Add(body!);
         }
 
         Assert.Equal(3, bodies.Count);
         Assert.Equal(3, new HashSet<string>(bodies).Count);
+    }
+
+    [Fact]
+    public void HandleDirect_NullSource_ReturnsCrashFunction_NeverThrows()
+    {
+        // No-crash guarantee parity with the by-name front door: a null/faulted
+        // source must surface as a diagnosed crash function, not an escaping throw
+        // (the reader is read inside the try for exactly this reason). Passing a
+        // null source reproduces the fault before the handle is ever dereferenced.
+        var crash = IrImporter.Import(null!, default(MethodDefinitionHandle));
+
+        Assert.NotNull(crash);
+        Assert.Contains(crash!.Diagnostics, d => d.Id == DiagnosticIds.InternalError);
     }
 
     [Fact]
@@ -121,7 +134,6 @@ public class IrImporterHandleAddressingTests
 
                 var methodHandle = (MethodDefinitionHandle)handle;
                 var method = reader.GetMethodDefinition(methodHandle);
-                var typeHandle = method.GetDeclaringType();
 
                 // The token points at the right method: its metadata name matches
                 // the member (constructors carry the metadata name ".ctor").
@@ -131,7 +143,7 @@ public class IrImporterHandleAddressingTests
 
                 // Handle-direct import yields a body exactly when the method has IL.
                 bool hasBody = method.RelativeVirtualAddress != 0;
-                var imported = IrImporter.Import(source, typeHandle, methodHandle);
+                var imported = IrImporter.Import(source, methodHandle);
                 Assert.Equal(hasBody, imported is not null);
 
                 resolved++;

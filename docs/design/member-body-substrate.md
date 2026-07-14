@@ -78,8 +78,9 @@ Two resolution paths, chosen by scope:
   the very `MetadataReader` the bodies are imported through, so
   `ApiMember.MetadataToken` is an *exact* `MethodDefinitionHandle` — no matching,
   no ambiguity. This is the primary address; the handle-direct front door
-  `IrImporter.Import(MetadataSource, TypeDefinitionHandle, MethodDefinitionHandle)`
-  imports straight from it.
+  `IrImporter.Import(MetadataSource, MethodDefinitionHandle)` imports straight
+  from it (the declaring type is derived from the handle, so the method and its
+  generic scope cannot be mispaired).
 - **Cross reader (surface from build A, bodies from build B).** Here tokens do
   not carry across, so members are matched by a *normalized* canonical
   signature. This is subtle and already solved: there are **two** anchor

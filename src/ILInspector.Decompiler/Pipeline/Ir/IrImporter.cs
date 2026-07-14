@@ -143,31 +143,39 @@ public static class IrImporter
 
     /// <summary>
     /// Imports a method body addressed directly by its
-    /// <see cref="MethodDefinitionHandle"/> within <paramref name="typeDefHandle"/>
-    /// — the canonical addressing the member-body substrate uses. A caller that
-    /// holds a handle (resolved from an <c>ApiMember.MetadataToken</c> same-reader,
-    /// or a <c>MemberAnchor</c> match cross-reader) avoids the by-name overload's
-    /// positional <c>overloadIndex</c>/<c>publicOnly</c> selection, which cannot
-    /// distinguish overloads that differ only by visibility ordering. Carries the
-    /// same no-crash guarantee as the by-name front door: any importer bug or
+    /// <see cref="MethodDefinitionHandle"/> — the canonical addressing the
+    /// member-body substrate uses. A caller that holds a handle (resolved from an
+    /// <c>ApiMember.MetadataToken</c> same-reader, or a <c>MemberAnchor</c> match
+    /// cross-reader) avoids the by-name overload's positional
+    /// <c>overloadIndex</c>/<c>publicOnly</c> selection, which cannot distinguish
+    /// overloads that differ only by visibility ordering. The declaring type is
+    /// derived from the handle (<see cref="MethodDefinition.GetDeclaringType"/>),
+    /// so the method and its generic scope cannot be mispaired. Carries the same
+    /// no-crash guarantee as the by-name front door: any importer bug or
     /// malformed-metadata read surfaces as a diagnosed crash function, never a
     /// thrown exception. Returns <see langword="null"/> for a bodyless method
     /// (abstract/extern/interface, RVA 0), matching the by-name overload.
     /// </summary>
-    public static IrFunction? Import(MetadataSource source, TypeDefinitionHandle typeDefHandle, MethodDefinitionHandle methodHandle)
+    public static IrFunction? Import(MetadataSource source, MethodDefinitionHandle methodHandle)
     {
-        var reader = source.Reader;
+        // Read the reader inside the try so a null/faulted source surfaces as a
+        // diagnosed crash function too, at parity with the by-name front door.
+        MetadataReader? reader = null;
         try
         {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            reader = source.Reader;
             var method = reader.GetMethodDefinition(methodHandle);
+            var typeDefHandle = method.GetDeclaringType();
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
             if (method.RelativeVirtualAddress == 0)
                 return null;
             return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
         }
         catch (Exception ex)
         {
-            return CrashFunction(SafeName(reader, methodHandle), SafeTypeName(reader, typeDefHandle), ex);
+            return reader is null
+                ? CrashFunction("<method>", "<type>", ex)
+                : CrashFunction(SafeName(reader, methodHandle), SafeTypeName(reader, methodHandle), ex);
         }
     }
 
@@ -177,9 +185,9 @@ public static class IrImporter
         catch { return "<method>"; }
     }
 
-    static string SafeTypeName(MetadataReader reader, TypeDefinitionHandle handle)
+    static string SafeTypeName(MetadataReader reader, MethodDefinitionHandle handle)
     {
-        try { return reader.GetFullTypeName(reader.GetTypeDefinition(handle)); }
+        try { return reader.GetFullTypeName(reader.GetTypeDefinition(reader.GetMethodDefinition(handle).GetDeclaringType())); }
         catch { return "<type>"; }
     }
 
