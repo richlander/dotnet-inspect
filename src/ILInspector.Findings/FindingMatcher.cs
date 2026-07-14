@@ -511,18 +511,17 @@ public static class FindingMatcher
         var candidates = new List<FindingSoftMatchCandidate>();
         foreach (int oldIndex in residualOld)
         {
-            if (!oldCandidates[oldIndex].TryGetSingle(out int newIndex)
-                || !newCandidates[newIndex].TryGetSingle(out int candidateOldIndex)
+            if (!oldCandidates[oldIndex].TryGetSingle(out int newIndex, out var tier)
+                || !newCandidates[newIndex].TryGetSingle(out int candidateOldIndex, out _)
                 || candidateOldIndex != oldIndex)
             {
                 continue;
             }
 
-            var match = FindStrongestSoftMatch(
-                oldStream[oldIndex].SoftKeys,
-                newStream[newIndex].SoftKeys);
-            if (match is not null)
-                candidates.Add(new FindingSoftMatchCandidate(oldIndex, newIndex, match));
+            candidates.Add(new FindingSoftMatchCandidate(
+                oldIndex,
+                newIndex,
+                new FindingMatchProvenance(tier, tier.Confidence)));
         }
 
         return
@@ -581,44 +580,15 @@ public static class FindingMatcher
 
                 int count = bucket.CountExcept(softKey.Variant);
                 if (count == 1)
-                    candidates[index].Add(bucket.SoleIndexExcept(softKey.Variant));
+                    candidates[index].Add(
+                        bucket.SoleIndexExcept(softKey.Variant),
+                        softKey.Tier);
                 else if (count > 1)
                     candidates[index].MarkAmbiguous();
             }
         }
 
         return candidates;
-    }
-
-    static FindingMatchProvenance? FindStrongestSoftMatch(
-        ImmutableArray<FindingSoftKey> oldKeys,
-        ImmutableArray<FindingSoftKey> newKeys)
-    {
-        var newByProjection = new Dictionary<SoftProjectionKey, FindingSoftKey>();
-        foreach (var newKey in newKeys)
-            newByProjection.Add(ToProjectionKey(newKey), newKey);
-
-        FindingSoftKey? best = null;
-        foreach (var oldKey in oldKeys)
-        {
-            if (!newByProjection.TryGetValue(ToProjectionKey(oldKey), out var newKey)
-                || string.Equals(oldKey.Variant, newKey.Variant, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (best is null
-                || oldKey.Tier.Confidence > best.Tier.Confidence
-                || (oldKey.Tier.Confidence == best.Tier.Confidence
-                    && string.CompareOrdinal(oldKey.Tier.Id, best.Tier.Id) < 0))
-            {
-                best = oldKey;
-            }
-        }
-
-        return best is null
-            ? null
-            : new FindingMatchProvenance(best.Tier, best.Tier.Confidence);
     }
 
     static SoftProjectionKey ToProjectionKey(FindingSoftKey key)
@@ -661,8 +631,9 @@ public static class FindingMatcher
         int _index;
         bool _hasCandidate;
         bool _ambiguous;
+        FindingMatchTier? _tier;
 
-        public void Add(int index)
+        public void Add(int index, FindingMatchTier tier)
         {
             if (_ambiguous)
                 return;
@@ -670,18 +641,28 @@ public static class FindingMatcher
             {
                 _index = index;
                 _hasCandidate = true;
+                _tier = tier;
             }
             else if (_index != index)
             {
                 _ambiguous = true;
             }
+            else if (tier.Confidence > _tier!.Confidence
+                || (tier.Confidence == _tier.Confidence
+                    && string.CompareOrdinal(tier.Id, _tier.Id) < 0))
+            {
+                _tier = tier;
+            }
         }
 
         public void MarkAmbiguous() => _ambiguous = true;
 
-        public readonly bool TryGetSingle(out int index)
+        public readonly bool TryGetSingle(
+            out int index,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out FindingMatchTier? tier)
         {
             index = _index;
+            tier = _tier;
             return _hasCandidate && !_ambiguous;
         }
     }
