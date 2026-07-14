@@ -3,8 +3,9 @@ using System.Collections.Immutable;
 namespace ILInspector.Findings;
 
 /// <summary>
-/// A named soft-correspondence tier. Confidence is below 100 by construction so the default
-/// acceptance threshold remains exact-only.
+/// A named soft-correspondence tier. <see cref="Id"/> uniquely names the tier and therefore its
+/// configured confidence; two projections with the same ID are not distinct tiers. Confidence is
+/// below 100 by construction so the default acceptance threshold remains exact-only.
 /// </summary>
 public sealed record FindingMatchTier
 {

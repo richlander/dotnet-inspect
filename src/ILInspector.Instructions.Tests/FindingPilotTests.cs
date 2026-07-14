@@ -542,6 +542,24 @@ public class FindingPilotTests
     static readonly FindingMatchTier FaintSoftTier = new("test.faint-role-change", 60);
 
     [Fact]
+    public void FindingKey_SoftTierIdUniquelyNamesItsConfidence()
+    {
+        Assert.Throws<ArgumentException>(() => new FindingKey(
+            "exact",
+            null,
+            [
+                new FindingSoftKey(
+                    new FindingMatchTier("same-tier", 85),
+                    "first",
+                    "extension"),
+                new FindingSoftKey(
+                    new FindingMatchTier("same-tier", 70),
+                    "second",
+                    "extension"),
+            ]));
+    }
+
+    [Fact]
     public void IdentitySet_Permutation_IsAllMatched_NoAddRemoveOrMove()
     {
         // Order is not semantic for a set: a permutation is a non-event, unlike the ordered matcher
