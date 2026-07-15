@@ -24,13 +24,7 @@ static class CompileBackCSharpNames
             .Replace(")", "", StringComparison.Ordinal)
             .Trim();
 
-        type = type switch
-        {
-            "System.String" => "string",
-            "System.Int32" => "int",
-            "System.Void" => "void",
-            _ => type,
-        };
+        type = CSharpFormatter.AliasPrimitiveTypeNames(type);
 
         return CSharpFormatter.EscapeTypeKeywords(type);
     }
@@ -1495,7 +1489,7 @@ public static class CompileBackSourceComposer
                             CSharpConstructorInitializerKind.This,
                             Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
             CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
-                && ParseConstructorInitializer(requirement.ConstructorInitializer) is { } capturedInitializer
+                && CSharpFormatter.ParseConstructorInitializer(requirement.ConstructorInitializer) is { } capturedInitializer
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
@@ -1529,35 +1523,6 @@ public static class CompileBackSourceComposer
         => requirement.Kind == CompileBackMemberKind.PropertyGet
             ? new CSharpPropertyBody(body, null)
             : new CSharpPropertyBody(null, body);
-
-    /// <summary>
-    /// Parses a printer-form constructor-chain string (<c>this(args)</c> or
-    /// <c>base(args)</c>, with no leading <c>: </c> or trailing <c>;</c>) into a
-    /// <see cref="CSharpConstructorInitializer"/>. The whole argument list is
-    /// carried as a single initializer argument — the printer already rendered
-    /// it, so no top-level comma split is needed (and splitting would break
-    /// nested calls). Returns null when there is no captured chain.
-    /// </summary>
-    static CSharpConstructorInitializer? ParseConstructorInitializer(string? chain)
-    {
-        if (string.IsNullOrEmpty(chain))
-            return null;
-        var kind = chain.StartsWith("this(", StringComparison.Ordinal)
-            ? CSharpConstructorInitializerKind.This
-            : chain.StartsWith("base(", StringComparison.Ordinal)
-                ? CSharpConstructorInitializerKind.Base
-                : (CSharpConstructorInitializerKind?)null;
-        if (kind is null)
-            return null;
-        int open = chain.IndexOf('(', StringComparison.Ordinal);
-        int close = chain.LastIndexOf(')');
-        if (open < 0 || close <= open)
-            return null;
-        string arguments = chain[(open + 1)..close];
-        return new CSharpConstructorInitializer(
-            kind.Value,
-            arguments.Length == 0 ? [] : [arguments]);
-    }
 
     /// <summary>
     /// The base/this <c>.ctor</c> chain call in the entry block, or null when the
@@ -1641,15 +1606,11 @@ public static class CompileBackSourceComposer
         };
 
     static bool RequiresUnsafe(CompileBackMemberRequirement member)
-        => member.ReturnType?.DisplayName.Contains('*', StringComparison.Ordinal) == true
-            || member.Parameters.Any(parameter => parameter.Type.DisplayName.Contains('*', StringComparison.Ordinal))
-            || MemberBodyRequiresUnsafe(member);
-
-    static bool MemberBodyRequiresUnsafe(CompileBackMemberRequirement member)
-        => member.TargetBody is { } body
-            && (body.Contains("delegate*", StringComparison.Ordinal)
-                || body.Contains("stackalloc", StringComparison.Ordinal)
-                || body.Contains('*', StringComparison.Ordinal));
+        => (member.ReturnType is { } returnType
+                && CSharpFormatter.RequiresUnsafeModifier(returnType.DisplayName))
+            || member.Parameters.Any(parameter =>
+                CSharpFormatter.RequiresUnsafeModifier(parameter.Type.DisplayName))
+            || (member.TargetBody is { } body && CSharpFormatter.RequiresUnsafeModifier(body));
 
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(

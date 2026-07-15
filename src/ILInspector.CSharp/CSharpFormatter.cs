@@ -188,6 +188,32 @@ public sealed class CSharpFormatter
     public static string EscapeTypeKeywords(string type)
         => CSharpDeclarationWriter.EscapeTypeKeywords(type);
 
+    /// <summary>
+    /// Rewrites CLR primitive full names (e.g. <c>System.Int32</c>, <c>System.IntPtr</c>)
+    /// to their C# keyword spelling (<c>int</c>, <c>nint</c>) wherever they appear as a
+    /// complete type-name segment inside a type string — including nested in generics,
+    /// arrays, pointers, and by-ref forms. This is the authoritative primitive-alias
+    /// rewriter for the C# layer; consumers must not reimplement it.
+    /// </summary>
+    public static string AliasPrimitiveTypeNames(string type)
+        => CSharpDeclarationWriter.AliasPrimitiveTypeNames(type);
+
+    /// <summary>
+    /// True when a C# type or member-body fragment requires the <c>unsafe</c>
+    /// modifier — it contains pointer syntax (including function pointers, which
+    /// carry a <c>*</c>) or a <c>stackalloc</c>. This over-approximates (a body
+    /// using <c>*</c> as multiplication also reports true), which is safe because
+    /// an unnecessary <c>unsafe</c> modifier still compiles. This is the
+    /// authoritative unsafe-requirement predicate for the C# layer; consumers must
+    /// not reimplement it.
+    /// </summary>
+    public static bool RequiresUnsafeModifier(string csharp)
+    {
+        ArgumentNullException.ThrowIfNull(csharp);
+        return csharp.Contains('*', StringComparison.Ordinal)
+            || csharp.Contains("stackalloc", StringComparison.Ordinal);
+    }
+
     public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
         => CSharpDeclarationWriter.EscapeKnownIdentifiers(text, rawNames);
 
@@ -250,6 +276,42 @@ public sealed class CSharpFormatter
                 "Unknown constructor initializer kind.")
         };
         return $": {target}({string.Join(", ", initializer.Arguments)})";
+    }
+
+    /// <summary>
+    /// Parses a printer-form constructor-chain string — <c>this(args)</c> or
+    /// <c>base(args)</c>, with an optional leading <c>: </c> and no trailing
+    /// <c>;</c> — back into a <see cref="CSharpConstructorInitializer"/>. The inverse
+    /// of <see cref="FormatConstructorInitializer"/>. The whole argument list is
+    /// carried as a single initializer argument: the printer already rendered it, so
+    /// there is no top-level comma split (splitting would break nested calls). Returns
+    /// <see langword="null"/> when there is no <c>this</c>/<c>base</c> chain. This is
+    /// the authoritative constructor-initializer parser for the C# layer; consumers
+    /// must not reimplement it.
+    /// </summary>
+    public static CSharpConstructorInitializer? ParseConstructorInitializer(string? chain)
+    {
+        if (string.IsNullOrEmpty(chain))
+            return null;
+
+        string text = chain.StartsWith(": ", StringComparison.Ordinal) ? chain[2..] : chain;
+        CSharpConstructorInitializerKind? kind = text.StartsWith("this(", StringComparison.Ordinal)
+            ? CSharpConstructorInitializerKind.This
+            : text.StartsWith("base(", StringComparison.Ordinal)
+                ? CSharpConstructorInitializerKind.Base
+                : null;
+        if (kind is null)
+            return null;
+
+        int open = text.IndexOf('(', StringComparison.Ordinal);
+        int close = text.LastIndexOf(')');
+        if (open < 0 || close <= open)
+            return null;
+
+        string arguments = text[(open + 1)..close];
+        return new CSharpConstructorInitializer(
+            kind.Value,
+            arguments.Length == 0 ? [] : [arguments]);
     }
 
     static CSharpDeclarationOptions ToDeclarationOptions(

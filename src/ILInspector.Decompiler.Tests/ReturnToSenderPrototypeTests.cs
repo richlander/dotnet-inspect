@@ -3110,7 +3110,7 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("public System.Decimal DecimalDefault(System.Decimal value = 1.25m)", result.Source);
+                    Assert.Contains("public decimal DecimalDefault(decimal value = 1.25m)", result.Source);
                 },
                 result =>
                 {

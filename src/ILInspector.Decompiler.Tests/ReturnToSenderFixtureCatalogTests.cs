@@ -434,7 +434,7 @@ public class ReturnToSenderFixtureCatalogTests
     {
         Assert.Equal("A.B.@delegate*", CompileBackCSharpNames.Clean("A.B.delegate*"));
         Assert.Equal("@delegate*", CompileBackCSharpNames.Clean("delegate*"));
-        Assert.Equal("delegate*<System.Int32, System.Int32>", CompileBackCSharpNames.Clean("delegate*<System.Int32, System.Int32>"));
+        Assert.Equal("delegate*<int, int>", CompileBackCSharpNames.Clean("delegate*<System.Int32, System.Int32>"));
     }
 
     [Fact]

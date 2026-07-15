@@ -30,6 +30,9 @@ public static class PrimitiveTypeNames
         ["void"] = "System.Void",
     };
 
+    private static readonly Dictionary<string, string> ReverseMap =
+        Map.ToDictionary(static pair => pair.Value, static pair => pair.Key, StringComparer.Ordinal);
+
     /// <summary>Returns the CLR full name for a primitive keyword, or the input unchanged.</summary>
     public static string ToClrFullName(string keyword)
         => Map.TryGetValue(keyword, out var full) ? full : keyword;
@@ -37,4 +40,12 @@ public static class PrimitiveTypeNames
     /// <summary>Tries to map a primitive keyword to its CLR full name.</summary>
     public static bool TryToClrFullName(string keyword, out string fullName)
         => Map.TryGetValue(keyword, out fullName!);
+
+    /// <summary>
+    /// Tries to map a CLR primitive full name (e.g. <c>System.Int32</c>) back to its
+    /// C# keyword (e.g. <c>int</c>). The inverse of <see cref="ToClrFullName"/>; the
+    /// single source of truth for both directions so the two never disagree.
+    /// </summary>
+    public static bool TryToKeyword(string clrFullName, out string keyword)
+        => ReverseMap.TryGetValue(clrFullName, out keyword!);
 }
