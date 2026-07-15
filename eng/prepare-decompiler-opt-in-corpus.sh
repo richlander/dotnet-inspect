@@ -45,6 +45,7 @@ declare -a projects=(
 )
 
 destination="$repo/artifacts/corpus/opt-in-net11/$mode"
+build_artifacts="$tmp/artifacts"
 mkdir -p "$destination"
 
 declare -a assemblies=()
@@ -54,12 +55,16 @@ for relative_project in "${projects[@]}"; do
   (
     cd "$tmp"
     dotnet restore "$project" --configfile "$nuget_config" \
-      -p:DefaultTargetFramework=net11.0 --verbosity quiet >/dev/null
-    dotnet build "$project" -c Release --no-restore \
-      -p:DefaultTargetFramework=net11.0 --verbosity quiet >/dev/null
+      -p:DefaultTargetFramework=net11.0 \
+      -p:ArtifactsPath="$build_artifacts" \
+      --verbosity quiet >&2
+    dotnet build "$project" -c Release --no-restore --no-incremental \
+      -p:DefaultTargetFramework=net11.0 \
+      -p:ArtifactsPath="$build_artifacts" \
+      --verbosity quiet >&2
   )
 
-  source="$repo/artifacts/bin/$project_name/release/$project_name.dll"
+  source="$build_artifacts/bin/$project_name/release/$project_name.dll"
   if [ ! -f "$source" ]; then
     echo "Missing built corpus assembly: $source" >&2
     exit 1
