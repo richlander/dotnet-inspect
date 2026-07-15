@@ -11,7 +11,7 @@ namespace LadderRung1;
 // per-method seam the other rung gates ride does NOT wire those, so it
 // under-resolves these constructs (lambdas leak <>c names, cross-assembly
 // out-args render `ref`). LadderRung1ProductPathGateTests composes this type
-// through TypeSourceComposer with a runtime platform locator and pins the real
+// through MemberBodyProducer with a runtime platform locator and pins the real
 // product rendering, closing the seam-vs-product blind spot. Other rungs can
 // follow this same model for seam-sensitive constructs.
 public class ProductSurface

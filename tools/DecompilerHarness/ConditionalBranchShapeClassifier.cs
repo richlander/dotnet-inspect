@@ -23,19 +23,19 @@ namespace ILInspector.DecompilerHarness;
 /// <list type="bullet">
 /// <item><c>loop-residue</c> — the container has a backward branch (a do/while,
 ///   <c>continue</c>, or iterator state machine the loop passes did not raise,
-///   e.g. TypeSourceComposer::ShortenSegment); out of scope for forward
+///   e.g. MemberBodyProducer::ShortenSegment); out of scope for forward
 ///   structuring.</item>
 /// <item><c>eh-entangled</c> — an unstructured EH terminator (<see cref="Leave"/>/
 ///   <see cref="EndFinally"/>/<see cref="EndFilter"/>) survives, so the conditional
 ///   sits in or beside a try/catch/finally the EH pass left flat (e.g.
-///   TypeSourceComposer::ComposeFields).</item>
+///   MemberBodyProducer::ComposeFields).</item>
 /// <item><c>comparison-tree</c> — four or more constant comparisons on a value (a
 ///   csc sparse <c>switch</c> or range cascade lowered to an if-tree, e.g.
 ///   HttpClientFactory::IsNonPublic); a dedicated multi-way raise.</item>
 /// <item><c>shared-forward-merge</c> — a forward target reached by two or more
 ///   branches: a genuine shared join past a region that strict nesting cannot
 ///   name (the <c>cond-target-past-region</c>/<c>forward-branch-not-region-exit</c>
-///   family, e.g. TypeSourceComposer::ComposeMembers).</item>
+///   family, e.g. MemberBodyProducer::ComposeMembers).</item>
 /// <item><c>nonnested-forward-guards</c> — only forward branches, each to a
 ///   single-predecessor target, whose ranges interleave instead of nesting: the
 ///   csc lowering for an <c>is</c>-pattern / type-test dispatch or a short-circuit

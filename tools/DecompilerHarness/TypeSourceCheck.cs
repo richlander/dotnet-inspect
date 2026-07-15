@@ -12,7 +12,7 @@ namespace ILInspector.DecompilerHarness;
 /// <summary>
 /// The whole-type source oracle (issue #1112). Where <see cref="FidelityCheck"/>
 /// closes the loop on a single method body's opcodes, this validates the file
-/// and type-level artifacts the product <see cref="TypeSourceComposer"/> emits:
+/// and type-level artifacts the product <see cref="MemberBodyProducer"/> emits:
 /// namespace, the type kind and modifiers, and the complete member surface.
 ///
 /// <para>
@@ -131,7 +131,7 @@ static class TypeSourceCheck
             if (type.Kind == "delegate")
                 continue;
 
-            var source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null);
+            var source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
             if (source is null)
                 continue;
 

@@ -44,10 +44,11 @@ public class ValidityCoverageReportingTests
         string[] expected =
 #if DEBUG
         [
-            "ILInspector.Decompiler.TypeSourceComposer::DecompileBody",
+            "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
         ];
 #else
         [
+            "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
             "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
@@ -57,7 +58,6 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.IsPatternPass::IsPatternLocalNull",
             "ILInspector.Decompiler.Pipeline.NullConditionalPass::MemberReceiver",
             "ILInspector.Decompiler.Pipeline.UnionSwitchExpressionPass::SameTailNode",
-            "ILInspector.Decompiler.TypeSourceComposer::DecompileBody",
         ];
 #endif
         Assert.Equal(expected, actual);

@@ -72,7 +72,7 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 | `Unary` | BoundUnaryOperator (neg/not) | RyuJitImporter | Inherited | result type is the operand's type (neg/not preserve the operand type) | corpus compile-back |
 | `Unbox` | BoundConversion (unboxing → managed pointer) | RyuJitImporter | Inherited | operand is a box of the value type; result is a managed pointer into it | box/unbox fixtures; corpus compile-back |
 | `UnboxAny` | BoundConversion (unboxing) | RyuJitImporter | Inherited | target is the unbox.any type token (value type, reference type, or type parameter) | box/unbox fixtures; corpus compile-back |
-| `UnionSwitchExpression` | BoundConvertedSwitchExpression (type-pattern arms over a union receiver) | None | Native | the receiver is the compiler-emitted union `Value` getter access over a proven union case set; each arm is a type pattern for one case; result is the arms' (or null/default arm's) shared type | TypeSourceComposerUnionTests, union fixture corpus |
+| `UnionSwitchExpression` | BoundConvertedSwitchExpression (type-pattern arms over a union receiver) | None | Native | the receiver is the compiler-emitted union `Value` getter access over a proven union case set; each arm is a type pattern for one case; result is the arms' (or null/default arm's) shared type | MemberBodyProducerUnionTests, union fixture corpus |
 | `WithExpression` | BoundWithExpression (receiver with { X = value }) | None | Inherited | result is the receiver's record type; raised only when the compiler-synthesized clone call and the single non-escaping mutation target are proven; every entry names a member and carries exactly one value | WithExpressionPassTests, corpus compile-back |
 
 ## Declared non-inverse boundaries

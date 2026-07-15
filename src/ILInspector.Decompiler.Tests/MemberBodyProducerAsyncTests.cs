@@ -3,7 +3,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
-public sealed class TypeSourceComposerAsyncTests
+public sealed class MemberBodyProducerAsyncTests
 {
     [Theory]
     [InlineData(false)]
@@ -32,7 +32,7 @@ public sealed class TypeSourceComposerAsyncTests
             member.MetadataToken = 0x02000001;
         }
 
-        var source = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
 
         Assert.NotNull(source);
         Assert.Contains("public static async Task NoAwait()", source, StringComparison.Ordinal);

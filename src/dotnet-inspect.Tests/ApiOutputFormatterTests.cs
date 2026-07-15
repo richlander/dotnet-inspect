@@ -337,7 +337,7 @@ public class ApiOutputFormatterTests
             sections.DecompiledSourceCode.Content,
             StringComparison.Ordinal);
 
-        var typeSource = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
         Assert.Contains(
             "public static async Task<int> YieldAsync",
@@ -387,7 +387,7 @@ public class ApiOutputFormatterTests
             sections.DecompiledSourceCode.Content,
             StringComparison.Ordinal);
 
-        var typeSource = TypeSourceComposer.Compose(type, path, pdbPath: null);
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
         Assert.Contains(
             "public static unsafe int ReadAddress",

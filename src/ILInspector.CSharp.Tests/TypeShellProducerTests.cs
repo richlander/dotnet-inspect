@@ -4,37 +4,37 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.CSharp.Tests;
 
-public sealed class CSharpTypeProducerTests
+public sealed class TypeShellProducerTests
 {
     [Fact]
     public void RequiresAsyncBodyModifier_UsesDefiningMethodMetadata()
     {
-        using var pe = new PEReader(File.OpenRead(typeof(CSharpTypeProducerTests).Assembly.Location));
+        using var pe = new PEReader(File.OpenRead(typeof(TypeShellProducerTests).Assembly.Location));
         var reader = pe.GetMetadataReader();
         var typeHandle = reader.TypeDefinitions
-            .Single(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == nameof(CSharpTypeProducerTests));
+            .Single(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == nameof(TypeShellProducerTests));
         var type = reader.GetTypeDefinition(typeHandle);
         var methods = type.GetMethods()
             .ToDictionary(
                 handle => reader.GetString(reader.GetMethodDefinition(handle).Name),
                 StringComparer.Ordinal);
 
-        Assert.True(CSharpTypeProducer.RequiresAsyncBodyModifier(
+        Assert.True(TypeShellProducer.RequiresAsyncBodyModifier(
             reader,
             methods[nameof(RuntimeAsyncFixture)]));
-        Assert.False(CSharpTypeProducer.RequiresAsyncBodyModifier(
+        Assert.False(TypeShellProducer.RequiresAsyncBodyModifier(
             reader,
             methods[nameof(AsyncIteratorFixture)]));
-        Assert.False(CSharpTypeProducer.RequiresAsyncBodyModifier(
+        Assert.False(TypeShellProducer.RequiresAsyncBodyModifier(
             reader,
             methods[nameof(IsUnsupportedSurfaceSignature_AllowsOrdinarySignatures)]));
-        Assert.False(CSharpTypeProducer.RequiresAsyncBodyModifier(
+        Assert.False(TypeShellProducer.RequiresAsyncBodyModifier(
             reader,
             methods[nameof(IteratorFixture)]));
-        Assert.False(CSharpTypeProducer.RequiresAsyncBodyModifier(
+        Assert.False(TypeShellProducer.RequiresAsyncBodyModifier(
             reader,
             MetadataTokens.GetToken(typeHandle)));
-        Assert.False(CSharpTypeProducer.RequiresAsyncBodyModifier(
+        Assert.False(TypeShellProducer.RequiresAsyncBodyModifier(
             reader,
             0x0600FFFF));
     }
@@ -46,7 +46,7 @@ public sealed class CSharpTypeProducerTests
     [InlineData("(int, string){")]
     public void IsUnsupportedSurfaceSignature_FlagsUnrepresentableShapes(string signature)
     {
-        Assert.True(CSharpTypeProducer.IsUnsupportedSurfaceSignature(signature));
+        Assert.True(TypeShellProducer.IsUnsupportedSurfaceSignature(signature));
     }
 
     [Theory]
@@ -56,7 +56,7 @@ public sealed class CSharpTypeProducerTests
     [InlineData("int[]")]
     public void IsUnsupportedSurfaceSignature_AllowsOrdinarySignatures(string signature)
     {
-        Assert.False(CSharpTypeProducer.IsUnsupportedSurfaceSignature(signature));
+        Assert.False(TypeShellProducer.IsUnsupportedSurfaceSignature(signature));
     }
 
     static async Task RuntimeAsyncFixture()

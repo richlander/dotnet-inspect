@@ -132,7 +132,7 @@ internal static class MemberCodeProvider
                 : SelectedMethodHasBody(
                     reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
             bool requiresAsyncBodyModifier = memberHandle is { } asyncHandle
-                && CSharpTypeProducer.RequiresAsyncBodyModifier(reader, asyncHandle);
+                && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle);
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
@@ -239,7 +239,17 @@ internal static class MemberCodeProvider
                         : ILInstructionPrinter.DisassembleMethod(
                             peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
                     if (instructions is { Count: > 0 })
-                        ilText = string.Join(Environment.NewLine, instructions.Select(i => i.ToString()));
+                    {
+                        // Adopt the offset-anchored SourceLine currency: raw disassembly is
+                        // already display-ready text plus an IL offset, so wrap each instruction
+                        // as a SourceLine (Text=raw instr, Offset=IL offset) and join over the
+                        // text. Byte-identical to the prior instr.ToString() join; the anchor
+                        // keeps the IL section addressable for later correlation.
+                        IReadOnlyList<Decompiler.SourceLine> ilLines = instructions
+                            .Select(i => new Decompiler.SourceLine(i.ToString(), i.Offset))
+                            .ToList();
+                        ilText = string.Join(Environment.NewLine, ilLines.Select(line => line.Text));
+                    }
                 }
                 catch (Exception ex)
                 {

@@ -1,11 +1,13 @@
 # Member Body Substrate
 
-How the product renders a type and its member bodies through **one** base, so
-that skeleton source, full source, the merged IL+C# view, and the implementation
-diff are all projections of the same shape instead of four parallel stacks. This
-is a design note about the intended contract, not a tour of the current code. It
-records the layering, the addressing, the two body shapes, and the one open
-granularity decision, so the four experiences can be built against a settled
+How the product renders a type and its member bodies through **one producer
+contract** repeated at each layer, so that skeleton source, full source, the
+merged IL+C# view, and the implementation diff are built from parallel
+**producers** (`filter → render`) joined by one **correlation** layer
+(`correlate → render`) instead of four parallel stacks. This is a design note
+about the intended contract, not a tour of the current code. It records the
+layering, the addressing, the shared producer shape, the projection currency,
+and the producer naming, so the four experiences can be built against a settled
 base rather than converged after the fact.
 
 See [rendering-model.md](rendering-model.md) for how printed text becomes
@@ -22,7 +24,7 @@ Four experiences render member bodies, and today each carries its own stack:
 | Experience | Entry point | Body form |
 | --- | --- | --- |
 | Skeleton source | `CSharpTypePrinter.Print` | declarations, no bodies |
-| Full source | `TypeSourceComposer.Compose` | full C# bodies |
+| Full source | `MemberBodyProducer.Project` | full C# bodies |
 | Merged IL + C# | `ResearchViews.RenderMixedCore` | C# spine, IL beneath |
 | Implementation diff | `ImplementationDiff.CompareMembers` | per-member C#/IL/source diff |
 
@@ -37,37 +39,86 @@ substrate removes.
 
 ## The layering
 
-The substrate respects the existing dependency direction — data flows **down**
-the arrows, nothing flows up:
+The substrate respects the existing dependency direction. It is a DAG, not a
+single spine: two independent **foundations** (the IL surface and the IL body)
+fan up through the C# surface and the fact-source, **converge** at the C# body
+producer — which raises IL over C# shells — and are finally **joined** by
+Research. Data flows up the arrows (each layer consumes those below it); nothing
+flows down.
 
 ```text
-Research (aggregator)  ── merged view, diff
-   │
-Decompiler ── MemberBody, body text, offset-anchored rows
-   │
-CSharp ── ApiType shape, skeleton/full/mixed printer
-   │
-Metadata ── ApiType/ApiMember, MemberAnchor, cheap shape facts
-   │
-Analysis ── offset-keyed body facts (unsafe, throws, allocations)
+base primitives (leaf): ControlFlow (CFG / block graph)
+  — also MetadataPrimitives and Findings, pervasive leaves (edges omitted below)
+
+foundations (build on the primitives; independent of each other):
+
+  Metadata      ── IL surface: signatures, PDB/source-link, ApiType/ApiMember
+  Instructions  ── IL body: decode + readable IL; metadata-free
+                   (operand-name-resolver inversion); → ControlFlow
+
+consumers ("→" = depends on / consumes):
+
+  CSharp             → Metadata
+  Analysis           → Metadata, Instructions, ControlFlow          (side fact-source)
+  CSharp.Decompiler  → CSharp, Metadata, Instructions, ControlFlow  (convergence: raises IL over shells)
+  Research           → CSharp.Decompiler, Analysis, Instructions, Metadata   (the join)
 ```
 
-The consequence that pins the design: **CSharp owns the type shape and the
-printer; Decompiler owns body text.** CSharp never references Decompiler, so it
-cannot decompile — it *consumes* body data (`CSharpMemberBody`) that Decompiler
-hands down. That is why a mix of skeletal and full-bodied members is a Decompiler
-concern (it supplies the bodies) while the *shape* and *member subset* are a
-CSharp concern (it owns `ApiType` and the printer). Analysis sits to the side of
-Decompiler: it derives body-level facts (`MethodSignals.Unsafe`, throw sites,
-allocation offsets) directly over `Instructions` + `ControlFlow` without the
-Decompiler, so "which members/regions are unsafe" is answerable cheaply, before
-any IR import.
+Two foundations, not one base: **`Metadata`** (IL/metadata *surface* —
+signatures, PDB/source-link) and **`Instructions`** (IL *body* — decode) are
+independent siblings; post-refactor neither depends on the other. `CSharp` builds
+on `Metadata`; `CSharp.Decompiler` is the **convergence node** (it consumes
+`CSharp` shells, `Metadata`, and `Instructions` to raise IL into C# bodies);
+`Analysis` is the one true **side fact-source** (it depends on `Metadata` +
+`Instructions` and is consumed only by Research and the member pre-filter, never
+raised *from*); `Research` joins them. Beneath the two IL foundations sits a
+shared CFG primitive, **`ControlFlow`** (block graph), consumed by `Instructions`,
+`Analysis`, and `CSharp.Decompiler` — the *decode/body* side. It is pointedly
+absent from the surface: `Metadata` and `CSharp` reach neither `ControlFlow` nor
+`Instructions`, which is exactly what lets the surface scenarios (signatures,
+shells) avoid the decode graph — the property this note's payoff rests on.
+
+`ControlFlow` is the one leaf drawn above, because *where* it is consumed is
+load-bearing for that payoff (decode/body side only). The other two leaves are
+pervasive and carry no layering argument, so their edges are omitted:
+`MetadataPrimitives` (low SRM helpers) is consumed by `Metadata`, `Instructions`,
+and `CSharp.Decompiler`; `Findings` (the shared finding/diagnostic type) is
+consumed almost everywhere — `Metadata`, `Instructions`, `Analysis`,
+`CSharp.Decompiler`, `Research`, and `Text`.
+
+The same producers, read as a 2×2 of **representation** × **rung**, show why
+`Instructions` and `CSharp.Decompiler` are *rung-peers* (both the "body" rung)
+even though the C# body is built *from* the IL body:
+
+| | IL | C# |
+| --- | --- | --- |
+| **surface** | `Metadata` — `SignatureProducer` | `CSharp` — `TypeShellProducer` |
+| **body** | `Instructions` — `InstructionProducer` | `CSharp.Decompiler` — `MemberBodyProducer` |
+
+The consequence that pins the design: **each layer is a producer that produces
+its own projection, and Research is the only layer that joins projections.**
+CSharp
+never references Decompiler, so it cannot decompile — it owns the type shells and
+*defines* the `CSharpMemberBody` slot (with its async/unsafe flags) but leaves it
+empty. `CSharp.Decompiler` is the layer that holds both — CSharp's shells by
+dependency and bodies by production — so it is the one that **assembles** the full
+type-with-bodies: it produces populated `CSharpMemberBody` instances and
+re-injects them over the shells. Nothing flows down. A mix of skeletal and
+full-bodied members is therefore a Decompiler concern, while the *shape* and the
+shell **member subset** are a CSharp concern (it owns `ApiType` and the shell
+producer).
+Analysis sits to the side of Decompiler: it derives body-level facts
+(`MethodSignals.Unsafe`, throw sites, allocation offsets) directly over
+`Instructions` + `ControlFlow` without the Decompiler, so "which members are
+unsafe" is answerable cheaply, before any IR import — and those same
+offset-keyed facts are what Research joins onto a body to answer "which
+*regions*."
 
 ## Address: identity, not an ordinal
 
 Every experience addresses a member, and the substrate replaces the positional
 `(methodName, overloadIndex, publicOnly)` tuple — recomputed independently in
-`TypeSourceComposer`, `CSharpBodyDiff.CreateMethodEntry`, and `ResearchViews`,
+`MemberBodyProducer`, `CSharpBodyDiff.CreateMethodEntry`, and `ResearchViews`,
 where the recomputations can drift — with a stable identity address. Member
 **selection** (which members to render) is therefore an identity filter over
 `ApiType.Members`, never an index.
@@ -104,7 +155,7 @@ one.
 
 The same-reader body-composition callers are migrated onto handle addressing:
 
-- **`TypeSourceComposer`** — whole-type field-initializer collection
+- **`MemberBodyProducer`** — whole-type field-initializer collection
   (`CollectFieldInitializers`) and per-member body composition (`DecompileBody`)
   import by `MethodDefinitionHandle`. `DecompileBody` resolves
   `ApiMember.MetadataToken` and validates it against the composing reader (a
@@ -114,8 +165,12 @@ The same-reader body-composition callers are migrated onto handle addressing:
   projection rather than mis-addressing.
 - **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
   `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
-  `(type, method, overloadIndex)` tuple.
-- **`TypeSourceComposer` attributes + accessors** — `ComposeMembers` resolves the
+  `(type, method, overloadIndex)` tuple. Its render type carries the
+  offset-anchored `SourceLine` currency (`PrintRaised(fn, out statementLines)`),
+  so each diff row is anchored on the IL offset (`SourceCoordinate` = `IL_XXXX`,
+  falling back to `line:N` when the line owns no statement) — the same
+  offset axis the IL body diff and the fact plane already use.
+- **`MemberBodyProducer` attributes + accessors** — `ComposeMembers` resolves the
   validated member handle once and addresses both the member **body** and its
   **custom attributes** by it (`AttributeReader.RenderMethodAttributes(reader,
   handle, ns)`); `ComposeProperty` addresses get/set/init accessors by the
@@ -150,89 +205,348 @@ projections to diverge.
 
 The addressable unit lives in a scope. `MetadataSource : IDisposable` is that
 scope: it loads the PE once and builds its type maps once (`EnsureTypeMaps`),
-and `Compose` already reuses it across every member of a type. The substrate
+and `Project` already reuses it across every member of a type. The substrate
 formalizes it: open a scope per type (a `TypeAnchor`), resolve each selected
 `MemberAnchor` to a handle within it, and import bodies through the one scope —
 never load the assembly per member.
 
-## Shape: `MemberBody`, scalar and vector
+## Shape: one producer, repeated at each layer
 
-`MemberBody` is the printable unit: an `IrFunction` over a `MetadataSource`
-scope, addressed by a `MemberAnchor`. It exposes **two** shapes, and the choice
-between them is the whole design.
+The base is not a single body type; it is a single **producer contract** that
+each layer implements over its own input. A producer takes a **filter** (which
+members, and — within a member — which regions) and **renders** a **projection**
+of the selection. `filter → render` is the whole strategy, and it is deliberately
+the *same* strategy at every layer, so Metadata, CSharp, and Decompiler expose
+parallel, similarly-named producer types with the same shape (they share the
+`IProducer` contract — see the interface note under naming):
 
-### Scalar — no offsets
+| Producer | Home | Renders | Self-facts it may annotate |
+| --- | --- | --- | --- |
+| `SignatureProducer` | `Metadata` | type signatures and member signatures, singular or as a list — **no shells** | metadata facts (its own) |
+| `InstructionProducer` | `Instructions` | one member's readable IL | resolved operand names (via the operand-name-resolver) |
+| `TypeShellProducer` | `CSharp` | Metadata signatures expanded into a type skeleton (declarations, braces, member grouping — no bodies) | C# surface facts (its own) |
+| `MemberBodyProducer` | `CSharp.Decompiler` | the member-body increment, which this producer (as the top of the C# stack) re-injects and assembles over the `CSharp` shells into the full or partial type render | raise facts (its own) |
 
-> "Just give me everything, IL or C#."
+This is a **capability ladder**: each layer expands the one below by exactly one
+step — Metadata prints the signature, CSharp expands the signature into a shell,
+Decompiler expands the shell into a body, and Research joins projections. Metadata's
+`SignatureProducer` is a genuine growth in capability: it prints type *and*
+member signatures, one or a list, and stops at the signature — shells are
+CSharp's increment, and readable IL is the parallel `Instructions` branch, not a
+Metadata rung. (Metadata prints signatures in its own spelling; CSharp, as the C#
+layer, owns the C# spelling of the shells it expands.)
 
-```csharp
-string Print(BodyLanguage language)   // skeleton | full C# | full IL
-```
+Each producer is **singular**: one projection, one input. It renders a whole
+body, or a whole (possibly member-subset) type, in one language, optionally
+annotated with its **own** facts. That last clause is the annotation rule: a
+layer may annotate its own projection with facts it owns (IL with metadata
+facts, a C# body with its raise facts), but the moment a rendering must reach
+into *another* component's projection, it stops being a producer's job.
 
-A whole body in one language, with no offset axis. This is the cheap, common
-case: skeleton declarations, full source, a single IL dump. Skeleton is the
-degenerate scalar where the body is empty.
+### The currency: the offset-anchored line, not a shared result type
 
-### Vector — offset-keyed
+The producers agree on more than a *shape* — they agree on a **currency**. But
+the currency is **not** a shared result *record*. That was the tempting move —
+factor a base `Projection(Output, Diagnostics)` that `DecompilerResult` extends —
+and it was tried and reverted, because the evidence showed it earns nothing from
+either end. The faithful machines already return their *natural* result (a
+`SignatureProducer` returns a typed signature; a faithful renderer returns a bare
+`string`), and every downstream consumer reads *concrete* `DecompilerResult` cargo
+(`Fidelity`, `ConstructorChain`, `Trace`) — never a generic `Output`/`Diagnostics`
+pair. A shared base type would sit between them earning its keep from neither.
 
-The vector is a sequence of rows on the **IL-offset axis**. It generalizes the
-row that already exists — `FactRow(Member, ILOffset, CSharpLine, Anchor,
-Category, Id, Detail, Conditionality)` in `ResearchViews` — from carrying only
-fact metadata to also carrying the C# and IL text for that offset:
+The currency they truly share is finer, and lives one rung down: the
+**offset-anchored line**. Every rendered body — C# or IL — is an ordered sequence
+of lines, and each line carries its text plus the IL offset that anchors it. That
+line, not a result record, is the unit the correlation layer joins on — and the
+IL fast path already had this shape, now unified onto `SourceLine`
+(`IlProjection.AnnotatedInstrLines` emits it).
 
-```csharp
-BodyRow { IlOffsetRange Range; string? CSharp; IReadOnlyList<string> Il; IReadOnlyList<Fact> Facts; }
-IReadOnlyList<BodyRow> Rows { get; }
-```
+But one concrete type cannot be right for all four producers, because they are
+not the same **machine**, and a machine's result type is exactly what its
+transform earns:
 
-A row is the **join of three offset-keyed streams**, all of which exist today:
+| Machine | Producer | Transform | Kind |
+| --- | --- | --- | --- |
+| **Decoder** | `SignatureProducer` (`Metadata`) | signature blob → typed signature | faithful, total |
+| **Disassembler** | `InstructionProducer` (`Instructions`) | IL byte stream → readable IL | faithful, total |
+| **Formatter** | `TypeShellProducer` (`CSharp`) | decoded facts → C# skeleton | faithful, total |
+| **Decompiler** | `MemberBodyProducer` (`CSharp.Decompiler`) | IL → C# body | **lossy, best-effort** |
 
-| Stream | Source | Offset carrier |
+A disassembler is a **decoder** specialized to the IL stream, and a formatter
+*composes* already-decoded facts one rung up; all three are **faithful** — they
+render or hard-fail (a signature blob is decoded or rejected; there is no
+"partial" signature), and a `Decoder` is exactly the surface `SignatureBlobGuard`
+hardens against malformed input. Only the **decompiler** *raises*, and raising is
+the one transform that can partially succeed — recover some statements, fall back
+to IL, lift a constructor chain, detect async. That split — **faithful vs
+lossy** — is real, but it does **not** call for a shared base type. It calls for
+each machine to return exactly what its transform earns:
+
+- The **faithful** machines return their *natural* result and nothing more — a
+  typed signature, readable IL text, a C# skeleton `string`. There is no fidelity
+  ladder to answer (a signature is decoded or rejected; there is no "partial"
+  signature), so there is no shared cargo to hang on a base.
+- The **lossy** machine returns **`DecompilerResult`** — the rendered `Output`
+  plus the `Fidelity` ladder (`Failed/IlOnly/StructuredOnly/Partial/Full`) and the
+  raise cargo (`ConstructorChain`, `FieldInitializers`,
+  `RequiresAsyncBodyModifier`, `ContainsAwaitExpression`, `Trace`). It stays a
+  concrete, standalone record (with hand-written equality that excludes the
+  advisory `Metadata`), because every consumer reads that concrete cargo directly.
+
+The fidelity ladder therefore lives on the single machine that earns it: a
+signature never has to answer "was I `StructuredOnly`?", and the `Metadata`
+decoder never takes a dependency on a `Decompiler`-shaped type. The convergence
+landed on the lossy side — `IlProjection.Project` and `MemberBodyProducer.Project`
+both return `DecompilerResult` — and that is where it stays; there is no faithful
+base to factor out.
+
+#### The shared currency is the offset-anchored line stream
+
+What the four producers *do* share is the **line**. A rendered body is an ordered
+line stream, and the correlation layer joins two such streams on the IL offset.
+Two line types carry this, split by whether annotations are baked into the text or
+carried as structure:
+
+- **`SourceLine(string Text, int Offset)`** — the fast, medium-neutral line. Both
+  the C# and IL fast paths are just display-ready text plus an anchor, so one type
+  serves both: the C# body projects through `ResearchViews.CSharpBodyLines` and the
+  IL fast path through `IlProjection.AnnotatedInstrLines` (whose old
+  `AnnotatedInstrLine` type this subsumed). `Offset` is `-1`
+  when the line owns no IL (a brace, a blank). The `member` CLI's raw `IL` section
+  is a consumer of this fast line: `MemberCodeProvider` wraps each
+  `ILInstructionText` from the `Metadata` disassembler as a `SourceLine` (text +
+  IL offset) before joining, adopting the currency without pulling the
+  decompiler-pipeline decoder into the raw view.
+- **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
+  IReadOnlyList<Annotation> Annotations)`** — the interleave currency. It carries
+  its annotations as *structure* (not baked into `Text`) so the merge printer has
+  placement freedom, plus a `Kind`.
+
+`SourceLineKind` is just **`{ CSharp, Il }`** — the one bit the merge frames on.
+It is deliberately *not* a structural taxonomy (no `BlockOpen`/`Statement`/depth):
+the containment tree already exists as `IrNode` (`Children` + `SourceOffset`), and
+the line stream is its *flat rendered projection*. Each medium pretty-prints its
+own lines — indentation, braces, IL comment-column alignment, and inline
+annotations already live in `Text` — so the correlation layer owns only the
+*cross-medium* framing, for which `Medium` is exactly enough.
+
+The cheap, common case is the scalar render — "just give me everything, IL or
+C#" — a whole body or type in one language. Skeleton is the degenerate case
+where the body is empty. The scalar render reads no offset axis, but that is a
+*read*-time choice, not a production-time one: a raised Decompiler body **always**
+carries its per-statement IL-offset spans, because they are a property of the
+raise itself — the statement→offset mapping the interval primitive buckets onto —
+not an add-on the joins request. The joins below (interleave, body subset) depend
+on those spans already existing; the scalar case simply does not read them. A
+"fast-path" render that dropped the spans would silently break interleave.
+
+### Research is the join: correlate → render
+
+Producers are `filter → render`; Research is **`correlate → render`**. The only
+difference is the intermediate — a producer *filters* to one lane, Research
+*correlates* several — and **both end in the same currency**: an ordered line
+stream that a dumb printer renders to text. The interleave is the landed instance —
+`ResearchViews.CorrelateMixedSource` folds the C# body, its statement-line map, the
+annotations, and the IL lines into one ordered `AnnotatedSourceLine` stream (owning
+the range-containment bucketing), and `RenderMixedStream` frames each line by
+`Kind`, reading indent straight from the C# line's leading whitespace. The
+cost/semantics/annotated-source **overlays** are the degenerate single-medium case
+of the same join: `ResearchViews.CorrelateOverlay` anchors the fact groups onto
+their printed C# lines and emits a C#-only `AnnotatedSourceLine` stream (empty IL
+operand), which `RenderOverlayStream` renders by splicing a trailing `// …` comment
+onto each annotated line — the same `correlate → render` shape as the interleave,
+one medium instead of two. Three
+renderings are not single-producer work, because each **correlates**
+more than one operand — and the operand *kinds* differ:
+
+| View | What it correlates | Operand kinds |
 | --- | --- | --- |
-| C# statements | `CSharpPrinter.PrintRaised(out statementLines)` | `IrNode.SourceOffset` |
-| IL instructions | `IlProjection.AnnotatedInstrLines(…)` | instruction `.Offset` |
-| Facts | `MethodSignals`, annotations | `EvidenceOffsets`, `SourceOffset` |
+| Merged IL + C# (interleave) | Instructions' IL projection + Decompiler's C# projection | projection × projection |
+| Implementation diff | two inputs (base vs head), per member | projection × projection |
+| Body subset — "just the unsafe rows" / "where X is thrown" | Decompiler's C# projection + Analysis's offset-keyed facts | projection × fact-plane |
 
-The join engine also exists: `AnnotationAnchor.ComputeSpans` buckets any
-offset-keyed item onto the owning C# statement **by IL-offset range**, not exact
-match. That is what lets the three streams line up on one axis.
+All three live in **Research**, the join layer. Research does not own a body
+stack; it *composes the producers and the fact-source* on a shared key — the
+**IL offset**, which every operand already exposes (`IrNode.SourceOffset` on C#
+statements, `.Offset` on IL instructions, `EvidenceOffsets` on Analysis facts).
 
-Because the axis is shared, **every view is `filter → render` over the vector**:
+This is the substrate's three currencies — two of them *concepts*, one a *type*:
 
-| View | Operation |
-| --- | --- |
-| Merged IL + C# (interleave) | render C# + IL columns per row (today's `RenderMixedCore`) |
-| Single language | render one column across all rows |
-| Body subset — "just the unsafe blocks" | keep rows where `offset ∈ MethodSignals.Evidence` and `Unsafe` |
-| Body subset — "where exception X is thrown" | keep rows whose span contains a `Throw` (`IrNodes.cs`) whose operand type is X |
-| Implementation diff | pair rows across two vectors and render deltas |
+- **projection** (lowercase — a *concept*, not a shared type) — an offset-anchored
+  rendered view of **one entity or one correlation**, carried as a line stream and
+  a concrete result (`DecompilerResult` for the lossy producer, Research's
+  `MemberProjectionResult` bundle for the joins). Producers project one entity;
+  Research projects a correlation (diff's output is a view of the base↔head
+  *relation*, not of either member), which is why diff belongs here rather than
+  beside the producers.
+- **`Fact`** — Analysis's unit (unsafe, throws, allocations), keyed by IL offset:
+  the fact-plane Research joins onto a body, never a view Research renders.
+- **`Correlation`** — Research's *intermediate*, never an output on its own: the
+  base↔head pairing (diff) or the two-stream alignment (interleave) that
+  `correlate → render` renders *into* a line stream.
 
-Interleave is therefore *one* vector view, not the point of the vector. The
-offset axis is a general join key; that is why it must be **first-class /
-co-equal** rather than "C# spine with IL overlays." The scalar shape is the
-deliberate opt-out of the axis for the cheap whole-body case.
+The interface consequence follows cleanly. There is **no universal output type**:
+each producer returns what it earns (a `string`/typed value for the faithful ones,
+`DecompilerResult` for the lossy one), and Research bundles its join as
+`MemberProjectionResult`. What *is* universal is the **line** the correlation joins
+on. The **correlate** step is Research-only. Diff is the most correlation-native
+view: its output ranges over a *relation*, not an entity, so it both renders a view
+**and** consumes a `Correlation`.
+
+#### The interval primitive is the real shared machinery
+
+Self-annotation and the offset-axis joins rest on one primitive: **assign
+offset-keyed items to the interval that contains them.**
+`AnnotationAnchor.ComputeSpans` is today's instance — it buckets any offset-keyed
+item onto its owning C# statement by *range*, not exact match. This is what the
+earlier scalar+vector `MemberBody` was really built around: not a shared *type*,
+but interval-bucketing on the offset axis. Dropping the unified vector did **not**
+drop this primitive, so the honest framing is **one primitive, several callers**,
+not "we avoided the shared machinery":
+
+- Factor it **representation-free**: given intervals and offset-keyed items,
+  assign each item to its interval — it knows nothing about C# or IL, so it lives
+  low.
+- `CSharp.Decompiler` **self-annotates** by calling it on its *own* raise-facts
+  against its *own* statement ranges — an up-edge, no floating node.
+- `Research` **joins** by calling the *same* primitive with another operand
+  (Analysis's facts, or IL instructions) against Decompiler's statement ranges.
+
+The placement of the *applied* bucketing is therefore **forced, not free**: there
+is exactly one producing layer with C# statement ranges to bucket onto
+(`CSharp.Decompiler`), so "self-annotation sits in the producing layer" is the
+only home, not a generic option.
+
+The deliberate trade stands — **produce singular, then join** rather than one
+unified vector, bought for stronger layer minimalism (each producer is
+independently useful; a consumer takes a Research dependency only for the joined
+"fancy" experiences). What the trade does *not* erase, and what this note now
+names, is the interval primitive shared between the producing layer's
+self-annotation and Research's join.
 
 ## Member subset vs body subset
 
-The two filtering granularities are symmetric and use different tiers of fact:
+The two filtering granularities split cleanly across the producer/join line:
 
-- **Member subset** — which `ApiMember`s to render. An identity filter at the
-  type level. It can use **method-level** facts (`MethodSignals.Unsafe`,
-  `ExceptionTypes`, `Throws`) as a cheap pre-filter so "show every unsafe block
-  in the type" does not import IR for members that cannot match.
-- **Body subset** — which rows within a member. An offset-predicate at the body
-  level. It needs **site-level** facts (`EvidenceOffsets`, the `Throw` node's
-  operand type) to pick individual rows.
+- **Member subset — the producing layer's own filter.** *Which members* to
+  render is a filter each producer applies to its own projection: CSharp renders a
+  subset of shells, Decompiler renders a subset of bodies (a **partial type
+  shape**). It can use cheap **method-level** facts (`MethodSignals.Unsafe`,
+  `ExceptionTypes`, `Throws`) as a pre-filter so "give bodies only for the
+  unsafe members" never imports IR for members that cannot match.
+- **Body subset — a Research join.** *Which regions within a member* is an
+  offset-predicate that needs **site-level** facts (`EvidenceOffsets`, a `Throw`
+  node's operand type) joined onto the body on the IL-offset axis. Because it
+  joins the body projection with a fact **plane** sourced elsewhere (facts you
+  bucket, not a projection you render), it is Research, not a producer concern.
 
-## The one open decision
+## The producer family: names and homes
 
-The two-tier fact granularity above is the single point to nail before writing
-the vector's filter signature: method-level facts are cheap and answer *does
-this member qualify at all*, while site-level facts require the IR and answer
-*which rows*. The contract should make the method-level pre-filter explicit so
-that a type-wide body-subset query (e.g. every `localloc` in an assembly) does
-not decompile every member to discover most do not qualify. Everything else in
-this note is settled; this is the knob that changes the public filter shape.
+Placement and names are both settled. The four producers form one family, each
+implementing the shared `filter → render` contract (`IProducer` — the
+umbrella note below):
+
+| Producer | Home assembly | Renders |
+| --- | --- | --- |
+| `SignatureProducer` | `ILInspector.Metadata` | type or member signatures (no shells) |
+| `InstructionProducer` | `ILInspector.Instructions` | readable IL for a member body |
+| `TypeShellProducer` | `ILInspector.CSharp` | a C# type shell (declaration + member signatures, no bodies) |
+| `MemberBodyProducer` | `ILInspector.CSharp.Decompiler` | a C# member body (decompiled) |
+
+Two rules govern the names, and they decide future producers rather than
+balancing taste:
+
+- **Namespace carries the representation; the type name carries the rung, and
+  the scope only when contested.** `ILInspector.Instructions.InstructionProducer`
+  is fully specified — IL from the namespace, body-rung from *instruction*,
+  member-scope because instructions have no other scope. A
+  `MemberInstructionProducer` would disambiguate nothing, misparse (*an
+  instruction that is a member*, not a member's instructions), and stutter
+  against its own namespace.
+- **A scope prefix (`Type…` / `Member…`) marks a producer that must disambiguate
+  against a scope-*peer* — another producer at a different scope, in the same
+  assembly or a paired one. It is *not* "member-scoped ⇒ prefixed":
+  `Instructions` is member-scoped (an instruction stream is one member's body)
+  yet stays bare, because it has no scope-peer to be told apart from.** Metadata
+  is flat: a type signature and a member signature are the same standalone
+  artifact, so `SignatureProducer` is scope-flexible, has no peer, and is bare. C#
+  *nests* — a member signature is syntactically inside the type declaration — so
+  `TypeShellProducer` must absorb member signatures into the type shell, which
+  forces the bodies back out as a member-scoped `MemberBodyProducer` to re-inject.
+  Here the two are genuine scope-peers, so both take a prefix — `Type` names
+  `TypeShellProducer`'s *output* scope, while `Member` names the *increment*
+  `MemberBodyProducer` contributes (the bodies), which `CSharp.Decompiler`
+  assembles back into the type. Note the pair straddles an **assembly boundary**:
+  `TypeShellProducer` lives in `CSharp`, `MemberBodyProducer` in
+  `CSharp.Decompiler`, so the split/rejoin the prefixes mark is *between* the two
+  assemblies, not inside either one. The rule for a future producer is therefore
+  "is there a scope-peer I must disambiguate against, here or in a paired
+  assembly?" — not "is my own assembly's output split?".
+
+The umbrella interface obeys the same rule and therefore carries **no** scope
+word: it spans a scope-flexible producer (`Signature`), two member-scoped
+producers (`Instruction`, `MemberBody`), and one type-scoped producer
+(`TypeShell`), so a scoped name like `ITypeProducer` would be false for three of
+the four. It is **`IProducer`** — the `A produces B` contract. That contract does
+**not** pin a shared result type: each producer returns what its transform earns
+(a `string`/typed value for the faithful ones, `DecompilerResult` for the lossy
+`MemberBodyProducer`). What the producers share is not a result record but the
+line the correlation layer joins on.
+
+The only assembly rename is
+`ILInspector.Decompiler → ILInspector.CSharp.Decompiler`: "Decompiler" is
+ambiguous about representation (IL disassembly is a decompile too — that is
+`Instructions`), so nesting the C# body view under `CSharp` marks it the C# body
+producer, the way `Instructions` self-identifies as IL and stays flat.
+`Metadata`, `Instructions`, and `CSharp` are already representation-clear and keep
+their names. Shell production stays owned by `CSharp`; `MemberBodyProducer`
+*consumes* shells and adds bodies — its name does not read as re-owning the
+shell, and must not.
+
+## Producer homes: the Metadata / Instructions split
+
+The homes above follow a 2×2 of **representation** (IL / C#) × **rung**
+(surface / body):
+
+| | Surface | Body |
+| --- | --- | --- |
+| **IL** | `Metadata` — `SignatureProducer` | `Instructions` — `InstructionProducer` |
+| **C#** | `CSharp` — `TypeShellProducer` | `CSharp.Decompiler` — `MemberBodyProducer` |
+
+Landing `InstructionProducer` in `Instructions` (not `Metadata`) requires two
+moves that also make the `Metadata` surface lean — they retire the *only* reason
+`Metadata → Instructions` exists today:
+
+- **The IL printer moves to `Instructions` by dependency inversion.**
+  `ILInstructionPrinter` is IL rendering; its sole `Metadata` tie is turning an
+  operand token into a name (`ILTokenResolver` / `CanonicalIL`, over a
+  `MetadataReader`). Name that need as an abstraction `Instructions` owns —
+  `IOperandNameResolver` with `ResolveType/Method/Field/String/Token(int token)`,
+  phrased in ints and strings, no SRM — have the printer call it, and implement
+  it with an adapter that closes over a `MetadataReader` and forwards to the
+  existing static resolvers. The **high-level policy** (IL rendering) no longer
+  depends on the **low-level detail** (metadata lookup); both depend on the
+  abstraction, which the policy side owns. Placed in the layer that already sees
+  both (the composition/IL-text seam), the adapter **cuts**
+  `Metadata ↔ Instructions` outright; placed in `Metadata`, it merely narrows the
+  edge to one interface implementation — the cut is the goal.
+- **`PdbContext` splits at a seam that is already there.** Its `Instructions` use
+  is confined to the IL-offset → *instruction* family
+  (`ResolveInstructionContext`, `ResolveCallsiteContext`,
+  `ResolveReturnAddressContext` — opcode / operand / branch / call-site at an
+  offset), which is IL inspection wearing a PDB hat and moves to the IL side. The
+  compelling PDB scenario — source-link and IL-offset → *source line* via
+  sequence points (`ResolveTypeSource`, `ResolveMethodSource`, `ResolveByILOffset`,
+  `SourceDocument`, `GetCompilationOptions/References`) — touches no decode model
+  and **stays in `Metadata`, clean.**
+
+The result: `Metadata` keeps signatures + source-link with **no** `Instructions`
+dependency; `Instructions` stays metadata-free and gains the IL producer; the
+surface-only scenarios (`SignatureProducer`, `TypeShellProducer`) no longer drag
+the IL decode graph. Metadata loses nothing compelling — the genuine
+source-mapping capability stays put, and only IL-representation code (which was
+never Metadata's to hold) migrates to the IL side.
 
 ## Shape facts owed by the layers below
 
@@ -247,10 +561,10 @@ sourced from Metadata/Analysis, not from the printed text:
   *not* part of an API surface — a caller cannot observe it, and reference
   assemblies strip it — so the **skeleton/surface** path deliberately omits it,
   and `ApiMember.IsAsync` (`ApiSurface.cs`) is intentionally left unpopulated
-  there. It matters only on the **full-body** path. `CSharpTypeProducer`
+  there. It matters only on the **full-body** path. `TypeShellProducer`
   classifies the selected MethodDef, and both full-body consumers carry that
   body-only fact on `CSharpMemberBody`; skeleton requests remain unchanged.
-  This removes the former signal inconsistency where `TypeSourceComposer`
+  This removes the former signal inconsistency where `MemberBodyProducer`
   consulted `ContainsAwaitExpression` while `ApiOutputFormatter` also consulted
   `RequiresAsyncBodyModifier`.
 
@@ -273,7 +587,19 @@ sourced from Metadata/Analysis, not from the printed text:
   The substrate's contract is that this modifier is a **Metadata classification
   fact applied only when the body policy emits a body**, so the surface path is
   unchanged and both full-body renderers agree — but the runtime-async *body*
-  fidelity gap is upstream of that contract and out of its scope.
+  fidelity gap is upstream of that contract and out of its scope. One caveat the
+  contract inherits: the *classification signal* is only half-settled. Classic
+  state-machine async is keyed off the stable, long-standing
+  `[AsyncStateMachine]` / `[AsyncIteratorStateMachine]` attributes. Runtime async
+  is keyed off `MethodImplAttributes.Async` — encoded as the raw `0x2000` impl
+  bit and read via a **literal cast** (`MethodClassificationScanner.cs`, `const
+  MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000`) precisely
+  because the SDK enum does not yet define the value. That bit is a preview-era
+  encoding, so the cheap-classification promise for runtime async carries the
+  same preview instability as the reconstruction gap in #2742: if the runtime
+  moves the encoding, classification silently misfires. The classic path does not
+  share that risk; only the runtime-async signal should be re-pinned alongside
+  #2742.
 - **body-only unsafe** (`localloc`, `calli`, pointer deref) — from
   `MethodSignals.Unsafe` (**Analysis**), no Decompiler. Signature-only unsafe is
   already set on `ApiMember.IsUnsafe`. Same body-gating applies: the `unsafe`
@@ -284,17 +610,20 @@ sourced from Metadata/Analysis, not from the printed text:
 
 ## What lands where
 
-| Layer | Adds |
-| --- | --- |
-| Metadata | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); expose async classification for the body path |
-| Analysis | expose offset-keyed body facts (unsafe/throw/alloc) for filtering |
-| CSharp | `ApiType` shape + printer; identity-addressed member subset; carry async/unsafe flags on `CSharpMemberBody` |
-| Decompiler | `MemberBody` (scalar `Print` + vector `Rows`) over a `MetadataSource` scope; collapse `TypeSourceComposer`'s duplicate declaration rendering onto the CSharp printer |
-| Research | re-express `RenderMixedCore` and `ImplementationDiff` as vector views |
+| Layer | Role | Adds |
+| --- | --- | --- |
+| Metadata | `SignatureProducer` + identity + source-link | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); add `SignatureProducer` (type/member, singular or list, no shells); keep the PDB/source-link core (`ResolveByILOffset`, source docs, compilation info) with **no** `Instructions` dependency; expose async classification for the body path |
+| Instructions | `InstructionProducer` | host `InstructionProducer`; take `ILInstructionPrinter` in via the `IOperandNameResolver` inversion (stays metadata-free); absorb the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
+| Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
+| CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
+| CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |
+| Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), and body-subset — all on the IL-offset axis |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**
 (identity: `MetadataToken` same-reader, normalized `ResearchMemberIdentity`
-cross-reader) → **scope** (`MetadataSource`, one load) → **`MemberBody`**
-(scalar `Print`, vector `Rows`) → **views** (skeleton, full, interleaved,
-subsetted, diff), with Analysis facts joining on the offset axis. No experience
-owns a body stack of its own.
+cross-reader) → **scope** (`MetadataSource`, one load) → **producers**
+(`SignatureProducer`, `InstructionProducer`, `TypeShellProducer`,
+`MemberBodyProducer` — a capability ladder, each `filter → render` over its own
+projection, self-annotated) → **join** (Research: interleave, diff, body-subset on
+the IL-offset axis). No experience owns a body stack of its own, and only
+Research combines projections.

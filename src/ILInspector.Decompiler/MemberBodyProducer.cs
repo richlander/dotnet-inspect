@@ -9,14 +9,14 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler;
 
 /// <summary>
-/// Composes a whole type as one C# listing: the type declaration, field
+/// Projects a whole type as one C# listing: the type declaration, field
 /// declarations (including non-public fields, for context the bodies
 /// reference), and every member's decompiled body — the reading unit for
 /// building intuition about what a type does, and the comparison unit that
 /// matches both reference decompilers and dotnet/runtime's per-type source
 /// files.
 /// </summary>
-public static class TypeSourceComposer
+public static class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
@@ -25,27 +25,30 @@ public static class TypeSourceComposer
     /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
     /// overload for new product and harness code.
     /// </summary>
-    public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
         var resolver = locateAssembly?.ToAssemblyReferenceResolver()
             ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return Compose(type, dllPath, pdbPath, resolver, context);
+        return Project(type, dllPath, pdbPath, resolver, context);
     }
 
-    public static string? Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
     {
         var start = new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
             dllPath,
             () => File.OpenRead(dllPath),
             Provenance: "StartAssembly");
-        return ComposeCore(
+        var composed = ComposeCore(
             type,
             dllPath,
             pdbPath,
             () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
             (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
             context);
+        return composed is null
+            ? DecompilerResult.Failure("DI_TYPESOURCE_NONE", $"No C# type source composed for {type.FullName}.")
+            : DecompilerResult.Success(composed);
     }
 
     static string? ComposeCore(
@@ -463,7 +466,7 @@ public static class TypeSourceComposer
                         : new CSharpBlockBody(body)
                         {
                             RequiresAsyncModifier = memberHandle is { } asyncHandle
-                                && CSharpTypeProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
+                                && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
                             RequiresUnsafeModifier = requiresUnsafeContext
                         };
                     var declaration = bodyShape is null

@@ -4,7 +4,7 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// The whole-type binding gate (issue #1137): the breadth guard for the source
-/// the product <see cref="ILInspector.Decompiler.TypeSourceComposer"/> emits.
+/// the product <see cref="ILInspector.Decompiler.MemberBodyProducer"/> emits.
 /// It composes every public type in the running runtime's CoreLib, stubs bodies,
 /// and binds each listing against the platform reference set, failing on any
 /// <c>CS0104</c> ambiguous-reference collision outside
