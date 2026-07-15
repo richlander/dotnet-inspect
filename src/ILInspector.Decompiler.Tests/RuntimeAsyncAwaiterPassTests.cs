@@ -36,6 +36,7 @@ public class RuntimeAsyncAwaiterPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CompiledYield_CompileBackShellCarriesAsyncModifier()
     {
         var assembly = typeof(RuntimeAsyncAwaiterFixtures).Assembly.Location;
@@ -55,6 +56,7 @@ public class RuntimeAsyncAwaiterPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CompiledYield_ReturnToSenderShellCarriesAsyncModifier()
     {
         var assembly = typeof(RuntimeAsyncAwaiterFixtures).Assembly.Location;
