@@ -1,6 +1,6 @@
 namespace ILInspector.CSharp.Tests;
 
-public sealed class CSharpTypeProducerTests
+public sealed class TypeShellProducerTests
 {
     [Theory]
     [InlineData("delegate*<int, void>")]
@@ -9,7 +9,7 @@ public sealed class CSharpTypeProducerTests
     [InlineData("(int, string){")]
     public void IsUnsupportedSurfaceSignature_FlagsUnrepresentableShapes(string signature)
     {
-        Assert.True(CSharpTypeProducer.IsUnsupportedSurfaceSignature(signature));
+        Assert.True(TypeShellProducer.IsUnsupportedSurfaceSignature(signature));
     }
 
     [Theory]
@@ -19,6 +19,6 @@ public sealed class CSharpTypeProducerTests
     [InlineData("int[]")]
     public void IsUnsupportedSurfaceSignature_AllowsOrdinarySignatures(string signature)
     {
-        Assert.False(CSharpTypeProducer.IsUnsupportedSurfaceSignature(signature));
+        Assert.False(TypeShellProducer.IsUnsupportedSurfaceSignature(signature));
     }
 }

@@ -16,7 +16,7 @@ namespace ILInspector.CSharp;
 /// These are its first capabilities; type/member/stubbed-shell shaping migrates here
 /// as the shell composition currently trapped in the ReturnToSender harness folds in.
 /// </summary>
-public static class CSharpTypeProducer
+public static class TypeShellProducer
 {
     /// <summary>
     /// True when a C# type display name cannot be represented on a skeletal type
