@@ -528,11 +528,44 @@ internal static class CSharpDeclarationWriter
     {
         foreach (var typeParameter in typeParameters)
         {
-            if (typeParameter.ConstraintsSummary is { } constraints)
-                declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {EscapeKnownIdentifiers(constraints, typeParameters.Select(p => p.Name))}";
+            if (typeParameter.Constraints.Count == 0)
+                continue;
+
+            var constraints = string.Join(", ", typeParameter.Constraints.Select(SpellConstraint));
+            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {EscapeKnownIdentifiers(constraints, typeParameters.Select(p => p.Name))}";
         }
 
         return declaration;
+    }
+
+    // A constraint entry is either a special-constraint keyword (class, struct,
+    // new(), …), which is emitted verbatim, or a type name whose identifier
+    // segments must be C#-escaped when they collide with reserved keywords
+    // (e.g. a type literally named "class" renders as "@class"). Constraint
+    // producers carry raw metadata names, so keyword escaping is the printer's job.
+    static string SpellConstraint(string constraint)
+        => s_specialConstraintKeywords.Contains(constraint)
+            ? constraint
+            : EscapeReservedKeywordIdentifiers(constraint);
+
+    static string EscapeReservedKeywordIdentifiers(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length;)
+        {
+            if (IsIdentifierStart(text[i]))
+            {
+                int start = i++;
+                while (i < text.Length && IsIdentifierPart(text[i]))
+                    i++;
+                string token = text[start..i];
+                bool alreadyEscaped = start > 0 && text[start - 1] == '@';
+                sb.Append(!alreadyEscaped && s_csharpReservedKeywords.Contains(token) ? EscapeIdentifier(token) : token);
+                continue;
+            }
+            sb.Append(text[i++]);
+        }
+        return sb.ToString();
     }
 
     static bool TryRenderSignatureModel(
@@ -1426,6 +1459,13 @@ internal static class CSharpDeclarationWriter
     }
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];
+
+    // Special-constraint tokens carried verbatim in TypeParameter.Constraints; every
+    // other entry is a type name subject to reserved-keyword identifier escaping.
+    static readonly HashSet<string> s_specialConstraintKeywords = new(StringComparer.Ordinal)
+    {
+        "class", "class?", "struct", "unmanaged", "notnull", "new()", "default", "allows ref struct",
+    };
 
     // Keep synchronized with MetadataDeclarationQuery's legacy compatibility escaper.
     static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
