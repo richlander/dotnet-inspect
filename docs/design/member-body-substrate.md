@@ -235,17 +235,24 @@ layer may annotate its own projection with facts it owns (IL with metadata
 facts, a C# body with its raise facts), but the moment a rendering must reach
 into *another* component's projection, it stops being a producer's job.
 
-### The currency: every producer produces a projection
+### The currency: the offset-anchored line, not a shared result type
 
-The producers agree on more than a *shape* — they agree on a **currency**. Every
-producer produces a **projection**: an offset-anchored rendered view of one
-entity. "Projection" is not a new coinage; it is already the codebase's word for
-exactly this act — `IlProjection.Project` renders the IL projection,
-`ResearchViews.ProjectMember` renders the member projection. The word recurs
-because the *concept* recurs, so the substrate **standardizes on it rather than
-minting a synonym** — a fresh word would fragment the very vocabulary this note
-exists to unify. The currency type already exists too: `DecompilerResult` (whose
-own doc-comments speak of "IL projections"). We **reuse** it; we do not rename it.
+The producers agree on more than a *shape* — they agree on a **currency**. But
+the currency is **not** a shared result *record*. That was the tempting move —
+factor a base `Projection(Output, Diagnostics)` that `DecompilerResult` extends —
+and it was tried and reverted, because the evidence showed it earns nothing from
+either end. The faithful machines already return their *natural* result (a
+`SignatureProducer` returns a typed signature; a faithful renderer returns a bare
+`string`), and every downstream consumer reads *concrete* `DecompilerResult` cargo
+(`Fidelity`, `ConstructorChain`, `Trace`) — never a generic `Output`/`Diagnostics`
+pair. A shared base type would sit between them earning its keep from neither.
+
+The currency they truly share is finer, and lives one rung down: the
+**offset-anchored line**. Every rendered body — C# or IL — is an ordered sequence
+of lines, and each line carries its text plus the IL offset that anchors it. That
+line, not a result record, is the unit the correlation layer joins on — and it is
+already the codebase's shape (`IlProjection.AnnotatedInstrLine(int Offset, string
+Text)` is exactly this for IL).
 
 But one concrete type cannot be right for all four producers, because they are
 not the same **machine**, and a machine's result type is exactly what its
@@ -265,26 +272,50 @@ render or hard-fail (a signature blob is decoded or rejected; there is no
 hardens against malformed input. Only the **decompiler** *raises*, and raising is
 the one transform that can partially succeed — recover some statements, fall back
 to IL, lift a constructor chain, detect async. That split — **faithful vs
-lossy** — is the real result-type boundary, so there are exactly **two** result
-kinds:
+lossy** — is real, but it does **not** call for a shared base type. It calls for
+each machine to return exactly what its transform earns:
 
-- **`Projection`** — the base currency: `Output` (the rendered text) plus
-  `Diagnostics`. This is what the three faithful machines produce. A
-  disassembler may decorate it with faithful annotations (operand names, the
-  render depth it was asked for), but those ride a *total* result — there is no
-  fidelity ladder to answer.
-- **`DecompilerResult`** — `Projection` **plus** the `Fidelity` ladder
-  (`Failed/IlOnly/StructuredOnly/Partial/Full`) and the raise cargo
-  (`ConstructorChain`, `FieldInitializers`, `RequiresAsyncBodyModifier`,
-  `ContainsAwaitExpression`, `Trace`). This is what the one lossy machine
-  produces. `DecompilerResult` **is-a** `Projection`.
+- The **faithful** machines return their *natural* result and nothing more — a
+  typed signature, readable IL text, a C# skeleton `string`. There is no fidelity
+  ladder to answer (a signature is decoded or rejected; there is no "partial"
+  signature), so there is no shared cargo to hang on a base.
+- The **lossy** machine returns **`DecompilerResult`** — the rendered `Output`
+  plus the `Fidelity` ladder (`Failed/IlOnly/StructuredOnly/Partial/Full`) and the
+  raise cargo (`ConstructorChain`, `FieldInitializers`,
+  `RequiresAsyncBodyModifier`, `ContainsAwaitExpression`, `Trace`). It stays a
+  concrete, standalone record (with hand-written equality that excludes the
+  advisory `Metadata`), because every consumer reads that concrete cargo directly.
 
 The fidelity ladder therefore lives on the single machine that earns it: a
 signature never has to answer "was I `StructuredOnly`?", and the `Metadata`
 decoder never takes a dependency on a `Decompiler`-shaped type. The convergence
-already landed on the lossy side — `IlProjection.Project` and
-`MemberBodyProducer.Project` both return `DecompilerResult` today; factoring the
-faithful base `Projection` out of it is the remaining step.
+landed on the lossy side — `IlProjection.Project` and `MemberBodyProducer.Project`
+both return `DecompilerResult` — and that is where it stays; there is no faithful
+base to factor out.
+
+#### The shared currency is the offset-anchored line stream
+
+What the four producers *do* share is the **line**. A rendered body is an ordered
+line stream, and the correlation layer joins two such streams on the IL offset.
+Two line types carry this, split by whether annotations are baked into the text or
+carried as structure:
+
+- **`SourceLine(string Text, int Offset)`** — the fast, medium-neutral line. Both
+  the C# and IL fast paths are just display-ready text plus an anchor, so one type
+  serves both (it subsumes `IlProjection.AnnotatedInstrLine`). `Offset` is `-1`
+  when the line owns no IL (a brace, a blank).
+- **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
+  IReadOnlyList<Annotation> Annotations)`** — the interleave currency. It carries
+  its annotations as *structure* (not baked into `Text`) so the merge printer has
+  placement freedom, plus a `Kind`.
+
+`SourceLineKind` is just **`{ CSharp, Il }`** — the one bit the merge frames on.
+It is deliberately *not* a structural taxonomy (no `BlockOpen`/`Statement`/depth):
+the containment tree already exists as `IrNode` (`Children` + `SourceOffset`), and
+the line stream is its *flat rendered projection*. Each medium pretty-prints its
+own lines — indentation, braces, IL comment-column alignment, and inline
+annotations already live in `Text` — so the correlation layer owns only the
+*cross-medium* framing, for which `Medium` is exactly enough.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case
@@ -300,10 +331,13 @@ on those spans already existing; the scalar case simply does not read them. A
 
 Producers are `filter → render`; Research is **`correlate → render`**. The only
 difference is the intermediate — a producer *filters* to one lane, Research
-*correlates* several — and **both end in the same currency**: Research also
-produces a projection. That shared output is why producers and Research contest
-the output vocabulary; the type system was telling us the outputs are the same
-kind. Three renderings are not single-producer work, because each **correlates**
+*correlates* several — and **both end in the same currency**: an ordered line
+stream that a dumb printer renders to text. The interleave is the landed instance —
+`ResearchViews.CorrelateMixedSource` folds the C# body, its statement-line map, the
+annotations, and the IL lines into one ordered `AnnotatedSourceLine` stream (owning
+the range-containment bucketing), and `RenderMixedStream` frames each line by
+`Kind`, reading indent straight from the C# line's leading whitespace. Three
+renderings are not single-producer work, because each **correlates**
 more than one operand — and the operand *kinds* differ:
 
 | View | What it correlates | Operand kinds |
@@ -317,25 +351,28 @@ stack; it *composes the producers and the fact-source* on a shared key — the
 **IL offset**, which every operand already exposes (`IrNode.SourceOffset` on C#
 statements, `.Offset` on IL instructions, `EvidenceOffsets` on Analysis facts).
 
-This is the substrate's three currencies:
+This is the substrate's three currencies — two of them *concepts*, one a *type*:
 
-- **`Projection`** — the universal *output*: an offset-anchored rendered view of
-  **one entity or one correlation**. Producers project one entity; Research
-  projects a correlation (diff's output is a view of the base↔head *relation*,
-  not of either member). Both are projections, which is why diff belongs here
-  rather than beside the producers.
+- **projection** (lowercase — a *concept*, not a shared type) — an offset-anchored
+  rendered view of **one entity or one correlation**, carried as a line stream and
+  a concrete result (`DecompilerResult` for the lossy producer, Research's
+  `MemberProjectionResult` bundle for the joins). Producers project one entity;
+  Research projects a correlation (diff's output is a view of the base↔head
+  *relation*, not of either member), which is why diff belongs here rather than
+  beside the producers.
 - **`Fact`** — Analysis's unit (unsafe, throws, allocations), keyed by IL offset:
-  the fact-plane Research joins onto a body, never a projection Research renders.
+  the fact-plane Research joins onto a body, never a view Research renders.
 - **`Correlation`** — Research's *intermediate*, never an output on its own: the
-  base↔head pairing (diff) or the two-projection alignment (interleave) that
-  `correlate → render` renders *into* a projection.
+  base↔head pairing (diff) or the two-stream alignment (interleave) that
+  `correlate → render` renders *into* a line stream.
 
-The interface consequence follows cleanly. The **output** contract is universal
-— `Projection` (concretely `DecompilerResult` for the lossy producer, and
-Research's `MemberProjectionResult` bundle for the joins) — because every producer
-*and* Research emits one. The **correlate** step is Research-only. Diff is the
-most correlation-native view: its projection ranges over a *relation*, not an
-entity, so it both emits a `Projection` **and** consumes a `Correlation`.
+The interface consequence follows cleanly. There is **no universal output type**:
+each producer returns what it earns (a `string`/typed value for the faithful ones,
+`DecompilerResult` for the lossy one), and Research bundles its join as
+`MemberProjectionResult`. What *is* universal is the **line** the correlation joins
+on. The **correlate** step is Research-only. Diff is the most correlation-native
+view: its output ranges over a *relation*, not an entity, so it both renders a view
+**and** consumes a `Correlation`.
 
 #### The interval primitive is the real shared machinery
 
@@ -431,10 +468,11 @@ The umbrella interface obeys the same rule and therefore carries **no** scope
 word: it spans a scope-flexible producer (`Signature`), two member-scoped
 producers (`Instruction`, `MemberBody`), and one type-scoped producer
 (`TypeShell`), so a scoped name like `ITypeProducer` would be false for three of
-the four. It is **`IProducer`** — the `A produces B` contract, where a producer
-produces a **projection**. The base contract returns the `Projection` currency;
-the lossy `MemberBodyProducer` returns `DecompilerResult`, which **is-a**
-`Projection`, so it satisfies the same contract with a richer result.
+the four. It is **`IProducer`** — the `A produces B` contract. That contract does
+**not** pin a shared result type: each producer returns what its transform earns
+(a `string`/typed value for the faithful ones, `DecompilerResult` for the lossy
+`MemberBodyProducer`). What the producers share is not a result record but the
+line the correlation layer joins on.
 
 The only assembly rename is
 `ILInspector.Decompiler → ILInspector.CSharp.Decompiler`: "Decompiler" is
