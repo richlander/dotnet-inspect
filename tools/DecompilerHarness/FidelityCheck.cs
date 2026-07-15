@@ -940,7 +940,9 @@ static class FidelityCheck
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
-            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, function.RequiresAsyncBodyModifier, primaryConstructor, requiredNamespaces), fieldInits,
+            bool requiresAsync = function.RequiresAsyncBodyModifier
+                || function.IsRuntimeAsync == MetadataFactState.Yes;
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
                 break;

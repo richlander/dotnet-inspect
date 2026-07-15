@@ -51,6 +51,22 @@ public class LoweredFidelityGateTests
         "CollectionListLiteral",
         "GotoCommonExit",
         "NeitherOr",
+        // Runtime-async fixture methods were previously RecompileFail because
+        // their reconstructed shells omitted the defining method's async flag.
+        // They are now compile-checkable. Roslyn 4.14 compile-back emits the
+        // classic state-machine lowering while the .NET 11 daily SDK fixture
+        // uses runtime-async IL, so the canonical streams legitimately differ.
+        "AwaitAcrossVoidCall",
+        "AwaitConfiguredTask",
+        "AwaitConfiguredValueTask",
+        "AwaitInArguments",
+        "AwaitOnce",
+        "AwaitThree",
+        "AwaitTwo",
+        "AwaitUsingResource",
+        "AwaitValueTask",
+        "AwaitVoid",
+        "NestedAwaitUsingResources",
         "ReverseCopy",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: the lowered view is representable, but recompiles

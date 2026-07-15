@@ -336,6 +336,8 @@ public class ApiOutputFormatterTests
             "public static async System.Threading.Tasks.Task<int> YieldAsync",
             sections.DecompiledSourceCode.Content,
             StringComparison.Ordinal);
+        Assert.Contains("await Task.Yield();", sections.DecompiledSourceCode.Content);
+        Assert.DoesNotContain("AsyncHelpers", sections.DecompiledSourceCode.Content);
 
         var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
@@ -343,6 +345,8 @@ public class ApiOutputFormatterTests
             "public static async Task<int> YieldAsync",
             typeSource,
             StringComparison.Ordinal);
+        Assert.Contains("await Task.Yield();", typeSource);
+        Assert.DoesNotContain("AsyncHelpers", typeSource);
     }
 
     [Fact]

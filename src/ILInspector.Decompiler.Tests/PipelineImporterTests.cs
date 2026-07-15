@@ -57,6 +57,24 @@ public class PipelineImporterTests
     }
 
     [Fact]
+    public void Import_RecoversDefiningMethodRuntimeAsyncFact()
+    {
+        using var source = MetadataSource.Open(typeof(RuntimeAsyncAwaiterFixtures).Assembly.Location);
+
+        var runtimeAsync = MethodImporter.Import(
+            source,
+            typeof(RuntimeAsyncAwaiterFixtures).FullName!,
+            nameof(RuntimeAsyncAwaiterFixtures.YieldOnce));
+        var synchronous = MethodImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.ToByte));
+
+        Assert.Equal(MetadataFactState.Yes, runtimeAsync?.IsRuntimeAsync);
+        Assert.Equal(MetadataFactState.No, synchronous?.IsRuntimeAsync);
+    }
+
+    [Fact]
     public void OverloadSelection_CountsBodylessOverloads()
     {
         // Legacy parity: overload indices count every name match. Selecting

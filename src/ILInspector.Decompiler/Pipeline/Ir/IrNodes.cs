@@ -209,6 +209,7 @@ public sealed class IrFunction : IrNode
     public ImmutableArray<TypeRef> Locals { get; private set; }
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
+    public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
 
     /// <summary>
     /// Appends a local slot (and its source name) and returns its index. Used by
@@ -285,10 +286,10 @@ public sealed class IrFunction : IrNode
     public bool SkipLocalsInit { get; set; }
 
     /// <summary>
-    /// True when classic state-machine reconstruction installed an async body
-    /// contract. The printer uses this while shaping returns and unsupported
-    /// fallbacks. Final member modifiers come from defining-method metadata in
-    /// the C# producer rather than from this pass-local state.
+    /// True when reconstruction installed an async source-body contract. The
+    /// printer uses this while shaping returns and unsupported fallbacks. Final
+    /// member modifiers come from defining-method metadata in the C# producer
+    /// rather than from this pass-local state.
     /// </summary>
     public bool RequiresAsyncBodyModifier { get; set; }
 
@@ -1247,9 +1248,11 @@ public sealed class Unary : IrExpression
 /// A recovered C# <c>await</c> expression. It is produced by two passes:
 /// <see cref="AwaitRecoveryPass"/> rewrites a runtime-async (async v2)
 /// <c>System.Runtime.CompilerServices.AsyncHelpers.Await</c> call directly (no
-/// MoveNext to unwind), and <see cref="ClassicAsyncReconstructionPass"/> recovers
-/// it from a classic (runtime-async=off) <c>MoveNext</c> state machine's awaiter
-/// <c>GetResult</c> shape. The single child is the awaited operand;
+/// MoveNext to unwind), <see cref="RuntimeAsyncAwaiterPass"/> rewrites the
+/// runtime-async <c>AwaitAwaiter</c>/<c>UnsafeAwaitAwaiter</c> guard scaffold,
+/// and <see cref="ClassicAsyncReconstructionPass"/> recovers it from a classic
+/// (runtime-async=off) <c>MoveNext</c> state machine's awaiter <c>GetResult</c>
+/// shape. The single child is the awaited operand;
 /// <see cref="ResultType"/> is the awaited result type — the
 /// <c>AsyncHelpers.Await</c> call's return type for the runtime-async form, or the
 /// awaiter's <c>GetResult</c> return type for the classic form (<c>void</c> for the
@@ -1258,8 +1261,8 @@ public sealed class Unary : IrExpression
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundAwaitExpression,
     naming: Inverse.NameProvenance.Inherited,
-    forwardName: "await x (BoundAwaitExpression) / AsyncHelpers.Await call (runtime-async) or MoveNext-GetResult reconstruction (classic async)",
-    precondition: "result is the awaited result type, given at construction: the `AsyncHelpers.Await` call's return type for runtime-async, or the awaiter's `GetResult` return type for classic-async MoveNext reconstruction (`void` for the non-generic form)",
+    forwardName: "await x (BoundAwaitExpression) / AsyncHelpers direct or awaiter-helper lowering (runtime-async) or MoveNext-GetResult reconstruction (classic async)",
+    precondition: "result is the awaited result type, given at construction: the direct `AsyncHelpers.Await` call or correlated awaiter `GetResult` return type for runtime-async, or the awaiter's `GetResult` return type for classic-async MoveNext reconstruction (`void` for the non-generic form)",
     witness: "async fixtures (classic-async MoveNext reconstruction); corpus compile-back")]
 public sealed class AwaitExpression : IrExpression
 {

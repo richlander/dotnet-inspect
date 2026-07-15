@@ -63,6 +63,10 @@ public static class IrPasses
         // flat form is invalid C#, so this also lifts fidelity to valid source.
         new AnonymousObjectPass(),
         new PropertySugarPass(),
+        // Runtime async's general awaiter route is a three-block guard/helper/
+        // GetResult scaffold. Property sugar exposes IsCompleted while the CFG
+        // is still flat enough to prove exact block ownership.
+        new RuntimeAsyncAwaiterPass(),
         // Raise ValueTuple receiver-spill + ItemN target stores back into tuple
         // deconstruction after property-sugar has normalized setter calls.
         new DeconstructionAssignmentPass(),

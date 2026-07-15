@@ -56,4 +56,5 @@ public sealed record ImportedMethod(
     MethodBody Body,
     MetadataFactState CompilerGenerated = MetadataFactState.Unknown,
     MetadataFactState DeclaringTypeCompilerGenerated = MetadataFactState.Unknown,
+    MetadataFactState IsRuntimeAsync = MetadataFactState.Unknown,
     int MetadataToken = 0);

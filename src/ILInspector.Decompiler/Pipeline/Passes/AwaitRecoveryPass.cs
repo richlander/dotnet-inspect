@@ -20,6 +20,9 @@ public sealed class AwaitRecoveryPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        if (function.IsRuntimeAsync != MetadataFactState.Yes)
+            return;
+
         foreach (var call in function.Descendants.OfType<Call>().ToList())
         {
             if (!MemberIdentity.IsAsyncHelpersAwait(call))
@@ -30,6 +33,7 @@ public sealed class AwaitRecoveryPass : IIrPass
             await.InheritSourceOffset(call);
             context.Stepper.StepOver("recover await from AsyncHelpers.Await call", call);
             call.ReplaceWith(await);
+            function.RequiresAsyncBodyModifier = true;
         }
     }
 

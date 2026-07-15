@@ -11,11 +11,14 @@ internal sealed class AwaitRecoveryFacts : ILoweringFactProvider
             typeof(AwaitRecoveryPass),
             [
                 new FactPrimitive("member.corelib-identity:AsyncHelpers.Await", "MemberIdentity.IsAsyncHelpersAwait"),
+                new FactPrimitive("member.corelib-identity:AsyncHelpers.AwaitAwaiter", "MemberIdentity.IsAsyncHelpersAwaiter"),
+                new FactPrimitive("metadata.runtime-async-definition", "ImportedMethod.IsRuntimeAsync -> IrFunction.IsRuntimeAsync"),
+                new FactPrimitive("ownership.runtime-async-awaiter-control-flow", "RuntimeAsyncAwaiterPass same-local and exclusive three-block ownership"),
                 new FactPrimitive("state-machine.classic-async-kickoff", "ClassicAsyncReconstructionPass kickoff/MoveNext correlation"),
                 new FactPrimitive("state-machine.classic-async-await", "ClassicAsyncReconstructionPass awaiter GetAwaiter/GetResult/AwaitUnsafeOnCompleted shape"),
             ],
-            PositiveCoverage: "CfgSampleClass runtime-async await fixtures; Fixtures.ClassicAsync overlay single, sequential, branch, loop, ValueTask, and try/finally awaits",
-            AdversarialCoverage: "AwaitAdversarialTests namespace/type/assembly/instance lookalikes; ClassicAsyncReconstructionPassTests near-miss matrix pins each recognition discriminator (method name, `<...>d__N` type-name shape incl. leading `<`, DeclaringTypeCompilerGenerated fact, `<>t__builder` field name, builder-store-on-local-address, Start call, .Task-named return, state-machine local, single-block shape)",
-            MissingDiscriminator: "classic async reconstruction trusts compiler-reserved names (`<...>d__N` type, `<>t__builder` field) plus the DeclaringTypeCompilerGenerated metadata fact, all unspeakable in C# source; each recognition discriminator is pinned by ClassicAsyncReconstructionPassTests (the builder-store-on-local invariant via redundant gates). The Start call and .Task-named return are matched by name only (not builder-correlated); the deeper kickoff<->MoveNext correlation stays fixture-backed, since the imported sibling MoveNext must reconstruct or the kickoff stays lowered"),
+            PositiveCoverage: "CfgSampleClass direct runtime-async await fixtures; RuntimeAsyncAwaiterFixtures compiled Task.Yield call/parameter, class call/parameter, extension, sequential, and branch scaffolds exercise both safe and unsafe helpers; synthetic safe/unsafe helper identities; Fixtures.ClassicAsync overlay single, sequential, branch, loop, ValueTask, and try/finally awaits",
+            AdversarialCoverage: "AwaitAdversarialTests namespace/type/assembly/instance lookalikes; RuntimeAsyncAwaiterPassTests independently break defining-method metadata, helper assembly/signature, extension evidence, each same-local correlation, reference ownership, and CFG ownership; ClassicAsyncReconstructionPassTests pin the classic recognition matrix",
+            MissingDiscriminator: "classic async reconstruction still trusts compiler-reserved names plus DeclaringTypeCompilerGenerated; Start and .Task-named return remain name-matched rather than builder-correlated"),
     ];
 }

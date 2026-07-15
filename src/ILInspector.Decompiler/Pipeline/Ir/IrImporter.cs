@@ -521,6 +521,7 @@ public static class IrImporter
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
+            IsRuntimeAsync = method.IsRuntimeAsync,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);
