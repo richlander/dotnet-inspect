@@ -210,6 +210,13 @@ public sealed class CSharpFormatterTests
     [InlineData("readonly*", "@readonly*")]
     [InlineData("delegate*", "@delegate*")]
     [InlineData("delegate*[]", "@delegate*[]")]
+    // Whitespace before terminating punctuation is not a modifier/calling-convention
+    // boundary: the keyword names a type and must be escaped.
+    [InlineData("ref *", "@ref *")]
+    [InlineData("Tuple<readonly >", "Tuple<@readonly >")]
+    [InlineData("(delegate* , int)", "(@delegate* , int)")]
+    [InlineData("Tuple<delegate* >", "Tuple<@delegate* >")]
+    [InlineData("delegate* managed<int, void>", "delegate* managed<int, void>")]
     // Already-escaped identifiers are left untouched (idempotent).
     [InlineData("@int", "@int")]
     [InlineData("N.@int", "N.@int")]
