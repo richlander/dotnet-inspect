@@ -305,7 +305,11 @@ carried as structure:
   serves both: the C# body projects through `ResearchViews.CSharpBodyLines` and the
   IL fast path through `IlProjection.AnnotatedInstrLines` (whose old
   `AnnotatedInstrLine` type this subsumed). `Offset` is `-1`
-  when the line owns no IL (a brace, a blank).
+  when the line owns no IL (a brace, a blank). The `member` CLI's raw `IL` section
+  is a consumer of this fast line: `MemberCodeProvider` wraps each
+  `ILInstructionText` from the `Metadata` disassembler as a `SourceLine` (text +
+  IL offset) before joining, adopting the currency without pulling the
+  decompiler-pipeline decoder into the raw view.
 - **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
   IReadOnlyList<Annotation> Annotations)`** — the interleave currency. It carries
   its annotations as *structure* (not baked into `Text`) so the merge printer has
@@ -338,7 +342,13 @@ stream that a dumb printer renders to text. The interleave is the landed instanc
 `ResearchViews.CorrelateMixedSource` folds the C# body, its statement-line map, the
 annotations, and the IL lines into one ordered `AnnotatedSourceLine` stream (owning
 the range-containment bucketing), and `RenderMixedStream` frames each line by
-`Kind`, reading indent straight from the C# line's leading whitespace. Three
+`Kind`, reading indent straight from the C# line's leading whitespace. The
+cost/semantics/annotated-source **overlays** are the degenerate single-medium case
+of the same join: `ResearchViews.CorrelateOverlay` anchors the fact groups onto
+their printed C# lines and emits a C#-only `AnnotatedSourceLine` stream (empty IL
+operand), which `RenderOverlayStream` renders by splicing a trailing `// …` comment
+onto each annotated line — the same `correlate → render` shape as the interleave,
+one medium instead of two. Three
 renderings are not single-producer work, because each **correlates**
 more than one operand — and the operand *kinds* differ:
 
