@@ -654,6 +654,56 @@ internal static class CSharpDeclarationWriter
     }
 
     /// <summary>
+    /// Rewrites CLR primitive full names (<c>System.Int32</c>, <c>System.Boolean</c>,
+    /// <c>System.IntPtr</c>, …) to their C# keyword spelling (<c>int</c>, <c>bool</c>,
+    /// <c>nint</c>, …) wherever they appear as a complete type-name segment inside a
+    /// type string, including nested in generics, arrays, pointers, and by-ref forms
+    /// (e.g. <c>System.Collections.Generic.List&lt;System.Int32&gt;[]</c> →
+    /// <c>System.Collections.Generic.List&lt;int&gt;[]</c>). Only whole dotted-name
+    /// runs are considered, so a longer name that merely contains a primitive as a
+    /// substring (<c>System.Int32Enum</c>, <c>A.System.Int32</c>) is left untouched,
+    /// as is an explicitly-escaped identifier (<c>@System.Int32</c>).
+    /// The keyword pairs are the single source of truth in
+    /// <see cref="PrimitiveTypeNames"/>, so this spelling always matches the rest of
+    /// the C# layer. This is the authoritative primitive-alias rewriter; consumers
+    /// must not reimplement it.
+    /// </summary>
+    internal static string AliasPrimitiveTypeNames(string type)
+    {
+        if (type.IndexOf("System.", StringComparison.Ordinal) < 0)
+            return type;
+
+        var builder = new StringBuilder(type.Length);
+        for (int index = 0; index < type.Length;)
+        {
+            if (!IsTypeNameSegmentChar(type[index]))
+            {
+                builder.Append(type[index++]);
+                continue;
+            }
+
+            int end = index + 1;
+            while (end < type.Length && IsTypeNameSegmentChar(type[end]))
+                end++;
+
+            string run = type[index..end];
+            // A run immediately preceded by '@' is an explicitly-escaped identifier
+            // (e.g. `@System.Int32`), not a primitive type reference; leave it as-is
+            // rather than emitting a malformed `@int`.
+            bool escaped = index > 0 && type[index - 1] == '@';
+            builder.Append(!escaped && PrimitiveTypeNames.TryToKeyword(run, out var keyword) ? keyword : run);
+            index = end;
+        }
+        return builder.ToString();
+    }
+
+    // A dotted type-name run: identifier characters plus the '.' segment separator.
+    // Type-syntax delimiters ('<', '>', ',', '[', ']', '*', '&', whitespace) break
+    // the run, so an embedded primitive full name is isolated as its own run.
+    static bool IsTypeNameSegmentChar(char c)
+        => char.IsLetterOrDigit(c) || c is '_' or '.';
+
+    /// <summary>
     /// Escapes C# reserved keywords that appear as identifiers (type or namespace
     /// name segments) inside a type string, while leaving keywords that are C# type
     /// <em>syntax</em> bare (primitive aliases, parameter/type modifiers, and

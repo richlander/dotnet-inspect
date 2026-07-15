@@ -227,4 +227,112 @@ public sealed class CSharpFormatterTests
     [InlineData("N.@int", "N.@int")]
     public void EscapeTypeKeywords_EscapesIdentifiersButNotTypeSyntax(string input, string expected)
         => Assert.Equal(expected, CSharpFormatter.EscapeTypeKeywords(input));
+
+    [Theory]
+    // Every CLR primitive full name aliases to its C# keyword, including the native
+    // ints (nint/nuint) and decimal, matching the product decompiler's spelling.
+    [InlineData("System.Boolean", "bool")]
+    [InlineData("System.Byte", "byte")]
+    [InlineData("System.SByte", "sbyte")]
+    [InlineData("System.Char", "char")]
+    [InlineData("System.Decimal", "decimal")]
+    [InlineData("System.Double", "double")]
+    [InlineData("System.Single", "float")]
+    [InlineData("System.Int16", "short")]
+    [InlineData("System.UInt16", "ushort")]
+    [InlineData("System.Int32", "int")]
+    [InlineData("System.UInt32", "uint")]
+    [InlineData("System.Int64", "long")]
+    [InlineData("System.UInt64", "ulong")]
+    [InlineData("System.IntPtr", "nint")]
+    [InlineData("System.UIntPtr", "nuint")]
+    [InlineData("System.Object", "object")]
+    [InlineData("System.String", "string")]
+    [InlineData("System.Void", "void")]
+    // Primitives nested in generics, arrays, pointers, and by-ref forms are aliased.
+    [InlineData("System.Collections.Generic.List<System.Int32>", "System.Collections.Generic.List<int>")]
+    [InlineData("System.Collections.Generic.Dictionary<System.String,System.Boolean>", "System.Collections.Generic.Dictionary<string,bool>")]
+    [InlineData("System.Int32[]", "int[]")]
+    [InlineData("System.Int32[,]", "int[,]")]
+    [InlineData("System.Int32&", "int&")]
+    [InlineData("System.Int32*", "int*")]
+    [InlineData("System.Nullable<System.Int32>[]", "System.Nullable<int>[]")]
+    // A longer name that merely contains a primitive as a substring is left alone.
+    [InlineData("System.Int32Enum", "System.Int32Enum")]
+    [InlineData("A.System.Int32", "A.System.Int32")]
+    [InlineData("System.Int32.MaxValue", "System.Int32.MaxValue")]
+    [InlineData("System.Collections.Generic.List<System.Guid>", "System.Collections.Generic.List<System.Guid>")]
+    // An explicitly-escaped identifier (leading '@') is not a primitive reference.
+    [InlineData("@System.Int32", "@System.Int32")]
+    [InlineData("List<@System.Int32>", "List<@System.Int32>")]
+    // Non-System text and already-keyword spellings pass through unchanged.
+    [InlineData("int", "int")]
+    [InlineData("MyNamespace.MyType", "MyNamespace.MyType")]
+    [InlineData("", "")]
+    public void AliasPrimitiveTypeNames_RewritesClrPrimitivesToKeywords(string input, string expected)
+        => Assert.Equal(expected, CSharpFormatter.AliasPrimitiveTypeNames(input));
+
+    [Theory]
+    [InlineData("this(x)", CSharpConstructorInitializerKind.This, "x")]
+    [InlineData("base(a, b)", CSharpConstructorInitializerKind.Base, "a, b")]
+    // A leading ": " (the emitted form) is accepted and stripped.
+    [InlineData(": this(1)", CSharpConstructorInitializerKind.This, "1")]
+    [InlineData(": base()", CSharpConstructorInitializerKind.Base, null)]
+    // Nested calls are carried verbatim as a single argument (no top-level split).
+    [InlineData("base(Wrap(a, b), c)", CSharpConstructorInitializerKind.Base, "Wrap(a, b), c")]
+    public void ParseConstructorInitializer_ParsesThisAndBaseChains(
+        string chain,
+        CSharpConstructorInitializerKind expectedKind,
+        string? expectedArgument)
+    {
+        var initializer = CSharpFormatter.ParseConstructorInitializer(chain);
+        Assert.NotNull(initializer);
+        Assert.Equal(expectedKind, initializer!.Kind);
+        Assert.Equal(
+            expectedArgument is null ? [] : new[] { expectedArgument },
+            initializer.Arguments);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("SomeMethod(x)")]
+    [InlineData("this")]
+    public void ParseConstructorInitializer_ReturnsNullForNonChains(string? chain)
+        => Assert.Null(CSharpFormatter.ParseConstructorInitializer(chain));
+
+    [Fact]
+    public void ParseConstructorInitializer_RoundTripsFormatConstructorInitializer()
+    {
+        var initializer = new CSharpConstructorInitializer(
+            CSharpConstructorInitializerKind.This,
+            ["a, b"]);
+        string formatted = CSharpFormatter.FormatConstructorInitializer(initializer);
+        var parsed = CSharpFormatter.ParseConstructorInitializer(formatted);
+        Assert.NotNull(parsed);
+        Assert.Equal(initializer.Kind, parsed!.Kind);
+        Assert.Equal(initializer.Arguments, parsed.Arguments);
+    }
+
+    [Theory]
+    [InlineData("int*", true)]
+    [InlineData("delegate*<int, void>", true)]
+    [InlineData("stackalloc int[4]", true)]
+    [InlineData("int", false)]
+    [InlineData("System.Collections.Generic.List<int>", false)]
+    [InlineData("a + b", false)]
+    public void RequiresUnsafeModifier_DetectsPointerAndStackalloc(string csharp, bool expected)
+        => Assert.Equal(expected, CSharpFormatter.RequiresUnsafeModifier(csharp));
+
+    [Theory]
+    [InlineData("int*", true)]
+    [InlineData("delegate*<int, void>", true)]
+    [InlineData("System.Int32*", true)]
+    [InlineData("int", false)]
+    [InlineData("System.Collections.Generic.List<int>", false)]
+    [InlineData("stackalloc", false)]
+    [InlineData("@stackalloc", false)]
+    [InlineData("N.stackalloc", false)]
+    public void TypeRequiresUnsafeModifier_MatchesPointersButNotStackallocIdentifiers(string typeDisplayName, bool expected)
+        => Assert.Equal(expected, CSharpFormatter.TypeRequiresUnsafeModifier(typeDisplayName));
 }
