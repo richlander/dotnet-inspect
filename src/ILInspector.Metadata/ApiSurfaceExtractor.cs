@@ -501,29 +501,15 @@ public static class ApiSurfaceExtractor
             };
 
             var attrs = param.Attributes;
-            if (includeVariance)
-            {
-                if ((attrs & GenericParameterAttributes.Covariant) != 0)
-                    typeParam.Variance = "out";
-                else if ((attrs & GenericParameterAttributes.Contravariant) != 0)
-                    typeParam.Variance = "in";
-            }
+            if (includeVariance && GenericConstraintKeywords.VarianceKeyword(attrs) is { } variance)
+                typeParam.Variance = variance;
 
             var nullable = GetEffectiveNullable(reader, param.GetCustomAttributes(), nullableContext);
-            var hasReferenceTypeConstraint = (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0;
-            var hasValueTypeConstraint = (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
-            var hasDefaultConstructorConstraint = (attrs & GenericParameterAttributes.DefaultConstructorConstraint) != 0;
             var isUnmanaged = AttributeReader.HasAttribute(reader, param.GetCustomAttributes(),
                 KnownAttributeNames.IsUnmanagedAttribute);
 
-            if (hasReferenceTypeConstraint)
-                typeParam.Constraints.Add(nullable == 2 ? "class?" : "class");
-            else if (isUnmanaged)
-                typeParam.Constraints.Add("unmanaged");
-            else if (hasValueTypeConstraint)
-                typeParam.Constraints.Add("struct");
-            else if (nullable == 1)
-                typeParam.Constraints.Add("notnull");
+            if (GenericConstraintKeywords.PrimaryKeyword(attrs, nullable ?? 0, isUnmanaged) is { } primaryKeyword)
+                typeParam.Constraints.Add(primaryKeyword);
 
             foreach (var constraintHandle in param.GetConstraints())
             {
@@ -536,10 +522,10 @@ public static class ApiSurfaceExtractor
                 typeParam.Constraints.Add(FormatConstraintType(reader, constraint, constraintTypeName, nullableContext));
             }
 
-            if (hasDefaultConstructorConstraint && !hasValueTypeConstraint)
-                typeParam.Constraints.Add("new()");
-            if ((attrs & GenericParameterAttributes.AllowByRefLike) != 0)
-                typeParam.Constraints.Add("allows ref struct");
+            if (GenericConstraintKeywords.NewConstraintKeyword(attrs) is { } newConstraint)
+                typeParam.Constraints.Add(newConstraint);
+            if (GenericConstraintKeywords.AllowsRefStructKeyword(attrs) is { } allowsRefStruct)
+                typeParam.Constraints.Add(allowsRefStruct);
 
             parameters.Add(typeParam);
         }
