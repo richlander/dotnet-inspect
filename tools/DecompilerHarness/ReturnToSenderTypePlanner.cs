@@ -3061,7 +3061,7 @@ public static class CompileBackSourceComposer
                 IsAbstract = (typeDef.Attributes & TypeAttributes.Abstract) != 0
                     && (typeDef.Attributes & TypeAttributes.Interface) == 0,
                 IsSealed = (typeDef.Attributes & TypeAttributes.Sealed) != 0,
-                IsStatic = IsStaticType(typeDef),
+                IsStatic = TypeShellProducer.IsStaticType(typeDef),
             };
             return new CSharpTypePrintRequest(
                 type,
@@ -3218,11 +3218,6 @@ public static class CompileBackSourceComposer
                     yield return handle;
             }
         }
-
-        static bool IsStaticType(TypeDefinition typeDef)
-            => (typeDef.Attributes & TypeAttributes.Abstract) != 0
-               && (typeDef.Attributes & TypeAttributes.Sealed) != 0
-               && (typeDef.Attributes & TypeAttributes.Interface) == 0;
 
         static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
             => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
@@ -3548,7 +3543,7 @@ public static class CompileBackSourceComposer
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class
-                && !IsStaticType(typeDef)
+                && !TypeShellProducer.IsStaticType(typeDef)
                 && requirement.PrimaryConstructor is null
                 && !members.Any(member => member.Kind == CompileBackMemberKind.Constructor && member.Parameters.Count == 0)
                 && !HasParameterlessInstanceConstructor(reader, typeDef))

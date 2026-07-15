@@ -59,6 +59,20 @@ public sealed class TypeShellProducerTests
         Assert.False(TypeShellProducer.IsUnsupportedSurfaceSignature(signature));
     }
 
+    [Fact]
+    public void IsStaticType_DistinguishesStaticClassesFromOtherKinds()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(TypeShellProducerTests).Assembly.Location));
+        var reader = pe.GetMetadataReader();
+
+        TypeDefinition Type(string name) => reader.GetTypeDefinition(reader.TypeDefinitions
+            .Single(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == name));
+
+        Assert.True(TypeShellProducer.IsStaticType(Type(nameof(StaticFixture))));
+        Assert.False(TypeShellProducer.IsStaticType(Type(nameof(InstanceFixture))));
+        Assert.False(TypeShellProducer.IsStaticType(Type(nameof(IInterfaceFixture))));
+    }
+
     static async Task RuntimeAsyncFixture()
         => await Task.Yield();
 
@@ -71,5 +85,17 @@ public sealed class TypeShellProducerTests
     static IEnumerable<int> IteratorFixture()
     {
         yield return 1;
+    }
+
+    static class StaticFixture
+    {
+    }
+
+    sealed class InstanceFixture
+    {
+    }
+
+    interface IInterfaceFixture
+    {
     }
 }

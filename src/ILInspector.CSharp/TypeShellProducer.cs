@@ -140,4 +140,15 @@ public static class TypeShellProducer
         // generated `<>`-named base). This method owns only the metadata-level gates.
         return baseType;
     }
+
+    /// <summary>
+    /// True when <paramref name="typeDef"/> is a C# <c>static class</c> — a type that
+    /// is both <c>abstract</c> and <c>sealed</c> and is not an interface. Interfaces
+    /// are also abstract, so they are excluded explicitly to avoid misreading an
+    /// interface as a static class.
+    /// </summary>
+    public static bool IsStaticType(TypeDefinition typeDef)
+        => (typeDef.Attributes & TypeAttributes.Abstract) != 0
+            && (typeDef.Attributes & TypeAttributes.Sealed) != 0
+            && (typeDef.Attributes & TypeAttributes.Interface) == 0;
 }
