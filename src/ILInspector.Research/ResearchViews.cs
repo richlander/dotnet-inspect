@@ -334,8 +334,37 @@ public static class ResearchViews
             list.Add((instr.Offset, AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset))));
         }
 
-        // A C# line's own anchor: the smallest source offset among the statements
-        // that start on it (-1 when the line owns no statement, e.g. a brace).
+        var csLines = CSharpBodyLines(csText, statementLines);
+        var stream = new List<AnnotatedSourceLine>(csLines.Count);
+        for (int i = 0; i < csLines.Count; i++)
+        {
+            var csLine = csLines[i];
+            var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
+                ? (IReadOnlyList<Annotation>)annos
+                : [];
+            stream.Add(new AnnotatedSourceLine(
+                csLine.Text,
+                csLine.Offset,
+                SourceLineKind.CSharp,
+                lineAnnotations));
+
+            if (ilByLine.TryGetValue(i, out var ils))
+                foreach (var (offset, text) in ils)
+                    stream.Add(new AnnotatedSourceLine(text, offset, SourceLineKind.Il));
+        }
+        return stream;
+    }
+
+    // The scalar fast path: project a printed C# body into offset-anchored lines.
+    // Each SourceLine carries its trimmed text and the smallest source offset among
+    // the statements that start on it (-1 when the line owns no statement, e.g. a
+    // brace or blank). The correlation layer builds its richer AnnotatedSourceLine
+    // stream on top of this, and scalar "just give me the body" consumers can take
+    // it directly for line-addressable diff and body-subset anchoring.
+    static IReadOnlyList<SourceLine> CSharpBodyLines(
+        string csText,
+        IReadOnlyDictionary<IrNode, int> statementLines)
+    {
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, line) in statementLines)
         {
@@ -347,23 +376,10 @@ public static class ResearchViews
         }
 
         var textLines = csText.Replace("\r\n", "\n").Split('\n');
-        var stream = new List<AnnotatedSourceLine>(textLines.Length);
+        var lines = new List<SourceLine>(textLines.Length);
         for (int i = 0; i < textLines.Length; i++)
-        {
-            var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
-                ? (IReadOnlyList<Annotation>)annos
-                : [];
-            stream.Add(new AnnotatedSourceLine(
-                textLines[i].TrimEnd(),
-                lineOffsets.GetValueOrDefault(i, -1),
-                SourceLineKind.CSharp,
-                lineAnnotations));
-
-            if (ilByLine.TryGetValue(i, out var ils))
-                foreach (var (offset, text) in ils)
-                    stream.Add(new AnnotatedSourceLine(text, offset, SourceLineKind.Il));
-        }
-        return stream;
+            lines.Add(new SourceLine(textLines[i].TrimEnd(), lineOffsets.GetValueOrDefault(i, -1)));
+        return lines;
     }
 
     // The dumb printer: render the correlated stream in order. C# lines bake their
