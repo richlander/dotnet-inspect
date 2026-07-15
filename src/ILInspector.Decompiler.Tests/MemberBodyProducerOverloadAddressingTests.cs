@@ -16,7 +16,7 @@ namespace ILInspector.Decompiler.Tests;
 /// the hidden overload's body (invalid); handle addressing renders each member's
 /// own body. See docs/design/member-body-substrate.md.
 /// </summary>
-public class TypeSourceComposerOverloadAddressingTests
+public class MemberBodyProducerOverloadAddressingTests
 {
     [Fact]
     public void EditorBrowsableHiddenOverload_DoesNotStealVisibleBody()
@@ -26,7 +26,7 @@ public class TypeSourceComposerOverloadAddressingTests
         var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
         var type = surface.Types.Single(t => t.FullName == typeof(OverloadDriftSpecimen).FullName);
 
-        string? source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null);
+        string? source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
 
         Assert.NotNull(source);
         Assert.Contains("VISIBLE_OVERLOAD_BODY", source);
@@ -46,7 +46,7 @@ public class TypeSourceComposerOverloadAddressingTests
         var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
         var type = surface.Types.Single(t => t.FullName == typeof(IndexerDriftSpecimen).FullName);
 
-        string? source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null);
+        string? source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
 
         Assert.NotNull(source);
         // Both indexers compile to get_Item accessors; ordinal addressing

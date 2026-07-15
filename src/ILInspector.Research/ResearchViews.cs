@@ -285,25 +285,44 @@ public static class ResearchViews
         if (csResult.Output is not { } csText)
             return csResult;
 
+        var annotatedInstrLines = methodHandle.IsNil
+            ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
+            : IlProjection.RenderIlBodyLines(source, methodHandle);
+
+        var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
+        return csResult with { Output = RenderMixedStream(stream) };
+    }
+
+    // The correlation layer: fold the printed C# body, its statement-line map, the
+    // resolved annotations, and the IL instruction lines into one ordered
+    // AnnotatedSourceLine stream. The range containment (Best over statement spans)
+    // and the offset -> line bucketing live here, in the producer, so the printer
+    // stays dumb. C# lines carry their resolved annotations as structure (the
+    // printer bakes the trailing "// ..." comment); IL lines carry their offset and
+    // already fact-annotated text.
+    static IReadOnlyList<AnnotatedSourceLine> CorrelateMixedSource(
+        IrFunction imported,
+        string csText,
+        IReadOnlyDictionary<IrNode, int> statementLines,
+        IReadOnlyList<Annotation> annotations,
+        IReadOnlyList<SourceLine> annotatedInstrLines)
+    {
         var spans = AnnotationAnchor.ComputeSpans(imported);
-        var commentByLine = new Dictionary<int, string>();
+
+        var annotationsByLine = new Dictionary<int, List<Annotation>>();
         foreach (var annotation in annotations)
         {
             if (AnnotationAnchor.Best(spans, annotation.SourceOffset) is not { } owner)
                 continue;
             if (!AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
                 continue;
-            if (!commentByLine.TryGetValue(line, out var existing))
-                commentByLine[line] = AnnotationText.Format(annotation);
-            else
-                commentByLine[line] = $"{existing}; {AnnotationText.Format(annotation)}";
+            if (!annotationsByLine.TryGetValue(line, out var list))
+                annotationsByLine[line] = list = [];
+            list.Add(annotation);
         }
 
-        var ilByLine = new Dictionary<int, List<string>>();
         var factsByOffset = FactsByOffset(annotations);
-        var annotatedInstrLines = methodHandle.IsNil
-            ? IlProjection.AnnotatedInstrLines(source, type, method, overloadIndex, publicOnly)
-            : IlProjection.AnnotatedInstrLines(source, methodHandle);
+        var ilByLine = new Dictionary<int, List<(int Offset, string Text)>>();
         foreach (var instr in annotatedInstrLines)
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
@@ -312,28 +331,80 @@ public static class ResearchViews
                 continue;
             if (!ilByLine.TryGetValue(line, out var list))
                 ilByLine[line] = list = [];
-            list.Add(AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset)));
+            list.Add((instr.Offset, AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset))));
         }
 
-        var lines = csText.Replace("\r\n", "\n").Split('\n');
-        var sb = new StringBuilder();
-        for (int i = 0; i < lines.Length; i++)
+        var csLines = RenderCSharpBodyLines(csText, statementLines);
+        var stream = new List<AnnotatedSourceLine>(csLines.Count);
+        for (int i = 0; i < csLines.Count; i++)
         {
-            string text = lines[i].TrimEnd();
-            if (commentByLine.TryGetValue(i, out var comment))
-                text = $"{text}  // {comment}";
-            sb.AppendLine(text);
+            var csLine = csLines[i];
+            var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
+                ? (IReadOnlyList<Annotation>)annos
+                : [];
+            stream.Add(new AnnotatedSourceLine(
+                csLine.Text,
+                csLine.Offset,
+                SourceLineKind.CSharp,
+                lineAnnotations));
 
             if (ilByLine.TryGetValue(i, out var ils))
-            {
-                string indent = LeadingWhitespace(lines[i]) + "    ";
-                foreach (var il in ils)
-                    sb.AppendLine($"{indent}// {il}");
-            }
+                foreach (var (offset, text) in ils)
+                    stream.Add(new AnnotatedSourceLine(text, offset, SourceLineKind.Il));
+        }
+        return stream;
+    }
+
+    // The scalar fast path: project a printed C# body into offset-anchored lines.
+    // Each SourceLine carries its trimmed text and the smallest source offset among
+    // the statements that start on it (-1 when the line owns no statement, e.g. a
+    // brace or blank). The correlation layer builds its richer AnnotatedSourceLine
+    // stream on top of this, and scalar "just give me the body" consumers can take
+    // it directly for line-addressable diff and body-subset anchoring.
+    static IReadOnlyList<SourceLine> RenderCSharpBodyLines(
+        string csText,
+        IReadOnlyDictionary<IrNode, int> statementLines)
+    {
+        var lineOffsets = new Dictionary<int, int>();
+        foreach (var (node, line) in statementLines)
+        {
+            if (node.SourceOffset < 0)
+                continue;
+            lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
+                ? Math.Min(existing, node.SourceOffset)
+                : node.SourceOffset;
         }
 
-        var body = sb.ToString().TrimEnd();
-        return csResult with { Output = body };
+        var textLines = csText.Replace("\r\n", "\n").Split('\n');
+        var lines = new List<SourceLine>(textLines.Length);
+        for (int i = 0; i < textLines.Length; i++)
+            lines.Add(new SourceLine(textLines[i].TrimEnd(), lineOffsets.GetValueOrDefault(i, -1)));
+        return lines;
+    }
+
+    // The dumb printer: render the correlated stream in order. C# lines bake their
+    // structured annotations into a trailing "// ..." comment; IL lines are framed
+    // as "// ..." comments indented under the preceding C# line, reading the indent
+    // straight from that line's leading whitespace.
+    static string RenderMixedStream(IReadOnlyList<AnnotatedSourceLine> stream)
+    {
+        var sb = new StringBuilder();
+        string csIndent = "";
+        foreach (var line in stream)
+        {
+            if (line.Kind == SourceLineKind.Il)
+            {
+                sb.AppendLine($"{csIndent}    // {line.Text}");
+                continue;
+            }
+
+            csIndent = LeadingWhitespace(line.Text);
+            string text = line.Text;
+            if (line.Annotations.Count > 0)
+                text = $"{text}  // {string.Join("; ", line.Annotations.Select(a => AnnotationText.Format(a)))}";
+            sb.AppendLine(text);
+        }
+        return sb.ToString().TrimEnd();
     }
 
     static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<Annotation> annotations)
@@ -389,23 +460,72 @@ public static class ResearchViews
         IReadOnlyDictionary<IrNode, int> statementLines,
         IReadOnlyList<Annotation> annotations)
     {
-        var byStatement = AnnotationAnchor.Anchor(raised, annotations);
-        if (byStatement.Count == 0)
-            return output;
+        var stream = CorrelateOverlay(raised, output, statementLines, annotations);
+        return RenderOverlayStream(output, stream);
+    }
 
-        var commentByLine = new Dictionary<int, string>();
-        foreach (var (statement, facts) in byStatement)
-        {
+    // The C#-only correlation: anchor each annotation group to its printed C# line
+    // and emit an ordered AnnotatedSourceLine stream (Kind=CSharp, no IL). This is
+    // the degenerate single-medium case of CorrelateMixedSource — same currency and
+    // shape, with an empty IL operand — so the overlay views (cost, semantics,
+    // annotated source) flow through the same produce -> print pipeline as the
+    // interleave instead of splicing comments into a raw string.
+    static IReadOnlyList<AnnotatedSourceLine> CorrelateOverlay(
+        IrFunction raised,
+        string output,
+        IReadOnlyDictionary<IrNode, int> statementLines,
+        IReadOnlyList<Annotation> annotations)
+    {
+        var annotationsByLine = new Dictionary<int, IReadOnlyList<Annotation>>();
+        foreach (var (statement, facts) in AnnotationAnchor.Anchor(raised, annotations))
             if (AnnotationAnchor.TryGetPrintedLine(statement, statementLines, out int line))
-                commentByLine[line] = AnnotationText.Format(facts);
+                annotationsByLine[line] = facts;
+
+        var lineOffsets = new Dictionary<int, int>();
+        foreach (var (node, line) in statementLines)
+        {
+            if (node.SourceOffset < 0)
+                continue;
+            lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
+                ? Math.Min(existing, node.SourceOffset)
+                : node.SourceOffset;
         }
-        if (commentByLine.Count == 0)
+
+        var textLines = output.Replace("\r\n", "\n").Split('\n');
+        var stream = new List<AnnotatedSourceLine>(textLines.Length);
+        for (int i = 0; i < textLines.Length; i++)
+            stream.Add(new AnnotatedSourceLine(
+                textLines[i],
+                lineOffsets.GetValueOrDefault(i, -1),
+                SourceLineKind.CSharp,
+                annotationsByLine.TryGetValue(i, out var a) ? a : []));
+        return stream;
+    }
+
+    // The dumb overlay printer: a line with annotations gets a trailing "// ..."
+    // comment (trimmed); other lines pass through untouched. Returns the original
+    // output verbatim when no line resolved an annotation, matching the historical
+    // no-op short-circuit byte for byte (no split/rejoin normalization).
+    static string RenderOverlayStream(string output, IReadOnlyList<AnnotatedSourceLine> stream)
+    {
+        bool any = false;
+        foreach (var line in stream)
+            if (line.Annotations.Count > 0)
+            {
+                any = true;
+                break;
+            }
+        if (!any)
             return output;
 
-        var lines = output.Replace("\r\n", "\n").Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-            if (commentByLine.TryGetValue(i, out var comment))
-                lines[i] = $"{lines[i].TrimEnd()}  // {comment}";
+        var lines = new string[stream.Count];
+        for (int i = 0; i < stream.Count; i++)
+        {
+            var line = stream[i];
+            lines[i] = line.Annotations.Count > 0
+                ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(line.Annotations)}"
+                : line.Text;
+        }
         return string.Join(Environment.NewLine, lines);
     }
 

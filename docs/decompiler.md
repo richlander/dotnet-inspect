@@ -48,7 +48,7 @@ flowchart LR
     PR --> CS[C# source]
 
     MCP[MemberCodeProvider] -.->|member| MS
-    TSC[TypeSourceComposer] -.->|whole-type| MS
+    TSC[MemberBodyProducer] -.->|whole-type| MS
 ```
 
 | Stage | Role |
@@ -58,12 +58,12 @@ flowchart LR
 | `IrPasses.Default` | ordered raising passes — one named class, one job; `CheckInvariant` after each in debug builds |
 | `CSharpPrinter.PrintRaised` | runs the passes, then prints the raised tree; taste-doc spelling policy lives here |
 
-The IR and importer contracts are specified in [decompiler-ir.md](decompiler-ir.md); this doc treats them as given and describes how the stages compose. The product reaches the pipeline through `MemberCodeProvider` (member level) and `TypeSourceComposer` (whole-type). `IrImporter.Import` and `CSharpPrinter.PrintRaised` are both exception-safe by construction: a one-method bug surfaces as a diagnostic comment and a lowered fidelity level, never a crash or silently-wrong output (see [decompiler-quality.md](decompiler-quality.md) for what that floor guarantees).
+The IR and importer contracts are specified in [decompiler-ir.md](decompiler-ir.md); this doc treats them as given and describes how the stages compose. The product reaches the pipeline through `MemberCodeProvider` (member level) and `MemberBodyProducer` (whole-type). `IrImporter.Import` and `CSharpPrinter.PrintRaised` are both exception-safe by construction: a one-method bug surfaces as a diagnostic comment and a lowered fidelity level, never a crash or silently-wrong output (see [decompiler-quality.md](decompiler-quality.md) for what that floor guarantees).
 
 Key properties:
 
 - **The statement tree is the library's product, not the string.** Alternate front ends (IDE hovers, web viewers, diff tools) consume the tree and apply their own formatting and spans; our printer is merely the first front end. Taste splits across two homes: **raising policy** — which patterns the passes recover (`lock`, `using`, switch expressions vs. goto; the taste doc's three-class rule) — lives in the pipeline and shapes the tree itself, while **spelling policy** (qualification, parenthesization, formatting) lives in the printer and is the part alternate front ends may replace.
-- **Whole-type composition lives in the library.** `TypeSourceComposer` (in `ILInspector.Decompiler`) gives any front end per-type listings, using-hoisting, and forwarder-following without rebuilding them.
+- **Whole-type composition lives in the library.** `MemberBodyProducer` (in `ILInspector.Decompiler`) gives any front end per-type listings, using-hoisting, and forwarder-following without rebuilding them.
 - **Naming is a final pass over fully-determined scopes**, as in ILSpy's `AssignVariableNames`. PDB local scopes are its natural input. The two remaining corpus gaps (synthesized names for `S_N`/`V_N`, multi-scope declaration placement) are this pass, not emitter features.
 - **Every stage boundary is a projectable IR.** The default projection is the typed IR tree (`IrPrinter`); the annotated-IL import views (raw/typed/structured, from `IlProjection`) prepend as an opt-in (`--il`). The inspection and verification modes this capture powers are described under *Inspection and verification* below.
 - **Results carry diagnostics, with concrete fidelity levels.** The library returns a result with output, diagnostics, and a fidelity level — never a silent `catch { }` in the library or its hosts. The levels are ordered and concrete, because the product routes on them: `Full` (every construct raised; representable C#), `Partial` (C# containing explicit unrepresentable nodes), `StructuredOnly` (structured control flow over low-level expressions), `IlOnly` (no C# rendering; IL projections still available), `Failed`. IL that has no C# spelling is modeled explicitly in the tree, not forced into plausible text — output degrades honestly, with the reason attached.

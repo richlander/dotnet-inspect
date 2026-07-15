@@ -1671,10 +1671,10 @@ public static class CompileBackSourceComposer
     /// <c>: this(args)</c> initializer targeting it cannot bind.
     /// </summary>
     static bool IsUnsupportedChainParameterType(TypeRef type)
-        // Route surface-representability through the product seam (CSharpTypeProducer)
+        // Route surface-representability through the product seam (TypeShellProducer)
         // so every RTS consumer judges droppable surfaces identically, instead of
         // re-inlining the delegate*/<>/{ heuristic here.
-        => CSharpTypeProducer.IsUnsupportedSurfaceSignature(type.ToDisplayString());
+        => TypeShellProducer.IsUnsupportedSurfaceSignature(type.ToDisplayString());
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
@@ -3346,13 +3346,13 @@ public static class CompileBackSourceComposer
 
         static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
         {
-            // The product skeleton (CSharpTypeProducer) owns the metadata-level
+            // The product skeleton (TypeShellProducer) owns the metadata-level
             // gates that decide which base is reconstructable (interface/nil/same-
             // assembly/non-generic/object-family). The harness applies its own C#
             // surface-representability gate on the display form here, where the Clean
             // normalization lives: Clean strips generated <> segments (so a <>-named
             // base is kept) but not { or delegate*, matching origin/main exactly.
-            var baseType = CSharpTypeProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
+            var baseType = TypeShellProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
             if (baseType is null)
                 return null;
             if (IsUnsupportedSurfaceSignature(baseType))
@@ -3688,7 +3688,7 @@ public static class CompileBackSourceComposer
             // harness's own naming concern: strips modreq/modopt, maps `!`-typed and
             // generated `<>` segments), then defer the representability heuristic to
             // the product skeleton so every consumer judges surfaces the same way.
-            => CSharpTypeProducer.IsUnsupportedSurfaceSignature(CompileBackTypeSignature.Display(signature).DisplayName);
+            => TypeShellProducer.IsUnsupportedSurfaceSignature(CompileBackTypeSignature.Display(signature).DisplayName);
 
         static bool IsGeneratedMetadataName(string name)
             => name.Contains('<', StringComparison.Ordinal) || name.Contains('>', StringComparison.Ordinal);
