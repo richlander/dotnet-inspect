@@ -597,6 +597,40 @@ public sealed class CSharpTypePrinterTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void FullBodyModifiersDoNotLeakIntoSkeletons()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+        var full = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody("return;")
+                    {
+                        RequiresAsyncModifier = true,
+                        RequiresUnsafeModifier = true
+                    })
+            ]));
+        var skeleton = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "public unsafe async System.Threading.Tasks.Task Run()",
+            full.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            skeleton.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.False(member.IsAsync);
+        Assert.False(member.IsUnsafe);
+    }
+
     [Theory]
     [InlineData(CSharpBodyPolicy.Full)]
     [InlineData(CSharpBodyPolicy.Stub)]

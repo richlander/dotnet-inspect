@@ -69,6 +69,26 @@ public sealed class CSharpFormatter
             methodParameters);
     }
 
+    public string FormatMemberWithBody(
+        ApiType type,
+        ApiMember member,
+        CSharpMemberBody body,
+        IReadOnlyList<string>? methodParameters = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(body);
+        return CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            _declarationOptions with
+            {
+                ForceAsync = _declarationOptions.ForceAsync || body.RequiresAsyncModifier,
+                ForceUnsafe = _declarationOptions.ForceUnsafe || body.RequiresUnsafeModifier
+            },
+            methodParameters);
+    }
+
     public CSharpFormattedDeclaration FormatMemberUnit(
         ApiType type,
         ApiMember member,

@@ -110,7 +110,8 @@ The same-reader body-composition callers are migrated onto handle addressing:
   `ApiMember.MetadataToken` and validates it against the composing reader (a
   method of the composed type whose name matches the member) before use; a token
   that does not validate — e.g. carried over from a type-forwarded surface —
-  falls back to the legacy name+ordinal path rather than mis-addressing.
+  resolves the legacy name+ordinal selector to its concrete MethodDef before
+  projection rather than mis-addressing.
 - **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
   `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
   `(type, method, overloadIndex)` tuple.
@@ -124,7 +125,8 @@ The same-reader body-composition callers are migrated onto handle addressing:
   the surface member's validated metadata token once and threads it into
   attributes, generic-parameter names, `HasBody`, decompiled source, the
   `ResearchViews` mixed IL+C# projection (`MemberProjectionRequest.MethodHandle`),
-  and IL disassembly. Layer overloads were added at each seam
+  body-only modifier classification, and IL disassembly. Layer overloads were
+  added at each seam
   (`AttributeReader.GetMethodAttributes`, `ILInstructionPrinter.DisassembleMethod`,
   `IlProjection.Locate/Project/AnnotatedInstrLines`). Other `ResearchViews` entry
   points keep the name path (nil handle → fallback) — they are not the CLI's drift
@@ -139,8 +141,10 @@ out-of-scope locals — invalid C#), or misattributes the hidden overload's
 attributes (`[EditorBrowsable]`/`[Obsolete]`) onto the survivor. Handle addressing
 renders each member's own body and attributes. Every same-reader body/attribute
 path in whole-type composition and the `member` CLI is now handle-addressed; a
-token that does not validate (type-forwarded surface) falls back to the legacy
-name+ordinal path rather than mis-addressing.
+token that does not validate (type-forwarded surface) resolves the legacy
+name+ordinal selector to its concrete MethodDef before projecting the body,
+attributes, or body-only modifiers, rather than mis-addressing or allowing those
+projections to diverge.
 
 ## Scope: one load per type
 
@@ -237,31 +241,34 @@ cheapest home rather than recovered from print. Both are **body-gated
 modifiers** — they belong on a member only when a body is emitted, and are
 sourced from Metadata/Analysis, not from the printed text:
 
-- **async / iterator** — sourced from `[AsyncStateMachine]` /
-  `MethodImplAttributes.Async`, classified by
+- **async / iterator** — async method headers are sourced from
+  `[AsyncStateMachine]` / `MethodImplAttributes.Async`, classified by
   `MethodClassificationScanner.ClassifyAsyncMethod` (**Metadata**). `async` is
   *not* part of an API surface — a caller cannot observe it, and reference
   assemblies strip it — so the **skeleton/surface** path deliberately omits it,
   and `ApiMember.IsAsync` (`ApiSurface.cs`) is intentionally left unpopulated
-  there. It matters only on the **full-body** path, and today that path derives
-  the modifier from the printed body rather than from metadata, which has two
-  problems the substrate fixes:
-  - **Signal inconsistency.** `TypeSourceComposer` forces `async` from
-    `ContainsAwaitExpression` alone, while `ApiOutputFormatter` uses
-    `ContainsAwaitExpression || RequiresAsyncBodyModifier`. The latter (set by
-    `ClassicAsyncReconstructionPass`) catches classic-async methods with no
-    reachable `await`; the composer drops `async` on them.
-  - **Runtime async is not reconstructed at all.** For runtime-async methods
-    (`MethodImplAttributes.Async`, no compiler state machine — the shape the
-    preview SDK emitted for the probe fixture, distinct from the classic
-    compiler state-machine async that remains the language default), *neither*
-    signal is set — the reconstruction pass only handles classic state-machine
-    async. Verified: composing an `async Task`/`async Task<int>` fixture built
-    with the preview SDK renders the methods **without** `async` and exposes the
-    raw `AsyncHelpers.UnsafeAwaitAwaiter<...>` lowering instead of `await`.
-    Recovering runtime async is a decompiler raise in its own right (full A/B +
-    adversarial discipline), tracked separately from this substrate as
-    [#2742](https://github.com/richlander/dotnet-inspect/issues/2742).
+  there. It matters only on the **full-body** path. `CSharpTypeProducer`
+  classifies the selected MethodDef, and both full-body consumers carry that
+  body-only fact on `CSharpMemberBody`; skeleton requests remain unchanged.
+  This removes the former signal inconsistency where `TypeSourceComposer`
+  consulted `ContainsAwaitExpression` while `ApiOutputFormatter` also consulted
+  `RequiresAsyncBodyModifier`.
+
+  `[AsyncIteratorStateMachine]` is intentionally not enough to add the modifier:
+  until iterator reconstruction replaces the kickoff's state-machine-return
+  expression with a source `yield` body, adding `async` would make the emitted
+  method invalid. The metadata fact remains available, but the body gate declines
+  it until that upstream reconstruction exists.
+
+  Runtime-async bodies are not yet fully reconstructed. For runtime-async
+  methods (`MethodImplAttributes.Async`, no compiler state machine — the shape
+  the preview SDK emitted for the probe fixture, distinct from the classic
+  compiler state-machine async that remains the language default), metadata now
+  preserves the `async` header, but awaiter-helper shapes still expose the raw
+  `AsyncHelpers.UnsafeAwaitAwaiter<...>` lowering instead of `await`. Recovering
+  runtime async is a decompiler raise in its own right (full A/B + adversarial
+  discipline), tracked separately from this substrate as
+  [#2742](https://github.com/richlander/dotnet-inspect/issues/2742).
 
   The substrate's contract is that this modifier is a **Metadata classification
   fact applied only when the body policy emits a body**, so the surface path is
@@ -270,8 +277,10 @@ sourced from Metadata/Analysis, not from the printed text:
 - **body-only unsafe** (`localloc`, `calli`, pointer deref) — from
   `MethodSignals.Unsafe` (**Analysis**), no Decompiler. Signature-only unsafe is
   already set on `ApiMember.IsUnsafe`. Same body-gating applies: the `unsafe`
-  context is a body concern, forced by the composer today
-  (`RequiresUnsafeMemberContext`).
+  context is a body concern. The current scalar path records the typed IR result
+  as `DecompilerResult.RequiresUnsafeBodyModifier`; both full-body consumers
+  carry it on `CSharpMemberBody`, while the Analysis fact remains the cheap
+  pre-filter for the planned vector path.
 
 ## What lands where
 

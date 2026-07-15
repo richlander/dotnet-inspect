@@ -103,42 +103,89 @@ public static class IrImporter
         try
         {
             var reader = source.Reader;
-            foreach (var typeDefHandle in reader.TypeDefinitions)
+            if (ResolveMethodHandle(
+                reader,
+                typeFullName,
+                methodName,
+                overloadIndex,
+                publicOnly) is not { } methodHandle)
             {
-                var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                // Nested-aware: a nested type has a nil namespace and a leaf
-                // Name, so the full name must thread its declaring types
-                // (Outer.Inner). The product passes such names; a raw ns+name
-                // would never match and the body would silently disappear.
-                if (reader.GetFullTypeName(typeDef) != typeFullName)
-                    continue;
-
-                // Overload indices count name matches at the requested
-                // visibility, body or not (parity with legacy selection); a
-                // selected overload without a body is null, not silently the
-                // next one with a body.
-                int seen = 0;
-                foreach (var methodHandle in typeDef.GetMethods())
-                {
-                    var method = reader.GetMethodDefinition(methodHandle);
-                    if (reader.GetString(method.Name) != methodName)
-                        continue;
-                    if (publicOnly && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask) != System.Reflection.MethodAttributes.Public)
-                        continue;
-                    if (seen++ != overloadIndex)
-                        continue;
-                    if (method.RelativeVirtualAddress == 0)
-                        return null;
-                    return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
-                }
                 return null;
             }
-            return null;
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (method.RelativeVirtualAddress == 0)
+                return null;
+            var typeDefHandle = method.GetDeclaringType();
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            return Build(
+                source,
+                MethodImporter.Import(source, typeDefHandle, methodHandle),
+                CallerScope(reader, typeDef, method));
         }
         catch (Exception ex)
         {
             return CrashFunction(methodName, typeFullName, ex);
         }
+    }
+
+    /// <summary>
+    /// Resolves the same name/ordinal selector used by
+    /// <see cref="Import(MetadataSource, string, string, int, bool)"/> to its
+    /// concrete method definition. This lets callers keep declaration facts,
+    /// attributes, and bodies on one identity when a carried metadata token
+    /// does not validate against the current reader.
+    /// </summary>
+    public static MethodDefinitionHandle? ResolveMethodHandle(
+        MetadataReader reader,
+        string typeFullName,
+        string methodName,
+        int overloadIndex = 0,
+        bool publicOnly = false)
+    {
+        foreach (var typeDefHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeDefHandle);
+            // Nested-aware: a nested type has a nil namespace and a leaf Name.
+            if (reader.GetFullTypeName(typeDef) != typeFullName)
+                continue;
+            return ResolveMethodHandle(
+                reader,
+                typeDefHandle,
+                methodName,
+                overloadIndex,
+                publicOnly);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Type-handle form of <see cref="ResolveMethodHandle(MetadataReader, string, string, int, bool)"/>.
+    /// Overload ordinals count matching methods at the requested visibility,
+    /// including methods without an IL body.
+    /// </summary>
+    public static MethodDefinitionHandle? ResolveMethodHandle(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string methodName,
+        int overloadIndex = 0,
+        bool publicOnly = false)
+    {
+        int seen = 0;
+        foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != methodName)
+                continue;
+            if (publicOnly
+                && (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
+                    != System.Reflection.MethodAttributes.Public)
+            {
+                continue;
+            }
+            if (seen++ == overloadIndex)
+                return methodHandle;
+        }
+        return null;
     }
 
     /// <summary>

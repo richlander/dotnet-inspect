@@ -10,7 +10,20 @@ public enum CSharpBodyPolicy
     Stub
 }
 
-public abstract record CSharpMemberBody;
+public abstract record CSharpMemberBody
+{
+    /// <summary>
+    /// True when this body must be emitted under a C# <c>async</c> modifier.
+    /// This is a body-only fact: skeleton declarations deliberately ignore it.
+    /// </summary>
+    public bool RequiresAsyncModifier { get; init; }
+
+    /// <summary>
+    /// True when this body requires an <c>unsafe</c> member context beyond any
+    /// unsafe signature already represented by <see cref="ApiMember.IsUnsafe"/>.
+    /// </summary>
+    public bool RequiresUnsafeModifier { get; init; }
+}
 
 public enum CSharpConstructorInitializerKind
 {
