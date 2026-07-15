@@ -1016,9 +1016,9 @@ public static class CSharpBodyDiff
         var newOperations = BuildSemanticOperations(newRender.Lines, newStart, newEnd);
         AddSemanticRows(rows, entry, hunk, oldRender, newRender, oldOperations, newOperations);
         foreach (var operation in oldOperations.Where(operation => operation.Kind == CSharpDiffOperationKind.Line))
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, operation.Line, oldRender.Fidelity.ToString(), operation.Text));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, operation.Line, oldRender.Fidelity.ToString(), operation.Text, offset: operation.Offset));
         foreach (var operation in newOperations.Where(operation => operation.Kind == CSharpDiffOperationKind.Line))
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, operation.Line, newRender.Fidelity.ToString(), operation.Text));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, operation.Line, newRender.Fidelity.ToString(), operation.Text, offset: operation.Offset));
     }
 
     static void AddRenderStateRows(
@@ -1137,8 +1137,9 @@ public static class CSharpBodyDiff
         string text,
         string? changeId = null,
         string? message = null,
-        CSharpDiffOperationKind operationKind = CSharpDiffOperationKind.Line)
-        => CreateRow(entry, hunk, kind, line, fidelity, text, changeId, message, oldValue: null, newValue: null, operationKind);
+        CSharpDiffOperationKind operationKind = CSharpDiffOperationKind.Line,
+        int offset = -1)
+        => CreateRow(entry, hunk, kind, line, fidelity, text, changeId, message, oldValue: null, newValue: null, operationKind, offset);
 
     static CSharpDiffRow CreateRow(
         CSharpMethodEntry entry,
@@ -1151,7 +1152,8 @@ public static class CSharpBodyDiff
         string? message,
         string? oldValue,
         string? newValue,
-        CSharpDiffOperationKind operationKind = CSharpDiffOperationKind.Line)
+        CSharpDiffOperationKind operationKind = CSharpDiffOperationKind.Line,
+        int offset = -1)
     {
         changeId ??= kind switch
         {
@@ -1181,7 +1183,7 @@ public static class CSharpBodyDiff
             hunk,
             kind,
             line,
-            line is null ? null : $"line:{line.Value}",
+            offset >= 0 ? $"IL_{offset:X4}" : line is null ? null : $"line:{line.Value}",
             fidelity,
             text,
             oldValue,
@@ -1311,7 +1313,8 @@ public static class CSharpBodyDiff
                 messageFactory(oldValue.Value, newValue.Value),
                 oldValue.Value,
                 newValue.Value,
-                operationKind));
+                operationKind,
+                newValue.Offset));
         }
     }
 
