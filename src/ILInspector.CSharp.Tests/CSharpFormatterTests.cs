@@ -168,4 +168,63 @@ public sealed class CSharpFormatterTests
                 NamespacePolicy = (CSharpNamespacePolicy)42
             }));
     }
+
+    [Theory]
+    // Primitive/void aliases stay bare when they name the primitive.
+    [InlineData("int", "int")]
+    [InlineData("string", "string")]
+    [InlineData("void", "void")]
+    [InlineData("int[]", "int[]")]
+    [InlineData("int*", "int*")]
+    [InlineData("System.Int32", "System.Int32")]
+    [InlineData("System.Collections.Generic.List<int>", "System.Collections.Generic.List<int>")]
+    // A type literally named after a primitive keyword (a dotted-name segment) is escaped.
+    [InlineData("N.int", "N.@int")]
+    [InlineData("int.MaxValue", "int.MaxValue")]
+    // Reserved keywords used as identifiers are escaped, including inside generic args.
+    [InlineData("class", "@class")]
+    [InlineData("await", "@await")]
+    [InlineData("record", "@record")]
+    [InlineData("List<await>", "List<@await>")]
+    [InlineData("MyType<class>", "MyType<@class>")]
+    [InlineData("Foo.await", "Foo.@await")]
+    [InlineData("await.Foo", "@await.Foo")]
+    [InlineData("N.readonly", "N.@readonly")]
+    // Parameter/type modifiers stay bare in a leading modifier run.
+    [InlineData("ref int", "ref int")]
+    [InlineData("ref readonly int", "ref readonly int")]
+    [InlineData("scoped ref int", "scoped ref int")]
+    [InlineData("in long", "in long")]
+    [InlineData("out string", "out string")]
+    [InlineData("params byte[]", "params byte[]")]
+    // Function-pointer syntax stays bare, and reserved args inside are still escaped.
+    [InlineData("delegate*<int, void>", "delegate*<int, void>")]
+    [InlineData("delegate* unmanaged<int>", "delegate* unmanaged<int>")]
+    [InlineData("delegate*<ref int, void>", "delegate*<ref int, void>")]
+    [InlineData("delegate*<await, void>", "delegate*<@await, void>")]
+    // Pointers to types literally named like a keyword must be escaped, not read as
+    // type syntax: "ref*"/"in*" are pointers to a type named ref/in, and a bare
+    // "delegate*" (not a function-pointer head) is a pointer to a type named delegate.
+    [InlineData("ref*", "@ref*")]
+    [InlineData("in*", "@in*")]
+    [InlineData("readonly*", "@readonly*")]
+    [InlineData("delegate*", "@delegate*")]
+    [InlineData("delegate*[]", "@delegate*[]")]
+    // Whitespace before terminating punctuation is not a modifier/calling-convention
+    // boundary: the keyword names a type and must be escaped.
+    [InlineData("ref *", "@ref *")]
+    [InlineData("Tuple<readonly >", "Tuple<@readonly >")]
+    [InlineData("(delegate* , int)", "(@delegate* , int)")]
+    [InlineData("Tuple<delegate* >", "Tuple<@delegate* >")]
+    [InlineData("delegate* managed<int, void>", "delegate* managed<int, void>")]
+    // Whitespace between "delegate*" and '<' is still a function-pointer head.
+    [InlineData("delegate* <int, void>", "delegate* <int, void>")]
+    // A qualified "delegate" segment is a type name, never a function-pointer head.
+    [InlineData("N.delegate*<int, void>", "N.@delegate*<int, void>")]
+    [InlineData("N.delegate", "N.@delegate")]
+    // Already-escaped identifiers are left untouched (idempotent).
+    [InlineData("@int", "@int")]
+    [InlineData("N.@int", "N.@int")]
+    public void EscapeTypeKeywords_EscapesIdentifiersButNotTypeSyntax(string input, string expected)
+        => Assert.Equal(expected, CSharpFormatter.EscapeTypeKeywords(input));
 }
