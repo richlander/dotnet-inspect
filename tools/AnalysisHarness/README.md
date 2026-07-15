@@ -164,6 +164,46 @@ is useful diagnostic provenance, but is not strong enough for a product-side
 caller-loop projection or ranking change without runtime evidence or a stronger
 framework invocation contract.
 
+A recursive-traversal census measures a different repetition boundary: an exact
+resolved self-call that occurs structurally inside the caller's loop.
+
+```bash
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --recursive-traversal-census /tmp/performance-triage-assemblies.txt \
+  --max-depth 4 --top 20
+dotnet run --project tools/AnalysisHarness -c Release -- \
+  --recursive-traversal-census /tmp/aspire-dashboard-assemblies.txt \
+  --max-depth 4 --json
+```
+
+The in-loop self-call identifies branching traversal potential. It does not
+prove runtime heat, recursion depth, collection size, or that either the loop or
+recursive branch executes. The discriminator rejects ordinary recursion,
+mutual recursion, `callvirt` self-dispatch, and function loads. From each
+qualifying root, the census reuses the typed invocation graph to report exact
+downstream Performance Triage rows as traversal-root, direct, transitive,
+beyond-bound, or none. Candidate identity, local `Loop`, multiplicity,
+confidence, weight, and product ranking remain unchanged.
+
+The pinned six-library run opened all six assemblies and found 29 traversal
+roots among 2,459 opportunity rows. Seventy-five rows were reachable: 11 on a
+traversal root, nine direct, 20 transitive within depth four, and 35 beyond the
+bound. The separately pinned Aspire Dashboard run was much narrower: one root
+and one reachable row among 488 opportunities. The root was
+`TraceDetail.AddSelfAndChildren`; its direct call to
+`OtlpSpan.GetChildSpans` remained candidate `pt~6756cfa4ed4130d8`, local
+multiplicity `once`, and `LocalInLoop=false`. The witness records the root's
+in-loop self-call followed by its direct, non-loop call to `GetChildSpans`.
+
+Recent registry improvements are orthogonal controls. The allocation-fanout
+view still distinguishes 53 once paths in `LibrarySections.CreatePipeline`
+from one in `LibrarySourcePlans..cctor`, and 34 in `SpikeSections..cctor` from
+zero in `PlanFor`, `CompilePlan`, and `CapabilityPlan.ExecuteAsync`. Those
+registry methods have no recursive-traversal evidence. This is therefore a
+selective static receipt, not a product ranking change: use runtime allocation
+evidence to decide whether a reachable row is hot before changing production
+code.
+
 A 2026-07-01 fixed-corpus run (`14/14` assemblies opened) showed 41,890
 allocation occurrences and 6,587 optimization opportunities. `return-post-dominates`
 was common (29,175 occurrences; 4,817 opportunities), but not selective by

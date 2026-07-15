@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Services;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
@@ -36,7 +37,8 @@ internal static class MemberCodeProvider
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
-        FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null);
+        FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null,
+        bool RequiresAsyncBodyModifier = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -95,9 +97,16 @@ internal static class MemberCodeProvider
             // this reader) and address every section by it, so none drifts onto
             // a different overload. A non-validating token — e.g. carried over
             // from a type-forwarded surface — falls back to the name+ordinal
-            // path. This is the same drift class the whole-type composition path
-            // fixes (see docs/design/member-body-substrate.md).
-            var memberHandle = ResolveMethodHandle(reader, typeHandle, method.MetadataToken, method.Name);
+            // path, resolved to its concrete handle before any projection. This
+            // is the same drift class the whole-type composition path fixes
+            // (see docs/design/member-body-substrate.md).
+            var memberHandle = ResolveMethodHandle(reader, typeHandle, method.MetadataToken, method.Name)
+                ?? IrImporter.ResolveMethodHandle(
+                    reader,
+                    typeHandle,
+                    method.Name,
+                    lookupOverloadIndex,
+                    publicOnly);
 
             IReadOnlyList<(string Name, string? Value)>? attributes = null;
             if (request.Attributes)
@@ -122,6 +131,8 @@ internal static class MemberCodeProvider
                 ? SelectedMethodHasBody(reader, bodyHandle)
                 : SelectedMethodHasBody(
                     reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+            bool requiresAsyncBodyModifier = memberHandle is { } asyncHandle
+                && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle);
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
@@ -263,7 +274,8 @@ internal static class MemberCodeProvider
                 ilDiagnostic,
                 attributes,
                 facts,
-                fidelityCauses)));
+                fidelityCauses,
+                requiresAsyncBodyModifier)));
         }
 
         return results;

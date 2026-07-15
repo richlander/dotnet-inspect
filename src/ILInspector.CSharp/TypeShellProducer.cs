@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp;
@@ -18,6 +19,54 @@ namespace ILInspector.CSharp;
 /// </summary>
 public static class TypeShellProducer
 {
+    /// <summary>
+    /// True when the selected method's emitted body requires a C# <c>async</c>
+    /// modifier. Runtime async is identified by <see cref="MethodImplAttributes.Async"/>;
+    /// classic async by its state-machine attribute.
+    ///
+    /// This fact belongs only to full-body production. API skeletons deliberately
+    /// omit <c>async</c> because it is not part of the callable surface. Async
+    /// iterators are also withheld until their kickoff is reconstructed to a
+    /// source iterator body; adding <c>async</c> to the raw state-machine-return
+    /// expression would make otherwise-compilable output invalid.
+    /// </summary>
+    public static bool RequiresAsyncBodyModifier(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle)
+    {
+        if (methodHandle.IsNil)
+            return false;
+
+        var method = reader.GetMethodDefinition(methodHandle);
+        var classification = MethodClassificationScanner.ClassifyAsyncMethod(reader, method);
+        return classification == MethodClassification.RuntimeAsync
+            || classification == MethodClassification.StateMachineAsync
+                && AttributeReader.HasAttribute(
+                    reader,
+                    method.GetCustomAttributes(),
+                    KnownAttributeNames.AsyncStateMachineAttribute);
+    }
+
+    /// <summary>
+    /// Token-addressed form for an <see cref="ApiMember"/> extracted from the same
+    /// reader. Non-MethodDef and invalid tokens fail closed.
+    /// </summary>
+    public static bool RequiresAsyncBodyModifier(
+        MetadataReader reader,
+        int metadataToken)
+    {
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(metadataToken);
+            return handle.Kind == HandleKind.MethodDefinition
+                && RequiresAsyncBodyModifier(reader, (MethodDefinitionHandle)handle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// True when a C# type display name cannot be represented on a skeletal type
     /// surface (function pointers, compiler-generated <c>&lt;&gt;</c> names, or

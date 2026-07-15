@@ -285,11 +285,10 @@ public sealed class IrFunction : IrNode
     public bool SkipLocalsInit { get; set; }
 
     /// <summary>
-    /// True when a pass reconstructed a body whose compile-back shell must carry
-    /// the C# <c>async</c> modifier to re-emit equivalent IL. Runtime-async
-    /// <see cref="AwaitExpression"/> bodies deliberately leave this false: compiling
-    /// those as C# async would produce classic state-machine IL, not the original
-    /// runtime-async helper-call form.
+    /// True when classic state-machine reconstruction installed an async body
+    /// contract. The printer uses this while shaping returns and unsupported
+    /// fallbacks. Final member modifiers come from defining-method metadata in
+    /// the C# producer rather than from this pass-local state.
     /// </summary>
     public bool RequiresAsyncBodyModifier { get; set; }
 

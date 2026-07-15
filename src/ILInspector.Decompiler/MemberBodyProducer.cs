@@ -19,9 +19,6 @@ namespace ILInspector.Decompiler;
 public static class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
-    static readonly CSharpFormatter UnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true);
-    static readonly CSharpFormatter AsyncDeclarationFormatter = CreateDeclarationFormatter(forceAsync: true);
-    static readonly CSharpFormatter AsyncUnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true, forceAsync: true);
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
 
     /// <summary>
@@ -188,27 +185,14 @@ public static class MemberBodyProducer
     }
 
     static CSharpFormatter CreateDeclarationFormatter(
-        bool forceUnsafe = false,
-        bool forceAsync = false,
         bool terminateMemberDeclaration = false)
         => new(new CSharpFormatOptions
         {
-            ForceAsync = forceAsync,
-            ForceUnsafe = forceUnsafe,
             IncludeCustomAttributes = false,
             IncludeObsoleteAttribute = false,
             OmitInterfaceMemberModifiers = true,
             TerminateMemberDeclaration = terminateMemberDeclaration
         });
-
-    static CSharpFormatter DeclarationFormatter(bool forceUnsafe, bool forceAsync)
-        => (forceUnsafe, forceAsync) switch
-        {
-            (false, false) => DefaultDeclarationFormatter,
-            (true, false) => UnsafeDeclarationFormatter,
-            (false, true) => AsyncDeclarationFormatter,
-            (true, true) => AsyncUnsafeDeclarationFormatter
-        };
 
     static string DisplayName(ApiType type)
     {
@@ -403,12 +387,21 @@ public static class MemberBodyProducer
                     any = true;
 
                     bool publicOnly = member.Kind != "explicit-interface-implementation";
+                    bool bodyPublicOnly = publicOnly
+                        && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
+                        && member.Accessibility is null;
                     // Resolve the member's metadata handle once (validated
                     // against this reader) and address both its attributes and
-                    // its body by it, so neither drifts onto a different
-                    // overload. A non-validating token falls back to the
-                    // name+ordinal path.
-                    var memberHandle = ResolveMemberHandle(reader, typeHandle, member);
+                    // its body by it, so neither drifts onto a different overload.
+                    // A non-validating token resolves the legacy name+ordinal
+                    // selector to its concrete handle before any projection.
+                    var memberHandle = ResolveMemberHandle(reader, typeHandle, member)
+                        ?? Pipeline.IrImporter.ResolveMethodHandle(
+                            reader,
+                            member.DeclaringType ?? type.FullName,
+                            member.Name,
+                            index,
+                            bodyPublicOnly);
                     var attributes = memberHandle is { } attrHandle
                         ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
                         : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
@@ -416,11 +409,10 @@ public static class MemberBodyProducer
                         sb.AppendLine($"    [{attribute}]");
 
                     string? constructorChain = null;
-                    bool requiresAsync = false;
                     bool requiresUnsafeContext = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -469,8 +461,17 @@ public static class MemberBodyProducer
                         break;
                     }
 
-                    var declaration = DeclarationFormatter(requiresUnsafeContext, requiresAsync)
-                        .FormatMember(type, member);
+                    var bodyShape = body is null
+                        ? null
+                        : new CSharpBlockBody(body)
+                        {
+                            RequiresAsyncModifier = memberHandle is { } asyncHandle
+                                && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
+                            RequiresUnsafeModifier = requiresUnsafeContext
+                        };
+                    var declaration = bodyShape is null
+                        ? DefaultDeclarationFormatter.FormatMember(type, member)
+                        : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
                     AppendMember(sb, declaration, body, constructorChain);
                     break;
                 }
@@ -792,7 +793,10 @@ public static class MemberBodyProducer
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
         {
-            signature = UnsafeDeclarationFormatter.FormatMember(type, member);
+            signature = DefaultDeclarationFormatter.FormatMemberWithBody(
+                type,
+                member,
+                new CSharpPropertyBody(null, null) { RequiresUnsafeModifier = true });
             accessorList = signature.IndexOf('{');
             head = accessorList >= 0 ? signature[..accessorList].TrimEnd() : signature;
         }
@@ -894,7 +898,7 @@ public static class MemberBodyProducer
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -905,7 +909,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -914,7 +918,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext);
     }
 
     /// <summary>
@@ -993,9 +997,9 @@ public static class MemberBodyProducer
         => accessorHandle is { } handle
             ? DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out _, out requiresUnsafeContext)
+                bodyNamespaces, out _, out requiresUnsafeContext)
             : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out _, out requiresUnsafeContext);
+            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -1007,10 +1011,10 @@ public static class MemberBodyProducer
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
-        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
+        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresAsync, out requiresUnsafeContext);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -1020,49 +1024,19 @@ public static class MemberBodyProducer
     /// </summary>
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresAsync, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
     {
         constructorChain = null;
-        requiresAsync = false;
         requiresUnsafeContext = false;
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
-        requiresUnsafeContext = RequiresUnsafeMemberContext(function);
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
         constructorChain = result.ConstructorChain;
-        requiresAsync = result.ContainsAwaitExpression;
+        requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
-
-    static bool RequiresUnsafeMemberContext(Pipeline.IrFunction function)
-        => function.Descendants.Prepend(function).Any(IsUnsafeContextOperation);
-
-    static bool IsUnsafeContextOperation(Pipeline.IrNode node) => node switch
-    {
-        Pipeline.CallIndirect => true,
-        Pipeline.StackAllocate => true,
-        Pipeline.StackAllocArray => false,
-        Pipeline.Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
-        Pipeline.NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
-        Pipeline.LoadIndirect l => RendersAsPointerDeref(l.Address),
-        Pipeline.StoreIndirect s => RendersAsPointerDeref(s.Address),
-        Pipeline.InitObject o => RendersAsPointerDeref(o.Address),
-        _ => false,
-    };
-
-    static bool SignatureRequiresUnsafe(Pipeline.MethodRef callee)
-        => ContainsPointer(callee.ReturnType) || callee.ParameterTypes.Any(ContainsPointer);
-
-    static bool ContainsPointer(Pipeline.TypeRef? type)
-        => type is not null
-            && (type.Kind is Pipeline.TypeRefKind.Pointer or Pipeline.TypeRefKind.FunctionPointer
-                || ContainsPointer(type.ElementType)
-                || type.TypeArguments.Any(ContainsPointer));
-
-    static bool RendersAsPointerDeref(Pipeline.IrExpression address)
-        => address.ResultType?.Kind != Pipeline.TypeRefKind.ByRef;
 
     /// <summary>
     /// Unions the namespaces of every definition type the function references

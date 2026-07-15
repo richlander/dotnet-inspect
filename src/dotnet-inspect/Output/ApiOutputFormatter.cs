@@ -1549,7 +1549,8 @@ public static class ApiOutputFormatter
                 member,
                 code.MethodGenericParameters,
                 decompiledResult,
-                preferExpressionBodied: true);
+                preferExpressionBodied: true,
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
             hasCode = true;
         }
 
@@ -1560,7 +1561,8 @@ public static class ApiOutputFormatter
                 type,
                 member,
                 code.MethodGenericParameters,
-                annotatedResult);
+                annotatedResult,
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
             hasCode = true;
         }
 
@@ -1572,7 +1574,8 @@ public static class ApiOutputFormatter
                 member,
                 code.MethodGenericParameters,
                 costOverlayResult,
-                leadingBodyComments: code.CostOverlayHeaderComments);
+                leadingBodyComments: code.CostOverlayHeaderComments,
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
             hasCode = true;
         }
 
@@ -1583,7 +1586,8 @@ public static class ApiOutputFormatter
                 type,
                 member,
                 code.MethodGenericParameters,
-                semanticsOverlayResult);
+                semanticsOverlayResult,
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
             hasCode = true;
         }
 
@@ -2271,7 +2275,8 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? methodGenericParameters,
         Decompiler.DecompilerResult result,
         bool preferExpressionBodied = false,
-        IReadOnlyList<string>? leadingBodyComments = null)
+        IReadOnlyList<string>? leadingBodyComments = null,
+        bool requiresAsyncBodyModifier = false)
     {
         if (!result.Succeeded)
             return new CodeSection("csharp", DiagnosticComment(result));
@@ -2286,7 +2291,8 @@ public static class ApiOutputFormatter
                     methodGenericParameters,
                     result,
                     preferExpressionBodied,
-                    leadingBodyComments));
+                    leadingBodyComments,
+                    requiresAsyncBodyModifier));
         }
         catch (Exception ex)
         {
@@ -2302,16 +2308,21 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? methodGenericParameters,
         Decompiler.DecompilerResult result,
         bool preferExpressionBodied = false,
-        IReadOnlyList<string>? leadingBodyComments = null)
+        IReadOnlyList<string>? leadingBodyComments = null,
+        bool requiresAsyncBodyModifier = false)
     {
         var lowered = result.Output
             ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
-        var declaration = FormatMemberDeclaration(
+        var bodyShape = new CSharpBlockBody(lowered)
+        {
+            RequiresAsyncModifier = requiresAsyncBodyModifier,
+            RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier
+        };
+        var declaration = DefaultCSharpFormatter.FormatMemberWithBody(
             type,
             member,
-            abbreviate: false,
-            methodGenericParameters,
-            forceAsync: result.ContainsAwaitExpression || result.RequiresAsyncBodyModifier);
+            bodyShape,
+            methodGenericParameters);
         if (result.ConstructorChain is { } constructorChain
             && !string.IsNullOrWhiteSpace(declaration))
         {

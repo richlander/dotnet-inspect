@@ -29,12 +29,17 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public class UnsafeEmitterTests
 {
-    static string Decompile(string assemblyPath, string typeFullName, string method)
+    static DecompilerResult DecompileResult(string assemblyPath, string typeFullName, string method)
     {
         var source = MetadataSource.Open(assemblyPath);
         var function = IrImporter.Import(source, typeFullName, method);
         Assert.NotNull(function);
-        var result = CSharpPrinter.PrintRaised(function!);
+        return CSharpPrinter.PrintRaised(function!);
+    }
+
+    static string Decompile(string assemblyPath, string typeFullName, string method)
+    {
+        var result = DecompileResult(assemblyPath, typeFullName, method);
         Assert.NotNull(result.Output);
         return result.Output!;
     }
@@ -255,6 +260,55 @@ public class UnsafeEmitterTests
         // `scoped` to stay clean (otherwise CS9081). A stackalloc result is
         // always scoped, so this is mode-independent correctness, not a guess.
         Assert.Contains("scoped Span<int> s", output);
+    }
+
+    [Fact]
+    public void UnsafeBodyModifierFact_TracksSkipLocalsInitStackAlloc()
+    {
+        var unsafeResult = DecompileResult(
+            typeof(NewFixtures).Assembly.Location,
+            typeof(NewFixtures).FullName!,
+            nameof(NewFixtures.StackAllocSkipInit));
+        var safeResult = DecompileResult(
+            typeof(NewFixtures).Assembly.Location,
+            typeof(NewFixtures).FullName!,
+            nameof(NewFixtures.StackAllocDefault));
+
+        Assert.True(unsafeResult.RequiresUnsafeBodyModifier);
+        Assert.False(safeResult.RequiresUnsafeBodyModifier);
+    }
+
+    [Fact]
+    public void UnsafeBodyModifierFact_ExcludesStructThisInitialization()
+    {
+        var structType = TypeRef.Definition(
+            "Synthetic",
+            "Synthetic",
+            "Value",
+            ValueTypeHint.ValueType);
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var block = new Block(0);
+        block.Add(new InitObject(
+            structType,
+            new LoadArgument(0, "this", structType)));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "Reset",
+            structType,
+            new MethodSignature(
+                voidType,
+                [],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.NotNull(result.Output);
+        Assert.False(result.RequiresUnsafeBodyModifier);
     }
 
     [Fact]

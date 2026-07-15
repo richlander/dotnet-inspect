@@ -170,13 +170,10 @@ public class ApiOutputFormatterTests
     }
 
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    public void FormatSourceWithDeclaration_UsesTypedAsyncEvidence(
-        bool containsAwaitExpression,
-        bool requiresAsyncBodyModifier,
-        bool expectedAsync)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FormatSourceWithDeclaration_UsesBodyAsyncMetadata(
+        bool requiresAsyncBodyModifier)
     {
         var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
         var member = new ApiMember
@@ -189,10 +186,30 @@ public class ApiOutputFormatterTests
                 ReturnType = "System.Threading.Tasks.Task"
             }
         };
-        var result = DecompilerResult.Success("Console.WriteLine(\"await\");") with
+        var result = DecompilerResult.Success("Console.WriteLine(\"await\");");
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            requiresAsyncBodyModifier: requiresAsyncBodyModifier);
+        var declaration = source.ReplaceLineEndings("\n").Split('\n')[0];
+
+        Assert.Equal(requiresAsyncBodyModifier, declaration.Contains(" async ", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FormatSourceWithDeclaration_UsesTypedUnsafeBodyFact(
+        bool requiresUnsafeBodyModifier)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = Method("Run");
+        var result = DecompilerResult.Success("return;") with
         {
-            ContainsAwaitExpression = containsAwaitExpression,
-            RequiresAsyncBodyModifier = requiresAsyncBodyModifier
+            RequiresUnsafeBodyModifier = requiresUnsafeBodyModifier
         };
 
         var source = ApiOutputFormatter.FormatSourceWithDeclaration(
@@ -200,9 +217,26 @@ public class ApiOutputFormatterTests
             member,
             methodGenericParameters: null,
             result);
-        var declaration = source.ReplaceLineEndings("\n").Split('\n')[0];
+        var declaration = Declaration(source);
 
-        Assert.Equal(expectedAsync, declaration.Contains(" async ", StringComparison.Ordinal));
+        Assert.Equal(requiresUnsafeBodyModifier, declaration.Contains(" unsafe ", StringComparison.Ordinal));
+        Assert.False(member.IsUnsafe);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_PreservesObsoleteAttribute()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = Method("Run");
+        member.IsObsolete = true;
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            DecompilerResult.Success("return;"));
+
+        Assert.StartsWith("[Obsolete] public", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -229,35 +263,136 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
-    public void PopulateCSharpSections_AppliesTypedAsyncEvidenceToAllOverlays()
+    public void PopulateCSharpSections_AppliesBodyModifierFactsToAllOverlays()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
         var member = Method("Run");
-        var containsAwait = DecompilerResult.Success("await Task.Yield();") with
+        var result = DecompilerResult.Success("await Task.Yield();") with
         {
-            ContainsAwaitExpression = true
-        };
-        var requiresAsync = DecompilerResult.Success("await Task.Yield();") with
-        {
-            RequiresAsyncBodyModifier = true
+            RequiresUnsafeBodyModifier = true
         };
         var code = new MemberCodeProvider.Item(
             DecompiledResult: null,
             MethodGenericParameters: null,
-            AnnotatedResult: containsAwait,
-            CostOverlayResult: containsAwait,
+            AnnotatedResult: result,
+            CostOverlayResult: result,
             CostOverlayHeaderComments: ["// cost evidence"],
-            SemanticsOverlayResult: requiresAsync,
+            SemanticsOverlayResult: result,
             ILText: null,
             ILDiagnostic: null,
-            Attributes: null);
+            Attributes: null,
+            RequiresAsyncBodyModifier: true);
         var sections = new MemberCodeView();
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, code));
         Assert.Contains(" async ", Declaration(sections.AnnotatedSourceCode.Content));
+        Assert.Contains(" unsafe ", Declaration(sections.AnnotatedSourceCode.Content));
         Assert.Contains(" async ", Declaration(sections.CostOverlayCode.Content));
+        Assert.Contains(" unsafe ", Declaration(sections.CostOverlayCode.Content));
         Assert.Contains("// cost evidence", sections.CostOverlayCode.Content);
         Assert.Contains(" async ", Declaration(sections.SemanticsOverlayCode.Content));
+        Assert.Contains(" unsafe ", Declaration(sections.SemanticsOverlayCode.Content));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RuntimeAsyncBodyConsumers_UseResolvedMethodModifier(
+        bool invalidateMetadataToken)
+    {
+        string path = typeof(RuntimeAsyncHeaderFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(RuntimeAsyncHeaderFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(RuntimeAsyncHeaderFixture.YieldAsync));
+        if (invalidateMetadataToken)
+            member.MetadataToken = 0x02000001;
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(
+            sections,
+            type,
+            member,
+            collected.Code));
+        Assert.Contains(
+            "public static async System.Threading.Tasks.Task<int> YieldAsync",
+            sections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains(
+            "public static async Task<int> YieldAsync",
+            typeSource,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafeBodyConsumers_UseTypedBodyModifier()
+    {
+        string path = typeof(RuntimeAsyncHeaderFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(RuntimeAsyncHeaderFixture).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(RuntimeAsyncHeaderFixture.ReadAddress));
+        Assert.False(member.IsUnsafe);
+
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(
+            sections,
+            type,
+            member,
+            collected.Code));
+        Assert.Contains(
+            "public static unsafe int ReadAddress",
+            sections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains(
+            "public static unsafe int ReadAddress",
+            typeSource,
+            StringComparison.Ordinal);
     }
 
     static ApiMember Method(string name)
@@ -424,4 +559,15 @@ public class ApiOutputFormatterTests
 public class PlusFixtureOuter
 {
     public class Inner { }
+}
+
+public static class RuntimeAsyncHeaderFixture
+{
+    public static async Task<int> YieldAsync(int value)
+    {
+        await Task.Yield();
+        return value;
+    }
+
+    public static unsafe int ReadAddress(nint address) => *(int*)address;
 }

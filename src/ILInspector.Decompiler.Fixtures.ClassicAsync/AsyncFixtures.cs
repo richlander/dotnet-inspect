@@ -52,4 +52,10 @@ public static class AsyncFixtures
 
     public static async Task<int> AwaitConditional(Task<int> a, bool flag)
         => flag ? await a : 0;
+
+#pragma warning disable CS1998 // Pins async metadata when no await survives into the body.
+    public static async Task NoAwait()
+    {
+    }
+#pragma warning restore CS1998
 }
