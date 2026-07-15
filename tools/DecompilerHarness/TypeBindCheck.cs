@@ -143,7 +143,7 @@ static class TypeBindCheck
             if (type.Kind == "delegate")
                 continue;
 
-            var source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null);
+            var source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null).Output;
             if (source is null)
                 continue;
 

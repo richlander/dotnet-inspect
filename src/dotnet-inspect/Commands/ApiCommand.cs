@@ -753,7 +753,7 @@ public class ApiCommand
             var resolver = PlatformAssemblyResolver(typeDllPath, options.ProjectAssetsPath, options.Tfm);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.TypeSourceComposer.Compose(
-                type, typeDllPath, options.PdbPath, resolver, metadata);
+                type, typeDllPath, options.PdbPath, resolver, metadata).Output;
             if (listing is not null)
             {
                 view.MemberCode ??= new MemberCodeView();

@@ -28,27 +28,30 @@ public static class TypeSourceComposer
     /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
     /// overload for new product and harness code.
     /// </summary>
-    public static string? Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
         var resolver = locateAssembly?.ToAssemblyReferenceResolver()
             ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
         return Compose(type, dllPath, pdbPath, resolver, context);
     }
 
-    public static string? Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
     {
         var start = new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
             dllPath,
             () => File.OpenRead(dllPath),
             Provenance: "StartAssembly");
-        return ComposeCore(
+        var composed = ComposeCore(
             type,
             dllPath,
             pdbPath,
             () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
             (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
             context);
+        return composed is null
+            ? DecompilerResult.Failure("DI_TYPESOURCE_NONE", $"No C# type source composed for {type.FullName}.")
+            : DecompilerResult.Success(composed);
     }
 
     static string? ComposeCore(

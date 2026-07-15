@@ -339,7 +339,7 @@ public class LadderRung5GateTests
         using var pe = new PEReader(File.OpenRead(FixturePath));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == fullName);
-        var source = TypeSourceComposer.Compose(type, FixturePath, pdbPath: null);
+        var source = TypeSourceComposer.Compose(type, FixturePath, pdbPath: null).Output;
         Assert.NotNull(source);
         return source!;
     }
