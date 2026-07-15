@@ -281,14 +281,10 @@ kinds:
 
 The fidelity ladder therefore lives on the single machine that earns it: a
 signature never has to answer "was I `StructuredOnly`?", and the `Metadata`
-decoder never takes a dependency on a `Decompiler`-shaped type. The faithful
-base `Projection` is now factored out (`src/ILInspector.Decompiler/Projection.cs`):
-it carries `Output`, `Diagnostics`, and `Succeeded`, and `DecompilerResult` is a
-`Projection` that adds the fidelity ladder and raise cargo. The faithful machines
-still return `DecompilerResult` today (`IlProjection.Project`); pointing them at
-the bare `Projection` — so the disassembler and decoder stop carrying a fidelity
-field they never populate — is the remaining step, and moves with the machine
-relocations below.
+decoder never takes a dependency on a `Decompiler`-shaped type. The convergence
+already landed on the lossy side — `IlProjection.Project` and
+`MemberBodyProducer.Project` both return `DecompilerResult` today; factoring the
+faithful base `Projection` out of it is the remaining step.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case

@@ -185,8 +185,6 @@ public static class DiagnosticIds
 
 /// <summary>
 /// The result of a decompilation: output, diagnostics, and a fidelity level.
-/// IS-A <see cref="Projection"/> (the shared producer currency) plus the
-/// fidelity ladder and raise cargo that only the lossy decompiler earns.
 /// The Roslyn-shaped contract (<c>Compilation.Emit</c> returns an
 /// <c>EmitResult</c>): failures are values, never silently swallowed and
 /// never forced on callers as exceptions.
@@ -194,8 +192,10 @@ public static class DiagnosticIds
 public sealed record DecompilerResult(
     string? Output,
     DecompilationFidelity Fidelity,
-    IReadOnlyList<DecompilerDiagnostic> Diagnostics) : Projection(Output, Diagnostics)
+    IReadOnlyList<DecompilerDiagnostic> Diagnostics)
 {
+    public bool Succeeded => Output is not null;
+
     /// <summary>
     /// For a constructor whose body opens with an explicit chain call, the C#
     /// initializer — <c>base(args)</c> or <c>this(args)</c> — lifted out of
