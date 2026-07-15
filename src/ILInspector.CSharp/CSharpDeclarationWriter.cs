@@ -700,12 +700,12 @@ internal static class CSharpDeclarationWriter
             return start == 0 || type[start - 1] != '.';
 
         // Function-pointer type head: "delegate*<...>" or "delegate* unmanaged<...>".
-        // A real function-pointer head is "delegate*" followed immediately by '<', or
-        // by a calling-convention run (whitespace then an identifier such as
-        // "managed"/"unmanaged"). A "delegate*" followed by anything else — end of
-        // string, terminating punctuation ('[', ',', '>', ')'), or whitespace that
-        // does not introduce a calling convention — is a pointer to a type literally
-        // named "delegate" and must be escaped ("@delegate*").
+        // A real function-pointer head is "delegate*" followed (after optional
+        // whitespace) by '<', or by a calling-convention run (whitespace then an
+        // identifier such as "managed"/"unmanaged"). A "delegate*" followed by
+        // anything else — end of string, or terminating punctuation ('[', ',', '>',
+        // ')') after whitespace — is a pointer to a type literally named "delegate"
+        // and must be escaped ("@delegate*").
         if (identifier == "delegate")
         {
             if (end >= type.Length || type[end] != '*')
@@ -720,7 +720,8 @@ internal static class CSharpDeclarationWriter
             int convStart = afterStar;
             while (convStart < type.Length && char.IsWhiteSpace(type[convStart]))
                 convStart++;
-            return convStart < type.Length && IsIdentifierStart(type[convStart]);
+            return convStart < type.Length
+                && (IsIdentifierStart(type[convStart]) || type[convStart] == '<');
         }
 
         // Parameter/type modifiers are bare in a leading modifier run — at the start
