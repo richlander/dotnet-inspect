@@ -444,6 +444,13 @@ public static class CSharpBodyDiff
     // the IL that computes its operands; walking the subtree recovers the offset of the
     // first instruction that belongs to the statement, so the diff coordinate lines up
     // with where the statement's IL — and thus any change to it — actually starts.
+    //
+    // Descendants stay within this method's own IL because the diff imports with
+    // importMethodBody: null (see Decompile -> PrintRaised), which makes the cross-method
+    // passes (lambda / local-function / iterator body inlining) no-ops. A nested body
+    // would carry its own offsets that restart near zero and could otherwise win this
+    // min; if the diff ever wires importMethodBody, this walk must stop at nested-body
+    // boundaries.
     static int StatementStartOffset(IrNode node)
     {
         int min = node.SourceOffset >= 0 ? node.SourceOffset : int.MaxValue;
