@@ -10,11 +10,16 @@ public class MixedSourceRendererTests
     static string Render(string methodName)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var result = ResearchViews.RenderMixed(
+        var result = RenderMixed(
             source, typeof(AllocSampleClass).FullName!, methodName);
         Assert.NotNull(result.Output);
         return result.Output!;
     }
+
+    static DecompilerResult RenderMixed(
+        MetadataSource source, string type, string method, AnnotationStage stage = AnnotationStage.Raised)
+        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source, type, method, AnnotatedSource: true, AnnotatedStage: stage)).AnnotatedSource!;
 
     [Fact]
     public void CSharpStatement_PrecedesItsInterleavedIl()
@@ -40,6 +45,89 @@ public class MixedSourceRendererTests
         var il = lines.Single(l => l.Contains("newarr"));
         Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", cs);
         Assert.Contains("alloc.array(int[]; alloc=System.Int32[]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", il);
+    }
+
+    [Fact]
+    public void Box_SurfacesAsATrailingCommentOnTheReturn()
+    {
+        // The box is invisible in the source (object BoxInt(int x) => x;) yet the
+        // annotated view shows it where it happens, as a trailing C# comment.
+        var output = Render(nameof(AllocSampleClass.BoxInt));
+        Assert.Contains("return x;  // alloc.box(int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", output);
+    }
+
+    [Fact]
+    public void Box_FactLandsOnTheBoxOpcode()
+    {
+        // The IL-view dual of the C# anchoring: the fact attaches to the exact
+        // opcode, not a statement.
+        var output = Render(nameof(AllocSampleClass.BoxInt));
+        var line = output.Split('\n').Single(l => l.Contains(": box"));
+        Assert.Contains("alloc.box(int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once)", line);
+    }
+
+    [Fact]
+    public void FactPrecedesStructuralAnnotationsOnTheSameLine()
+    {
+        // Facts lead; the structural stack-type annotation follows — the
+        // high-value fact is read first.
+        var output = Render(nameof(AllocSampleClass.BoxInt));
+        var line = output.Split('\n').Single(l => l.Contains(": box"));
+        int fact = line.IndexOf("alloc.box", StringComparison.Ordinal);
+        int stack = line.IndexOf("stack: [object]", StringComparison.Ordinal);
+        Assert.True(fact >= 0 && stack >= 0 && fact < stack);
+    }
+
+    [Fact]
+    public void AlwaysConditionality_IsNotPrintedAsNoise()
+    {
+        // "always" never appears as a suffix; only the non-default cases do.
+        var output = Render(nameof(AllocSampleClass.BoxInt));
+        Assert.DoesNotContain("always", output);
+    }
+
+    [Fact]
+    public void CachedDelegate_ShowsConditionalityBecauseItIsNotAlways()
+    {
+        // The surprising fact — the delegate allocates only on first call — is
+        // exactly what the conditionality suffix is for.
+        var output = Render(nameof(AllocSampleClass.Cached));
+        Assert.Contains("cached-once", output);
+        Assert.Contains("alloc.delegate", output);
+    }
+
+    [Fact]
+    public void CachedDelegate_FactLandsOnTheNewobjAndShowsConditionality()
+    {
+        var output = Render(nameof(AllocSampleClass.Cached));
+        var line = output.Split('\n').Single(l => l.Contains(": newobj"));
+        Assert.Contains("alloc.delegate", line);
+        Assert.Contains("cached-once", line);
+    }
+
+    [Fact]
+    public void StateMachine_FactLandsOnTheKickoffNewobj()
+    {
+        var output = Render(nameof(AllocSampleClass.Range));
+        var line = output.Split('\n').Single(l => l.Contains(": newobj"));
+        Assert.Contains("alloc.statemachine", line);
+    }
+
+    [Fact]
+    public void RefTypeEnumerator_IsAnnotatedOnItsForeachStatement()
+    {
+        var output = Render(nameof(AllocSampleClass.SumEnumerable));
+        var line = output.Split('\n').Single(l => l.Contains("foreach"));
+        Assert.Contains("// alloc.enumerator", line);
+    }
+
+    [Fact]
+    public void NoAllocation_AddsNoFactComment()
+    {
+        // SumList over a List<T> uses the struct enumerator (no heap alloc), so
+        // the annotated view surfaces no alloc fact — positive-only, no noise.
+        var output = Render(nameof(AllocSampleClass.SumList));
+        Assert.DoesNotContain("alloc.", output);
     }
 
     [Fact]
@@ -70,10 +158,10 @@ public class MixedSourceRendererTests
         // underlying Monitor.Enter / try…finally shape it lowers from.
         var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
 
-        var raised = ResearchViews.RenderMixed(
+        var raised = RenderMixed(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ClassicLock),
             AnnotationStage.Raised);
-        var lowered = ResearchViews.RenderMixed(
+        var lowered = RenderMixed(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ClassicLock),
             AnnotationStage.Lowered);
 
@@ -92,7 +180,7 @@ public class MixedSourceRendererTests
         // compiler-generated companion bodies, such as LambdaRaisingPass.
         var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
 
-        var lowered = ResearchViews.RenderMixed(
+        var lowered = RenderMixed(
             source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NonCapturingLambda),
             AnnotationStage.Lowered);
 
@@ -108,7 +196,7 @@ public class MixedSourceRendererTests
         // into its own diagnostics: it mirrors the result's fidelity and
         // diagnostics, and reports the symbol source actually consulted.
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var result = ResearchViews.RenderMixed(
+        var result = RenderMixed(
             source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList));
 
         Assert.NotNull(result.Trace);
@@ -126,7 +214,7 @@ public class MixedSourceRendererTests
         // OpenWithoutSymbols never consults a PDB, so the trace honestly reports
         // that no symbol source was used even when one exists on disk.
         var source = MetadataSource.OpenWithoutSymbols(typeof(AllocSampleClass).Assembly.Location);
-        var result = ResearchViews.RenderMixed(
+        var result = RenderMixed(
             source, typeof(AllocSampleClass).FullName!, nameof(AllocSampleClass.SumList));
 
         Assert.NotNull(result.Trace);

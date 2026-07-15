@@ -108,10 +108,8 @@ public class ResearchFactRegistryTests
 
         var facts = ResearchViews.CollectFacts(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry);
-        var annotated = ResearchViews.RenderAnnotatedSource(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
-        var il = ResearchViews.ProjectAnnotatedIl(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
+        var annotated = RenderAnnotatedSource(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry).Output;
         var imported = IrImporter.Import(source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt))
             ?? throw new InvalidOperationException("fixture method has no IL body");
         var headerFacts = registry.CollectHeaderFacts(new ResearchFactContext(source, imported));
@@ -119,7 +117,6 @@ public class ResearchFactRegistryTests
         Assert.Empty(facts);
         Assert.Empty(headerFacts);
         Assert.DoesNotContain("alloc.", annotated);
-        Assert.DoesNotContain("alloc.", il);
     }
 
     [Fact]
@@ -136,15 +133,12 @@ public class ResearchFactRegistryTests
 
         var facts = ResearchViews.CollectFacts(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry);
-        var annotated = ResearchViews.RenderAnnotatedSource(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
-        var il = ResearchViews.ProjectAnnotatedIl(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry: registry).Output;
+        var annotated = RenderAnnotatedSource(
+            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.BoxInt), registry).Output;
 
         var fact = Assert.Single(facts);
         Assert.Equal("alloc.box", fact.Descriptor.Id);
         Assert.Contains("alloc.box(registered)", annotated);
-        Assert.Contains("alloc.box(registered)", il);
     }
 
     [Fact]
@@ -194,7 +188,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlay(
+        var overlay = RenderCostOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsAllocInLoopCallee)).Output;
 
         Assert.Contains("AllocInLoopCallee", overlay);
@@ -207,7 +201,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlay(
+        var overlay = RenderCostOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsLowSignalCallee)).Output;
 
         Assert.Contains("LowSignalCallee", overlay);
@@ -219,7 +213,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlay(
+        var overlay = RenderCostOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
 
         Assert.Contains("ExceptionOnlyCallee", overlay);
@@ -232,7 +226,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
+        var overlay = RenderCostOverlayWithHeaderFacts(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.HighLoopLeverageCallee));
 
         var fact = Assert.Single(overlay.HeaderFacts);
@@ -246,7 +240,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlayWithHeaderFacts(
+        var overlay = RenderCostOverlayWithHeaderFacts(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.HighLoopLeverageCallee));
 
         Assert.NotEmpty(overlay.HeaderFacts);
@@ -259,7 +253,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderCostOverlay(
+        var overlay = RenderCostOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.LoopCaller01)).Output;
 
         Assert.Contains("HighLoopLeverageCallee", overlay);
@@ -269,23 +263,11 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
-    public void AnnotatedSource_DoesNotIncludeCostOverlayByDefault()
-    {
-        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-
-        var annotated = ResearchViews.RenderAnnotatedSource(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsAllocInLoopCallee)).Output;
-
-        Assert.DoesNotContain("cost.callee", annotated);
-        Assert.DoesNotContain("cost.method", annotated);
-    }
-
-    [Fact]
     public void SemanticsOverlay_AnnotatesExceptionCalleeAtCallSite()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderSemanticsOverlay(
+        var overlay = RenderSemanticsOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
 
         Assert.Contains("ExceptionOnlyCallee", overlay);
@@ -299,7 +281,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderSemanticsOverlay(
+        var overlay = RenderSemanticsOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsArgumentValidationOnlyCallee)).Output;
 
         Assert.Contains("ArgumentValidationOnlyCallee", overlay);
@@ -312,7 +294,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderSemanticsOverlay(
+        var overlay = RenderSemanticsOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsMixedExceptionCallee)).Output;
 
         Assert.Contains("MixedExceptionCallee", overlay);
@@ -326,7 +308,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var overlay = ResearchViews.RenderSemanticsOverlay(
+        var overlay = RenderSemanticsOverlay(
             source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsStackallocCallee)).Output;
 
         Assert.Contains("StackallocCallee", overlay);
@@ -335,17 +317,22 @@ public class ResearchFactRegistryTests
         Assert.Contains("stackalloc", overlay);
     }
 
-    [Fact]
-    public void AnnotatedSource_DoesNotIncludeSemanticsOverlayByDefault()
-    {
-        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+    static DecompilerResult RenderAnnotatedSource(
+        MetadataSource source, string type, string method, ResearchFactRegistry? registry = null)
+        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source, type, method, AnnotatedSource: true, Registry: registry)).AnnotatedSource!;
 
-        var annotated = ResearchViews.RenderAnnotatedSource(
-            source, typeof(ResearchFixture).FullName!, nameof(ResearchFixture.CallsExceptionOnlyCallee)).Output;
+    static DecompilerResult RenderCostOverlay(MetadataSource source, string type, string method)
+        => RenderCostOverlayWithHeaderFacts(source, type, method).Body;
 
-        Assert.DoesNotContain("semantics.callee", annotated);
-        Assert.DoesNotContain("safety.callee", annotated);
-    }
+    static ResearchViews.CostOverlayResult RenderCostOverlayWithHeaderFacts(
+        MetadataSource source, string type, string method)
+        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source, type, method, CostOverlay: true)).CostOverlay!;
+
+    static DecompilerResult RenderSemanticsOverlay(MetadataSource source, string type, string method)
+        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source, type, method, SemanticsOverlay: true)).SemanticsOverlay!;
 
     sealed class TestProducer(
         string name,

@@ -181,81 +181,6 @@ public static class ResearchViews
         return BuildFactRows(type, method, imported, facts, headerFacts);
     }
 
-    public static DecompilerResult RenderCostOverlay(
-        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
-        ResearchFactRegistry? registry = null)
-        => RenderCostOverlayWithHeaderFacts(source, type, method, overloadIndex, publicOnly, registry).Body;
-
-    public static CostOverlayResult RenderCostOverlayWithHeaderFacts(
-        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
-        ResearchFactRegistry? registry = null)
-        => ProjectMember(new MemberProjectionRequest(
-            source,
-            type,
-            method,
-            overloadIndex,
-            publicOnly,
-            CostOverlay: true,
-            Registry: registry)).CostOverlay!;
-
-    public static DecompilerResult RenderSemanticsOverlay(
-        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
-        ResearchFactRegistry? registry = null)
-        => ProjectMember(new MemberProjectionRequest(
-            source,
-            type,
-            method,
-            overloadIndex,
-            publicOnly,
-            SemanticsOverlay: true,
-            Registry: registry)).SemanticsOverlay!;
-
-    public static DecompilerResult RenderAnnotatedSource(
-        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
-        ResearchFactRegistry? registry = null)
-    {
-        return RunProjection(() =>
-        {
-            var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
-                ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-            var annotations = CollectFacts(source, imported, registry);
-            var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
-            if (result.Output is null || annotations.Count == 0)
-                return result;
-            return result with
-            {
-                Output = AddTrailingComments(imported, result.Output, statementLines, annotations)
-            };
-        }, emptyOutputIsFailure: false);
-    }
-
-    public static DecompilerResult RenderMixed(
-        MetadataSource source, string type, string method, AnnotationStage stage = AnnotationStage.Raised,
-        int overloadIndex = 0, bool publicOnly = false, ResearchFactRegistry? registry = null)
-        => ProjectMember(new MemberProjectionRequest(
-            source,
-            type,
-            method,
-            overloadIndex,
-            publicOnly,
-            AnnotatedSource: true,
-            AnnotatedStage: stage,
-            Registry: registry)).AnnotatedSource!;
-
-    public static DecompilerResult ProjectAnnotatedIl(
-        MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
-        ResearchFactRegistry? registry = null)
-    {
-        return RunProjection(() =>
-        {
-            var annotations = CollectFacts(source, type, method, overloadIndex, publicOnly, registry);
-            var result = IlProjection.Project(source, type, method, IlProjectionDepth.Annotated, overloadIndex, publicOnly);
-            if (result.Output is null)
-                return result;
-            return result with { Output = AddFactsToAnnotatedIl(result.Output, annotations) };
-        }, emptyOutputIsFailure: true);
-    }
-
     static DecompilerResult RenderMixedCore(
         MetadataSource source, string type, string method, AnnotationStage stage, int overloadIndex, bool publicOnly,
         ResearchFactRegistry? registry)
@@ -547,18 +472,6 @@ public static class ResearchViews
         return lines;
     }
 
-    static string AddFactsToAnnotatedIl(string output, IReadOnlyList<Annotation> annotations)
-    {
-        var factsByOffset = FactsByOffset(annotations);
-        var lines = output.Replace("\r\n", "\n").Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            if (TryReadOffset(lines[i], out int offset))
-                lines[i] = AddFactsToAnnotatedLine(lines[i], factsByOffset.GetValueOrDefault(offset));
-        }
-        return string.Join(Environment.NewLine, lines);
-    }
-
     static Dictionary<int, IReadOnlyList<Annotation>> FactsByOffset(IReadOnlyList<Annotation> annotations)
         => annotations
             .Where(annotation => annotation.SourceOffset >= 0)
@@ -578,15 +491,6 @@ public static class ResearchViews
         string prefix = line[..comment].TrimEnd();
         string suffix = line[(comment + 2)..].Trim();
         return $"{prefix}  // {factText}; {suffix}";
-    }
-
-    static bool TryReadOffset(string line, out int offset)
-    {
-        offset = -1;
-        int marker = line.IndexOf("IL_", StringComparison.Ordinal);
-        if (marker < 0 || marker + 7 > line.Length)
-            return false;
-        return int.TryParse(line.AsSpan(marker + 3, 4), System.Globalization.NumberStyles.HexNumber, null, out offset);
     }
 
     static string LeadingWhitespace(string line)
