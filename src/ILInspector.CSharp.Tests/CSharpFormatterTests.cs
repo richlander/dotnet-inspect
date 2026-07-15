@@ -320,4 +320,16 @@ public sealed class CSharpFormatterTests
     [InlineData("a + b", false)]
     public void RequiresUnsafeModifier_DetectsPointerAndStackalloc(string csharp, bool expected)
         => Assert.Equal(expected, CSharpFormatter.RequiresUnsafeModifier(csharp));
+
+    [Theory]
+    [InlineData("int*", true)]
+    [InlineData("delegate*<int, void>", true)]
+    [InlineData("System.Int32*", true)]
+    [InlineData("int", false)]
+    [InlineData("System.Collections.Generic.List<int>", false)]
+    [InlineData("stackalloc", false)]
+    [InlineData("@stackalloc", false)]
+    [InlineData("N.stackalloc", false)]
+    public void TypeRequiresUnsafeModifier_MatchesPointersButNotStackallocIdentifiers(string typeDisplayName, bool expected)
+        => Assert.Equal(expected, CSharpFormatter.TypeRequiresUnsafeModifier(typeDisplayName));
 }

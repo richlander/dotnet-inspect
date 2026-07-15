@@ -199,19 +199,38 @@ public sealed class CSharpFormatter
         => CSharpDeclarationWriter.AliasPrimitiveTypeNames(type);
 
     /// <summary>
-    /// True when a C# type or member-body fragment requires the <c>unsafe</c>
-    /// modifier — it contains pointer syntax (including function pointers, which
-    /// carry a <c>*</c>) or a <c>stackalloc</c>. This over-approximates (a body
-    /// using <c>*</c> as multiplication also reports true), which is safe because
-    /// an unnecessary <c>unsafe</c> modifier still compiles. This is the
-    /// authoritative unsafe-requirement predicate for the C# layer; consumers must
-    /// not reimplement it.
+    /// True when a C# code fragment (typically a member body) requires the
+    /// <c>unsafe</c> modifier — it contains pointer syntax (including function
+    /// pointers, which carry a <c>*</c>) or a <c>stackalloc</c> expression. This
+    /// over-approximates (a body using <c>*</c> as multiplication also reports
+    /// true); an unnecessary <c>unsafe</c> is normally harmless, but callers that
+    /// may also emit <c>async</c> must not feed it type names — see
+    /// <see cref="TypeRequiresUnsafeModifier"/>. This is the authoritative
+    /// unsafe-requirement predicate for C# fragments; consumers must not
+    /// reimplement it.
     /// </summary>
     public static bool RequiresUnsafeModifier(string csharp)
     {
         ArgumentNullException.ThrowIfNull(csharp);
         return csharp.Contains('*', StringComparison.Ordinal)
             || csharp.Contains("stackalloc", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// True when a C# <em>type</em> display name requires the <c>unsafe</c>
+    /// modifier — it denotes a pointer or function-pointer type (both carry a
+    /// <c>*</c>). Unlike <see cref="RequiresUnsafeModifier"/> this deliberately
+    /// does not look for <c>stackalloc</c>, which is an expression construct that
+    /// can never appear in a type name (matching it against a type name — e.g. an
+    /// escaped identifier <c>@stackalloc</c> — would be a false positive, and a
+    /// spurious <c>unsafe</c> on an <c>async</c> member fails to compile). This is
+    /// the authoritative unsafe-requirement predicate for C# type names; consumers
+    /// must not reimplement it.
+    /// </summary>
+    public static bool TypeRequiresUnsafeModifier(string typeDisplayName)
+    {
+        ArgumentNullException.ThrowIfNull(typeDisplayName);
+        return typeDisplayName.Contains('*', StringComparison.Ordinal);
     }
 
     public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)

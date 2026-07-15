@@ -1607,9 +1607,9 @@ public static class CompileBackSourceComposer
 
     static bool RequiresUnsafe(CompileBackMemberRequirement member)
         => (member.ReturnType is { } returnType
-                && CSharpFormatter.RequiresUnsafeModifier(returnType.DisplayName))
+                && CSharpFormatter.TypeRequiresUnsafeModifier(returnType.DisplayName))
             || member.Parameters.Any(parameter =>
-                CSharpFormatter.RequiresUnsafeModifier(parameter.Type.DisplayName))
+                CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type.DisplayName))
             || (member.TargetBody is { } body && CSharpFormatter.RequiresUnsafeModifier(body));
 
 
