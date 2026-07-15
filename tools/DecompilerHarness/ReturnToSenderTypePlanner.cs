@@ -2020,10 +2020,8 @@ public static class CompileBackSourceComposer
             var constraints = new List<string>();
             var attributes = parameter.Attributes;
             bool isStruct = (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
-            if (isStruct)
-                constraints.Add("struct");
-            else if ((attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
-                constraints.Add("class");
+            if (GenericConstraintKeywords.PrimaryKeyword(attributes, nullableFlag: 0, isUnmanaged: false) is { } primaryKeyword)
+                constraints.Add(primaryKeyword);
 
             foreach (var constraintHandle in parameter.GetConstraints())
             {
@@ -2036,14 +2034,10 @@ public static class CompileBackSourceComposer
                 }
             }
 
-            if (!isStruct && (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
-                constraints.Add("new()");
+            if (GenericConstraintKeywords.NewConstraintKeyword(attributes) is { } newConstraint)
+                constraints.Add(newConstraint);
 
-            string? variance = (attributes & GenericParameterAttributes.Covariant) != 0
-                ? "out"
-                : (attributes & GenericParameterAttributes.Contravariant) != 0
-                    ? "in"
-                    : null;
+            string? variance = GenericConstraintKeywords.VarianceKeyword(attributes);
             parameters.Add(new CompileBackTypeParameter(
                 reader.GetString(parameter.Name),
                 constraints,

@@ -683,10 +683,8 @@ public static class MetadataDeclarationQuery
             var constraints = new List<string>();
             var attributes = parameter.Attributes;
             var isStruct = (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
-            if (isStruct)
-                constraints.Add("struct");
-            else if ((attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
-                constraints.Add("class");
+            if (GenericConstraintKeywords.PrimaryKeyword(attributes, nullableFlag: 0, isUnmanaged: false) is { } primaryKeyword)
+                constraints.Add(primaryKeyword);
 
             foreach (var constraintHandle in parameter.GetConstraints())
             {
@@ -699,8 +697,8 @@ public static class MetadataDeclarationQuery
                 }
             }
 
-            if (!isStruct && (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
-                constraints.Add("new()");
+            if (GenericConstraintKeywords.NewConstraintKeyword(attributes) is { } newConstraint)
+                constraints.Add(newConstraint);
 
             parameters.Add(new TypeParameter
             {
