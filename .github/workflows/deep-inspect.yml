@@ -259,6 +259,12 @@ jobs:
             --untracked \
             --set-default-install false \
             --interactive false
+          pinned_sdk="$(bash eng/prepare-decompiler-opt-in-corpus.sh print-pinned-sdk)"
+          "$dotnetup_dir/dotnetup" sdk install "$pinned_sdk" \
+            --install-path "$DOTNET_ROOT" \
+            --untracked \
+            --set-default-install false \
+            --interactive false
 
           echo "$dotnetup_dir" >> "$GITHUB_PATH"
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
@@ -341,3 +347,37 @@ jobs:
 
       - name: Run unsafe decompiler tests with nightly SDK
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
+
+      - name: Run net11 opt-in feature corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p artifacts/opt-in-corpus
+          bash eng/prepare-decompiler-opt-in-corpus.sh \
+            pinned artifacts/opt-in-corpus/pinned-assemblies.txt
+          mapfile -t assemblies < artifacts/opt-in-corpus/pinned-assemblies.txt
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --corpus-profile opt-in-net11 \
+            --emit-corpus-snapshot artifacts/opt-in-corpus/snapshot.json \
+            --diff-corpus-baseline tools/DecompilerHarness/corpus/opt-in-net11-baseline.json \
+            --quality-diff-card \
+            --compile-cap 25 \
+            --corpus-fidelity-cap 25 \
+            --max-examples 3 \
+            | tee artifacts/opt-in-corpus/quality-diff-card.md
+
+      - name: Report opt-in compiler lowering drift
+        shell: bash
+        run: |
+          set -o pipefail
+          bash eng/report-decompiler-opt-in-corpus-drift.sh \
+            | tee artifacts/opt-in-corpus/compiler-drift.md
+
+      - name: Upload opt-in corpus artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deep-inspect-opt-in-corpus
+          path: artifacts/opt-in-corpus/
+          if-no-files-found: warn

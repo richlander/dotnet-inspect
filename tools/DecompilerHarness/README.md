@@ -303,6 +303,35 @@ RTS parity compare the same target population when the corpus and caps match.
 Paste that block as the PR's aggregate corpus evidence; do not re-key the table
 by hand.
 
+**Net11 opt-in feature corpus** (`--corpus-profile opt-in-net11`): a separate
+curated lane for compiler lowerings that are absent or too sparse in the
+real-world corpus. It starts with runtime async and updated memory-safety rules.
+Its baseline and quality card are deliberately separate from
+`real-world-baseline.json`; never blend these feature-dense fixtures into the
+real-world rates.
+
+The pinned lane uses the exact SDK recorded in
+`eng/prepare-decompiler-opt-in-corpus.sh`. Advance that SDK and regenerate
+`tools/DecompilerHarness/corpus/opt-in-net11-baseline.json` deliberately in the
+same change. The current lane builds the identical sources with the
+repository-selected SDK. `eng/report-decompiler-opt-in-corpus-drift.sh` compares
+the two assembly sets with `IlDiffHarness`, reporting compiler-lowering drift
+independently of decompiler quality.
+
+```bash
+bash eng/prepare-decompiler-opt-in-corpus.sh pinned /tmp/opt-in-assemblies.txt
+mapfile -t assemblies < /tmp/opt-in-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --corpus-profile opt-in-net11 \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/opt-in-net11-baseline.json \
+  --quality-diff-card \
+  --compile-cap 25 \
+  --corpus-fidelity-cap 25 \
+  --max-examples 3
+
+bash eng/report-decompiler-opt-in-corpus-drift.sh
+```
+
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
 oracle for raise and printer changes. The first run writes a method-keyed JSON
 baseline of rendered bodies; the second run compares the current render against

@@ -112,6 +112,7 @@ static class Program
         bool qualityCardRisky = false;
         var corpusFidelityCaps = new List<int>();
         var corpusFidelityOracle = CorpusFidelityOracle.CompileBack;
+        var corpusProfile = CorpusProfile.RealWorld;
         int corpusMethodCap = int.MaxValue;
         bool json = false;
         int topPatterns = 10;
@@ -237,6 +238,9 @@ static class Program
                         break;
                     case "--corpus-fidelity-oracle":
                         corpusFidelityOracle = ParseCorpusFidelityOracle(NextArg(args, ref i, flag));
+                        break;
+                    case "--corpus-profile":
+                        corpusProfile = ParseCorpusProfile(NextArg(args, ref i, flag));
                         break;
                     case "--corpus-method-cap": corpusMethodCap = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--json": json = true; break;
@@ -403,7 +407,7 @@ static class Program
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle);
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile);
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
@@ -1542,6 +1546,15 @@ static class Program
                 $"Unknown corpus fidelity oracle '{value}'. Expected compile-back or rts-parity."),
         };
 
+    static CorpusProfile ParseCorpusProfile(string value)
+        => value.ToLowerInvariant() switch
+        {
+            "real-world" => CorpusProfile.RealWorld,
+            "opt-in-net11" => CorpusProfile.OptInNet11,
+            _ => throw new ArgumentException(
+                $"Unknown corpus profile '{value}'. Expected real-world or opt-in-net11."),
+        };
+
     static void PrintUsage() => Console.WriteLine("""
         usage: decompiler-harness [assembly-or-directory ...] [options]
 
@@ -1784,11 +1797,11 @@ static class Program
           --keep-generated-fixtures
                                 with --generated-fixtures: keep the temporary
                                 project and print its paths.
-          --emit-corpus-baseline <f>     run the real-world corpus sensor and write
+          --emit-corpus-baseline <f>     run the selected corpus sensor and write
                                 the current JSON baseline to <f>.
           --emit-corpus-snapshot <f>     alias for --emit-corpus-baseline; intended
                                 for daily artifact snapshots.
-          --diff-corpus-baseline <f>     run the real-world corpus sensor and fail
+          --diff-corpus-baseline <f>     run the selected corpus sensor and fail
                                 if current metrics regress beyond the tolerances
                                 in baseline <f>.
                                 Uses --compile-cap as a per-assembly semantic
@@ -1813,6 +1826,10 @@ static class Program
                                 (default) or rts-parity (aliases: return-to-sender,
                                 rts). RTS evaluates the same compile-back-selected
                                 target population without applying the compile-back floor.
+          --corpus-profile <name>        label corpus snapshots and cards as
+                                real-world (default) or opt-in-net11. Profiles
+                                keep curated feature metrics distinct from
+                                real-world quality rates.
           --corpus-method-cap <n>        with corpus baseline modes: cap the
                                 completeness/structuring scan to a deterministic
                                 hash-ranked sample of n methods per assembly.

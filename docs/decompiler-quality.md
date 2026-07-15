@@ -96,6 +96,12 @@ Use this order for risky decompiler work:
    with a documented shape reason, refresh the baseline, and prove a no-op
    `--emit-corpus-delta` stays empty.
 
+Compiler opt-in and preview lowerings use the separate net11 feature corpus
+rather than the real-world corpus. Its pinned-SDK lane measures decompiler
+quality over a stable feature population; its current-SDK lane reports compiler
+shape drift. Keeping those cards separate prevents curated runtime-async and
+updated-memory-safety density from distorting real-world rates.
+
 For #1175-class retained-label / forward-merge work, the interim bar is fidelity
 coverage over the methods the PR changes, especially methods in the
 forward-merge/structuring-residual population. If that population recompiles at a

@@ -19,6 +19,15 @@ internal enum CorpusFidelityOracle
     ReturnToSender,
 }
 
+internal enum CorpusProfile
+{
+    [JsonStringEnumMemberName("real-world")]
+    RealWorld,
+
+    [JsonStringEnumMemberName("opt-in-net11")]
+    OptInNet11,
+}
+
 internal static class CorpusSensor
 {
     const string ConditionalBranchBucket = "structuring: conditional-branch";
@@ -43,7 +52,8 @@ internal static class CorpusSensor
         int methodCap = int.MaxValue,
         int? workers = null,
         bool sequential = false,
-        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack)
+        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
+        CorpusProfile profile = CorpusProfile.RealWorld)
     {
         if (assemblies.Count == 0)
         {
@@ -76,7 +86,8 @@ internal static class CorpusSensor
             methodCap,
             workers,
             sequential,
-            fidelityOracle);
+            fidelityOracle,
+            profile);
         if (!qualityDiffCard)
             PrintSummary(current, fidelityReports);
 
@@ -96,7 +107,11 @@ internal static class CorpusSensor
 
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
-        var regressions = Compare(baseline, current, fidelityReports, gateAggregateRates: !qualityDiffCard || qualityCardRisky);
+        var regressions = Compare(
+            baseline,
+            current,
+            fidelityReports,
+            gateAggregateRates: ShouldGateAggregateRates(profile, qualityDiffCard, qualityCardRisky));
         if (emitDelta is not null)
         {
             EmitMethodDelta(emitDelta, baseline, current);
@@ -139,7 +154,8 @@ internal static class CorpusSensor
         int methodCap,
         int? workers,
         bool sequential,
-        CorpusFidelityOracle fidelityOracle)
+        CorpusFidelityOracle fidelityOracle,
+        CorpusProfile profile)
     {
         var completeness = AnalyzeCompleteness(assemblies, maxExamples, methodCap, workers, sequential);
         var methods = completeness.Methods.ToDictionary(MethodKey, StringComparer.Ordinal);
@@ -180,8 +196,8 @@ internal static class CorpusSensor
             selectedFidelity);
 
         var snapshot = new CorpusSensorSnapshot(
-            SchemaVersion: 1,
-            Description: "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
+            SchemaVersion: 2,
+            Description: DescriptionForProfile(profile),
             GeneratedUtc: DateTimeOffset.UtcNow,
             ValidityCompileCap: validityCompileCap,
             FidelityCompileCap: primaryFidelityCap,
@@ -190,10 +206,27 @@ internal static class CorpusSensor
             Assemblies: completeness.Assemblies,
             Methods: methods.Values.OrderBy(MethodKey, StringComparer.Ordinal).ToImmutableArray(),
             Metrics: metrics,
-            FidelityOracle: fidelityOracle);
+            FidelityOracle: fidelityOracle,
+            Profile: profile);
 
         return (snapshot, fidelityReports);
     }
+
+    internal static string DescriptionForProfile(CorpusProfile profile)
+        => profile switch
+        {
+            CorpusProfile.RealWorld
+                => "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
+            CorpusProfile.OptInNet11
+                => "#2759 net11 opt-in compiler-feature corpus: pinned runtime-async and updated-memory-safety fixtures.",
+            _ => throw new ArgumentOutOfRangeException(nameof(profile)),
+        };
+
+    internal static bool ShouldGateAggregateRates(
+        CorpusProfile profile,
+        bool qualityDiffCard,
+        bool qualityCardRisky)
+        => profile != CorpusProfile.RealWorld || !qualityDiffCard || qualityCardRisky;
 
     static CompletenessSensorMetrics AnalyzeCompleteness(IReadOnlyList<string> assemblies, int maxExamples, int methodCap, int? workers, bool sequential)
     {
@@ -783,6 +816,12 @@ internal static class CorpusSensor
         var currentFidelityCap = matchedFidelityReport?.Cap ?? current.FidelityCompileCap;
         bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
 
+        if (baseline.Profile != current.Profile)
+        {
+            failures.Add(
+                $"corpus profile differs (baseline {CorpusProfileName(baseline.Profile)}, "
+                + $"current {CorpusProfileName(current.Profile)})");
+        }
         if (current.ValidityCompileCap < baseline.ValidityCompileCap)
             failures.Add($"validity cap lower than baseline (baseline {baseline.ValidityCompileCap}, current {current.ValidityCompileCap})");
         if (currentFidelityCap < baseline.FidelityCompileCap)
@@ -1122,7 +1161,7 @@ internal static class CorpusSensor
         IReadOnlyList<string> regressions,
         bool risky)
     {
-        Console.WriteLine("### Decompiler quality diff");
+        Console.WriteLine(QualityCardHeadingForProfile(current.Profile));
         Console.WriteLine();
         Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
         if (current.MethodCap is { } cap)
@@ -1133,8 +1172,9 @@ internal static class CorpusSensor
         PrintBaselineStaleness(baseline, current);
         Console.WriteLine();
         PrintQualityMetricChanges(baseline, current);
-        PrintPinnedGate(baseline, current);
-        if (!risky)
+        if (current.Profile == CorpusProfile.RealWorld)
+            PrintPinnedGate(baseline, current);
+        if (!risky && current.Profile == CorpusProfile.RealWorld)
             PrintAdvisoryRateMovements(baseline, current);
         Console.WriteLine();
         Console.WriteLine(regressions.Count == 0
@@ -1146,7 +1186,7 @@ internal static class CorpusSensor
             Console.WriteLine("Regressions:");
             foreach (var regression in regressions)
                 Console.WriteLine($"- {regression}");
-            if (IsBaselineStale(baseline, current))
+            if (IsBaselineStale(baseline, current) && current.Profile == CorpusProfile.RealWorld)
             {
                 Console.WriteLine();
                 Console.WriteLine(
@@ -1155,8 +1195,25 @@ internal static class CorpusSensor
                     + "regressions are gated on the pinned-NuGet subset where available (a fixed method set), so any "
                     + "`(pinned)` regression listed here is a real decompiler delta, not drift.");
             }
+            else if (IsBaselineStale(baseline, current))
+            {
+                Console.WriteLine();
+                Console.WriteLine(
+                    "Caveat: the opt-in corpus population differs from its baseline. "
+                    + "Advance fixture sources or the pinned SDK and regenerate the baseline "
+                    + "together; otherwise treat this as unexpected corpus drift.");
+            }
+
         }
     }
+
+    internal static string QualityCardHeadingForProfile(CorpusProfile profile)
+        => profile switch
+        {
+            CorpusProfile.RealWorld => "### Decompiler quality diff",
+            CorpusProfile.OptInNet11 => "### Decompiler net11 opt-in feature diff",
+            _ => throw new ArgumentOutOfRangeException(nameof(profile)),
+        };
 
     /// <summary>
     /// Shows the pinned-NuGet-subset metrics that drive the PR quick verdict, so
@@ -1540,6 +1597,14 @@ internal static class CorpusSensor
             _ => throw new ArgumentOutOfRangeException(nameof(oracle)),
         };
 
+    static string CorpusProfileName(CorpusProfile profile)
+        => profile switch
+        {
+            CorpusProfile.RealWorld => "real-world",
+            CorpusProfile.OptInNet11 => "opt-in-net11",
+            _ => profile.ToString(),
+        };
+
     static void PrintRiskyCoverageGuidance(CorpusSensorSnapshot snapshot)
     {
         List<string> warnings = [];
@@ -1643,7 +1708,9 @@ internal sealed record CorpusSensorSnapshot(
     IReadOnlyList<CorpusMethodSnapshot>? Methods,
     CorpusSensorMetrics Metrics,
     [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusFidelityOracle>))]
-    CorpusFidelityOracle FidelityOracle = CorpusFidelityOracle.CompileBack);
+    CorpusFidelityOracle FidelityOracle = CorpusFidelityOracle.CompileBack,
+    [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusProfile>))]
+    CorpusProfile Profile = CorpusProfile.RealWorld);
 
 internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
 
