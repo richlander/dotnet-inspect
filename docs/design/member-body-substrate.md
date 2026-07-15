@@ -164,7 +164,11 @@ The same-reader body-composition callers are migrated onto handle addressing:
   falls back to the legacy name+ordinal path rather than mis-addressing.
 - **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
   `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
-  `(type, method, overloadIndex)` tuple.
+  `(type, method, overloadIndex)` tuple. Its render type carries the
+  offset-anchored `SourceLine` currency (`PrintRaised(fn, out statementLines)`),
+  so each diff row is anchored on the IL offset (`SourceCoordinate` = `IL_XXXX`,
+  falling back to `line:N` when the line owns no statement) — the same
+  offset axis the IL body diff and the fact plane already use.
 - **`MemberBodyProducer` attributes + accessors** — `ComposeMembers` resolves the
   validated member handle once and addresses both the member **body** and its
   **custom attributes** by it (`AttributeReader.RenderMethodAttributes(reader,
