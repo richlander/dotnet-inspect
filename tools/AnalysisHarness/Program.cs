@@ -41,6 +41,11 @@ const string Usage =
           and immediate consumer/registration shape. Separates proven immediate Invoke calls from
           trusted framework registration and unknown consumers, then reports downstream triage rows.
 
+      --recursive-traversal-census <file> [--max-depth N] [--top N] [--json]
+          Measurement-only census of Performance Triage rows reached from methods with an exact
+          in-loop self-recursive call. Reports the recursion edge, downstream invocation witness,
+          depth, provenance, and unchanged local multiplicity/loop semantics.
+
       --allocation-parity <expected-annotations.json> <actual-annotations.json> [--json]
           Compare allocation annotations from the legacy decompiler classifier and a candidate
           occurrence-derived projection. The gate is exact on id, IL offset, detail, and
@@ -98,6 +103,7 @@ string? precisionAssembly = null;
 string? allocationReadoutList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
+string? recursiveTraversalCensusList = null;
 string? allocationParityExpected = null;
 string? allocationParityActual = null;
 string? annotationParityCategory = null;
@@ -143,6 +149,9 @@ for (int i = 0; i < args.Length; i++)
             break;
         case "--deferred-callback-census":
             deferredCallbackCensusList = NextValue(args, ref i);
+            break;
+        case "--recursive-traversal-census":
+            recursiveTraversalCensusList = NextValue(args, ref i);
             break;
         case "--allocation-parity":
             allocationParityExpected = NextPathValue(args, ref i);
@@ -224,6 +233,9 @@ if (callerLoopCensusList is not null)
 
 if (deferredCallbackCensusList is not null)
     return RunDeferredCallbackCensus(deferredCallbackCensusList, maxDepth, top, json);
+
+if (recursiveTraversalCensusList is not null)
+    return RunRecursiveTraversalCensus(recursiveTraversalCensusList, maxDepth, top, json);
 
 if (allocationParityExpected is not null)
     return RunAnnotationParity("Allocation", allocationParityExpected, allocationParityActual, json);
@@ -344,6 +356,31 @@ static int RunDeferredCallbackCensus(string corpusList, int maxDepth, int top, b
 
     var report = DeferredCallbackCensus.Measure(paths, maxDepth);
     Console.Write(json ? DeferredCallbackCensus.ToJson(report) : DeferredCallbackCensus.FormatCard(report, top));
+    if (json)
+        Console.WriteLine();
+    return report.Failed == 0 ? 0 : 1;
+}
+
+static int RunRecursiveTraversalCensus(string corpusList, int maxDepth, int top, bool json)
+{
+    if (!File.Exists(corpusList))
+    {
+        Console.Error.WriteLine($"Corpus list not found: {corpusList}");
+        return 2;
+    }
+
+    var paths = File.ReadAllLines(corpusList)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0 && !line.StartsWith('#'))
+        .ToList();
+    if (paths.Count == 0)
+    {
+        Console.Error.WriteLine($"Corpus list is empty: {corpusList}");
+        return 2;
+    }
+
+    var report = RecursiveTraversalCensus.Measure(paths, maxDepth);
+    Console.Write(json ? RecursiveTraversalCensus.ToJson(report) : RecursiveTraversalCensus.FormatCard(report, top));
     if (json)
         Console.WriteLine();
     return report.Failed == 0 ? 0 : 1;

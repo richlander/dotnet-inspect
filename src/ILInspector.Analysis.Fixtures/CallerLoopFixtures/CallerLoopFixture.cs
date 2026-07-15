@@ -40,6 +40,78 @@ public class CallerLoopFixture
     public object RecursiveBox(int value)
         => value <= 0 ? value : RecursiveBox(value - 1);
 
+    public object? TraverseRecursively(int[] values, int depth)
+    {
+        object? result = BuildTraversalNode(depth);
+        foreach (int _ in values)
+        {
+            if (depth > 0)
+                result = TraverseRecursively(values, depth - 1);
+        }
+        return result;
+    }
+
+    public object? TraverseConditionally(int[] values, int depth, bool enabled)
+    {
+        object? result = BuildConditionalTraversalNode(enabled, depth);
+        foreach (int _ in values)
+        {
+            if (depth > 0)
+                result = TraverseConditionally(values, depth - 1, enabled);
+        }
+        return result;
+    }
+
+    public object? TraverseMutualA(int[] values, int depth)
+    {
+        object? result = BuildMutualTraversalNode(depth);
+        foreach (int _ in values)
+        {
+            if (depth > 0)
+                result = TraverseMutualB(values, depth - 1);
+        }
+        return result;
+    }
+
+    object? TraverseMutualB(int[] values, int depth)
+    {
+        object? result = null;
+        foreach (int _ in values)
+        {
+            if (depth > 0)
+                result = TraverseMutualA(values, depth - 1);
+        }
+        return result;
+    }
+
+    public virtual object? TraverseVirtually(int[] values, int depth)
+    {
+        object? result = BuildVirtualTraversalNode(depth);
+        foreach (int _ in values)
+        {
+            if (depth > 0)
+                result = TraverseVirtually(values, depth - 1);
+        }
+        return result;
+    }
+
+    public Delegate? LoadSelfFunctionInLoop(int count)
+    {
+        Func<int, Delegate?>? callback = null;
+        for (int i = 0; i < count; i++)
+            callback = LoadSelfFunctionInLoop;
+        return callback;
+    }
+
+    public object BuildTraversalNode(int value) => value;
+
+    public object? BuildConditionalTraversalNode(bool enabled, int value)
+        => enabled ? value : null;
+
+    public object BuildMutualTraversalNode(int value) => value;
+
+    public object BuildVirtualTraversalNode(int value) => value;
+
     public virtual object BoxVirtual(int value) => value;
 
     public object? InvokeVirtualInLoop(int count)
