@@ -250,9 +250,9 @@ pair. A shared base type would sit between them earning its keep from neither.
 The currency they truly share is finer, and lives one rung down: the
 **offset-anchored line**. Every rendered body — C# or IL — is an ordered sequence
 of lines, and each line carries its text plus the IL offset that anchors it. That
-line, not a result record, is the unit the correlation layer joins on — and it is
-already the codebase's shape (`IlProjection.AnnotatedInstrLine(int Offset, string
-Text)` is exactly this for IL).
+line, not a result record, is the unit the correlation layer joins on — and the
+IL fast path already had this shape, now unified onto `SourceLine`
+(`IlProjection.AnnotatedInstrLines` emits it).
 
 But one concrete type cannot be right for all four producers, because they are
 not the same **machine**, and a machine's result type is exactly what its
@@ -302,7 +302,9 @@ carried as structure:
 
 - **`SourceLine(string Text, int Offset)`** — the fast, medium-neutral line. Both
   the C# and IL fast paths are just display-ready text plus an anchor, so one type
-  serves both (it subsumes `IlProjection.AnnotatedInstrLine`). `Offset` is `-1`
+  serves both: the C# body projects through `ResearchViews.CSharpBodyLines` and the
+  IL fast path through `IlProjection.AnnotatedInstrLines` (whose old
+  `AnnotatedInstrLine` type this subsumed). `Offset` is `-1`
   when the line owns no IL (a brace, a blank).
 - **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
   IReadOnlyList<Annotation> Annotations)`** — the interleave currency. It carries
