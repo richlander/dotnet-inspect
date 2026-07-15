@@ -661,7 +661,8 @@ internal static class CSharpDeclarationWriter
     /// (e.g. <c>System.Collections.Generic.List&lt;System.Int32&gt;[]</c> →
     /// <c>System.Collections.Generic.List&lt;int&gt;[]</c>). Only whole dotted-name
     /// runs are considered, so a longer name that merely contains a primitive as a
-    /// substring (<c>System.Int32Enum</c>, <c>A.System.Int32</c>) is left untouched.
+    /// substring (<c>System.Int32Enum</c>, <c>A.System.Int32</c>) is left untouched,
+    /// as is an explicitly-escaped identifier (<c>@System.Int32</c>).
     /// The keyword pairs are the single source of truth in
     /// <see cref="PrimitiveTypeNames"/>, so this spelling always matches the rest of
     /// the C# layer. This is the authoritative primitive-alias rewriter; consumers
@@ -686,7 +687,11 @@ internal static class CSharpDeclarationWriter
                 end++;
 
             string run = type[index..end];
-            builder.Append(PrimitiveTypeNames.TryToKeyword(run, out var keyword) ? keyword : run);
+            // A run immediately preceded by '@' is an explicitly-escaped identifier
+            // (e.g. `@System.Int32`), not a primitive type reference; leave it as-is
+            // rather than emitting a malformed `@int`.
+            bool escaped = index > 0 && type[index - 1] == '@';
+            builder.Append(!escaped && PrimitiveTypeNames.TryToKeyword(run, out var keyword) ? keyword : run);
             index = end;
         }
         return builder.ToString();

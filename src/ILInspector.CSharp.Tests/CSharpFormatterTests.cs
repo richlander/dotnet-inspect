@@ -262,6 +262,9 @@ public sealed class CSharpFormatterTests
     [InlineData("A.System.Int32", "A.System.Int32")]
     [InlineData("System.Int32.MaxValue", "System.Int32.MaxValue")]
     [InlineData("System.Collections.Generic.List<System.Guid>", "System.Collections.Generic.List<System.Guid>")]
+    // An explicitly-escaped identifier (leading '@') is not a primitive reference.
+    [InlineData("@System.Int32", "@System.Int32")]
+    [InlineData("List<@System.Int32>", "List<@System.Int32>")]
     // Non-System text and already-keyword spellings pass through unchanged.
     [InlineData("int", "int")]
     [InlineData("MyNamespace.MyType", "MyNamespace.MyType")]
