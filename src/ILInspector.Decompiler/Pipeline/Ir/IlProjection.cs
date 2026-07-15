@@ -417,7 +417,7 @@ public static class IlProjection
         return new AnnotatedInstrPart(i.Offset, instruction.ToString(), string.Join("; ", annotations));
     }
 
-    static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+    static IReadOnlyList<SourceLine> AnnotatedInstrLines(
         ImportedMethod imported,
         IReadOnlyList<Instr> instructions,
         Dictionary<int, List<Annotations.Annotation>> factsByOffset,
@@ -427,7 +427,7 @@ public static class IlProjection
             .Select(i => FormatAnnotatedInstrPart(imported, i, factsByOffset, stackByOffset))
             .ToList();
         int commentColumn = CommentColumn(parts);
-        return [.. parts.Select(part => new AnnotatedInstrLine(part.Offset, FormatAnnotatedInstr(part, commentColumn)))];
+        return [.. parts.Select(part => new SourceLine(FormatAnnotatedInstr(part, commentColumn), part.Offset))];
     }
 
     static int CommentColumn(IReadOnlyList<AnnotatedInstrPart> parts)
@@ -452,9 +452,6 @@ public static class IlProjection
 
     readonly record struct AnnotatedInstrPart(int Offset, string Instruction, string Annotation);
 
-    /// <summary>One instruction's IL offset and its annotated text, for the mixed view.</summary>
-    public readonly record struct AnnotatedInstrLine(int Offset, string Text);
-
     /// <summary>
     /// Builds the per-instruction annotated IL lines (offset + text, no block or
     /// region scaffolding) for the mixed source view to bucket beneath C#
@@ -462,7 +459,7 @@ public static class IlProjection
     /// types and the hidden-fact classification, exactly as the flat annotated
     /// view does — so the two views never diverge on what an instruction says.
     /// </summary>
-    public static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+    public static IReadOnlyList<SourceLine> AnnotatedInstrLines(
         MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
         => AnnotatedInstrLines(source, Locate(source.Reader, type, method, overloadIndex, publicOnly));
 
@@ -471,11 +468,11 @@ public static class IlProjection
     /// method's own <see cref="MethodDefinitionHandle"/>, bypassing the
     /// name+overload-ordinal walk and its drift.
     /// </summary>
-    public static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+    public static IReadOnlyList<SourceLine> AnnotatedInstrLines(
         MetadataSource source, MethodDefinitionHandle methodHandle)
         => AnnotatedInstrLines(source, Locate(source.Reader, methodHandle));
 
-    static IReadOnlyList<AnnotatedInstrLine> AnnotatedInstrLines(
+    static IReadOnlyList<SourceLine> AnnotatedInstrLines(
         MetadataSource source, (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) located)
     {
         var (typeDef, methodDef, methodHandle) = located;

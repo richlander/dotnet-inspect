@@ -305,7 +305,7 @@ public static class ResearchViews
         string csText,
         IReadOnlyDictionary<IrNode, int> statementLines,
         IReadOnlyList<Annotation> annotations,
-        IReadOnlyList<IlProjection.AnnotatedInstrLine> annotatedInstrLines)
+        IReadOnlyList<SourceLine> annotatedInstrLines)
     {
         var spans = AnnotationAnchor.ComputeSpans(imported);
 
