@@ -128,11 +128,12 @@ public static class RecursiveTraversalCensus
         var methodTokens = methods
             .Select(static method => method.MetadataToken)
             .ToHashSet();
+        var methodMap = MethodDefinitionMap.Create(methods);
         var rootEvidence = directCalls
             .Where(call =>
                 call.Kind == CallKind.Call
                 && call.InLoop
-                && call.CalleeDefinitionToken == call.Caller.MetadataToken
+                && methodMap.Resolve(call) == call.Caller.MetadataToken
                 && methodTokens.Contains(call.Caller.MetadataToken))
             .OrderBy(static call => call.Caller.MetadataToken)
             .ThenBy(static call => call.ILOffset)

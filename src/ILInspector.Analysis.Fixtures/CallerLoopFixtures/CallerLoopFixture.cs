@@ -137,3 +137,19 @@ public sealed class CallerLoopConstructorTarget
 
     public object Boxed { get; }
 }
+
+public sealed class GenericTraversalFixture<T>
+{
+    public object? TraverseRecursively(int[] values, int depth)
+    {
+        object? result = BuildTraversalNode(depth);
+        foreach (int _ in values)
+        {
+            if (depth > 0)
+                result = TraverseRecursively(values, depth - 1);
+        }
+        return result;
+    }
+
+    public object BuildTraversalNode(int value) => value;
+}

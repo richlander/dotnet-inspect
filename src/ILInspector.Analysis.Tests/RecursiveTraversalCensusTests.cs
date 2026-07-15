@@ -20,11 +20,20 @@ public class RecursiveTraversalCensusTests
             && call.Callee.Name == "TraverseVirtually"
             && call.Kind == CallKind.CallVirtual
             && call.InLoop);
+        Assert.Contains(index.DirectCalls, static call =>
+            call.Caller.DeclaringType.Name == "GenericTraversalFixture`1"
+            && call.Caller.Name == "TraverseRecursively"
+            && call.Callee.Name == "TraverseRecursively"
+            && call.Kind == CallKind.Call
+            && call.InLoop
+            && call.CalleeDefinitionToken != call.Caller.MetadataToken);
 
         Assert.Contains(report.Roots, static root =>
             root.Method.Contains("::TraverseRecursively(", StringComparison.Ordinal));
         Assert.Contains(report.Roots, static root =>
             root.Method.Contains("::TraverseConditionally(", StringComparison.Ordinal));
+        Assert.Contains(report.Roots, static root =>
+            root.Method.Contains("GenericTraversalFixture", StringComparison.Ordinal));
         Assert.DoesNotContain(report.Roots, static root =>
             root.Method.Contains("::RecursiveBox(", StringComparison.Ordinal)
             || root.Method.Contains("::TraverseMutual", StringComparison.Ordinal)
@@ -32,7 +41,7 @@ public class RecursiveTraversalCensusTests
             || root.Method.Contains("::LoadSelfFunctionInLoop(", StringComparison.Ordinal));
 
         var direct = Assert.Single(report.Rows, static row =>
-            row.Member.Contains("::BuildTraversalNode(", StringComparison.Ordinal));
+            row.Member.Contains("CallerLoopFixture::BuildTraversalNode(", StringComparison.Ordinal));
         Assert.Equal(RecursiveTraversalClassification.Direct, direct.Classification);
         Assert.Equal(1, direct.DownstreamDepth);
         Assert.Equal("once", direct.LocalMultiplicity);
@@ -47,6 +56,12 @@ public class RecursiveTraversalCensusTests
         Assert.Equal(RecursiveTraversalClassification.Direct, conditional.Classification);
         Assert.Equal("conditional", conditional.LocalMultiplicity);
         Assert.False(conditional.LocalInLoop);
+
+        var generic = Assert.Single(report.Rows, static row =>
+            row.Member.Contains("GenericTraversalFixture", StringComparison.Ordinal)
+            && row.Member.Contains("::BuildTraversalNode(", StringComparison.Ordinal));
+        Assert.Equal(RecursiveTraversalClassification.Direct, generic.Classification);
+        Assert.Equal(1, generic.DownstreamDepth);
 
         Assert.DoesNotContain(report.Rows, static row =>
             (row.Member.Contains("::BuildMutualTraversalNode(", StringComparison.Ordinal)
