@@ -201,6 +201,7 @@ public sealed record CSharpDiffFailureRow(
 internal sealed record CSharpSemanticOperation(
     CSharpDiffOperationKind Kind,
     int Line,
+    int Offset,
     string Value,
     string Text);
 
@@ -283,13 +284,13 @@ public static class CSharpBodyDiff
                 return new CSharpCanonicalization.Absent("method has no body");
             if (render.State == CSharpRenderState.Failed)
                 return new CSharpCanonicalization.Failed(
-                    render.Lines.Length == 0 ? "C# body rendering failed" : render.Lines[0]);
+                    render.Lines.Count == 0 ? "C# body rendering failed" : render.Lines[0].Text);
 
-            if (render.Lines.Length > MaxLcsLines)
+            if (render.Lines.Count > MaxLcsLines)
                 return new CSharpCanonicalization.Failed(
-                    $"C# body has {render.Lines.Length} lines; limit is {MaxLcsLines}");
+                    $"C# body has {render.Lines.Count} lines; limit is {MaxLcsLines}");
 
-            return new CSharpCanonicalization.Body(CanonicalizeRenderedLines(render.Lines));
+            return new CSharpCanonicalization.Body(CanonicalizeRenderedLines([.. render.Lines.Select(line => line.Text)]));
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
@@ -398,19 +399,42 @@ public static class CSharpBodyDiff
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, MetadataSource source)
     {
         if (!entry.HasBody)
-            return new CSharpMethodRender(CSharpRenderState.Absent, ["/* no method body */"], DecompilationFidelity.IlOnly);
+            return new CSharpMethodRender(CSharpRenderState.Absent, [new SourceLine("/* no method body */", -1)], DecompilationFidelity.IlOnly);
 
         var function = IrImporter.Import(source, entry.MethodHandle);
         if (function is null)
-            return new CSharpMethodRender(CSharpRenderState.Absent, ["/* no method body */"], DecompilationFidelity.IlOnly);
+            return new CSharpMethodRender(CSharpRenderState.Absent, [new SourceLine("/* no method body */", -1)], DecompilationFidelity.IlOnly);
 
-        var result = CSharpPrinter.PrintRaised(function);
+        var result = CSharpPrinter.PrintRaised(function, out var statementLines);
         return result.Succeeded
-            ? new CSharpMethodRender(CSharpRenderState.Rendered, SplitLines(result.Output), result.Fidelity)
+            ? new CSharpMethodRender(CSharpRenderState.Rendered, BuildSourceLines(result.Output, statementLines), result.Fidelity)
             : new CSharpMethodRender(
                 CSharpRenderState.Failed,
-                [$"/* decompile failed: {string.Join("; ", result.Diagnostics.Select(diagnostic => diagnostic.Message))} */"],
+                [new SourceLine($"/* decompile failed: {string.Join("; ", result.Diagnostics.Select(diagnostic => diagnostic.Message))} */", -1)],
                 result.Fidelity);
+    }
+
+    // Project the raised C# output into the offset-anchored SourceLine currency the
+    // diff aligns over: text is the exact SplitLines rendering (untrimmed, so line
+    // identity and LCS stay unchanged), and each line carries the smallest source
+    // offset among the statements that start on it (-1 when the line owns none).
+    static IReadOnlyList<SourceLine> BuildSourceLines(string? output, IReadOnlyDictionary<IrNode, int> statementLines)
+    {
+        var lineOffsets = new Dictionary<int, int>();
+        foreach (var (node, line) in statementLines)
+        {
+            if (node.SourceOffset < 0)
+                continue;
+            lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
+                ? Math.Min(existing, node.SourceOffset)
+                : node.SourceOffset;
+        }
+
+        var textLines = SplitLines(output);
+        var lines = new SourceLine[textLines.Length];
+        for (int i = 0; i < textLines.Length; i++)
+            lines[i] = new SourceLine(textLines[i], lineOffsets.GetValueOrDefault(i, -1));
+        return lines;
     }
 
     static IEnumerable<CSharpMethodEntry> EnumerateMethods(MetadataSource source, string path, string stableAssemblyKey, bool includeNonPublic, IReadOnlySet<string>? typeFilters)
@@ -935,7 +959,7 @@ public static class CSharpBodyDiff
     {
         var oldLines = oldRender.Lines;
         var newLines = newRender.Lines;
-        if (oldRender.State == newRender.State && oldLines.SequenceEqual(newLines))
+        if (oldRender.State == newRender.State && oldLines.Select(line => line.Text).SequenceEqual(newLines.Select(line => line.Text)))
             return;
 
         if (oldRender.State != CSharpRenderState.Rendered || newRender.State != CSharpRenderState.Rendered)
@@ -944,16 +968,16 @@ public static class CSharpBodyDiff
             return;
         }
 
-        if (oldLines.Length > MaxLcsLines || newLines.Length > MaxLcsLines)
+        if (oldLines.Count > MaxLcsLines || newLines.Count > MaxLcsLines)
         {
             int hunk = hunkId++;
-            string message = $"/* C# diff skipped: old body has {oldLines.Length} lines, new body has {newLines.Length} lines; limit is {MaxLcsLines} */";
+            string message = $"/* C# diff skipped: old body has {oldLines.Count} lines, new body has {newLines.Count} lines; limit is {MaxLcsLines} */";
             failureRows.Add(CreateFailureRow(
                 entry,
                 CSharpDiffFailureKind.BodyDiffSkipped,
                 "Skipped C# body diff.",
                 side: null,
-                detail: $"old body has {oldLines.Length} lines, new body has {newLines.Length} lines; limit is {MaxLcsLines}",
+                detail: $"old body has {oldLines.Count} lines, new body has {newLines.Count} lines; limit is {MaxLcsLines}",
                 hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; old body exceeds line limit.", operationKind: CSharpDiffOperationKind.BodyDiffSkipped));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), message, "csharp.body-diff.skipped", "Skipped C# body diff; new body exceeds line limit.", operationKind: CSharpDiffOperationKind.BodyDiffSkipped));
@@ -970,7 +994,7 @@ public static class CSharpBodyDiff
             newIndex = nextNew + 1;
         }
 
-        AddUnmatched(rows, entry, oldRender, oldIndex, oldLines.Length, newRender, newIndex, newLines.Length, ref hunkId);
+        AddUnmatched(rows, entry, oldRender, oldIndex, oldLines.Count, newRender, newIndex, newLines.Count, ref hunkId);
     }
 
     static void AddUnmatched(
@@ -1013,7 +1037,7 @@ public static class CSharpBodyDiff
                 CSharpDiffFailureKind.NewBodyMissing,
                 "New method has no C# body.",
                 side: "new",
-                detail: newRender.Lines[0],
+                detail: newRender.Lines[0].Text,
                 hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), "/* method body removed */", "csharp.method.body-removed", "Removed C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
             return;
@@ -1026,7 +1050,7 @@ public static class CSharpBodyDiff
                 CSharpDiffFailureKind.OldBodyMissing,
                 "Old method has no C# body.",
                 side: "old",
-                detail: oldRender.Lines[0],
+                detail: oldRender.Lines[0].Text,
                 hunkId: hunk));
             rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), "/* method body added */", "csharp.method.body-added", "Added C# method body.", operationKind: CSharpDiffOperationKind.MethodBody));
             return;
@@ -1039,9 +1063,9 @@ public static class CSharpBodyDiff
                 CSharpDiffFailureKind.OldDecompileFailure,
                 "Old method body decompilation failed.",
                 side: "old",
-                detail: oldRender.Lines[0],
+                detail: oldRender.Lines[0].Text,
                 hunkId: hunk));
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.decompile.failed", "Old method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0].Text, "csharp.decompile.failed", "Old method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
         }
 
         if (newRender.State is CSharpRenderState.Failed)
@@ -1051,9 +1075,9 @@ public static class CSharpBodyDiff
                 CSharpDiffFailureKind.NewDecompileFailure,
                 "New method body decompilation failed.",
                 side: "new",
-                detail: newRender.Lines[0],
+                detail: newRender.Lines[0].Text,
                 hunkId: hunk));
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.decompile.failed", "New method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0].Text, "csharp.decompile.failed", "New method body decompilation failed.", operationKind: CSharpDiffOperationKind.DecompileFailure));
         }
 
         if (oldRender.State is CSharpRenderState.Absent)
@@ -1063,9 +1087,9 @@ public static class CSharpBodyDiff
                 CSharpDiffFailureKind.OldBodyMissing,
                 "Old method has no C# body.",
                 side: "old",
-                detail: oldRender.Lines[0],
+                detail: oldRender.Lines[0].Text,
                 hunkId: hunk));
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0], "csharp.method.no-body", "Old method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Remove, null, oldRender.Fidelity.ToString(), oldRender.Lines[0].Text, "csharp.method.no-body", "Old method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
         }
 
         if (newRender.State is CSharpRenderState.Absent)
@@ -1075,9 +1099,9 @@ public static class CSharpBodyDiff
                 CSharpDiffFailureKind.NewBodyMissing,
                 "New method has no C# body.",
                 side: "new",
-                detail: newRender.Lines[0],
+                detail: newRender.Lines[0].Text,
                 hunkId: hunk));
-            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0], "csharp.method.no-body", "New method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
+            rows.Add(CreateRow(entry, hunk, CSharpDiffKind.Add, null, newRender.Fidelity.ToString(), newRender.Lines[0].Text, "csharp.method.no-body", "New method has no C# body.", operationKind: CSharpDiffOperationKind.MethodBody));
         }
 
         if (oldRender.State is CSharpRenderState.Rendered)
@@ -1233,20 +1257,21 @@ public static class CSharpBodyDiff
             static (oldValue, newValue) => $"Changed call from '{oldValue}' to '{newValue}'");
     }
 
-    static ImmutableArray<CSharpSemanticOperation> BuildSemanticOperations(string[] lines, int start, int end)
+    static ImmutableArray<CSharpSemanticOperation> BuildSemanticOperations(IReadOnlyList<SourceLine> lines, int start, int end)
     {
         var operations = ImmutableArray.CreateBuilder<CSharpSemanticOperation>();
         for (int i = start; i < end; i++)
         {
-            string line = lines[i];
+            string line = lines[i].Text;
+            int offset = lines[i].Offset;
             int lineNumber = i + 1;
-            operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.Line, lineNumber, line, line));
+            operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.Line, lineNumber, offset, line, line));
             if (TryParseSwitchCase(line, out var label))
-                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.SwitchCase, lineNumber, label, line));
+                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.SwitchCase, lineNumber, offset, label, line));
             if (TryParseReturnExpression(line, out var expression))
-                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.ReturnExpression, lineNumber, expression, line));
+                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.ReturnExpression, lineNumber, offset, expression, line));
             if (TryParseCallExpression(line, out var call))
-                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.Invocation, lineNumber, call, line));
+                operations.Add(new CSharpSemanticOperation(CSharpDiffOperationKind.Invocation, lineNumber, offset, call, line));
         }
 
         return operations.ToImmutable();
@@ -1748,14 +1773,14 @@ public static class CSharpBodyDiff
         return -1;
     }
 
-    static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(IReadOnlyList<string> oldLines, IReadOnlyList<string> newLines)
+    static List<(int OldIndex, int NewIndex)> LongestCommonSubsequence(IReadOnlyList<SourceLine> oldLines, IReadOnlyList<SourceLine> newLines)
     {
         var lengths = new int[oldLines.Count + 1, newLines.Count + 1];
         for (int oldIndex = oldLines.Count - 1; oldIndex >= 0; oldIndex--)
         {
             for (int newIndex = newLines.Count - 1; newIndex >= 0; newIndex--)
             {
-                lengths[oldIndex, newIndex] = string.Equals(oldLines[oldIndex], newLines[newIndex], StringComparison.Ordinal)
+                lengths[oldIndex, newIndex] = string.Equals(oldLines[oldIndex].Text, newLines[newIndex].Text, StringComparison.Ordinal)
                     ? lengths[oldIndex + 1, newIndex + 1] + 1
                     : Math.Max(lengths[oldIndex + 1, newIndex], lengths[oldIndex, newIndex + 1]);
             }
@@ -1766,7 +1791,7 @@ public static class CSharpBodyDiff
         int j = 0;
         while (i < oldLines.Count && j < newLines.Count)
         {
-            if (string.Equals(oldLines[i], newLines[j], StringComparison.Ordinal))
+            if (string.Equals(oldLines[i].Text, newLines[j].Text, StringComparison.Ordinal))
             {
                 pairs.Add((i, j));
                 i++;
@@ -1829,7 +1854,7 @@ public static class CSharpBodyDiff
         bool HasBody,
         string BodyFingerprint);
 
-    sealed record CSharpMethodRender(CSharpRenderState State, string[] Lines, DecompilationFidelity Fidelity);
+    sealed record CSharpMethodRender(CSharpRenderState State, IReadOnlyList<SourceLine> Lines, DecompilationFidelity Fidelity);
 
     internal sealed class SourceCache : IDisposable
     {
