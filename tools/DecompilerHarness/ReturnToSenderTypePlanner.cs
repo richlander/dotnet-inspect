@@ -1997,65 +1997,6 @@ public static class CompileBackSourceComposer
             reader.GetTypeDefinition(method.GetDeclaringType()),
             method).Signature.TypeParameters);
 
-    static IReadOnlyList<CompileBackTypeParameter> TypeParameters(MetadataReader reader, TypeDefinition type)
-    {
-        var handles = type.GetGenericParameters().ToArray();
-        int inheritedCount = 0;
-        var declaringType = type.GetDeclaringType();
-        if (!declaringType.IsNil)
-            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
-
-        return TypeParameters(reader, handles.Skip(inheritedCount), GenericContext.ForType(reader, type));
-    }
-
-    static IReadOnlyList<CompileBackTypeParameter> TypeParameters(
-        MetadataReader reader,
-        IEnumerable<GenericParameterHandle> handles,
-        GenericContext context)
-    {
-        var parameters = new List<CompileBackTypeParameter>();
-        foreach (var handle in handles)
-        {
-            var parameter = reader.GetGenericParameter(handle);
-            var constraints = new List<string>();
-            var attributes = parameter.Attributes;
-            bool isStruct = (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
-            if (GenericConstraintKeywords.PrimaryKeyword(attributes, nullableFlag: 0, isUnmanaged: false) is { } primaryKeyword)
-                constraints.Add(primaryKeyword);
-
-            foreach (var constraintHandle in parameter.GetConstraints())
-            {
-                var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                if (ConstraintTypeName(reader, constraint.Type, context) is { Length: > 0 } constraintName)
-                {
-                    if (isStruct && constraintName is "System.ValueType" or "ValueType")
-                        continue;
-                    constraints.Add(constraintName);
-                }
-            }
-
-            if (GenericConstraintKeywords.NewConstraintKeyword(attributes) is { } newConstraint)
-                constraints.Add(newConstraint);
-
-            string? variance = GenericConstraintKeywords.VarianceKeyword(attributes);
-            parameters.Add(new CompileBackTypeParameter(
-                reader.GetString(parameter.Name),
-                constraints,
-                variance));
-        }
-
-        return parameters;
-    }
-
-    static string? ConstraintTypeName(MetadataReader reader, EntityHandle handle, GenericContext context)
-        => handle.Kind switch
-        {
-            HandleKind.TypeDefinition => CompileBackTypeIdentity.FromDefinition(reader, reader.GetTypeDefinition((TypeDefinitionHandle)handle)).FullName,
-            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)handle)),
-            HandleKind.TypeSpecification => GuardedSignatureText.TypeSpecText(reader, (TypeSpecificationHandle)handle, context),
-            _ => null,
-        };
-
     static CompileBackPrimaryConstructor? PrimaryConstructorFromPrologue(
         MetadataReader reader,
         MethodDefinition method,
@@ -3044,9 +2985,7 @@ public static class CompileBackSourceComposer
                 MetadataName = requirement.Type.MetadataName,
                 Kind = TypeKindText(kind),
                 BaseType = BaseTypeSignature(reader, typeDef, kind)?.DisplayName,
-                TypeParameters = TypeParameters(reader, typeDef)
-                    .Select(ToApiTypeParameter)
-                    .ToList(),
+                TypeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDef).ToList(),
                 Interfaces = InterfaceSignatures(reader, typeDef)
                     .Select(signature => signature.DisplayName)
                     .ToList(),
@@ -3081,14 +3020,6 @@ public static class CompileBackSourceComposer
                 CompileBackTypeKind.Enum => "enum",
                 CompileBackTypeKind.Delegate => "delegate",
                 _ => throw new NotSupportedException($"Unsupported RTS type kind '{kind}'."),
-            };
-
-        static TypeParameter ToApiTypeParameter(CompileBackTypeParameter parameter)
-            => new()
-            {
-                Name = parameter.Name,
-                Constraints = parameter.Constraints.ToList(),
-                Variance = parameter.Variance,
             };
 
         static CompileBackMemberRequirement DelegateInvokeRequirement(

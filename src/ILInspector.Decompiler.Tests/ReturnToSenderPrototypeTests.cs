@@ -4337,7 +4337,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void ReturnToSenderTypePlanner_NestedGenericTypeParametersSkipDeclaringTypeParameters()
+    public void GetTypeParameters_NestedGenericType_SkipsDeclaringTypeParameters()
     {
         var assemblyPath = CompileFixture("""
             public class Outer<T>
@@ -4354,13 +4354,8 @@ public class ReturnToSenderPrototypeTests
             var nested = reader.TypeDefinitions
                 .Select(handle => reader.GetTypeDefinition(handle))
                 .Single(type => reader.GetString(type.Name).StartsWith("Inner", StringComparison.Ordinal));
-            var method = typeof(CompileBackSourceComposer).GetMethod(
-                "TypeParameters",
-                BindingFlags.NonPublic | BindingFlags.Static,
-                [typeof(MetadataReader), typeof(TypeDefinition)]);
 
-            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
-                method?.Invoke(null, [reader, nested]));
+            var typeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, nested);
             var typeParameter = Assert.Single(typeParameters);
             Assert.Equal("U", typeParameter.Name);
         }
@@ -4371,7 +4366,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void ReturnToSenderTypePlanner_TypeParametersPreserveDelegateVariance()
+    public void GetTypeParameters_PreservesDelegateVariance()
     {
         var assemblyPath = CompileFixture("""
             public delegate void Handler<in T>(T value);
@@ -4383,13 +4378,8 @@ public class ReturnToSenderPrototypeTests
             var type = reader.TypeDefinitions
                 .Select(handle => reader.GetTypeDefinition(handle))
                 .Single(type => reader.GetString(type.Name).StartsWith("Handler", StringComparison.Ordinal));
-            var method = typeof(CompileBackSourceComposer).GetMethod(
-                "TypeParameters",
-                BindingFlags.NonPublic | BindingFlags.Static,
-                [typeof(MetadataReader), typeof(TypeDefinition)]);
 
-            var typeParameters = Assert.IsAssignableFrom<IReadOnlyList<CompileBackTypeParameter>>(
-                method?.Invoke(null, [reader, type]));
+            var typeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, type);
             var typeParameter = Assert.Single(typeParameters);
             Assert.Equal("T", typeParameter.Name);
             Assert.Equal("in", typeParameter.Variance);

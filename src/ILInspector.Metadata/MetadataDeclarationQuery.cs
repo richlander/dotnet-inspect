@@ -200,6 +200,27 @@ public static class MetadataDeclarationQuery
         return type;
     }
 
+    /// <summary>
+    /// The C#-declaration type parameters for a type — its own parameters only,
+    /// excluding any inherited from an enclosing generic type (which a nested
+    /// type's C# declaration does not repeat). Constraint and variance tokens are
+    /// produced from metadata facts; C# spelling of the resulting names is the
+    /// printer's responsibility.
+    /// </summary>
+    public static IReadOnlyList<TypeParameter> GetTypeParameters(MetadataReader reader, TypeDefinition typeDef)
+    {
+        var handles = typeDef.GetGenericParameters();
+        var inheritedCount = 0;
+        var declaringType = typeDef.GetDeclaringType();
+        if (!declaringType.IsNil)
+            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
+
+        return TypeParameters(
+            reader,
+            handles.Skip(inheritedCount),
+            GenericContext.ForType(reader, typeDef));
+    }
+
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -673,7 +694,7 @@ public static class MetadataDeclarationQuery
 
     static IReadOnlyList<TypeParameter> TypeParameters(
         MetadataReader reader,
-        GenericParameterHandleCollection handles,
+        IEnumerable<GenericParameterHandle> handles,
         GenericContext context)
     {
         var parameters = new List<TypeParameter>();
@@ -704,6 +725,7 @@ public static class MetadataDeclarationQuery
             {
                 Name = reader.GetString(parameter.Name),
                 Constraints = constraints,
+                Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
             });
         }
 
