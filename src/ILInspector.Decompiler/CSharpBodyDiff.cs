@@ -423,11 +423,12 @@ public static class CSharpBodyDiff
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, line) in statementLines)
         {
-            if (node.SourceOffset < 0)
+            int start = StatementStartOffset(node);
+            if (start < 0)
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
-                ? Math.Min(existing, node.SourceOffset)
-                : node.SourceOffset;
+                ? Math.Min(existing, start)
+                : start;
         }
 
         var textLines = SplitLines(output);
@@ -435,6 +436,21 @@ public static class CSharpBodyDiff
         for (int i = 0; i < textLines.Length; i++)
             lines[i] = new SourceLine(textLines[i], lineOffsets.GetValueOrDefault(i, -1));
         return lines;
+    }
+
+    // The IL offset a statement begins at: the smallest source offset in its whole
+    // subtree, not just the statement node's own offset. A statement node is anchored
+    // to its defining opcode (e.g. `return x` to the trailing `ret`), which sits after
+    // the IL that computes its operands; walking the subtree recovers the offset of the
+    // first instruction that belongs to the statement, so the diff coordinate lines up
+    // with where the statement's IL — and thus any change to it — actually starts.
+    static int StatementStartOffset(IrNode node)
+    {
+        int min = node.SourceOffset >= 0 ? node.SourceOffset : int.MaxValue;
+        foreach (var descendant in node.Descendants)
+            if (descendant.SourceOffset >= 0 && descendant.SourceOffset < min)
+                min = descendant.SourceOffset;
+        return min == int.MaxValue ? -1 : min;
     }
 
     static IEnumerable<CSharpMethodEntry> EnumerateMethods(MetadataSource source, string path, string stableAssemblyKey, bool includeNonPublic, IReadOnlySet<string>? typeFilters)
