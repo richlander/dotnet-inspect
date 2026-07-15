@@ -1,61 +1,96 @@
 # Agent Instructions
 
-## Repository map
+## Start here
 
-Read this file first, then use the docs it points to:
+`dotnet-inspect` is a general .NET inspection tool spanning packages, restored
+projects, platform libraries, metadata, APIs, dependencies, source provenance,
+analysis, Findings, implementation diffs, and decompilation.
 
-- `README.md`: human and agent entrypoint for capabilities, commands, and common examples.
-- `docs/overview.md`: minimum system/architecture context for this repo.
-- `docs/architecture.md`: deeper architecture and command model details.
-- `docs/design/`: focused design notes for rendering, sections, schemas, version resolution, and related systems.
-- `taste/skill-guidance.md`: examples and rules for maintaining `skills/dotnet-inspect/SKILL.md`.
-- `skills/dotnet-inspect/SKILL.md`: the base agent skill printed by `dotnet-inspect skill`; a tight router (kept at/under 50 lines) that ends with a generated list of focused skills.
-- `skills/<scenario>/SKILL.md`: focused scenario sub-skills printed by `dotnet-inspect skill <name>` (e.g. `query`, `compatibility`, `signals`). Register each in `SkillCommand.Skills`; its one-line description comes from the YAML frontmatter `description:` (the single source of truth).
+Read:
 
-Keep this file as a resolver plus essential repo workflow rules. Put detailed architecture and taste guidance in docs instead of expanding `AGENTS.md`.
+1. `README.md` for current capabilities, commands, and examples.
+2. `docs/overview.md` for the minimum system and ownership model.
+3. `docs/architecture.md` for command, source, and evidence architecture.
+4. The task-specific docs below before changing that area.
 
-## Product constraints
+Keep this file to repository-wide engineering and workflow rules. Detailed
+design, subsystem mechanics, and historical context belong in `docs/`, tool
+READMEs, and focused skills.
 
-Keep the product path SRM-only, NativeAOT-friendly, Roslyn-free, and free of
-inspected-assembly loading. This applies to every command, not just the
-decompiler.
+## Task-specific guidance
 
-## Decompiler and analysis work
+| Area | Read first |
+| --- | --- |
+| Commands, sections, and output | `docs/design/progressive-disclosure.md`, `docs/design/output-shapes.md`, `docs/design/style-guide.md`, `docs/design/section-model.md` |
+| Metadata, source, and acquisition | `docs/design/assembly-inspection-query.md`, `docs/design/source-finding-producers.md`, `docs/pdb-acquisition.md`, `docs/design/version-resolution.md` |
+| Analysis, Findings, and Research | `docs/design/finding-nomenclature.md`, `docs/design/finding-producers.md`, `docs/design/finding-adoption.md`, `docs/design/finding-coordinates.md`, `docs/design/analysis-ux-scopes.md` |
+| Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
+| Decompiler behavior or harnesses | `docs/decompiler-quality.md`, `docs/decompiler-correctness-pipeline.md`, `docs/decompiler-raise-discipline.md`, `docs/design/decompiler-substrate.md`, `tools/DecompilerHarness/README.md` |
+| Skills | `taste/skill-guidance.md`, `skills/dotnet-inspect/SKILL.md`, and the relevant `skills/<scenario>/SKILL.md` |
+| Release and publishing | `docs/release-workflow.md` |
 
-dotnet-inspect is a general assembly and package inspection tool; the decompiler
-and analysis paths are one workstream among several, not the whole repo. That
-work does carry its own deep discipline — when doing decompiler raise,
-adversarial-fixture, or predicate work, start with these docs and follow them
-over any summary here:
+Some files under `docs/design/` record proposals or design history. Prefer
+current behavior in `README.md`, `docs/overview.md`, `docs/architecture.md`,
+focused current docs, and tests when sources disagree.
 
-- `docs/decompiler-quality.md` and `docs/decompiler-correctness-pipeline.md` —
-  overall quality workflow and the correctness-pipeline stages/evidence (use the
-  latter to name the highest relevant proof "boss").
-- `docs/decompiler-raise-discipline.md` — evidence, typing, scoping, and
-  annotation rules for raise/typing/emission changes. Non-negotiable there:
-  render-text A/B against an explicit merge-base ref, no claimed win before the
-  A/B lands, and a sibling-rule grep after every rule fix.
-- `docs/design/decompiler-substrate.md` — read before adding or changing shared
-  rewrite-gate predicates. Use **decompiler substrate** for shared pass-evidence
-  layers and **identity predicates** for exact gates; avoid **fact substrate**.
+When adding a focused skill, register it in `SkillCommand.Skills`. Its YAML
+frontmatter `description:` is the single source of truth for the generated
+skill listing.
 
-Prefer high-value hardening (measured correctness/validity bugs, adversarial
-passes over recent or broad raises) over easy changes made just for motion. Use
-PR-intent-informed adversarial reviews for recent or broad raises: reconstruct
-the raise claim, then falsify the discriminator with near-miss negative fixtures.
-For ECMA/pipeline-contract concerns, run a stepper semantic audit
-(`--dump --steps --diff --cfg --facts --remarks`) to find the first illegal
-intermediate rewrite.
+## Repository-wide engineering constraints
 
-## File-Based Apps
+- Keep product paths SRM-only, NativeAOT-friendly, Roslyn-free, and free of
+  inspected-assembly loading.
+- Preserve layer ownership. Metadata owns metadata facts, Analysis owns IL-body
+  evidence, CSharp owns C# spelling and type views, Research composes evidence,
+  and the CLI owns command and presentation concerns.
+- Reuse existing typed models, Finding contracts, section schemas, serializers,
+  and resolution services before adding parallel abstractions.
+- Preserve behavior-safe defaults and progressive disclosure. Network,
+  source-content, exhaustive, or otherwise expensive work must remain explicit
+  or capability-gated.
+- Keep failure visible. Do not turn decode, acquisition, analysis, or rendering
+  failures into success-shaped empty output.
+- Treat identifiers, provenance, local evidence, correspondence, and
+  presentation as separate concerns. Do not infer one from display text when a
+  typed identity exists.
 
-Do NOT use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files. Always use file-based apps (new in .NET 10). Always prefer file-based apps over Python, unless a specific Python library is needed.
+## Evidence and validation
 
-Run with `dotnet run /tmp/check.cs`. Write throwaway scripts to `/tmp/`.
+Match evidence to the claim and use the smallest existing check that proves it:
 
-Reference: <https://raw.githubusercontent.com/dotnet/docs/refs/heads/main/docs/core/sdk/file-based-apps.md>
+- Start with focused tests for the changed subsystem; expand only when the
+  change crosses boundaries or focused results expose broader risk.
+- For compiler-, metadata-, or IL-shape claims, include a compiled fixture or
+  real artifact canary when practical. Synthetic fixtures are appropriate for
+  unreachable states and seam isolation, but not as the only proof of a
+  compiler-produced shape.
+- Pair every new discriminator or heuristic with close negative cases. Preserve
+  candidate identity, provenance, local semantics, and default output unless
+  the change explicitly intends otherwise.
+- For output changes, exercise the affected Markdown and structured modes,
+  schema/query fields, ordering, and verbosity behavior.
+- For corpus or performance claims, record the pinned input, command, baseline,
+  and result. Static analysis proves structural evidence, not runtime heat,
+  frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
+- Documentation-only changes that make no measured behavior claim require
+  Markdown validation, not product builds or tests.
 
-### File-based app with project reference
+Decompiler raising, typing, structuring, fidelity, or printer changes have
+additional evidence requirements. Follow the decompiler docs and PR templates
+rather than duplicating their evolving commands and gates here.
+
+## File-based apps
+
+Do not use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files.
+Prefer .NET file-based apps for throwaway probes unless a specific Python
+library is needed. Write probes under `/tmp/` and run them with:
+
+```bash
+dotnet run /tmp/check.cs
+```
+
+A file-based app can reference a project directly:
 
 ```csharp
 #:project ../src/MyLib/MyLib.csproj
@@ -66,14 +101,10 @@ var items = await MyService.LoadAsync();
 Console.WriteLine($"Found {items.Count} items");
 ```
 
-## Building and Testing
+## Building and testing
 
-Repository development tracks .NET 11 daily SDKs so the repo can follow
-compiler-produced shapes (which matters most for decompiler work) before monthly
-previews. Published tool users are not affected by this repo-development
-requirement.
-
-Before installing an SDK or changing PATH, inspect the current `dotnet`:
+Repository development uses a .NET 11 daily SDK. Before installing an SDK or
+changing `PATH`, inspect the current selection:
 
 ```bash
 command -v dotnet
@@ -81,16 +112,11 @@ dotnet --version
 ```
 
 If `dotnet` already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
-`dotnet` commands for this repo. Do not wrap those commands in `dotnetup dotnet`
-unless you need to force an isolated dotnetup install.
-
-If `dotnet` is centrally installed (for example under `/usr/bin`,
+`dotnet` commands. If it is centrally installed (for example under `/usr/bin`,
 `/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`), stop and ask
-for guidance before installing an additional user-level SDK or changing shell
-configuration. Do not remove, shadow, or replace a centrally managed install
-unless the user explicitly approves it.
+before installing, replacing, or shadowing it.
 
-Use `dotnetup` for non-invasive local SDK acquisition:
+Use dotnetup for non-invasive user-level acquisition when approved:
 
 ```bash
 curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
@@ -98,263 +124,127 @@ bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
 dotnetup sdk install 11.0-daily --interactive false
 ```
 
-When the default `dotnet` for commands run from this repository is not the
-dotnetup-managed .NET 11 daily SDK, and the user has approved a user-level
-dotnetup install, run repo commands through dotnetup so the nightly SDK is
-selected only for that command:
+Use `dotnetup dotnet ...` for command isolation, or evaluate its environment
+script for one shell. Do not modify shell startup files unless explicitly
+requested.
 
-```bash
-dotnetup dotnet build dotnet-inspect.slnx -c Release
-dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-```
-
-For a temporary shell/process override, evaluate dotnetup's supported
-environment script before running repo commands:
-
-```bash
-eval "$(dotnetup print-env-script --shell bash)"
-dotnet build dotnet-inspect.slnx -c Release
-```
-
-That affects only the current shell process and its children. Do not write this
-line to startup files such as `.bashrc`, `.profile`, or `.zshrc` unless the user
-explicitly asks for a persistent shell change.
-
-Verify the selected `dotnet --version` reports the dotnetup-managed daily SDK
-before building.
-
-Build the normal product/test/fixture graph:
+Build the normal product, test, and fixture graph with:
 
 ```bash
 dotnet build dotnet-inspect.slnx -c Release
 ```
 
-Pack and publish flows remain separate and continue to build/pack
-`src/dotnet-inspect` directly. `DotnetInspector.ILRoundtrip.Tests` is not in the
-default solution because it requires the vendored ILAssembler; run
-`eng/restore-ilassembler.sh` before its targeted test command.
+Tests use xUnit v3 executable projects. **Use `dotnet run`, not `dotnet test`**;
+`dotnet test` silently executes no tests here.
 
-**IMPORTANT: Tests use xunit v3 with `OutputType Exe`. You MUST use `dotnet run`, NOT `dotnet test`. Using `dotnet test` will silently produce no output.**
+| Area | Command |
+| --- | --- |
+| CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
+| Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
+| Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
+| Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
+| Metadata | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
+
+Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
+`DotnetInspector.ILRoundtrip.Tests` is outside the default solution and requires
+the vendored managed ILAssembler. Run `eng/restore-ilassembler.sh` before:
 
 ```bash
-dotnet run --project src/dotnet-inspect.Tests -c Release
-dotnet run --project src/ILInspector.Analysis.Tests -c Release
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-dotnet run --project src/DotnetInspector.Services.Tests -c Release
-dotnet run --project tests/ILInspector.Metadata.Tests -c Release
-dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- \
+  -trait- "Speed=Slow"
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 ```
 
-For decompiler PRs, start with the
-[Stage 0 entry-gate checklist](docs/decompiler-correctness-pipeline.md#entry-gate-checklist-stage-0):
-build, focused xUnit executable tests, IR invariant checks, and markdownlint for
-changed Markdown.
+Pack and publish flows remain separate and build `src/dotnet-inspect`
+directly.
 
-For decompiler work, expensive checks are a local-agent responsibility, not
-something to defer to every PR CI run. Run the relevant heavy checks locally when
-your change can affect structuring, fidelity, validity, or corpus behavior:
+## Output contract
 
-```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
-bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
-mapfile -t assemblies < /tmp/corpus-assemblies.txt
-dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
-  --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
-  --quality-diff-card \
-  --compile-cap 25 \
-  --corpus-fidelity-cap 3 \
-  --max-examples 3
-```
-
-For raise/printer-affecting changes, add the render-text A/B (pass
-`--workers N` — parallelism is not the default):
-
-```bash
-git worktree add /tmp/ab-base --detach "$(git merge-base origin/main HEAD)"
-dotnet run --project /tmp/ab-base/tools/DecompilerHarness -c Release -- \
-  "${assemblies[@]}" --workers 20 --emit-render-ab /tmp/base.renderab
-dotnet run --project tools/DecompilerHarness -c Release -- \
-  "${assemblies[@]}" --workers 20 --render-ab /tmp/base.renderab
-```
-
-Classify every changed method; see `docs/decompiler-raise-discipline.md`.
-
-For decompiler-affecting PRs, follow this evidence and review contract:
-
-- Use `docs/templates/decompiler-pr.md` for general decompiler PR bodies,
-  `docs/templates/decompiler-compile-back-harness-pr.md` for DecompilerHarness /
-  ReturnToSender / compile-back coverage PRs, and
-  `docs/templates/decompiler-burndown-fix-pr.md` for focused invalid-`Full`
-  fixes. Keep the human summary terse and conclusion-first.
-- Include the tool-generated quality-diff card; do not hand-construct or re-key
-  metric tables. Use the matching corpus script/baseline pair documented in
-  `tools/DecompilerHarness/README.md`. If a card has capped changed rows, link
-  `docs/decompiler-corpus-delta-repro.md` rather than pasting dump walls.
-- For risky behavior changes (raise/structuring/printer semantics), include
-  targeted improved examples and still-flat near misses, plus changed-method
-  fidelity evidence when the changed population is checkable. If not checkable,
-  say that explicitly.
-- Synthetic IR fixtures are useful for unreachable near misses, but identity or
-  lowering-shape gates should also include a real importer/compiled-fixture
-  canary when one exists.
-- Request adversarial review per the [Adversarial Review](#adversarial-review)
-  policy (two reviewers from a different model family than your own). It is fine
-  to open the PR before reviews finish.
-- Always post a PR comment or body update summarizing adversarial review results
-  and any follow-up changes or explicit non-actions. Include links or commit refs
-  for resolved guidance; state why no resolution commit applies for dismissed
-  guidance.
-- Documentation-only PRs that do not claim new measured behavior may stop at
-  markdownlint; state that the change is docs-only.
-
-See `docs/decompiler-quality.md` and `tools/DecompilerHarness/README.md` for the
-broader workflow and command details.
-
-Some tests in `dotnet-inspect.Tests` require `ilasm`/`ildasm` and will skip if not installed.
-
-`DotnetInspector.ILRoundtrip.Tests` requires the vendored managed ILAssembler
-(orphan branch `vendor/ilassembler`); run `eng/restore-ilassembler.sh` once to
-materialize it at `external/ILAssembler`. Use `-- -trait- "Speed=Slow"` for the
-fast PR subset; run the unfiltered command for the full assembly-wide sweep.
-Edits under `external/ILAssembler` commit directly to the vendor branch — see its
-README for the fork policy.
-
-## Output Verbosity Contract
-
-Commands that render sections should follow this verbosity model:
+Commands that render sections follow this verbosity model:
 
 - `-v:q`: compact fields only; include high-value fields only.
-- `-v:m`: one section only, plus an optional text line; include the high-value section only. The section must include all high-value fields and may include other fields.
-- `-v:n`: multiple sections are allowed; include all sections that are not network-bound.
-- `-v:d`: include all sections.
+- `-v:m`: one section, plus an optional text line. Include all high-value
+  fields in that section.
+- `-v:n`: multiple sections are allowed; include all sections that are not
+  network-bound.
+- `-v:d`: all sections.
 
-New sections must not appear in the default `-v:m` view unless they are the command's single high-value section. Focused flags such as `--audit` may explicitly select their section and promote verbosity as needed.
+New sections must not enter the default `-v:m` view unless they are the
+command's single high-value section. Focused flags may explicitly select a
+section and promote verbosity as needed. Keep alternate lenses, section
+selection, row queries, and rendering formats orthogonal; follow the current
+progressive-disclosure and output-shape docs for detailed behavior.
 
-## Git Commits
+## Git and worktrees
 
-Never amend commits. Always create new commits instead of using `git commit --amend`.
+- `main` is protected. Work on a descriptive feature or fix branch.
+- Development must happen in a worktree. A fresh worktree per PR and a reused
+  development worktree are both valid.
+- Start each new change from the latest `origin/main`.
+- Never amend commits; create follow-up commits.
+- Before opening a PR, fetch `origin/main`, update the feature branch by merge
+  or rebase, resolve conflicts locally, and rerun relevant checks.
+- After updating from main or resolving conflicts, re-read `AGENTS.md` and
+  task-relevant docs before continuing.
+- Do not mix unrelated changes into one commit or sweep another contributor's
+  working-tree changes into your work.
 
-## Branching
+When all merge-blocking validation, CI, and required review are complete, post
+a PR comment that says `Ready to merge`. Label later work as non-blocking
+follow-up so readiness remains unambiguous.
 
-The `main` branch is protected. All work must be done on a feature branch.
+## Adversarial review
 
-Development should always happen in a worktree. Both of the following workflows
-are equally valid — neither is preferred or discouraged, so pick whichever suits
-you:
-
-- Create a fresh worktree per PR and destroy it when the PR is done.
-- Re-use the same worktree across PRs.
-
-Reusing a worktree across PRs is perfectly fine. Whichever you choose, the rule
-is the same: use worktrees, and start every new feature even with `origin/main`
-(fetch and base off the latest `origin/main`).
-
-Before opening a PR, fetch `origin/main` and update the feature branch with the
-latest main using either merge or rebase. Resolve conflicts locally and rerun
-relevant checks so the PR does not start from a stale base.
-
-When all merge-blocking validation, CI, and required review are complete, post a
-clear PR comment that says the PR is `Ready to merge`. If you continue running
-extra tests or review after that point, label them as non-blocking follow-up work
-so maintainers do not mistake the PR for still being in progress.
-
-After fetching, rebasing, merging `origin/main`, or resolving conflicts from
-main, re-read `AGENTS.md` and any task-relevant docs it points to before
-continuing. If instructions changed, treat the refreshed instructions as
-authoritative and adjust PR evidence/status accordingly.
-
-Create feature branches with descriptive names, e.g.:
-- `feature/issue-3-assembly-references`
-- `fix/null-reference-in-parser`
-
-## Adversarial Review
-
-Adversarial review is a **general requirement across the repo**, not a
-decompiler-only one. Any PR with non-trivial behavior changes — new
-heuristics or shapes, or subtle correctness, security, or compatibility risk, in
-the decompiler, analysis, or any other area — must request adversarial review
-from **two** different models, chosen from:
+Any PR with non-trivial behavior changes, new heuristics or shapes, or subtle
+correctness, security, or compatibility risk requires adversarial review from
+two different models chosen from:
 
 - Claude Opus 4.8
 - GPT-5.5
-- Gemini Pro (e.g. Gemini 3.1 Pro)
-- the MAI Flash family (e.g. MAI-Code-1-Flash)
+- Gemini Pro (for example Gemini 3.1 Pro)
+- the MAI Flash family (for example MAI-Code-1-Flash)
 
-This list is the single source of truth for the reviewer roster; other scenario
-docs reference this section rather than restating the models.
+This list is the single source of truth for the reviewer roster; scenario docs
+should reference it rather than restating it.
 
-Rules:
+Do not review with your own model when another listed family is available. A
+single-model agent that cannot delegate may use independent passes from its own
+model.
 
-- **Do not review with your own model.** If you are running as one of the models
-  above, pick the two reviewers from the *other* entries. The only exception is a
-  single-model agent (e.g. Claude Code or Codex) that cannot delegate to another
-  model — it may use its own model, but should still use two independent review
-  passes where possible.
-- Give each reviewer the same self-contained, adversarial prompt (the PR's diff,
-  the design intent, and concrete attack points) so their findings are
-  comparable. Require evidence from real runs, not theorizing.
-- **Isolate each reviewer's workspace.** Give every review agent its own
-  checkout — a dedicated worktree or copy of the PR head — never a shared one.
-  Reviewers routinely write scratch repro files, add probe tests, or run
-  `git reset` to compare against a base; if two reviewers share a tree, one's
-  uncommitted edits contaminate the other's view and produce phantom findings
-  (e.g. a stray brace from a probe test read as a "PR compile error" that is not
-  in the PR). Instruct reviewers to keep scratch files under `/tmp` and to avoid
-  `git add -A`, `git commit`, and `git reset` in the review tree. Before acting
-  on any blocking finding, reproduce it against a clean checkout of the PR head —
-  `git status` should be empty — so a contaminated workspace cannot be mistaken
-  for a real defect.
-- It is fine to open the PR before the reviews finish.
-- **Reconcile and surface the results on the PR**: post a PR review/comment
-  summarizing both reviews (attributed by model), where they agreed or diverged,
-  which findings you verified vs dismissed, and the follow-up changes or explicit
-  non-actions. Include references or links to the commit(s) that resolved
-  actionable review guidance; for dismissed or non-actioned guidance, state why
-  no resolution commit applies. Do not merely summarize reviews back to the
-  requester — they must be visible on the PR.
-- Simple/docs-only PRs do not need this; state that the change is low-risk.
-- If the work is very targeted (e.g. a one-line fix, a small localized
-  refactor, or a mechanical change with an obvious, contained blast radius), it
-  is fine to say so and ask whether the two-reviewer requirement really applies
-  before spending it. The answer is usually yes, so default to running it unless
-  a maintainer waives it.
+Give both reviewers the same self-contained prompt: exact base and head, design
+intent, relevant diff, concrete attack points, and required real-run evidence.
+Isolate every reviewer in a separate checkout or worktree. Require scratch work
+under `/tmp/` and prohibit `git reset`, `git add`, and commits in review trees.
+Before acting on a blocking finding, reproduce it on a clean exact-head
+checkout.
 
-## PR Strategy and CI Cost
+After addressing findings, re-review the fixed exact head. Reconcile both
+reviews publicly on the PR: attribute findings, state what was verified or
+dismissed, and link resolution commits or explain explicit non-actions. Do not
+mark the PR ready until both fixed-head reviews are clean.
 
-GitHub Actions cost scales with PR volume, not PR size: every PR pays fixed
-overhead (checkout, `setup-dotnet`, restore, the `changes` job), and many small
-PRs from many concurrent agents also saturate the runner pool, queue jobs, and
-raise merge contention on central files. Prefer **fewer, larger PRs** and keep
-the number of **concurrent agents** modest.
+Simple, mechanical, or documentation-only changes do not require adversarial
+review; state why the change is low risk. If the blast radius is uncertain,
+default to review.
 
-To keep larger PRs from failing in CI, treat CI as a confirmation gate, not a
-discovery tool:
+## PR and CI discipline
 
-- Run the relevant local checks first (build, focused tests, decompiler
-  harness, `markdownlint`) so CI rarely surfaces something you could have caught
-  locally. See [Building and Testing](#building-and-testing).
-- Minimize central-file churn (e.g. `LoweringCoverage`, `CSharpPrinter`) to
-  reduce conflicts when several PRs land together.
-- Rebase on the latest `origin/main` before opening the PR.
+- Prefer fewer coherent PRs over many small PRs that each pay fixed CI cost and
+  increase merge contention.
+- Keep concurrent agents modest and avoid unnecessary churn in central files.
+- Treat CI as confirmation, not discovery: run relevant local checks first.
+- Do not broaden CI without a measured need. The PR `test` job validates the
+  merge path; `pack` is path-gated; release artifacts are built by
+  `release.yml`.
+- Keep PR summaries conclusion-first. Include the behavioral claim, evidence,
+  compatibility or non-action boundary, and exact validation appropriate to
+  the change.
 
-CI is intentionally lean so this stays cheap. Do not re-expand it without a
-reason:
+## Markdown
 
-- `test` runs on PRs only; push-to-main is not re-tested (the PR validates the
-  merge commit; Deep Inspect and publish provide opt-in/full safety nets).
-- `pack` runs only on PRs that change build/packaging config.
-- Release packages are built at publish time in `release.yml`, so CI never
-  produces release artifacts.
-
-## Markdown Linting
-
-All markdown files must pass `markdownlint` before committing. When there are lint errors, run the auto-fixer first:
+All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
 
 ```bash
 npx markdownlint-cli --fix <file>
 npx markdownlint-cli <file>
 ```
-
-Run `markdownlint` on all changed markdown files as part of preparing a PR.
