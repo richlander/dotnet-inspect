@@ -346,7 +346,7 @@ public static class IlProjection
         }
 
         BuildRegionMarkers(body.Handlers, out var regionStarts, out var regionEnds);
-        var annotatedLines = AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset)
+        var annotatedLines = RenderIlBodyLines(imported, instructions, factsByOffset, stackByOffset)
             .ToDictionary(line => line.Offset);
 
         var sb = new StringBuilder();
@@ -417,7 +417,7 @@ public static class IlProjection
         return new AnnotatedInstrPart(i.Offset, instruction.ToString(), string.Join("; ", annotations));
     }
 
-    static IReadOnlyList<SourceLine> AnnotatedInstrLines(
+    static IReadOnlyList<SourceLine> RenderIlBodyLines(
         ImportedMethod imported,
         IReadOnlyList<Instr> instructions,
         Dictionary<int, List<Annotations.Annotation>> factsByOffset,
@@ -459,20 +459,20 @@ public static class IlProjection
     /// types and the hidden-fact classification, exactly as the flat annotated
     /// view does — so the two views never diverge on what an instruction says.
     /// </summary>
-    public static IReadOnlyList<SourceLine> AnnotatedInstrLines(
+    public static IReadOnlyList<SourceLine> RenderIlBodyLines(
         MetadataSource source, string type, string method, int overloadIndex, bool publicOnly)
-        => AnnotatedInstrLines(source, Locate(source.Reader, type, method, overloadIndex, publicOnly));
+        => RenderIlBodyLines(source, Locate(source.Reader, type, method, overloadIndex, publicOnly));
 
     /// <summary>
     /// Handle-addressed annotated IL lines: the caller already holds the
     /// method's own <see cref="MethodDefinitionHandle"/>, bypassing the
     /// name+overload-ordinal walk and its drift.
     /// </summary>
-    public static IReadOnlyList<SourceLine> AnnotatedInstrLines(
+    public static IReadOnlyList<SourceLine> RenderIlBodyLines(
         MetadataSource source, MethodDefinitionHandle methodHandle)
-        => AnnotatedInstrLines(source, Locate(source.Reader, methodHandle));
+        => RenderIlBodyLines(source, Locate(source.Reader, methodHandle));
 
-    static IReadOnlyList<SourceLine> AnnotatedInstrLines(
+    static IReadOnlyList<SourceLine> RenderIlBodyLines(
         MetadataSource source, (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) located)
     {
         var (typeDef, methodDef, methodHandle) = located;
@@ -487,7 +487,7 @@ public static class IlProjection
             stackByOffset[point.Offset] = point.StackTypes;
 
         var factsByOffset = new Dictionary<int, List<Annotations.Annotation>>();
-        return AnnotatedInstrLines(imported, instructions, factsByOffset, stackByOffset);
+        return RenderIlBodyLines(imported, instructions, factsByOffset, stackByOffset);
     }
 
     static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)

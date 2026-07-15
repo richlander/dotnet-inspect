@@ -286,8 +286,8 @@ public static class ResearchViews
             return csResult;
 
         var annotatedInstrLines = methodHandle.IsNil
-            ? IlProjection.AnnotatedInstrLines(source, type, method, overloadIndex, publicOnly)
-            : IlProjection.AnnotatedInstrLines(source, methodHandle);
+            ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
+            : IlProjection.RenderIlBodyLines(source, methodHandle);
 
         var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
         return csResult with { Output = RenderMixedStream(stream) };
@@ -334,7 +334,7 @@ public static class ResearchViews
             list.Add((instr.Offset, AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset))));
         }
 
-        var csLines = CSharpBodyLines(csText, statementLines);
+        var csLines = RenderCSharpBodyLines(csText, statementLines);
         var stream = new List<AnnotatedSourceLine>(csLines.Count);
         for (int i = 0; i < csLines.Count; i++)
         {
@@ -361,7 +361,7 @@ public static class ResearchViews
     // brace or blank). The correlation layer builds its richer AnnotatedSourceLine
     // stream on top of this, and scalar "just give me the body" consumers can take
     // it directly for line-addressable diff and body-subset anchoring.
-    static IReadOnlyList<SourceLine> CSharpBodyLines(
+    static IReadOnlyList<SourceLine> RenderCSharpBodyLines(
         string csText,
         IReadOnlyDictionary<IrNode, int> statementLines)
     {
