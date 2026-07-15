@@ -665,7 +665,7 @@ public sealed class SwitchExpressionArm : IrNode
     naming: Inverse.NameProvenance.Native,
     forwardName: "BoundConvertedSwitchExpression (type-pattern arms over a union receiver)",
     precondition: "the receiver is the compiler-emitted union `Value` getter access over a proven union case set; each arm is a type pattern for one case; result is the arms' (or null/default arm's) shared type",
-    witness: "TypeSourceComposerUnionTests, union fixture corpus")]
+    witness: "MemberBodyProducerUnionTests, union fixture corpus")]
 public sealed class UnionSwitchExpression : IrExpression
 {
     readonly bool _hasDefault;

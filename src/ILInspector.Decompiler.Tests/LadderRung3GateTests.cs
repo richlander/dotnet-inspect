@@ -121,7 +121,7 @@ public class LadderRung3GateTests
         using var pe = new PEReader(File.OpenRead(FixturePath));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == FixtureType);
-        var source = TypeSourceComposer.Compose(type, FixturePath, pdbPath: null).Output;
+        var source = MemberBodyProducer.Compose(type, FixturePath, pdbPath: null).Output;
         Assert.NotNull(source);
         return (type, source);
     }

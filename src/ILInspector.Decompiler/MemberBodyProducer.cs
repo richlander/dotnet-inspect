@@ -16,7 +16,7 @@ namespace ILInspector.Decompiler;
 /// matches both reference decompilers and dotnet/runtime's per-type source
 /// files.
 /// </summary>
-public static class TypeSourceComposer
+public static class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
     static readonly CSharpFormatter UnsafeDeclarationFormatter = CreateDeclarationFormatter(forceUnsafe: true);

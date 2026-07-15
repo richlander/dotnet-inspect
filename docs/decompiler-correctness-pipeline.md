@@ -351,7 +351,7 @@ and saturation guidance.
 
 ### Type and composer changes
 
-Changes to `TypeSourceComposer`, type-declaration rendering, member-surface
+Changes to `MemberBodyProducer`, type-declaration rendering, member-surface
 projection, `using` emission, or name qualification affect whole-type
 **artifacts**, not method bodies. Method-body fidelity checks are blind to them,
 so run the two type bosses — both stub method bodies before checking, so a body

@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class TypeSourceComposerUnionTests
+public class MemberBodyProducerUnionTests
 {
     [Fact]
     public async Task LoweredUnionDeclaration_RendersUnionHeaderAndHidesBasicPattern()
@@ -1758,7 +1758,7 @@ public class TypeSourceComposerUnionTests
         using var pe = new PEReader(File.OpenRead(path));
         var surface = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(surface.Types, t => t.FullName == fullName);
-        var source = TypeSourceComposer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
         return source!;
     }

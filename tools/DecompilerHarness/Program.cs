@@ -971,7 +971,7 @@ static class Program
     /// semantics: lets cross-method passes (classic-async / iterator / lambda /
     /// local-function reconstruction) pull in sibling bodies so diagnostic dumps
     /// and whole-assembly sweeps match the product output. Mirrors the delegate
-    /// the product path wires in <c>TypeSourceComposer</c>.
+    /// the product path wires in <c>MemberBodyProducer</c>.
     /// </summary>
     static Func<MethodRef, IrFunction?> ImportSeam(MetadataSource source)
         => method => IrImporter.Import(source, method);

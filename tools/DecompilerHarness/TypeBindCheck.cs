@@ -19,7 +19,7 @@ namespace ILInspector.DecompilerHarness;
 /// <para>
 /// A collision happens when the listing imports two namespaces that both define
 /// a simple name the source uses unqualified. The product
-/// <see cref="TypeSourceComposer"/> already keeps a name qualified when its own
+/// <see cref="MemberBodyProducer"/> already keeps a name qualified when its own
 /// metadata shows two owners (the detectable case, #1017). The residue this
 /// oracle catches is the <em>undetectable</em> case: the competing type is not a
 /// TypeDef/TypeRef of the composed assembly, so the product — which must stay
@@ -143,7 +143,7 @@ static class TypeBindCheck
             if (type.Kind == "delegate")
                 continue;
 
-            var source = TypeSourceComposer.Compose(type, assemblyPath, pdbPath: null).Output;
+            var source = MemberBodyProducer.Compose(type, assemblyPath, pdbPath: null).Output;
             if (source is null)
                 continue;
 

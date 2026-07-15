@@ -24,7 +24,7 @@ Four experiences render member bodies, and today each carries its own stack:
 | Experience | Entry point | Body form |
 | --- | --- | --- |
 | Skeleton source | `CSharpTypePrinter.Print` | declarations, no bodies |
-| Full source | `TypeSourceComposer.Compose` | full C# bodies |
+| Full source | `MemberBodyProducer.Compose` | full C# bodies |
 | Merged IL + C# | `ResearchViews.RenderMixedCore` | C# spine, IL beneath |
 | Implementation diff | `ImplementationDiff.CompareMembers` | per-member C#/IL/source diff |
 
@@ -118,7 +118,7 @@ offset-keyed facts are what Research joins onto a body to answer "which
 
 Every experience addresses a member, and the substrate replaces the positional
 `(methodName, overloadIndex, publicOnly)` tuple — recomputed independently in
-`TypeSourceComposer`, `CSharpBodyDiff.CreateMethodEntry`, and `ResearchViews`,
+`MemberBodyProducer`, `CSharpBodyDiff.CreateMethodEntry`, and `ResearchViews`,
 where the recomputations can drift — with a stable identity address. Member
 **selection** (which members to render) is therefore an identity filter over
 `ApiType.Members`, never an index.
@@ -155,7 +155,7 @@ one.
 
 The same-reader body-composition callers are migrated onto handle addressing:
 
-- **`TypeSourceComposer`** — whole-type field-initializer collection
+- **`MemberBodyProducer`** — whole-type field-initializer collection
   (`CollectFieldInitializers`) and per-member body composition (`DecompileBody`)
   import by `MethodDefinitionHandle`. `DecompileBody` resolves
   `ApiMember.MetadataToken` and validates it against the composing reader (a
@@ -165,7 +165,7 @@ The same-reader body-composition callers are migrated onto handle addressing:
 - **`CSharpBodyDiff`** — `Decompile` imports each `CSharpMethodEntry` by the
   `MethodDefinitionHandle` the entry was built from, instead of re-deriving a
   `(type, method, overloadIndex)` tuple.
-- **`TypeSourceComposer` attributes + accessors** — `ComposeMembers` resolves the
+- **`MemberBodyProducer` attributes + accessors** — `ComposeMembers` resolves the
   validated member handle once and addresses both the member **body** and its
   **custom attributes** by it (`AttributeReader.RenderMethodAttributes(reader,
   handle, ns)`); `ComposeProperty` addresses get/set/init accessors by the
@@ -283,7 +283,7 @@ The fidelity ladder therefore lives on the single machine that earns it: a
 signature never has to answer "was I `StructuredOnly`?", and the `Metadata`
 decoder never takes a dependency on a `Decompiler`-shaped type. The convergence
 already landed on the lossy side — `IlProjection.Project` and
-`TypeSourceComposer.Compose` both return `DecompilerResult` today; factoring the
+`MemberBodyProducer.Compose` both return `DecompilerResult` today; factoring the
 faithful base `Projection` out of it is the remaining step.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
@@ -506,7 +506,7 @@ sourced from Metadata/Analysis, not from the printed text:
   there. It matters only on the **full-body** path, and today that path derives
   the modifier from the printed body rather than from metadata, which has two
   problems the substrate fixes:
-  - **Signal inconsistency.** `TypeSourceComposer` forces `async` from
+  - **Signal inconsistency.** `MemberBodyProducer` forces `async` from
     `ContainsAwaitExpression` alone, while `ApiOutputFormatter` uses
     `ContainsAwaitExpression || RequiresAsyncBodyModifier`. The latter (set by
     `ClassicAsyncReconstructionPass`) catches classic-async methods with no
@@ -553,7 +553,7 @@ sourced from Metadata/Analysis, not from the printed text:
 | Instructions | `InstructionProducer` | host `InstructionProducer`; take `ILInstructionPrinter` in via the `IOperandNameResolver` inversion (stays metadata-free); absorb the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
-| CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `TypeSourceComposer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |
+| CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |
 | Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), and body-subset — all on the IL-offset axis |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**

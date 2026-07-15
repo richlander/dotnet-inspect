@@ -87,7 +87,7 @@ public class TypeBindCheckTests
         using var pe = new PEReader(File.OpenRead(CoreLibPath));
         var surface = ApiSurfaceExtractor.Extract(pe);
         var appDomain = Assert.Single(surface.Types, t => t.FullName == "System.AppDomain");
-        var source = TypeSourceComposer.Compose(appDomain, CoreLibPath, pdbPath: null).Output;
+        var source = MemberBodyProducer.Compose(appDomain, CoreLibPath, pdbPath: null).Output;
         Assert.NotNull(source);
 
         var collisions = TypeBindCheck.Collisions("System.AppDomain", source!, Refs);
