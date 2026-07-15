@@ -653,7 +653,15 @@ internal static class CSharpDeclarationWriter
             : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
     }
 
-    static string EscapeTypeKeywords(string type)
+    /// <summary>
+    /// Escapes C# reserved keywords that appear as identifiers (type or namespace
+    /// name segments) inside a type string, while leaving keywords that are C# type
+    /// <em>syntax</em> bare (primitive aliases, parameter/type modifiers, and
+    /// function-pointer syntax). This is the single authoritative type-keyword
+    /// escaper for the C# layer; consumers reach it through
+    /// <see cref="CSharpFormatter.EscapeTypeKeywords"/>.
+    /// </summary>
+    internal static string EscapeTypeKeywords(string type)
     {
         var builder = new StringBuilder(type.Length);
         for (int index = 0; index < type.Length;)
@@ -684,26 +692,61 @@ internal static class CSharpDeclarationWriter
 
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
     {
-        if (identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
-            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
-            or "object" or "short" or "ushort" or "string" or "void")
-        {
-            return end == type.Length || type[end] != '.';
-        }
+        // Primitive/void aliases are bare when they name the primitive, and escaped
+        // only when they are a segment of a dotted qualified name (a type literally
+        // named e.g. "int" under some namespace: "N.int" -> "N.@int"). Being
+        // followed by '.' is member access, not a name segment, so it stays bare.
+        if (IsPrimitiveOrVoidKeyword(identifier))
+            return start == 0 || type[start - 1] != '.';
 
+        // Function-pointer type head: "delegate*<...>".
         if (identifier == "delegate")
             return end < type.Length && type[end] == '*';
 
-        if (type.StartsWith("delegate*", StringComparison.Ordinal)
-            && identifier is "ref" or "in" or "out" or "readonly" or "unmanaged")
+        // Parameter/type modifiers are bare in a leading modifier run — at the start
+        // of the string or of a type slot ("ref int", "ref readonly int",
+        // "scoped ref int", "in long", "params byte[]"), and inside a function
+        // pointer signature ("delegate*<ref int, void>", "delegate* unmanaged<...>").
+        if (identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged")
         {
-            return true;
+            bool followedByBoundary = end < type.Length
+                && (char.IsWhiteSpace(type[end]) || type[end] == '*');
+            return followedByBoundary && InModifierPosition(type, start);
         }
 
-        return start == 0
-            && end < type.Length
-            && char.IsWhiteSpace(type[end])
-            && identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped";
+        return false;
+    }
+
+    static bool IsPrimitiveOrVoidKeyword(string identifier)
+        => identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
+            or "float" or "int" or "uint" or "nint" or "nuint" or "long" or "ulong"
+            or "object" or "short" or "ushort" or "string" or "void";
+
+    // A modifier keyword is in modifier position when everything preceding it in the
+    // current type slot is only other modifiers and whitespace — i.e. walking back
+    // reaches the start of the string or a slot boundary ('<', ',', '(', '*') after
+    // skipping intervening modifier tokens.
+    static bool InModifierPosition(string type, int start)
+    {
+        int i = start - 1;
+        while (i >= 0)
+        {
+            while (i >= 0 && char.IsWhiteSpace(type[i]))
+                i--;
+            if (i < 0)
+                return true;
+            if (type[i] is '<' or ',' or '(' or '*')
+                return true;
+
+            int wordEnd = i + 1;
+            while (i >= 0 && IsIdentifierPart(type[i]))
+                i--;
+            string word = type[(i + 1)..wordEnd];
+            if (word is "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged")
+                continue;
+            return false;
+        }
+        return true;
     }
 
     static string FormatTypeDisplayName(string name, IReadOnlyList<TypeParameter> typeParameters)

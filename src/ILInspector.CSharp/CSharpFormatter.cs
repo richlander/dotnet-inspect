@@ -179,6 +179,15 @@ public sealed class CSharpFormatter
     public static string EscapeNamespace(string @namespace)
         => CSharpDeclarationWriter.EscapeNamespace(@namespace);
 
+    /// <summary>
+    /// Escapes C# reserved keywords used as identifiers within a type string while
+    /// leaving type-syntax keywords (primitive aliases, parameter/type modifiers,
+    /// function-pointer syntax) bare. This is the authoritative type-keyword escaper;
+    /// consumers must not reimplement it.
+    /// </summary>
+    public static string EscapeTypeKeywords(string type)
+        => CSharpDeclarationWriter.EscapeTypeKeywords(type);
+
     public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
         => CSharpDeclarationWriter.EscapeKnownIdentifiers(text, rawNames);
 
