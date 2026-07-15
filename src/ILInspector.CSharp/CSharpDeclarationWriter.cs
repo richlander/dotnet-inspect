@@ -699,18 +699,30 @@ internal static class CSharpDeclarationWriter
         if (IsPrimitiveOrVoidKeyword(identifier))
             return start == 0 || type[start - 1] != '.';
 
-        // Function-pointer type head: "delegate*<...>".
+        // Function-pointer type head: "delegate*<...>" or "delegate* unmanaged<...>".
+        // A real function-pointer head is "delegate*" followed by '<' or by a
+        // calling-convention run (whitespace). A bare "delegate*" with anything else
+        // after the '*' (end of string, '[', ',', '>' ...) is instead a pointer to a
+        // type literally named "delegate" and must be escaped ("@delegate*").
         if (identifier == "delegate")
-            return end < type.Length && type[end] == '*';
+        {
+            if (end >= type.Length || type[end] != '*')
+                return false;
+            int afterStar = end + 1;
+            return afterStar < type.Length
+                && (type[afterStar] == '<' || char.IsWhiteSpace(type[afterStar]));
+        }
 
         // Parameter/type modifiers are bare in a leading modifier run — at the start
         // of the string or of a type slot ("ref int", "ref readonly int",
         // "scoped ref int", "in long", "params byte[]"), and inside a function
         // pointer signature ("delegate*<ref int, void>", "delegate* unmanaged<...>").
+        // Whitespace is the only valid trailing boundary: a modifier can never
+        // immediately precede a pointer '*' in C# type syntax, so "ref*" is a pointer
+        // to a type named "ref" and must be escaped ("@ref*").
         if (identifier is "ref" or "in" or "out" or "params" or "readonly" or "scoped" or "unmanaged")
         {
-            bool followedByBoundary = end < type.Length
-                && (char.IsWhiteSpace(type[end]) || type[end] == '*');
+            bool followedByBoundary = end < type.Length && char.IsWhiteSpace(type[end]);
             return followedByBoundary && InModifierPosition(type, start);
         }
 

@@ -202,6 +202,14 @@ public sealed class CSharpFormatterTests
     [InlineData("delegate* unmanaged<int>", "delegate* unmanaged<int>")]
     [InlineData("delegate*<ref int, void>", "delegate*<ref int, void>")]
     [InlineData("delegate*<await, void>", "delegate*<@await, void>")]
+    // Pointers to types literally named like a keyword must be escaped, not read as
+    // type syntax: "ref*"/"in*" are pointers to a type named ref/in, and a bare
+    // "delegate*" (not a function-pointer head) is a pointer to a type named delegate.
+    [InlineData("ref*", "@ref*")]
+    [InlineData("in*", "@in*")]
+    [InlineData("readonly*", "@readonly*")]
+    [InlineData("delegate*", "@delegate*")]
+    [InlineData("delegate*[]", "@delegate*[]")]
     // Already-escaped identifiers are left untouched (idempotent).
     [InlineData("@int", "@int")]
     [InlineData("N.@int", "N.@int")]
