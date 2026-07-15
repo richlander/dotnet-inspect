@@ -131,7 +131,7 @@ static class TypeSourceCheck
             if (type.Kind == "delegate")
                 continue;
 
-            var source = MemberBodyProducer.Compose(type, assemblyPath, pdbPath: null).Output;
+            var source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
             if (source is null)
                 continue;
 

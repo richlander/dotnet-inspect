@@ -9,7 +9,7 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler;
 
 /// <summary>
-/// Composes a whole type as one C# listing: the type declaration, field
+/// Projects a whole type as one C# listing: the type declaration, field
 /// declarations (including non-public fields, for context the bodies
 /// reference), and every member's decompiled body — the reading unit for
 /// building intuition about what a type does, and the comparison unit that
@@ -28,14 +28,14 @@ public static class MemberBodyProducer
     /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
     /// overload for new product and harness code.
     /// </summary>
-    public static DecompilerResult Compose(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
     {
         var resolver = locateAssembly?.ToAssemblyReferenceResolver()
             ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return Compose(type, dllPath, pdbPath, resolver, context);
+        return Project(type, dllPath, pdbPath, resolver, context);
     }
 
-    public static DecompilerResult Compose(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
     {
         var start = new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),

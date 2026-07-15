@@ -24,7 +24,7 @@ Four experiences render member bodies, and today each carries its own stack:
 | Experience | Entry point | Body form |
 | --- | --- | --- |
 | Skeleton source | `CSharpTypePrinter.Print` | declarations, no bodies |
-| Full source | `MemberBodyProducer.Compose` | full C# bodies |
+| Full source | `MemberBodyProducer.Project` | full C# bodies |
 | Merged IL + C# | `ResearchViews.RenderMixedCore` | C# spine, IL beneath |
 | Implementation diff | `ImplementationDiff.CompareMembers` | per-member C#/IL/source diff |
 
@@ -197,7 +197,7 @@ name+ordinal path rather than mis-addressing.
 
 The addressable unit lives in a scope. `MetadataSource : IDisposable` is that
 scope: it loads the PE once and builds its type maps once (`EnsureTypeMaps`),
-and `Compose` already reuses it across every member of a type. The substrate
+and `Project` already reuses it across every member of a type. The substrate
 formalizes it: open a scope per type (a `TypeAnchor`), resolve each selected
 `MemberAnchor` to a handle within it, and import bodies through the one scope —
 never load the assembly per member.
@@ -283,7 +283,7 @@ The fidelity ladder therefore lives on the single machine that earns it: a
 signature never has to answer "was I `StructuredOnly`?", and the `Metadata`
 decoder never takes a dependency on a `Decompiler`-shaped type. The convergence
 already landed on the lossy side — `IlProjection.Project` and
-`MemberBodyProducer.Compose` both return `DecompilerResult` today; factoring the
+`MemberBodyProducer.Project` both return `DecompilerResult` today; factoring the
 faithful base `Projection` out of it is the remaining step.
 
 The cheap, common case is the scalar render — "just give me everything, IL or

@@ -1758,7 +1758,7 @@ public class MemberBodyProducerUnionTests
         using var pe = new PEReader(File.OpenRead(path));
         var surface = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(surface.Types, t => t.FullName == fullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
         return source!;
     }

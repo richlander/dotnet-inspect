@@ -256,7 +256,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
         Assert.Contains(declaration, source);
 
@@ -271,7 +271,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == "System.Nullable`1");
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
         Assert.Contains("where T : struct", source);
 
@@ -288,21 +288,21 @@ public class TypeSourceCheckTests
         var api = ApiSurfaceExtractor.Extract(pe);
 
         var eventKeywords = Assert.Single(api.Types, t => t.FullName == "System.Diagnostics.Tracing.EventKeywords");
-        var eventKeywordsSource = MemberBodyProducer.Compose(eventKeywords, path, pdbPath: null).Output;
+        var eventKeywordsSource = MemberBodyProducer.Project(eventKeywords, path, pdbPath: null).Output;
         Assert.NotNull(eventKeywordsSource);
         Assert.Contains("public enum EventKeywords : long", eventKeywordsSource);
         Assert.DoesNotContain(TypeSourceCheck.CompareType(eventKeywords, eventKeywordsSource),
             d => d.Kind == TypeSourceCheck.Deltas.EnumUnderlyingType);
 
         var securityRuleSet = Assert.Single(api.Types, t => t.FullName == "System.Security.SecurityRuleSet");
-        var securityRuleSetSource = MemberBodyProducer.Compose(securityRuleSet, path, pdbPath: null).Output;
+        var securityRuleSetSource = MemberBodyProducer.Project(securityRuleSet, path, pdbPath: null).Output;
         Assert.NotNull(securityRuleSetSource);
         Assert.Contains("public enum SecurityRuleSet : byte", securityRuleSetSource);
         Assert.DoesNotContain(TypeSourceCheck.CompareType(securityRuleSet, securityRuleSetSource),
             d => d.Kind == TypeSourceCheck.Deltas.EnumUnderlyingType);
 
         var dayOfWeek = Assert.Single(api.Types, t => t.FullName == "System.DayOfWeek");
-        var dayOfWeekSource = MemberBodyProducer.Compose(dayOfWeek, path, pdbPath: null).Output;
+        var dayOfWeekSource = MemberBodyProducer.Project(dayOfWeek, path, pdbPath: null).Output;
         Assert.NotNull(dayOfWeekSource);
         Assert.Contains("public enum DayOfWeek", dayOfWeekSource);
         Assert.DoesNotContain("public enum DayOfWeek : int", dayOfWeekSource);
@@ -317,7 +317,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceNullableConstraintMatrix<,,,>).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("where TNotNull : notnull", source);
@@ -337,7 +337,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceOperatorFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("public static TypeSourceOperatorFixture operator +(TypeSourceOperatorFixture left, TypeSourceOperatorFixture right)", source);
@@ -359,7 +359,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(@class<>).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("public class @class<@event> where @event : class", source);
@@ -383,7 +383,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceDuplicateAttributeFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("[RequiresUnreferencedCode(\"trim\")]", source);
@@ -469,7 +469,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceFieldInitializerFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         // Field initializers (this.f = value before the base call) are lifted out
@@ -495,7 +495,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourcePrivateCtorInitFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("public readonly int Seed = 5;", source);
@@ -508,7 +508,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceInitializerOnlyFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("public int Value = 42;", source);
@@ -522,7 +522,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceUnsafeFieldFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("private unsafe int* _pointer;", source);
@@ -544,7 +544,7 @@ public class TypeSourceCheckTests
         using var pe = new PEReader(File.OpenRead(path));
         var api = ApiSurfaceExtractor.Extract(pe);
         var type = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceExplicitLayoutFixture).FullName);
-        var source = MemberBodyProducer.Compose(type, path, pdbPath: null).Output;
+        var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
         Assert.Contains("[StructLayout(LayoutKind.Explicit, Size = 4)]", source);
@@ -564,13 +564,13 @@ public class TypeSourceCheckTests
         var api = ApiSurfaceExtractor.Extract(pe);
 
         var packed = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceSequentialLayoutFixture).FullName);
-        var packedSource = MemberBodyProducer.Compose(packed, path, pdbPath: null).Output;
+        var packedSource = MemberBodyProducer.Project(packed, path, pdbPath: null).Output;
         Assert.NotNull(packedSource);
         Assert.Contains("[StructLayout(LayoutKind.Sequential, Size = 16, Pack = 1)]", packedSource);
         AssertCompiles(packed.FullName, packedSource);
 
         var sequentialClass = Assert.Single(api.Types, t => t.FullName == typeof(TypeSourceSequentialLayoutClassFixture).FullName);
-        var classSource = MemberBodyProducer.Compose(sequentialClass, path, pdbPath: null).Output;
+        var classSource = MemberBodyProducer.Project(sequentialClass, path, pdbPath: null).Output;
         Assert.NotNull(classSource);
         Assert.Contains("[StructLayout(LayoutKind.Sequential)]", classSource);
         AssertCompiles(sequentialClass.FullName, classSource);

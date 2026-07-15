@@ -26,7 +26,7 @@ public class MemberBodyProducerOverloadAddressingTests
         var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
         var type = surface.Types.Single(t => t.FullName == typeof(OverloadDriftSpecimen).FullName);
 
-        string? source = MemberBodyProducer.Compose(type, assemblyPath, pdbPath: null).Output;
+        string? source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
 
         Assert.NotNull(source);
         Assert.Contains("VISIBLE_OVERLOAD_BODY", source);
@@ -46,7 +46,7 @@ public class MemberBodyProducerOverloadAddressingTests
         var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
         var type = surface.Types.Single(t => t.FullName == typeof(IndexerDriftSpecimen).FullName);
 
-        string? source = MemberBodyProducer.Compose(type, assemblyPath, pdbPath: null).Output;
+        string? source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
 
         Assert.NotNull(source);
         // Both indexers compile to get_Item accessors; ordinal addressing
