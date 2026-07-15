@@ -388,6 +388,31 @@ public static class MemberIdentity
             && operandType.Equals(awaited)
             && IsAsyncHelpersAwaitSignature(call.Callee, awaited);
 
+    public static bool IsAsyncHelpersAwaiter(Call call, out TypeRef awaiterType)
+    {
+        awaiterType = null!;
+        if (call.IsVirtual
+            || call.Callee is not
+            {
+                HasThis: false,
+                Name: "AwaitAwaiter" or "UnsafeAwaitAwaiter",
+                TypeArguments: [var genericAwaiter],
+                ParameterTypes: [var parameterAwaiter],
+                ReturnType: var returnType,
+            }
+            || !IsCoreLibraryType(call.Callee.DeclaringType, "System.Runtime.CompilerServices", "AsyncHelpers")
+            || !returnType.Equals(s_void)
+            || !parameterAwaiter.Equals(genericAwaiter)
+            || call.Arguments is not [LoadLocal argument]
+            || !argument.Type.Equals(genericAwaiter))
+        {
+            return false;
+        }
+
+        awaiterType = genericAwaiter;
+        return true;
+    }
+
     static bool IsAsyncHelpersAwaitSignature(MethodRef method, TypeRef awaited)
     {
         if (method.TypeArguments.IsEmpty && method.ReturnType.Equals(s_void))

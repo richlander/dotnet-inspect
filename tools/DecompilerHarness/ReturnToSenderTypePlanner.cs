@@ -1202,7 +1202,9 @@ public static class CompileBackSourceComposer
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
                 IsOverride: false,
                 IsSealed: false,
-                IsAsync: !isConstructor && function.RequiresAsyncBodyModifier,
+                IsAsync: !isConstructor
+                    && (function.RequiresAsyncBodyModifier
+                        || function.IsRuntimeAsync == MetadataFactState.Yes),
                 ConstructorInitializer: targetConstructorInitializer)
         ];
         bool includeRecordSurface = false;

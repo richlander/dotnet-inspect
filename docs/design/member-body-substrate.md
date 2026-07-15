@@ -260,20 +260,22 @@ sourced from Metadata/Analysis, not from the printed text:
   method invalid. The metadata fact remains available, but the body gate declines
   it until that upstream reconstruction exists.
 
-  Runtime-async bodies are not yet fully reconstructed. For runtime-async
+  Runtime-async bodies are reconstructed through two exact routes. For runtime-async
   methods (`MethodImplAttributes.Async`, no compiler state machine — the shape
   the preview SDK emitted for the probe fixture, distinct from the classic
   compiler state-machine async that remains the language default), metadata now
-  preserves the `async` header, but awaiter-helper shapes still expose the raw
-  `AsyncHelpers.UnsafeAwaitAwaiter<...>` lowering instead of `await`. Recovering
-  runtime async is a decompiler raise in its own right (full A/B + adversarial
-  discipline), tracked separately from this substrate as
+  preserves the `async` header. `AwaitRecoveryPass` handles direct
+  `AsyncHelpers.Await` calls; `RuntimeAsyncAwaiterPass` handles the exact
+  `AwaitAwaiter`/`UnsafeAwaitAwaiter` guard-helper-`GetResult` scaffold after
+  proving defining-method metadata, helper identity, same-local correlation,
+  and exclusive control-flow ownership. This body raise is tracked as
   [#2742](https://github.com/richlander/dotnet-inspect/issues/2742).
 
   The substrate's contract is that this modifier is a **Metadata classification
   fact applied only when the body policy emits a body**, so the surface path is
-  unchanged and both full-body renderers agree — but the runtime-async *body*
-  fidelity gap is upstream of that contract and out of its scope.
+  unchanged and both full-body renderers agree. Runtime-async body recovery is
+  upstream of this contract; the contract consumes its resulting `await` body
+  without inferring modifiers from rendered text.
 - **body-only unsafe** (`localloc`, `calli`, pointer deref) — from
   `MethodSignals.Unsafe` (**Analysis**), no Decompiler. Signature-only unsafe is
   already set on `ApiMember.IsUnsafe`. Same body-gating applies: the `unsafe`
