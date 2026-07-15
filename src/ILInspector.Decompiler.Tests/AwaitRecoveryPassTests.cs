@@ -7,6 +7,9 @@ public class AwaitRecoveryPassTests
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "AwaitHolder");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef AsyncHelpers = TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers");
+    static readonly TypeRef TaskInt = TypeRef.GenericInstance(
+        TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+        [Int32]);
 
     static IrFunction Raised(string methodName)
     {
@@ -25,6 +28,7 @@ public class AwaitRecoveryPassTests
     {
         var function = Raised(nameof(CfgSampleClass.AwaitOnce));
 
+        Assert.True(function.RequiresAsyncBodyModifier);
         Assert.Single(function.Descendants.OfType<AwaitExpression>());
         // The synthetic AsyncHelpers.Await call is gone.
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
@@ -79,6 +83,19 @@ public class AwaitRecoveryPassTests
         new AwaitRecoveryPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
+    }
+
+    [Fact]
+    public void NonRuntimeMethod_WithExactCorelibAwait_StandsDown()
+    {
+        var function = BuildExactCorelibAwait(MetadataFactState.No);
+
+        new AwaitRecoveryPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.False(function.RequiresAsyncBodyModifier);
         Assert.Empty(function.Descendants.OfType<AwaitExpression>());
         Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "Await");
     }
@@ -193,5 +210,33 @@ public class AwaitRecoveryPassTests
             new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
             [],
             body);
+    }
+
+    static IrFunction BuildExactCorelibAwait(MetadataFactState runtimeAsync)
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new Call(
+            new MethodRef(AsyncHelpers, "Await", Int32, [TaskInt], HasThis: false)
+            {
+                TypeArguments = [Int32],
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "task", TaskInt)])));
+        body.Add(block);
+
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                TaskInt,
+                [new Parameter("task", TaskInt)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            IsRuntimeAsync = runtimeAsync,
+        };
     }
 }

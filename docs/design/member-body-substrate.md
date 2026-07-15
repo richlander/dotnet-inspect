@@ -267,8 +267,9 @@ sourced from Metadata/Analysis, not from the printed text:
   preserves the `async` header. `AwaitRecoveryPass` handles direct
   `AsyncHelpers.Await` calls; `RuntimeAsyncAwaiterPass` handles the exact
   `AwaitAwaiter`/`UnsafeAwaitAwaiter` guard-helper-`GetResult` scaffold after
-  proving defining-method metadata, helper identity, same-local correlation,
-  and exclusive control-flow ownership. This body raise is tracked as
+  proving defining-method metadata, helper identity, receiver/extension-method
+  evidence, same-local correlation, and exclusive control-flow ownership. This
+  body raise is tracked as
   [#2742](https://github.com/richlander/dotnet-inspect/issues/2742).
 
   The substrate's contract is that this modifier is a **Metadata classification

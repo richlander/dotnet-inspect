@@ -286,10 +286,10 @@ public sealed class IrFunction : IrNode
     public bool SkipLocalsInit { get; set; }
 
     /// <summary>
-    /// True when classic state-machine reconstruction installed an async body
-    /// contract. The printer uses this while shaping returns and unsupported
-    /// fallbacks. Final member modifiers come from defining-method metadata in
-    /// the C# producer rather than from this pass-local state.
+    /// True when reconstruction installed an async source-body contract. The
+    /// printer uses this while shaping returns and unsupported fallbacks. Final
+    /// member modifiers come from defining-method metadata in the C# producer
+    /// rather than from this pass-local state.
     /// </summary>
     public bool RequiresAsyncBodyModifier { get; set; }
 

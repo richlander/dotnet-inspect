@@ -17,9 +17,13 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         if (function.IsRuntimeAsync != MetadataFactState.Yes)
             return;
 
+        bool recovered = false;
         while (FoldOne(function, context.Stepper))
         {
+            recovered = true;
         }
+        if (recovered)
+            function.RequiresAsyncBodyModifier = true;
     }
 
     static bool FoldOne(IrFunction function, Stepper stepper)
@@ -40,19 +44,19 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
     }
 
     readonly record struct AwaiterShape(
-        StoreLocal AwaitableStore,
+        StoreLocal? AwaitableStore,
         StoreLocal AwaiterStore,
         ConditionalBranch Branch,
         ExpressionStatement HelperStatement,
-        Call GetResult);
+        Call GetResult,
+        IrExpression Awaited);
 
     static AwaiterShape? TryMatch(IrFunction function, IReadOnlyList<Block> blocks, int index)
     {
         var head = blocks[index];
         var helperBlock = blocks[index + 1];
         var merge = blocks[index + 2];
-        if (head.Children.Count < 3
-            || head.Children[^3] is not StoreLocal awaitableStore
+        if (head.Children.Count < 2
             || head.Children[^2] is not StoreLocal awaiterStore
             || head.Children[^1] is not ConditionalBranch branch
             || branch.TargetOffset != merge.StartOffset
@@ -61,15 +65,21 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
             || helperCall.Arguments is not [LoadLocal helperAwaiter]
             || helperAwaiter.Index != awaiterStore.Index
             || !awaiterStore.Type.Equals(awaiterType)
-            || !TryGetAwaitable(awaitableStore, awaiterStore, awaiterType)
+            || !TryGetAwaitedOperand(
+                head,
+                awaiterStore,
+                awaiterType,
+                out var awaitableStore,
+                out var awaited)
             || !IsCompletedTest(branch.Condition, awaiterStore.Index, awaiterType)
             || !TryGetResult(merge, awaiterStore.Index, awaiterType, out var getResult)
             || !HasExclusiveControlFlow(function, branch, helperBlock.StartOffset, merge.StartOffset)
-            || !LocalDefinitionRangeOwned(
-                function,
-                awaitableStore.Index,
-                awaitableStore,
-                [awaitableStore, awaiterStore])
+            || awaitableStore is not null
+                && !LocalDefinitionRangeOwned(
+                    function,
+                    awaitableStore.Index,
+                    awaitableStore,
+                    [awaitableStore, awaiterStore])
             || !LocalDefinitionRangeOwned(
                 function,
                 awaiterStore.Index,
@@ -79,39 +89,104 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
             return null;
         }
 
-        return new AwaiterShape(awaitableStore, awaiterStore, branch, helperStatement, getResult);
+        return new AwaiterShape(
+            awaitableStore,
+            awaiterStore,
+            branch,
+            helperStatement,
+            getResult,
+            awaited);
     }
 
-    static bool TryGetAwaitable(StoreLocal awaitableStore, StoreLocal awaiterStore, TypeRef awaiterType)
+    static bool TryGetAwaitedOperand(
+        Block head,
+        StoreLocal awaiterStore,
+        TypeRef awaiterType,
+        out StoreLocal? awaitableStore,
+        out IrExpression awaited)
     {
+        awaitableStore = null;
+        awaited = null!;
         if (awaiterStore.Value is not Call
             {
-                IsVirtual: false,
                 Callee:
                 {
-                    HasThis: true,
                     Name: "GetAwaiter",
                     TypeArguments.IsEmpty: true,
-                    ParameterTypes.IsEmpty: true,
                     ReturnType: var returnType,
-                    DeclaringType: var declaringType,
                 },
-                Arguments: [LoadLocalAddress receiver],
-            })
+            } getAwaiter
+            || !returnType.Equals(awaiterType)
+            || !TryGetAwaitableReceiver(getAwaiter, out var receiver))
         {
             return false;
         }
 
-        return receiver.Index == awaitableStore.Index
-            && receiver.Type.Equals(awaitableStore.Type)
-            && declaringType.Equals(awaitableStore.Type)
-            && returnType.Equals(awaiterType);
+        if (receiver is LoadLocalAddress local
+            && head.Children.Count >= 3
+            && head.Children[^3] is StoreLocal store
+            && store.Index == local.Index
+            && store.Type.Equals(local.Type))
+        {
+            awaitableStore = store;
+            awaited = store.Value;
+            return true;
+        }
+
+        awaited = receiver switch
+        {
+            LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
+            LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
+            _ => receiver,
+        };
+        return true;
     }
+
+    static bool TryGetAwaitableReceiver(Call getAwaiter, out IrExpression receiver)
+    {
+        receiver = null!;
+        if (getAwaiter.Callee is
+            {
+                HasThis: true,
+                ParameterTypes.IsEmpty: true,
+                DeclaringType: var declaringType,
+            }
+            && getAwaiter.Arguments is [var instance]
+            && AwaitableReceiverType(instance) is { } instanceType
+            && declaringType.Equals(instanceType))
+        {
+            receiver = instance;
+            return true;
+        }
+
+        if (!getAwaiter.IsVirtual
+            && getAwaiter.Callee is
+            {
+                HasThis: false,
+                IsExtension: MetadataFactState.Yes,
+                ParameterTypes: [var parameterType],
+            }
+            && getAwaiter.Arguments is [var argument]
+            && AwaitableReceiverType(argument) is { } argumentType
+            && parameterType.Equals(argumentType))
+        {
+            receiver = argument;
+            return true;
+        }
+
+        return false;
+    }
+
+    static TypeRef? AwaitableReceiverType(IrExpression receiver) => receiver switch
+    {
+        LoadLocalAddress address => address.Type,
+        LoadArgumentAddress address => address.Type,
+        _ => receiver.ResultType,
+    };
 
     static bool IsCompletedTest(IrExpression condition, int awaiterIndex, TypeRef awaiterType)
         => condition is LoadProperty
         {
-            IsVirtual: false,
             Accessor:
             {
                 HasThis: true,
@@ -121,11 +196,11 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                 ReturnType: var returnType,
                 DeclaringType: var declaringType,
             },
-            Instance: LoadLocalAddress receiver,
+            Instance: var receiver,
             IndexArguments.Count: 0,
         }
-        && receiver.Index == awaiterIndex
-        && receiver.Type.Equals(awaiterType)
+        && receiver is not null
+        && IsAwaiterReceiver(receiver, awaiterIndex, awaiterType)
         && declaringType.Equals(awaiterType)
         && returnType.Equals(s_bool);
 
@@ -141,7 +216,6 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
             .Where(call => call.Callee.Name == "GetResult")
             .ToList();
         if (calls is not [var candidate]
-            || candidate.IsVirtual
             || candidate.Callee is not
             {
                 HasThis: true,
@@ -150,9 +224,9 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                 ParameterTypes.IsEmpty: true,
                 DeclaringType: var declaringType,
             }
-            || candidate.Arguments is not [LoadLocalAddress receiver]
-            || receiver.Index != awaiterIndex
-            || !receiver.Type.Equals(awaiterType)
+            || candidate.Arguments is not [var receiver]
+            || receiver is null
+            || !IsAwaiterReceiver(receiver, awaiterIndex, awaiterType)
             || !declaringType.Equals(awaiterType))
         {
             return false;
@@ -161,6 +235,14 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         getResult = candidate;
         return true;
     }
+
+    static bool IsAwaiterReceiver(IrExpression receiver, int awaiterIndex, TypeRef awaiterType)
+        => receiver switch
+        {
+            LoadLocal local => local.Index == awaiterIndex && local.Type.Equals(awaiterType),
+            LoadLocalAddress address => address.Index == awaiterIndex && address.Type.Equals(awaiterType),
+            _ => false,
+        };
 
     static bool LocalDefinitionRangeOwned(
         IrFunction function,
@@ -217,8 +299,9 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
     static void Fold(BlockContainer container, int index, AwaiterShape match, Stepper stepper)
     {
         var blocks = container.Blocks.ToList();
-        var awaited = match.AwaitableStore.Value;
-        awaited.Detach();
+        var awaited = match.Awaited;
+        if (awaited.Parent is not null)
+            awaited.Detach();
 
         var awaitExpression = new AwaitExpression(awaited, match.GetResult.Callee.ReturnType);
         awaitExpression.InheritSourceOffset(match.GetResult);

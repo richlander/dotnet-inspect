@@ -28,6 +28,7 @@ public class RuntimeAsyncAwaiterPassTests
         var function = Raised(nameof(RuntimeAsyncAwaiterFixtures.YieldOnce));
 
         Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.True(function.RequiresAsyncBodyModifier);
         Assert.Single(function.Descendants.OfType<AwaitExpression>());
         Assert.DoesNotContain(
             function.Descendants.OfType<Call>(),
@@ -96,6 +97,23 @@ public class RuntimeAsyncAwaiterPassTests
     }
 
     [Theory]
+    [InlineData(nameof(RuntimeAsyncAwaiterFixtures.YieldParameter))]
+    [InlineData(nameof(RuntimeAsyncAwaiterFixtures.ClassAwaitableCall))]
+    [InlineData(nameof(RuntimeAsyncAwaiterFixtures.ClassAwaitableParameter))]
+    [InlineData(nameof(RuntimeAsyncAwaiterFixtures.ExtensionAwaitableParameter))]
+    public void CompiledAwaitableShapes_RecoverAwait(string methodName)
+    {
+        var function = Raised(methodName);
+        var output = CSharpPrinter.Print(function).Output;
+
+        Assert.Equal(MetadataFactState.Yes, function.IsRuntimeAsync);
+        Assert.True(function.RequiresAsyncBodyModifier);
+        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.Contains("await ", output);
+        Assert.DoesNotContain("AsyncHelpers", output);
+    }
+
+    [Theory]
     [InlineData("AwaitAwaiter")]
     [InlineData("UnsafeAwaitAwaiter")]
     public void ExactSafeAndUnsafeHelpers_RecoverSyntheticAwait(string helperName)
@@ -122,6 +140,7 @@ public class RuntimeAsyncAwaiterPassTests
     [InlineData(SyntheticBreak.EscapedAwaitableAfterGetResult)]
     [InlineData(SyntheticBreak.ExternalHelperEntry)]
     [InlineData(SyntheticBreak.ExternalMergeEntry)]
+    [InlineData(SyntheticBreak.StaticGetAwaiterWithoutExtensionEvidence)]
     public void BrokenDiscriminator_StandsDown(SyntheticBreak broken)
     {
         var function = Synthetic(broken: broken);
@@ -150,13 +169,27 @@ public class RuntimeAsyncAwaiterPassTests
         var head = new Block(0);
         var awaitableStore = new StoreLocal(0, Awaitable, new LoadArgument(0, "awaitable", Awaitable));
         head.Add(awaitableStore);
+        var getAwaiter = broken == SyntheticBreak.StaticGetAwaiterWithoutExtensionEvidence
+            ? new Call(
+                new MethodRef(
+                    TypeRef.Definition("Synthetic", "Samples", "AwaitableExtensions"),
+                    "GetAwaiter",
+                    Awaiter,
+                    [Awaitable],
+                    HasThis: false)
+                {
+                    IsExtension = MetadataFactState.No,
+                },
+                isVirtual: false,
+                [new LoadLocal(0, Awaitable)])
+            : new Call(
+                new MethodRef(Awaitable, "GetAwaiter", Awaiter, [], HasThis: true),
+                isVirtual: false,
+                [new LoadLocalAddress(0, Awaitable)]);
         head.Add(new StoreLocal(
             1,
             Awaiter,
-            new Call(
-                new MethodRef(Awaitable, "GetAwaiter", Awaiter, [], HasThis: true),
-                isVirtual: false,
-                [new LoadLocalAddress(0, Awaitable)])));
+            getAwaiter));
         head.Add(new ConditionalBranch(
             new LoadProperty(
                 new MethodRef(Awaiter, "get_IsCompleted", Bool, [], HasThis: true),
@@ -226,5 +259,6 @@ public class RuntimeAsyncAwaiterPassTests
         EscapedAwaitableAfterGetResult,
         ExternalHelperEntry,
         ExternalMergeEntry,
+        StaticGetAwaiterWithoutExtensionEvidence,
     }
 }
