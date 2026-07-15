@@ -7,6 +7,50 @@ namespace ILInspector.Decompiler.Tests;
 public class CorpusSensorComparisonTests
 {
     [Fact]
+    public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
+    {
+        Assert.Contains(
+            "net11 opt-in compiler-feature corpus",
+            CorpusSensor.DescriptionForProfile(CorpusProfile.OptInNet11),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "### Decompiler net11 opt-in feature diff",
+            CorpusSensor.QualityCardHeadingForProfile(CorpusProfile.OptInNet11));
+        Assert.True(
+            CorpusSensor.ShouldGateAggregateRates(
+                CorpusProfile.OptInNet11,
+                qualityDiffCard: true,
+                qualityCardRisky: false));
+        Assert.False(
+            CorpusSensor.ShouldGateAggregateRates(
+                CorpusProfile.RealWorld,
+                qualityDiffCard: true,
+                qualityCardRisky: false));
+    }
+
+    [Fact]
+    public void Compare_RejectsCorpusProfileMismatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null);
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            "corpus profile differs (baseline opt-in-net11, current real-world)",
+            regressions);
+    }
+
+    [Fact]
     public void Compare_NormalPrQuickGate_LeavesAggregateRateDropAdvisoryWhenPinnedSubsetIsStable()
     {
         var baseline = Snapshot(
@@ -471,7 +515,8 @@ public class CorpusSensorComparisonTests
         int fidelityExactMethods = 0,
         int fidelityOpcodeDiffMethods = 0,
         CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
-        ReturnToSenderParityMetrics? returnToSenderParity = null)
+        ReturnToSenderParityMetrics? returnToSenderParity = null,
+        CorpusProfile profile = CorpusProfile.RealWorld)
     {
         return new CorpusSensorSnapshot(
             SchemaVersion: 1,
@@ -505,7 +550,8 @@ public class CorpusSensorComparisonTests
                     ContextFailMethods: 0,
                     NotFullMethods: 0,
                     ReturnToSenderParity: returnToSenderParity)),
-            FidelityOracle: fidelityOracle);
+            FidelityOracle: fidelityOracle,
+            Profile: profile);
     }
 
     static FidelityCheck.CompileBackResult CompileBackResult(
