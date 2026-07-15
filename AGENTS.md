@@ -76,6 +76,22 @@ Match evidence to the claim and use the smallest existing check that proves it:
 - Documentation-only changes that make no measured behavior claim require
   Markdown validation, not product builds or tests.
 
+### Harness boundary
+
+Test harnesses own orchestration, fixtures, independent oracles, comparison,
+and reporting. When behavior belongs to the product, a harness must exercise
+the product-owned capability rather than reconstructing or replacing it.
+
+Do not add harness-side adaptive mechanisms, fallback resolvers, special-case
+shape recognition, or normalization that compensates for missing, incomplete,
+or incorrect product behavior. Such compensation hides the product gap and
+makes the harness a second implementation.
+
+If a test cannot express its claim without covering for the product, stop and
+ask for guidance. File an issue against the missing product capability and
+either fix that capability first or record the harness work as blocked; do not
+make the harness substitute for the product.
+
 Decompiler raising, typing, structuring, fidelity, or printer changes have
 additional evidence requirements. Follow the decompiler docs and PR templates
 rather than duplicating their evolving commands and gates here.
