@@ -219,6 +219,9 @@ public sealed class CSharpFormatterTests
     [InlineData("delegate* managed<int, void>", "delegate* managed<int, void>")]
     // Whitespace between "delegate*" and '<' is still a function-pointer head.
     [InlineData("delegate* <int, void>", "delegate* <int, void>")]
+    // A qualified "delegate" segment is a type name, never a function-pointer head.
+    [InlineData("N.delegate*<int, void>", "N.@delegate*<int, void>")]
+    [InlineData("N.delegate", "N.@delegate")]
     // Already-escaped identifiers are left untouched (idempotent).
     [InlineData("@int", "@int")]
     [InlineData("N.@int", "N.@int")]

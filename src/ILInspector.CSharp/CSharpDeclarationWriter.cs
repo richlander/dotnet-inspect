@@ -705,9 +705,13 @@ internal static class CSharpDeclarationWriter
         // identifier such as "managed"/"unmanaged"). A "delegate*" followed by
         // anything else — end of string, or terminating punctuation ('[', ',', '>',
         // ')') after whitespace — is a pointer to a type literally named "delegate"
-        // and must be escaped ("@delegate*").
+        // and must be escaped ("@delegate*"). A function-pointer head is also never a
+        // qualified name segment, so a dotted "N.delegate*<...>" is a pointer to a
+        // type named "delegate" and is escaped ("N.@delegate*<...>").
         if (identifier == "delegate")
         {
+            if (start > 0 && type[start - 1] == '.')
+                return false;
             if (end >= type.Length || type[end] != '*')
                 return false;
             int afterStar = end + 1;
