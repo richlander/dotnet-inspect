@@ -104,6 +104,9 @@ public static class CommandLineBuilder
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
+        // Experimental Repl mode
+        rootCommand.Subcommands.Add(ReplCommandDefinition.Create());
+
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand));
 

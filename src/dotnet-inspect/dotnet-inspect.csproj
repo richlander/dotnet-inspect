@@ -34,6 +34,22 @@
     <PublishAot>true</PublishAot>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- Repl.Core 0.12.0-dev.3 is not trim/AOT clean. Keep the experimental mode in
+         untrimmed managed builds, and compile an unavailable stub otherwise. -->
+    <ExperimentalReplBuildSupported Condition="'$(PublishTrimmed)' != 'true' and ('$(PublishAot)' != 'true' or ('$(_IsPublishing)' != 'true' and '$(RuntimeIdentifier)' == ''))">true</ExperimentalReplBuildSupported>
+    <ExperimentalReplBuildSupported Condition="'$(ExperimentalReplBuildSupported)' == ''">false</ExperimentalReplBuildSupported>
+    <EnableExperimentalRepl Condition="'$(EnableExperimentalRepl)' == ''">$(ExperimentalReplBuildSupported)</EnableExperimentalRepl>
+    <DefineConstants Condition="'$(EnableExperimentalRepl)' == 'true'">$(DefineConstants);DOTNET_INSPECT_EXPERIMENTAL_REPL</DefineConstants>
+  </PropertyGroup>
+
+  <Target Name="ValidateExperimentalReplConfiguration" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(EnableExperimentalRepl)' == 'true' and '$(ExperimentalReplBuildSupported)' != 'true' and '$(PublishTrimmed)' == 'true'"
+           Text="EnableExperimentalRepl cannot be true when PublishTrimmed is explicitly enabled." />
+    <Error Condition="'$(EnableExperimentalRepl)' == 'true' and '$(PublishAot)' == 'true' and ('$(_IsPublishing)' == 'true' or '$(RuntimeIdentifier)' != '')"
+           Text="EnableExperimentalRepl cannot be true for a NativeAOT publish." />
+  </Target>
+
   <PropertyGroup Condition="'$(OfficialBuild)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <DebugType>embedded</DebugType>
@@ -76,6 +92,7 @@
     <PackageReference Include="MarkdownTable.Formatting" />
     <PackageReference Include="Markout" />
     <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="Repl.Core" Condition="'$(EnableExperimentalRepl)' == 'true'" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 

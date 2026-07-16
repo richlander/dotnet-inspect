@@ -120,6 +120,29 @@ public class TypeOptionsParserTests
     }
 
     [Fact]
+    public async Task DashPrefixedTypeAfterDoubleDash_IsPositional()
+    {
+        var options = await ParseSuccessAsync(
+            "type", "--package", "System.Text.Json", "--", "-Foo");
+
+        Assert.Equal("-Foo", options.TypeName);
+    }
+
+    [Fact]
+    public async Task UnknownOptionBeforeDoubleDash_RemainsUnrecognized()
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["type", "--platform", "System.Private.CoreLib", "--bogus", "--", "-Foo"]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+        var error = Assert.IsType<TypeOptionsParser.UnrecognizedOption>(result);
+        Assert.Equal("--bogus", error.Option);
+    }
+
+    [Fact]
     public async Task ProjectCannotCombineWithExplicitSource()
     {
         ArgumentPreprocessor.Reset();

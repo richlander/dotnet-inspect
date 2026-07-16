@@ -25,7 +25,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "audit", // removed command, reserved so it is not treated as an implicit package target
-        "package", "project", "library", "api", "type", "member", "diff", "timeline", "find", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "api", "type", "member", "repl", "diff", "timeline", "find", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>
@@ -46,6 +46,55 @@ public static class ArgumentPreprocessor
         HeadLines = null;
         TailLines = null;
 
+        var endOfOptionsIndex = Array.IndexOf(args, "--");
+        if (endOfOptionsIndex < 0)
+            return PreprocessOptionsAndRouting(args);
+
+        var processedPrefix = PreprocessOptions(args[..endOfOptionsIndex]);
+        var suffix = args[(endOfOptionsIndex + 1)..];
+        var firstPositional = FindFirstPositionalIndex(processedPrefix);
+        if (firstPositional >= 0)
+        {
+            var routedPrefix = RouteImplicitTarget(processedPrefix);
+            if (routedPrefix.Length > 0
+                && routedPrefix[0] == "router"
+                && suffix.Length > 0)
+            {
+                return
+                [
+                    "router", "--", .. routedPrefix[1..],
+                    RouterCommandDefinition.EndOfOptionsSentinel, .. suffix
+                ];
+            }
+
+            return [.. routedPrefix, "--", .. suffix];
+        }
+
+        if (suffix.Length == 0)
+            return [.. processedPrefix, "--"];
+
+        var target = suffix[0];
+        if (CommandLineHelpers.TryClassifyAsFilePath(target, out var dllPath, out var nupkgPath))
+        {
+            var command = dllPath != null ? "library" : nupkgPath != null ? "package" : "router";
+            return [command, .. processedPrefix, "--", .. suffix];
+        }
+
+        RequestTelemetry.Breadcrumb("implicit-router", target);
+        return suffix.Length == 1
+            ? ["router", "--", target, .. processedPrefix]
+            :
+            [
+                "router", "--", target, .. processedPrefix,
+                RouterCommandDefinition.EndOfOptionsSentinel, .. suffix[1..]
+            ];
+    }
+
+    private static string[] PreprocessOptionsAndRouting(string[] args)
+        => RouteImplicitTarget(PreprocessOptions(args));
+
+    private static string[] PreprocessOptions(string[] args)
+    {
         // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
         // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
         // ';'-joined token so repeated and separated forms behave the same.
@@ -91,26 +140,13 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Find the first positional argument, skipping any leading options
-        int firstPositional = -1;
-        for (int i = 0; i < args.Length; i++)
-        {
-            var token = args[i];
-            if (!token.StartsWith('-'))
-            {
-                firstPositional = i;
-                break;
-            }
+        return args;
+    }
 
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-            {
-                i++;
-            }
-        }
+    private static string[] RouteImplicitTarget(string[] args)
+    {
+        // Find the first positional argument, skipping any leading options.
+        int firstPositional = FindFirstPositionalIndex(args);
 
         if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
         {
@@ -133,6 +169,27 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    private static int FindFirstPositionalIndex(string[] args)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith('-'))
+                return i;
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return -1;
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];

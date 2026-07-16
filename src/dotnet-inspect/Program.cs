@@ -1,33 +1,35 @@
 using DotnetInspector;
 using DotnetInspector.Core;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using Markout;
 
 // Parse --offline early (before command parsing) to configure HttpClientFactory
-bool offline = args.Contains("--offline")
+bool offline = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--offline")
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1");
 if (offline)
-    args = args.Where(a => a != "--offline").ToArray();
+    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--offline");
 
 // Parse --info early (before command parsing) to install counting writer
-bool showInfo = args.Contains("--info")
+bool showInfo = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--info")
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_INFO"), "1");
 if (showInfo)
-    args = args.Where(a => a != "--info").ToArray();
+    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--info");
 
 // Parse --trace-mermaid early to subscribe before any request/cache/network breadcrumbs.
-bool showTraceMermaid = args.Contains("--trace-mermaid")
+bool showTraceMermaid = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--trace-mermaid")
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_TRACE_MERMAID"), "1");
 if (showTraceMermaid)
-    args = args.Where(a => a != "--trace-mermaid").ToArray();
+    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--trace-mermaid");
 
 // Parse --isolated <name> and --no-nuget-cache early
 string? sessionName = null;
 var argList = new List<string>(args);
-int isolatedIdx = argList.IndexOf("--isolated");
-if (isolatedIdx >= 0 && isolatedIdx + 1 < argList.Count)
+int isolatedIdx = EarlyGlobalOptions.IndexOfBeforeEndOfOptions(args, "--isolated");
+int endOfOptionsIdx = EarlyGlobalOptions.GetEndOfOptionsIndex(args);
+if (isolatedIdx >= 0 && isolatedIdx + 1 < endOfOptionsIdx)
 {
     sessionName = argList[isolatedIdx + 1];
     argList.RemoveAt(isolatedIdx + 1);
@@ -35,7 +37,8 @@ if (isolatedIdx >= 0 && isolatedIdx + 1 < argList.Count)
 }
 else if (isolatedIdx >= 0)
 {
-    argList.RemoveAt(isolatedIdx);
+    Console.Error.WriteLine("Error: --isolated requires a session name before '--'.");
+    return 1;
 }
 sessionName ??= Environment.GetEnvironmentVariable("DOTNET_INSPECT_ISOLATED");
 if (string.IsNullOrWhiteSpace(sessionName))
@@ -43,9 +46,9 @@ if (string.IsNullOrWhiteSpace(sessionName))
 bool isolated = sessionName != null;
 args = argList.ToArray();
 
-bool noNuGetCache = args.Contains("--no-nuget-cache") || isolated;
-if (args.Contains("--no-nuget-cache"))
-    args = args.Where(a => a != "--no-nuget-cache").ToArray();
+bool noNuGetCache = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--no-nuget-cache") || isolated;
+if (EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--no-nuget-cache"))
+    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--no-nuget-cache");
 
 // Resolve cache base path: explicit env var > named session dir > default
 string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE_DIR");
@@ -65,7 +68,7 @@ if (showInfo)
 {
     InfoTracker.Start();
     // Suppress tips when --info is active (show info instead)
-    args = [.. args, "-T:q"];
+    args = EarlyGlobalOptions.InsertBeforeEndOfOptions(args, "-T:q");
 }
 
 #if DEBUG

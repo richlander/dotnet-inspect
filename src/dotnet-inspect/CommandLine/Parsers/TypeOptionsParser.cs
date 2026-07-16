@@ -94,8 +94,26 @@ public static class TypeOptionsParser
         if (hasProjectSource && hasNonProjectSource)
             return new VersionError("Error: --project cannot be combined with --package, --library, or --platform.");
 
-        // Check for unrecognized options in positional args
-        var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
+        // A double dash marks only subsequent tokens as positional. Continue to
+        // reject dash-prefixed positional values that occur before the marker.
+        var argumentsAfterEndOfOptions = 0;
+        var afterEndOfOptions = false;
+        foreach (var token in parseResult.Tokens)
+        {
+            if (token.Type == TokenType.DoubleDash)
+            {
+                afterEndOfOptions = true;
+            }
+            else if (afterEndOfOptions && token.Type == TokenType.Argument)
+            {
+                argumentsAfterEndOfOptions++;
+            }
+        }
+
+        var argumentsToValidate = Math.Max(0, sourceInputs.Args.Length - argumentsAfterEndOfOptions);
+        var badOption = sourceInputs.Args
+            .Take(argumentsToValidate)
+            .FirstOrDefault(argument => argument.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 

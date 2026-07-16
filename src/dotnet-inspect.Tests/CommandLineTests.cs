@@ -24,6 +24,113 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ReplCommand_ParsesAndIsReserved()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["repl"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("repl", result.CommandResult.Command.Name);
+        Assert.Contains("repl", ArgumentPreprocessor.KnownCommands);
+    }
+
+    [Fact]
+    public void PackageCommand_WithReservedReplPackage_ParsesExplicitly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "repl"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("package", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void Preprocessor_DoesNotRewriteDashNumericAfterDoubleDash()
+    {
+        string[] arguments = ["type", "--platform", "System.Private.CoreLib", "--", "-30"];
+
+        var processed = CommandLineBuilder.PreprocessArgs(arguments);
+
+        Assert.Equal(arguments, processed);
+        Assert.Null(ArgumentPreprocessor.HeadLines);
+    }
+
+    [Fact]
+    public void Preprocessor_RoutesImplicitTargetAfterDoubleDashWithoutRewritingSuffix()
+    {
+        string[] arguments = ["--", "System.Private.CoreLib"];
+
+        var processed = CommandLineBuilder.PreprocessArgs(arguments);
+
+        Assert.Equal(["router", "--", "System.Private.CoreLib"], processed);
+    }
+
+    [Fact]
+    public void Preprocessor_RoutesImplicitTargetAfterGlobalOptionsWithoutRewritingSuffix()
+    {
+        string[] arguments = ["-T:q", "--", "System.Private.CoreLib"];
+
+        var processed = CommandLineBuilder.PreprocessArgs(arguments);
+
+        Assert.Equal(["router", "--", "System.Private.CoreLib", "-T:q"], processed);
+    }
+
+    [Fact]
+    public void Preprocessor_RoutesImplicitTargetAfterCommandOptionsWithoutTreatingOptionValueAsTarget()
+    {
+        string[] arguments = ["-S", "Libraries", "--", "System.Private.CoreLib"];
+
+        var processed = CommandLineBuilder.PreprocessArgs(arguments);
+
+        Assert.Equal(["router", "--", "System.Private.CoreLib", "-S", "Libraries"], processed);
+    }
+
+    [Fact]
+    public void Preprocessor_PreservesOptionShapedSuffixAfterImplicitTarget()
+    {
+        string[] arguments = ["--", "System.Private.CoreLib", "--offline"];
+
+        var processed = CommandLineBuilder.PreprocessArgs(arguments);
+
+        Assert.Equal(
+            ["router", "--", "System.Private.CoreLib", RouterCommandDefinition.EndOfOptionsSentinel, "--offline"],
+            processed);
+    }
+
+    [Fact]
+    public async Task ImplicitRouter_PreservesOptionsBeforeDoubleDashDuringExecution()
+    {
+        var arguments = CommandLineBuilder.PreprocessArgs(["-v:q", "--", "System.Private.CoreLib"]);
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => root.Parse(arguments).InvokeAsync());
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("# System.Private.CoreLib.dll", output);
+        Assert.DoesNotContain("## Library Info", output);
+    }
+
+    [Fact]
+    public void EarlyGlobalOptions_StopAtDoubleDash()
+    {
+        string[] beforeAndAfter = ["type", "--offline", "--", "--offline"];
+        string[] afterOnly = ["type", "--", "--offline"];
+
+        Assert.True(EarlyGlobalOptions.ContainsBeforeEndOfOptions(beforeAndAfter, "--offline"));
+        Assert.Equal(1, EarlyGlobalOptions.IndexOfBeforeEndOfOptions(beforeAndAfter, "--offline"));
+        Assert.Equal(
+            ["type", "--", "--offline"],
+            EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(beforeAndAfter, "--offline"));
+
+        Assert.False(EarlyGlobalOptions.ContainsBeforeEndOfOptions(afterOnly, "--offline"));
+        Assert.Equal(-1, EarlyGlobalOptions.IndexOfBeforeEndOfOptions(afterOnly, "--offline"));
+        Assert.Equal(afterOnly, EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(afterOnly, "--offline"));
+        Assert.Equal(
+            ["type", "-T:q", "--", "--offline"],
+            EarlyGlobalOptions.InsertBeforeEndOfOptions(afterOnly, "-T:q"));
+    }
+
+    [Fact]
     public void RootCommand_WithVerbosityQuiet_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["-v:q"]);

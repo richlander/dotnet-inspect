@@ -16,6 +16,8 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
+    internal const string EndOfOptionsSentinel = "\0dotnet-inspect-end-of-options";
+
     public static Command Create(RootCommand rootCommand)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
@@ -35,6 +37,14 @@ public static class RouterCommandDefinition
         routerCommand.SetAction(async (parseResult, ct) =>
         {
             var tokens = parseResult.GetValue(tokensArg) ?? [];
+            var endOfOptionsIndex = Array.IndexOf(tokens, EndOfOptionsSentinel);
+            string[] protectedTail = [];
+            if (endOfOptionsIndex >= 0)
+            {
+                protectedTail = tokens[(endOfOptionsIndex + 1)..];
+                tokens = tokens[..endOfOptionsIndex];
+            }
+
             if (tokens.Length == 0)
             {
                 HelpWriter.WriteHelp(rootCommand);
@@ -67,6 +77,13 @@ public static class RouterCommandDefinition
             {
                 Console.Error.WriteLine($"Error: Could not route '{tokens[0]}'.");
                 return 1;
+            }
+
+            if (protectedTail.Length > 0)
+            {
+                rewritten = rewritten.Contains("--", StringComparer.Ordinal)
+                    ? [.. rewritten, .. protectedTail]
+                    : [.. rewritten, "--", .. protectedTail];
             }
 
             return await rootCommand.Parse(rewritten).InvokeAsync();
@@ -129,6 +146,10 @@ public static class RouterCommandDefinition
             var target = tokens[0];
             var tail = tokens[1..];
 
+            // A target placed after `--` is literal even when it looks like an option.
+            if (target.StartsWith('-', StringComparison.Ordinal))
+                return ["package", .. tail, "--", target];
+
             if (CommandLineHelpers.TryClassifyAsFilePath(target, out var dllPath, out var nupkgPath))
             {
                 if (dllPath != null)
@@ -137,10 +158,10 @@ public static class RouterCommandDefinition
                     return ["package", target, .. tail];
             }
 
-            if (ContainsOption(tokens, "--member") || ContainsOption(tokens, "-m"))
+            if (ContainsOption(tail, "--member") || ContainsOption(tail, "-m"))
                 return ["member", target, .. tail];
 
-            if (ContainsOption(tokens, "--library"))
+            if (ContainsOption(tail, "--library"))
                 return ["package", .. tokens];
 
             if (tokens.Length >= 2
@@ -150,9 +171,9 @@ public static class RouterCommandDefinition
                 return ["type", tokens[1], "--package", target, .. tokens[2..]];
             }
 
-            var hasVersionQuery = ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions");
+            var hasVersionQuery = ContainsOption(tail, "--version")
+                || ContainsOption(tail, "--latest-version")
+                || ContainsOption(tail, "--versions");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
