@@ -20,6 +20,10 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>DecompilerHarnessPath</_Parameter1>
+      <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../tools/DecompilerHarness/bin/$(Configuration)/$(TargetFramework)/decompiler-harness.dll'))</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>
@@ -42,6 +46,8 @@
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <!-- Build the real CLI for the process-level CFG contract tests; do not reference its entry point. -->
+    <ProjectReference Include="..\..\tools\DecompilerHarness\DecompilerHarness.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!--

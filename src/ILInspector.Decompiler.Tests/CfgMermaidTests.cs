@@ -1,4 +1,6 @@
+using ILInspector.ControlFlow;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -36,6 +38,23 @@ public class CfgMermaidTests
         // the return block flows to the shared exit terminal
         Assert.Contains("b0010 --> _ret", mermaid);
         Assert.Contains("_ret([\"return\"])", mermaid);
+    }
+
+    [Fact]
+    public void Render_InstructionBlocks_UsesRungOneEdges()
+    {
+        InstructionBlock[] blocks =
+        [
+            new(0, 0x00, 0x08, new BlockEdges([1], [0x20], ExitsMethod: false, LeavesRegion: false)),
+            new(1, 0x08, 0x10, new BlockEdges([], [], ExitsMethod: true, LeavesRegion: false)),
+        ];
+
+        var mermaid = CfgMermaid.Render(blocks);
+
+        Assert.Contains("b0000[\"IL_0000\"]", mermaid);
+        Assert.Contains("b0000 --> b0008", mermaid);
+        Assert.Contains("b0000 -.->|external| ext_0020", mermaid);
+        Assert.Contains("b0008 --> _ret", mermaid);
     }
 
     [Fact]
