@@ -1339,17 +1339,22 @@ static class Program
 
             if (stage == CfgDumpStage.Il)
             {
-                var instructions = MethodInstructions.Decode(
-                    source.Pe.GetMethodBody(method.RelativeVirtualAddress));
-                var graph = CfgDumpGraph.FromIl(instructions.Blocks);
-                WriteCfgHeader(assemblyPath, dumpMethod, "il", mermaid);
-                if (!instructions.IsComplete)
+                IlCfgDump dump;
+                try
                 {
-                    Console.WriteLine(
-                        $"// IL CFG incomplete: {instructions.Blocks.IncompleteReason ?? "unknown reason"}");
+                    dump = IlCfgDump.From(MethodInstructions.Decode(
+                        source.Pe.GetMethodBody(method.RelativeVirtualAddress)));
                 }
-                WriteCfgGraph(graph, "IL block graph", mermaid);
-                return instructions.IsComplete ? 0 : 1;
+                catch (BadImageFormatException ex)
+                {
+                    dump = IlCfgDump.Failed(ex.Message);
+                }
+
+                WriteCfgHeader(assemblyPath, dumpMethod, "il", mermaid);
+                if (dump.Diagnostic is not null)
+                    Console.WriteLine(dump.Diagnostic);
+                WriteCfgGraph(dump.Graph, "IL block graph", mermaid);
+                return dump.ExitCode;
             }
 
             var function = IrImporter.Import(source, methodHandle);

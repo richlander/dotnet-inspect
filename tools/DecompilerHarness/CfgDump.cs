@@ -39,6 +39,29 @@ sealed record CfgDumpGraph(
             graph.Blocks.Select(block => block.Edges).ToArray());
 }
 
+sealed record IlCfgDump(CfgDumpGraph Graph, string? IncompleteReason)
+{
+    public int ExitCode => IncompleteReason is null ? 0 : 1;
+
+    public string? Diagnostic => IncompleteReason is null
+        ? null
+        : $"// IL CFG incomplete: {IncompleteReason}";
+
+    public static IlCfgDump From(MethodInstructions instructions)
+        => new(
+            CfgDumpGraph.FromIl(instructions.Blocks),
+            instructions.IsComplete
+                ? null
+                : instructions.Blocks.IncompleteReason ?? "unknown reason");
+
+    public static IlCfgDump Failed(string reason)
+        => new(
+            new CfgDumpGraph(
+                Array.Empty<int>(),
+                Array.Empty<BlockEdges>()),
+            reason);
+}
+
 static class CfgDumpRenderer
 {
     public static string RenderText(CfgDumpGraph graph)

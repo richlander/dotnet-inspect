@@ -87,6 +87,22 @@ public class CfgDumpTests
             CfgDumpRenderer.RenderMermaid(graph));
     }
 
+    [Fact]
+    public void IlDump_SurfacesIncompleteGraphAndReturnsFailure()
+    {
+        byte[] il = [0x2B, 0x7F, 0x2A]; // br.s outside the method; ret
+        var instructions = MethodInstructions.Decode(il, il.Length, []);
+
+        var dump = IlCfgDump.From(instructions);
+        var output = CfgDumpRenderer.RenderText(dump.Graph);
+
+        Assert.Equal(1, dump.ExitCode);
+        Assert.Equal(
+            "// IL CFG incomplete: External control-flow targets are not modeled.",
+            dump.Diagnostic);
+        Assert.Contains("IL_0081 (external)", output);
+    }
+
     static Block Term(int offset, IrNode terminator)
     {
         var block = new Block(offset);
