@@ -861,9 +861,24 @@ public static class LeakTriageAnalyzer
                 return null;
 
             int consumedArguments =
-                callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
+                callee.ParameterTypes.Length
+                + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis
+                    ? 1
+                    : 0);
             if (consumedArguments <= extraArguments)
-                return null;
+            {
+                extraArguments -= consumedArguments;
+                if (instruction.OpCode == ILOpCode.Newobj
+                    || !FrameworkIdentity.IsCoreLibraryType(
+                        callee.ReturnType,
+                        "System",
+                        "Void"))
+                {
+                    extraArguments++;
+                }
+
+                continue;
+            }
 
             var boundary =
                 new ArrayPoolExceptionBoundary(instruction.Offset, callee);
@@ -947,12 +962,16 @@ public static class LeakTriageAnalyzer
         => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
             or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
             or ILOpCode.Ldc_i4_7 or ILOpCode.Ldc_i4_8 or ILOpCode.Ldc_i4_s or ILOpCode.Ldc_i4
+            or ILOpCode.Ldc_i8 or ILOpCode.Ldc_r4 or ILOpCode.Ldc_r8
             or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-            or ILOpCode.Ldarg_s or ILOpCode.Ldarg
+            or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga
             or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloc
+            or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
             or ILOpCode.Ldnull
-            or ILOpCode.Ldstr;
+            or ILOpCode.Ldstr
+            or ILOpCode.Ldsfld or ILOpCode.Ldsflda
+            or ILOpCode.Ldtoken or ILOpCode.Ldftn
+            or ILOpCode.Sizeof or ILOpCode.Arglist;
 
     static bool IsElementRead(ILOpCode opcode)
         => opcode is ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2

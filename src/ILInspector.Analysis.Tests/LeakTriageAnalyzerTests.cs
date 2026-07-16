@@ -135,6 +135,44 @@ public sealed class LeakTriageAnalyzerTests
                 boundary.Operation.Name == "Parse"
                 && boundary.Kind == ResourceBoundaryKind.ExternalInput);
 
+        var throughConstructedArgument = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithConstructedTag)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughConstructedArgument.Source.Payload.Actionability);
+        Assert.Contains(
+            throughConstructedArgument.Source.Payload.Boundaries,
+            boundary =>
+                boundary.Operation.Name == "Parse"
+                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(
+            throughConstructedArgument.Source.Payload.Boundaries,
+            boundary => boundary.Operation.Name == ".ctor");
+
+        var throughStaticArgument = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithStaticTag)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughStaticArgument.Source.Payload.Actionability);
+        Assert.Contains(
+            throughStaticArgument.Source.Payload.Boundaries,
+            boundary =>
+                boundary.Operation.Name == "Parse"
+                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+
+        var constructorBoundary = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanConsumedByConstructor)));
+        Assert.Equal(
+            ResourceActionability.Unknown,
+            constructorBoundary.Source.Payload.Actionability);
+        Assert.Equal(
+            ".ctor",
+            Assert.Single(constructorBoundary.Source.Payload.Boundaries)
+                .Operation.Name);
+
         var unrelatedReader = Assert.Single(candidates.Where(candidate =>
             candidate.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.UnrelatedTextReaderReadBeforeReturn)));
@@ -693,6 +731,7 @@ internal static class Synthetic
 internal sealed class ArrayPoolLeakFixtures
 {
     static byte[]? s_field;
+    static readonly string s_tag = "wire";
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static void CorrectRentReturn()
@@ -884,6 +923,35 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanWithConstructedTag()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = ExternalInputReader.Parse(
+            chars.AsSpan(),
+            new string('a', 5));
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanWithStaticTag()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = ExternalInputReader.Parse(chars.AsSpan(), s_tag);
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int SpanConsumedByConstructor()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        var consumer = new SpanConsumer(chars.AsSpan());
+        ArrayPool<char>.Shared.Return(chars);
+        return consumer.Length;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int UnrelatedTextReaderReadBeforeReturn(TextReader reader)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -947,6 +1015,16 @@ internal sealed class ArrayPoolLeakFixtures
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static int Parse(Span<char> destination, string tag)
             => destination.Length + tag.Length;
+    }
+
+    internal sealed class SpanConsumer
+    {
+        public SpanConsumer(Span<char> value)
+        {
+            Length = value.Length;
+        }
+
+        public int Length { get; }
     }
 
     // Same shape with `catch (Exception)`, which also runs for every managed exception type.
