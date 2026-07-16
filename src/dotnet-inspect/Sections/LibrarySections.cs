@@ -113,13 +113,18 @@ public static class LibrarySections
             .Add(ScannerUnsafeMembers, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, ctx =>
-                ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(
+                    ctx.BodyIndex,
+                    ctx.DrillMap,
+                    ctx.AssemblyPath,
+                    ctx.Logger))
             .Add(ScannerOptimizationOpportunities, ctx =>
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
             .Add(ScannerResourceTriage, ctx =>
                 LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
+                    ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Model,
                     ctx.Logger))

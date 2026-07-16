@@ -1172,6 +1172,45 @@ public sealed class LibraryBodyIndex
             : PEStreamOptions.Default;
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream, streamOptions);
+        return BuildFromReader(
+            path,
+            peReader,
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope);
+    }
+
+    /// <summary>
+    /// Builds an index over a caller-owned, fully prefetched PE image. The
+    /// caller retains ownership and must keep the reader alive for this call.
+    /// </summary>
+    internal static LibraryBodyIndex OpenFromPrefetchedImage(
+        string path,
+        PdbContext context,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(context);
+        features = NormalizeFeatures(features);
+        return BuildFromReader(
+            path,
+            context.GetPrefetchedPeReader(),
+            features,
+            resolver,
+            bodyScope: null,
+            bodyTypeScope: null);
+    }
+
+    static LibraryBodyIndex BuildFromReader(
+        string path,
+        PEReader peReader,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver,
+        IReadOnlySet<int>? bodyScope,
+        Func<TypeRef, bool>? bodyTypeScope)
+    {
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();

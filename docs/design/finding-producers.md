@@ -225,10 +225,12 @@ same assessments rather than resolving tokens or classifying boundaries itself.
 
 Resource lifecycle acquisition is an opt-in producer in `LibraryBodyIndex`.
 Library commands union the features required by their selected sections and
-materialize one lazy `MethodBodyInspectionSession`; Resource Triage therefore
-shares the PE open, metadata-order method enumeration, and body acquisition with
-the other selected Analysis sections. The standalone Leak Triage API delegates
-to a leak-only index rather than reopening and walking the assembly itself.
+materialize one lazy `MethodBodyInspectionSession`. When body features are
+selected, the command prefetches its existing `PdbContext` PE image and shares
+that owner with AppContext scanning, member-drill projection, and
+`LibraryBodyIndex`; Resource Triage therefore adds no target-file open. The
+standalone Leak Triage API delegates to a leak-only index rather than reopening
+and walking the assembly itself.
 This is one acquisition pass, not one analysis algorithm: Leak Triage still owns
 its instruction interpretation, control-flow, and reaching-definitions work.
 Because its result is a whole-assembly census, scoped body-index requests reject

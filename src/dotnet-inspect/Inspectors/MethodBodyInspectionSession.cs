@@ -90,6 +90,22 @@ public sealed class MethodBodyInspectionSession
             Path.GetFileNameWithoutExtension(assemblyPath));
     }
 
+    internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
+        string assemblyPath,
+        PdbContext context,
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null)
+    {
+        System.Threading.Interlocked.Increment(ref OpenCountForTests);
+        return new(
+            Analysis.LibraryBodyIndex.OpenFromPrefetchedImage(
+                assemblyPath,
+                context,
+                features,
+                resolver),
+            Path.GetFileNameWithoutExtension(assemblyPath));
+    }
+
     /// <summary>
     /// Inbound caller graph rooted at one method, extended across sibling caller-scope
     /// <paramref name="scopes"/> (opened as their own sessions). Empty scopes fall back to the

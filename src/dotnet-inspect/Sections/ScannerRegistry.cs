@@ -1,6 +1,7 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Sections;
@@ -13,6 +14,7 @@ public sealed class ScannerContext
     public required string AssemblyPath { get; init; }
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
+    public PdbContext? MetadataContext { get; init; }
 
     /// <summary>
     /// Analysis features required by the complete scanner set. The shared body session computes
@@ -23,6 +25,8 @@ public sealed class ScannerContext
         = Analysis.LibraryBodyAnalysisFeatures.Default;
 
     private MethodBodyInspectionSession? _bodySession;
+    private Dictionary<int, (string? Stable, string Visibility, string Selector)>?
+        _drillMap;
 
     /// <summary>
     /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.
@@ -33,9 +37,26 @@ public sealed class ScannerContext
     /// <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex() =>
-        (_bodySession ??= MethodBodyInspectionSession.OpenWithFeatures(
+        (_bodySession ??= MethodBodyInspectionSession.OpenWithPrefetchedImage(
             AssemblyPath,
+            GetMetadataContext(),
             BodyAnalysisFeatures)).BodyIndex;
+
+    /// <summary>
+    /// Stable member drill coordinates, derived once from the command's shared
+    /// metadata reader.
+    /// </summary>
+    public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
+        DrillMap()
+        => _drillMap ??=
+            LibraryMetadataService.BuildLibraryDrillMap(
+                GetMetadataContext(),
+                Logger);
+
+    PdbContext GetMetadataContext()
+        => MetadataContext
+            ?? throw new InvalidOperationException(
+                "A shared metadata context is required by this scanner.");
 }
 
 /// <summary>

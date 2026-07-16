@@ -103,6 +103,21 @@ public class IndexBuildInvariantTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
+
+    [Fact]
+    public void PdbContext_RequiresPrefetchForSharedParallelBodyAnalysis()
+    {
+        using var lazy =
+            ILInspector.Metadata.PdbContext.Open(FixtureAssembly);
+        Assert.Throws<InvalidOperationException>(
+            lazy.GetPrefetchedPeReader);
+
+        using var prefetched =
+            ILInspector.Metadata.PdbContext.OpenPrefetched(FixtureAssembly);
+        Assert.Same(
+            prefetched.PeReader,
+            prefetched.GetPrefetchedPeReader());
+    }
 }
 
 public class IndexBuildGuardFixture

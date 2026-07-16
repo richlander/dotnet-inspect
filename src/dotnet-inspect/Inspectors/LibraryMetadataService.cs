@@ -42,7 +42,13 @@ internal static class LibraryMetadataService
 
         try
         {
-            using var service = SourceLinkService.Open(path, logger.Log);
+            var bodyAnalysisFeatures = scanners is null
+                ? Analysis.LibraryBodyAnalysisFeatures.None
+                : SelectBodyAnalysisFeatures(scanners);
+            using var service = bodyAnalysisFeatures
+                == Analysis.LibraryBodyAnalysisFeatures.None
+                    ? SourceLinkService.Open(path, logger.Log)
+                    : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
 
             if (!pdbContext.HasMetadata)
@@ -110,7 +116,11 @@ internal static class LibraryMetadataService
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
             HashSet<SwitchInfo> appContextSwitches = [];
-            AddAppContextSwitches(appContextSwitches, AppContextSwitchScanner.Scan(path));
+            AddAppContextSwitches(
+                appContextSwitches,
+                AppContextSwitchScanner.Scan(
+                    pdbContext.PeReader,
+                    pdbContext.MetadataReader));
             inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
             inspection.HasSwitches = inspection.SwitchCount > 0;
 
@@ -145,7 +155,8 @@ internal static class LibraryMetadataService
                     AssemblyPath = path,
                     Model = inspection,
                     Logger = logger,
-                    BodyAnalysisFeatures = SelectBodyAnalysisFeatures(scanners),
+                    MetadataContext = pdbContext,
+                    BodyAnalysisFeatures = bodyAnalysisFeatures,
                 });
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
@@ -714,7 +725,12 @@ internal static class LibraryMetadataService
     /// then outbound shape). Emits the full ranked set so the row limiter (<c>-n</c>/
     /// <c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
     /// </summary>
-    internal static List<MethodLeverageSummary>? ScanTopLeverage(Func<Analysis.LibraryBodyIndex> openIndex, string path, VerboseLogger logger)
+    internal static List<MethodLeverageSummary>? ScanTopLeverage(
+        Func<Analysis.LibraryBodyIndex> openIndex,
+        Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
+            getDrillMap,
+        string path,
+        VerboseLogger logger)
     {
         try
         {
@@ -723,7 +739,7 @@ internal static class LibraryMetadataService
             // Reuse the exact Member Index canonical-signature/digest path (via the
             // extracted API surface) so library-scope rows carry the same round-tripping
             // Stable selector, Visibility, and Name:N Selector as the type-scoped view.
-            var drillByToken = BuildLibraryDrillMap(path, logger);
+            var drillByToken = getDrillMap();
             var rows = index.TopLeverage(int.MaxValue)
                 .Select(entry =>
                 {
@@ -762,24 +778,27 @@ internal static class LibraryMetadataService
     /// selector round-trippable in the same context a reader would use it. Failures degrade
     /// to an empty map (rows simply omit the selector columns).
     /// </summary>
-    static Dictionary<int, (string? Stable, string Visibility, string Selector)> BuildLibraryDrillMap(string path, VerboseLogger logger)
+    internal static Dictionary<int, (string? Stable, string Visibility, string Selector)>
+        BuildLibraryDrillMap(
+            PdbContext context,
+            VerboseLogger logger)
     {
         var map = new Dictionary<int, (string? Stable, string Visibility, string Selector)>();
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            if (!session.HasMetadata)
+            if (!context.HasMetadata)
                 return map;
 
             // All-members first (covers non-public, numbered as `--all` drilling resolves them).
-            AddSurface(session.ApiSurface(includeAll: true), map);
+            AddSurface(context.ExtractApiSurface(includeAll: true), map);
             // Default surface overwrites public members with their public-only Name:N, which is
             // what `member Name:N` resolves without `--all`.
-            AddSurface(session.ApiSurface(includeAll: false), map);
+            AddSurface(context.ExtractApiSurface(includeAll: false), map);
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error building leverage selectors for {path}: {ex.Message}");
+            logger.Log(
+                $"Warning: Error building leverage selectors for {context.AssemblyPath}: {ex.Message}");
         }
         return map;
 
@@ -855,6 +874,8 @@ internal static class LibraryMetadataService
 
     internal static void ScanResourceTriage(
         Func<Analysis.LibraryBodyIndex> openIndex,
+        Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
+            getDrillMap,
         string path,
         LibraryInspection inspection,
         VerboseLogger logger)
@@ -867,18 +888,16 @@ internal static class LibraryMetadataService
             result.Value
                 is FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete complete
                 ? ProjectResourceTriage(
-                    path,
                     complete,
-                    logger)
+                    getDrillMap())
                 : null;
     }
 
     static List<ResourceTriageSummary> ProjectResourceTriage(
-        string path,
         FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete inspection,
-        VerboseLogger logger)
+        IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
+            drillByToken)
     {
-        var drillByToken = BuildLibraryDrillMap(path, logger);
         return Analysis.ResourceTriageAnalysis
             .Assess(inspection)
             .Where(assessment =>
