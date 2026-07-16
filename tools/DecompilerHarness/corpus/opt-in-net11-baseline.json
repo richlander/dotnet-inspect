@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-16T16:38:50.2350671+00:00",
+  "generatedUtc": "2026-07-16T21:37:45.1329979+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -1486,7 +1486,7 @@
     "legacy-memory-safety-control-methods": 17,
     "runtime-async-await-using-methods": 2,
     "runtime-async-awaiter-methods": 6,
-    "runtime-async-exception-methods": 3,
+    "runtime-async-exception-methods": 5,
     "runtime-async-loop-methods": 2,
     "runtime-async-methods": 17,
     "union-declarations": 2,

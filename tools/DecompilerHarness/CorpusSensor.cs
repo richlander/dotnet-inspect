@@ -494,7 +494,10 @@ internal static class CorpusSensor
             bool hasAwaitForeach = function.Descendants
                 .OfType<ForeachStatement>()
                 .Any(statement => statement.IsAwait);
-            if (function.Descendants.OfType<UsingStatement>().Any(statement => statement.IsAwait))
+            bool hasAwaitUsing = function.Descendants
+                .OfType<UsingStatement>()
+                .Any(statement => statement.IsAwait);
+            if (hasAwaitUsing)
                 AddFeature(featureCoverage, "runtime-async-await-using-methods");
             if (hasAwaitForeach
                 || function.Descendants.Any(node => node is ForLoop or WhileLoop))
@@ -502,6 +505,7 @@ internal static class CorpusSensor
                 AddFeature(featureCoverage, "runtime-async-loop-methods");
             }
             if (hasAwaitForeach
+                || hasAwaitUsing
                 || function.Descendants.Any(node => node is TryCatch or TryFinally))
             {
                 AddFeature(featureCoverage, "runtime-async-exception-methods");
@@ -1525,7 +1529,7 @@ internal static class CorpusSensor
             Console.WriteLine(
                 $"Fully raised: {verified.RaisedMethods}/{verified.CheckedMethods} "
                 + $"({FormatBps(RateBasisPoints(verified.RaisedMethods, verified.CheckedMethods))} "
-                + "of validity-checked methods)");
+                + "of completed validity outcomes)");
         }
         Console.WriteLine($"Conditional-branch residual: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
         Console.WriteLine($"Forward-merge stops: {metrics.ForwardMergeStoppedContainers} ({FormatBps(metrics.ForwardMergeBasisPoints)} of methods)");
@@ -1900,29 +1904,41 @@ internal static class CorpusSensor
         CorpusSensorSnapshot current,
         TextWriter? output = null)
     {
+        bool comparableStructuralPopulation = HaveSameMethodSample(
+            baseline.Methods,
+            current.Methods,
+            static _ => true);
+        Goal structuralHigher = comparableStructuralPopulation ? Goal.Higher : Goal.Context;
+        Goal structuralLower = comparableStructuralPopulation ? Goal.Lower : Goal.Context;
+        string structuralPopulationSuffix = comparableStructuralPopulation
+            ? ""
+            : " (population differs)";
         var rows = new List<MultiSourceRow>
         {
             ShareChangeRow(
-                "No detected lowering residue",
+                "No detected lowering residue" + structuralPopulationSuffix,
                 baseline.Metrics.FullyRaisedMethods,
                 baseline.Metrics.TotalMethods,
                 current.Metrics.FullyRaisedMethods,
                 current.Metrics.TotalMethods,
-                Goal.Higher),
+                structuralHigher,
+                countDeltaKnown: comparableStructuralPopulation),
             ShareChangeRow(
-                "Conditional-branch residual",
+                "Conditional-branch residual" + structuralPopulationSuffix,
                 baseline.Metrics.ConditionalBranchMethods,
                 baseline.Metrics.TotalMethods,
                 current.Metrics.ConditionalBranchMethods,
                 current.Metrics.TotalMethods,
-                Goal.Lower),
+                structuralLower,
+                countDeltaKnown: comparableStructuralPopulation),
             ShareChangeRow(
-                "Forward-merge stops",
+                "Forward-merge stops" + structuralPopulationSuffix,
                 baseline.Metrics.ForwardMergeStoppedContainers,
                 baseline.Metrics.TotalMethods,
                 current.Metrics.ForwardMergeStoppedContainers,
                 current.Metrics.TotalMethods,
-                Goal.Lower),
+                structuralLower,
+                countDeltaKnown: comparableStructuralPopulation),
         };
 
         if (current.ValidityCompileCap > 0)

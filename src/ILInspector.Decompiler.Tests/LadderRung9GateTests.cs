@@ -41,6 +41,9 @@ public class LadderRung9GateTests
         "DynamicResultDiscarded",
         "DynamicSetIndex",
         "DynamicSetMember",
+        "NamedArgumentExpressionTree",
+        "Optional",
+        "OptionalArgumentExpressionTree",
         "SimpleExpressionTree",
     ];
 
@@ -142,6 +145,19 @@ public class LadderRung9GateTests
         Assert.Contains("FieldInfo.GetFieldFromHandle", captured.Body);
         Assert.Contains("LoadToken Field", captured.Body);
         Assert.DoesNotContain("=>", captured.Body);
+
+        foreach (string name in new[]
+        {
+            "OptionalArgumentExpressionTree",
+            "NamedArgumentExpressionTree",
+        })
+        {
+            var arguments = members.Single(m => m.Name == name);
+            Assert.Equal(DecompilationFidelity.Partial, arguments.Function.Fidelity);
+            Assert.Contains("Expression.Call(", arguments.Body);
+            Assert.Contains("Expression.Lambda<Func<int, int>>", arguments.Body);
+            Assert.DoesNotContain("=>", arguments.Body);
+        }
     }
 
     [Theory]

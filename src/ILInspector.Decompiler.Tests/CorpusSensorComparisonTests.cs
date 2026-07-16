@@ -316,6 +316,32 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void RuntimeAsyncAwaitUsing_PreservesExceptionEvidence()
+    {
+        using var source =
+            MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NestedAwaitUsingResources));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Contains(
+            function.Descendants.OfType<UsingStatement>(),
+            statement => statement.IsAwait);
+        Assert.DoesNotContain(
+            function.Descendants,
+            node => node is TryCatch or TryFinally);
+
+        var coverage =
+            CorpusSensor.RecordMethodFeatureCoverageForTesting(function);
+
+        Assert.Equal(1, coverage["runtime-async-await-using-methods"]);
+        Assert.Equal(1, coverage["runtime-async-exception-methods"]);
+    }
+
+    [Fact]
     public void Compare_NormalPrQuickGate_LeavesAggregateRateDropAdvisoryWhenPinnedSubsetIsStable()
     {
         var baseline = Snapshot(
@@ -832,6 +858,48 @@ public class CorpusSensorComparisonTests
         Assert.Contains("Fully raised (+)", report);
         Assert.Contains("1 (50.00%) → 2 (100.00%) (good)", report);
         Assert.Equal((2, 2), CorpusSensor.VerifiedFullyRaisedForTesting(current));
+    }
+
+    [Fact]
+    public void VerifiedFullyRaised_UsesCompletedOutcomes()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 3,
+            fullyRaisedMethods: 3,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                ValidityMethod("Valid", "valid"),
+                ValidityMethod("SyntaxOnly", "syntax-valid"),
+                ValidityMethod("Malformed", "full-malformed:CS1002"),
+            ],
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1);
+
+        Assert.Equal((1, 2), CorpusSensor.VerifiedFullyRaisedForTesting(snapshot));
+    }
+
+    [Fact]
+    public void QualityMetricChanges_TreatsStructuralPopulationDriftAsContext()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 5_000,
+            pinnedMethods: ValidityMethods(("One", "not-sampled"), ("Two", "not-sampled")));
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Two", "not-sampled"), ("Three", "not-sampled")));
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        string residue = report.Split('\n').Single(
+            line => line.Contains("No detected lowering residue", StringComparison.Ordinal));
+
+        Assert.Contains("No detected lowering residue (population differs)", residue);
+        Assert.DoesNotContain("(good)", residue);
+        Assert.EndsWith("| n/a |", residue.TrimEnd());
     }
 
     [Fact]
