@@ -115,6 +115,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Contextual exploration *(experimental)* | `repl` | Interactive package → type → member drill-down that delegates to the existing CLI operations and output pipeline. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -132,6 +133,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
+| `repl` *(experimental)* | Explore one package contextually through its types, members, and decompiled source. |
 | `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
@@ -177,6 +179,38 @@ configuration switches such as `FeatureSwitchDefinitionAttribute` and
 
 These features are under active development. Their output shapes, section
 names, and signal sets may change between releases.
+
+### Contextual Repl
+
+`dotnet-inspect repl` starts an opt-in interactive pilot built on
+`Repl.Core 0.12.0-dev.3`. It does not replace or change the existing command
+contracts. Each contextual action is translated back into the current
+`package`, `type`, or `member` command graph, so selectors, overload indexes,
+sections, diagnostics, and rendering remain those of the regular CLI.
+
+```text
+$ dotnet-inspect repl
+> package System.Text.Json
+[selected-package]> type System.Text.Json.JsonSerializer
+[selected-package/selected-type]> member Serialize
+[selected-package/selected-type/selected-member]> source 1
+[selected-package/selected-type/selected-member]> back
+[selected-package/selected-type]> back
+[selected-package]>
+```
+
+Use `help` at any prompt and `exit` to end the session. The focused pilot
+supports package `show`, `libraries`, and `types`; type `show` and `members`;
+and member `show` and `source [overload]`. The root token `repl` is reserved for
+this mode; inspect a package literally named `repl` with
+`dotnet-inspect package repl`. See [the interactive workflow](docs/workflows/getting-started/interactive-repl.md)
+for the exact mappings and current limitations.
+
+The working pilot is included in untrimmed managed builds, including the `any`
+tool package. `Repl.Core 0.12.0-dev.3` is not trim-clean, so trimmed and
+RID-specific NativeAOT publishes exclude it and compile a `repl` stub that exits
+with code `1` and a clear managed-build diagnostic. This preserves the existing
+AOT packaging lane without suppressing linker warnings.
 
 ### Performance analysis
 
