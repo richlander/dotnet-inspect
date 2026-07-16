@@ -417,10 +417,16 @@ internal static class CorpusSensor
         if (changedPasses.Contains("union-switch-expression"))
             AddFeature(featureCoverage, "union-switch-methods");
 
-        if (assemblyName == "ILInspector.Decompiler.Fixtures.NewUnsafe")
+        if (assemblyName == "ILInspector.Decompiler.Fixtures.NewUnsafe"
+            && function.UsesUpdatedMemorySafetyRules)
+        {
             AddFeature(featureCoverage, "updated-memory-safety-methods");
-        else if (assemblyName == "ILInspector.Decompiler.Fixtures.LegacyUnsafe")
+        }
+        else if (assemblyName == "ILInspector.Decompiler.Fixtures.LegacyUnsafe"
+                 && !function.UsesUpdatedMemorySafetyRules)
+        {
             AddFeature(featureCoverage, "legacy-memory-safety-control-methods");
+        }
 
         if (function.UsesUpdatedMemorySafetyRules
             && function.Descendants.OfType<Call>().Any(call =>

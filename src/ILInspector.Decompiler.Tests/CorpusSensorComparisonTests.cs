@@ -1,6 +1,9 @@
 using System.Collections.Immutable;
 
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -103,6 +106,8 @@ public class CorpusSensorComparisonTests
 
         var updated = CompilerFeatureOptions.ParseOptions(updatedAssembly);
         var legacy = CompilerFeatureOptions.ParseOptions(legacyAssembly);
+        var updatedFunction = ImportFirstMethod(updatedAssembly);
+        var legacyFunction = ImportFirstMethod(legacyAssembly);
 
         Assert.Contains(
             updated.Features,
@@ -110,6 +115,8 @@ public class CorpusSensorComparisonTests
         Assert.DoesNotContain(
             legacy.Features,
             feature => feature.Key == "updated-memory-safety-rules");
+        Assert.True(updatedFunction.UsesUpdatedMemorySafetyRules);
+        Assert.False(legacyFunction.UsesUpdatedMemorySafetyRules);
     }
 
     [Fact]
@@ -634,6 +641,13 @@ public class CorpusSensorComparisonTests
             ["union-types"] = 1,
             ["updated-memory-safety-methods"] = 1,
         }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    static IrFunction ImportFirstMethod(string assemblyPath)
+    {
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        return IrImporter.GetStableSampleCandidates(source, 1).Single().Build(source);
+    }
 
     static FidelityCheck.CompileBackResult CompileBackResult(
         string method,
