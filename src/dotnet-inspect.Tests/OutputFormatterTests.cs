@@ -38,6 +38,47 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void ResourceTriageSection_PreservesRepeatedOperationBoundaryOffsets()
+    {
+        var rows = new LibraryInspectionView(new LibraryInspection
+        {
+            ResourceTriage =
+            [
+                new ResourceTriageSummary
+                {
+                    Member = "Fixture.ReadTwice",
+                    Candidate = "rt~fixture",
+                    AcquireOffset = 0x0007,
+                    Boundaries =
+                    [
+                        new ResourceBoundarySummary(
+                            "System.IO.Stream::Read",
+                            0x0011),
+                        new ResourceBoundarySummary(
+                            "System.IO.Stream::Read",
+                            0x001A),
+                    ],
+                },
+            ],
+        }).ResourceTriageSection;
+
+        Assert.Collection(
+            rows,
+            row =>
+            {
+                Assert.Contains("System.IO.Stream::Read", row.Boundary);
+                Assert.Contains("IL_0011", row.BoundaryIL);
+            },
+            row =>
+            {
+                Assert.Contains("System.IO.Stream::Read", row.Boundary);
+                Assert.Contains("IL_001A", row.BoundaryIL);
+            });
+        Assert.All(rows, row => Assert.Contains("IL_0007", row.AcquireIL));
+        Assert.Single(rows.Select(row => row.Candidate).Distinct());
+    }
+
+    [Fact]
     public void UnsafeMembersSection_RendersDegradedSignatureScan()
     {
         var view = new LibraryInspectionView(new LibraryInspection

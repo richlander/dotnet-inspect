@@ -875,18 +875,13 @@ internal static class LibraryMetadataService
                     Shape = occurrence.Shape,
                     Impact = "pool churn if boundary throws",
                     Actionability = "untrusted-input boundary",
-                    Boundary = string.Join(
-                        " + ",
-                        occurrence.Boundaries
-                            .Select(boundary =>
-                                $"{boundary.Operation.DeclaringType.ToQualifiedDisplayString()}::{boundary.Operation.Name}")
-                            .Distinct(StringComparer.Ordinal)),
-                    AcquireIL = $"IL_{occurrence.AcquireOffset:X4}",
-                    BoundaryIL = string.Join(
-                        " + ",
-                        occurrence.Boundaries
-                            .Select(boundary => $"IL_{boundary.ILOffset:X4}")
-                            .Distinct(StringComparer.Ordinal)),
+                    AcquireOffset = occurrence.AcquireOffset,
+                    Boundaries = occurrence.Boundaries
+                        .Select(boundary => new ResourceBoundarySummary(
+                            boundary.Operation.ToQualifiedDisplayString(),
+                            boundary.ILOffset))
+                        .Distinct()
+                        .ToList(),
                     Evidence =
                         "An exact external-input boundary is reached before modeled cleanup; an exception can bypass Return.",
                     Direction = "Return the pooled array from finally or catch-all cleanup.",
@@ -900,11 +895,11 @@ internal static class LibraryMetadataService
                 static row => row.Member,
                 StringComparer.Ordinal)
             .ThenBy(
-                static row => row.AcquireIL,
-                StringComparer.Ordinal)
+                static row => row.AcquireOffset)
             .ThenBy(
-                static row => row.BoundaryIL,
-                StringComparer.Ordinal)
+                static row => row.Boundaries.Count > 0
+                    ? row.Boundaries[0].ILOffset
+                    : -1)
             .ToList();
     }
 

@@ -194,6 +194,9 @@ public sealed record MemberRef(
 
     public TypeRef OpenSignatureReturn => OpenReturnType ?? ReturnType;
 
+    public string ToQualifiedDisplayString()
+        => $"{DeclaringType.ToQualifiedDisplayString()}::{Name}";
+
     public bool Equals(MemberRef? other)
         => other is not null
             && Equals(DeclaringType, other.DeclaringType)

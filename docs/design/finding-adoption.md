@@ -219,9 +219,10 @@ deliberately have no exact source Finding.
 `Resource Triage` follows the same rule. Its pool-churn impact and cleanup
 direction are downstream judgments over exact
 `analysis.resource-lifecycle` observations; rows retain the native descriptor,
-candidate identity, resolved boundaries, and acquisition/boundary IL offsets.
-The harness measures all actionability classes from that same inspection, while
-the product section selects the untrusted-actionable subset.
+candidate identity, resolved boundary, and acquisition/boundary IL offsets.
+Multi-boundary candidates expand into one row per typed operation/offset pair.
+The harness measures all actionability classes from that same inspection,
+while the product section selects the untrusted-actionable subset.
 
 ## Adoption review
 

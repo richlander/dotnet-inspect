@@ -1172,9 +1172,8 @@ public record class ResourceTriageSummary
     public string Shape { get; init; } = "";
     public string Impact { get; init; } = "";
     public string Actionability { get; init; } = "";
-    public string Boundary { get; init; } = "";
-    public string AcquireIL { get; init; } = "";
-    public string BoundaryIL { get; init; } = "";
+    public int AcquireOffset { get; init; }
+    public List<ResourceBoundarySummary> Boundaries { get; init; } = [];
     public string Evidence { get; init; } = "";
     public string Direction { get; init; } = "";
     public string Confidence { get; init; } = "";
@@ -1182,6 +1181,10 @@ public record class ResourceTriageSummary
     public string? Stable { get; init; }
     public string? Selector { get; init; }
 }
+
+public sealed record ResourceBoundarySummary(
+    string Operation,
+    int ILOffset);
 
 /// <summary>
 /// Summary of a dependency age window.

@@ -827,24 +827,25 @@ public class LibraryInspectionView
         EmptyText = "No actionable resource lifecycle candidates found.")]
     public List<ResourceTriageRow> ResourceTriageSection =>
         (_data.ResourceTriage ?? [])
-            .Select(row => new ResourceTriageRow(
-                MarkoutInline.Code(row.Member),
-                MarkoutInline.Code(row.Candidate),
-                row.Finding,
-                row.Provenance,
-                row.Resource,
-                row.Shape,
-                row.Impact,
-                row.Actionability,
-                MarkoutInline.Code(row.Boundary),
-                MarkoutInline.Code(row.AcquireIL),
-                MarkoutInline.Code(row.BoundaryIL),
-                row.Evidence,
-                row.Direction,
-                row.Confidence,
-                row.Visibility,
-                row.Stable is null ? null : MarkoutInline.Code(row.Stable),
-                row.Selector is null ? null : MarkoutInline.Code(row.Selector)))
+            .SelectMany(row => row.Boundaries.Select(boundary =>
+                new ResourceTriageRow(
+                    MarkoutInline.Code(row.Member),
+                    MarkoutInline.Code(row.Candidate),
+                    row.Finding,
+                    row.Provenance,
+                    row.Resource,
+                    row.Shape,
+                    row.Impact,
+                    row.Actionability,
+                    MarkoutInline.Code(boundary.Operation),
+                    MarkoutInline.Code($"IL_{row.AcquireOffset:X4}"),
+                    MarkoutInline.Code($"IL_{boundary.ILOffset:X4}"),
+                    row.Evidence,
+                    row.Direction,
+                    row.Confidence,
+                    row.Visibility,
+                    row.Stable is null ? null : MarkoutInline.Code(row.Stable),
+                    row.Selector is null ? null : MarkoutInline.Code(row.Selector))))
             .ToList();
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));

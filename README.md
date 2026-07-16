@@ -219,11 +219,13 @@ exception-path pool-churn candidates. It currently reports `ArrayPool<T>`
 acquisitions whose exact def-use path reaches an external-input boundary before
 modeled cleanup. These are triage candidates, not permanent-memory-leak or
 memory-corruption accusations: the impact is pooled-array churn if the boundary
-throws, and static analysis does not establish runtime frequency. Each row
-retains its `analysis.resource-lifecycle` Finding, stable `Candidate`, exact
-acquire and boundary IL offsets, and the resolved boundary operation. Trusted
-in-memory transforms and unknown boundaries remain available to corpus
-measurement but are not exposed in this curated section.
+throws, and static analysis does not establish runtime frequency. Each boundary
+is one row that retains its `analysis.resource-lifecycle` Finding, stable
+`Candidate`, exact acquire and boundary IL offsets, and resolved operation.
+Candidates with multiple boundaries repeat their candidate and acquisition
+fields so each operation remains paired with its own offset. Trusted in-memory
+transforms and unknown boundaries remain available to corpus measurement but
+are not exposed in this curated section.
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
