@@ -48,6 +48,12 @@ public class OutputFormatterTests
                 {
                     Member = "Fixture.ReadTwice",
                     Candidate = "rt~fixture",
+                    Finding = "analysis.resource-lifecycle",
+                    Provenance = "exact",
+                    Resource = "ArrayPool<T>",
+                    Shape = "pool-churn-on-exception",
+                    Impact = "pool churn if boundary throws",
+                    Actionability = "untrusted-input boundary",
                     AcquireOffset = 0x0007,
                     Boundaries =
                     [
@@ -58,6 +64,11 @@ public class OutputFormatterTests
                             "System.IO.Stream::Read",
                             0x001A),
                     ],
+                    Evidence =
+                        "An exact external-input boundary is reached before modeled cleanup; an exception can bypass Return.",
+                    Direction =
+                        "Return the pooled array from finally or catch-all cleanup.",
+                    Confidence = "medium",
                 },
             ],
         }).ResourceTriageSection;

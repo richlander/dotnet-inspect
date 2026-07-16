@@ -1164,19 +1164,19 @@ public record class OptimizationOpportunitySummary
 /// </summary>
 public record class ResourceTriageSummary
 {
-    public string Member { get; init; } = "";
-    public string Candidate { get; init; } = "";
-    public string Finding { get; init; } = "";
-    public string Provenance { get; init; } = "";
-    public string Resource { get; init; } = "";
-    public string Shape { get; init; } = "";
-    public string Impact { get; init; } = "";
-    public string Actionability { get; init; } = "";
-    public int AcquireOffset { get; init; }
-    public List<ResourceBoundarySummary> Boundaries { get; init; } = [];
-    public string Evidence { get; init; } = "";
-    public string Direction { get; init; } = "";
-    public string Confidence { get; init; } = "";
+    public required string Member { get; init; }
+    public required string Candidate { get; init; }
+    public required string Finding { get; init; }
+    public required string Provenance { get; init; }
+    public required string Resource { get; init; }
+    public required string Shape { get; init; }
+    public required string Impact { get; init; }
+    public required string Actionability { get; init; }
+    public required int AcquireOffset { get; init; }
+    public required List<ResourceBoundarySummary> Boundaries { get; init; }
+    public required string Evidence { get; init; }
+    public required string Direction { get; init; }
+    public required string Confidence { get; init; }
     public string? Visibility { get; init; }
     public string? Stable { get; init; }
     public string? Selector { get; init; }
