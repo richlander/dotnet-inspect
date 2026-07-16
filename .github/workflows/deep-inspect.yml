@@ -348,7 +348,7 @@ jobs:
       - name: Run unsafe decompiler tests with nightly SDK
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
 
-      - name: Run net11 opt-in feature corpus
+      - name: Gate net11 opt-in feature corpus
         shell: bash
         run: |
           set -euo pipefail

@@ -58,7 +58,6 @@ static class FidelityCheck
     {
         var phaseTimings = timings ? new FidelityPhaseTimings() : null;
         var zeroSignal = zeroSignalGuard > 0 ? new ZeroSignalGuard(zeroSignalGuard, cap) : null;
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         // Release codegen so the recompiled stream is compared against the
         // optimization shape the BCL ships; the fixture assembly is built the
         // same way under -c Release.
@@ -85,6 +84,7 @@ static class FidelityCheck
             {
                 if (!pe.HasMetadata)
                     continue;
+                var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(path, context: metadata); }
@@ -301,7 +301,6 @@ static class FidelityCheck
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, ClusterMode clusterMode)
     {
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
             optimizationLevel: OptimizationLevel.Release,
@@ -311,6 +310,7 @@ static class FidelityCheck
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         if (!pe.HasMetadata)
             return results;
+        var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
@@ -331,7 +331,6 @@ static class FidelityCheck
         if (perAssemblyCap <= 0)
             return [];
 
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
             optimizationLevel: OptimizationLevel.Release,
@@ -355,6 +354,7 @@ static class FidelityCheck
             {
                 if (!pe.HasMetadata)
                     continue;
+                var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(assemblyPath, context: metadata); }
@@ -643,7 +643,6 @@ static class FidelityCheck
         if (targets.Count == 0)
             return [];
 
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
             optimizationLevel: OptimizationLevel.Release,
@@ -663,6 +662,7 @@ static class FidelityCheck
             {
                 if (!pe.HasMetadata)
                     continue;
+                var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
                 var portablePath = PortablePath(assemblyPath);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;

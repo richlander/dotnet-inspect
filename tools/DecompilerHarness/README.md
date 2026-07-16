@@ -305,10 +305,21 @@ by hand.
 
 **Net11 opt-in feature corpus** (`--corpus-profile opt-in-net11`): a separate
 curated lane for compiler lowerings that are absent or too sparse in the
-real-world corpus. It starts with runtime async and updated memory-safety rules.
-Its baseline and quality card are deliberately separate from
+real-world corpus. Its six pinned assemblies cover both runtime-async await
+reconstruction routes (including loops, exception flow, `await using`, and
+`await foreach`), native union declarations and switch expressions, paired
+updated/legacy memory-safety controls, and cross-assembly `RequiresUnsafe`
+propagation. Its baseline and quality card are deliberately separate from
 `real-world-baseline.json`; never blend these feature-dense fixtures into the
 real-world rates.
+
+Snapshot schema v3 records feature-local evidence for those populations and
+raises. The opt-in profile fails if any required evidence is absent or drops
+below the committed baseline, even when aggregate quality rates are unchanged.
+Union declaration evidence checks whole-type product output; method-only
+snapshots cannot prove that `union` was rendered. Validity and compile-back
+checks replay `updated-memory-safety-rules` only for assemblies whose module
+metadata opts in, while the legacy controls remain on normal preview options.
 
 The pinned lane uses the exact SDK recorded in
 `eng/prepare-decompiler-opt-in-corpus.sh`. Advance that SDK and regenerate

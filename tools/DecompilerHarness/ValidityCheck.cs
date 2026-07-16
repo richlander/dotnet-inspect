@@ -155,7 +155,6 @@ static class ValidityCheck
     internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false, int? workers = null, bool sequential = false)
     {
         var references = RuntimeReferences();
-        var parseOptions = ParseOptions();
         var compileOptions = CompileOptions();
 
         int semChecked = 0;
@@ -165,6 +164,8 @@ static class ValidityCheck
 
         foreach (var path in assemblies)
         {
+            var parseOptions = CompilerFeatureOptions.ParseOptions(path);
+
             MetadataSource source;
             try { source = MetadataSource.Open(path, context: metadata); }
             catch { continue; }
@@ -333,7 +334,7 @@ static class ValidityCheck
     }
 
     internal static CSharpParseOptions ParseOptions()
-        => new(LanguageVersion.Preview);
+        => CompilerFeatureOptions.ParseOptions();
 
     internal static CSharpCompilationOptions CompileOptions()
         => new CSharpCompilationOptions(

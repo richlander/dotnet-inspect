@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -38,6 +40,22 @@ internal static class CorpusSensor
         "cond-target-past-region",
         "forward-branch-not-region-exit",
     ];
+    static readonly ImmutableSortedDictionary<string, int> RequiredOptInNet11Features =
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["await-recovery-methods"] = 1,
+            ["cross-assembly-requires-unsafe-methods"] = 1,
+            ["legacy-memory-safety-control-methods"] = 1,
+            ["runtime-async-awaiter-methods"] = 1,
+            ["runtime-async-await-using-methods"] = 1,
+            ["runtime-async-exception-methods"] = 1,
+            ["runtime-async-loop-methods"] = 1,
+            ["runtime-async-methods"] = 1,
+            ["union-declarations"] = 1,
+            ["union-switch-methods"] = 1,
+            ["union-types"] = 1,
+            ["updated-memory-safety-methods"] = 1,
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
     public static int Run(
         IReadOnlyList<string> assemblies,
@@ -103,7 +121,7 @@ internal static class CorpusSensor
         }
 
         if (diffBaseline is null)
-            return current.Metrics.PassBugs > 0 ? 1 : 0;
+            return current.Metrics.PassBugs > 0 || FeatureCoverageFailures(current).Length > 0 ? 1 : 0;
 
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
@@ -157,7 +175,7 @@ internal static class CorpusSensor
         CorpusFidelityOracle fidelityOracle,
         CorpusProfile profile)
     {
-        var completeness = AnalyzeCompleteness(assemblies, maxExamples, methodCap, workers, sequential);
+        var completeness = AnalyzeCompleteness(assemblies, maxExamples, methodCap, workers, sequential, profile);
         var methods = completeness.Methods.ToDictionary(MethodKey, StringComparer.Ordinal);
         var validity = AnalyzeValidity(assemblies, validityCompileCap, methods, workers, sequential);
         var structuring = AnalyzeStructuring(assemblies, methodCap, workers, sequential);
@@ -196,7 +214,7 @@ internal static class CorpusSensor
             selectedFidelity);
 
         var snapshot = new CorpusSensorSnapshot(
-            SchemaVersion: 2,
+            SchemaVersion: 3,
             Description: DescriptionForProfile(profile),
             GeneratedUtc: DateTimeOffset.UtcNow,
             ValidityCompileCap: validityCompileCap,
@@ -207,7 +225,8 @@ internal static class CorpusSensor
             Methods: methods.Values.OrderBy(MethodKey, StringComparer.Ordinal).ToImmutableArray(),
             Metrics: metrics,
             FidelityOracle: fidelityOracle,
-            Profile: profile);
+            Profile: profile,
+            FeatureCoverage: completeness.FeatureCoverage);
 
         return (snapshot, fidelityReports);
     }
@@ -218,7 +237,7 @@ internal static class CorpusSensor
             CorpusProfile.RealWorld
                 => "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
             CorpusProfile.OptInNet11
-                => "#2759 net11 opt-in compiler-feature corpus: pinned runtime-async and updated-memory-safety fixtures.",
+                => "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
             _ => throw new ArgumentOutOfRangeException(nameof(profile)),
         };
 
@@ -228,9 +247,16 @@ internal static class CorpusSensor
         bool qualityCardRisky)
         => profile != CorpusProfile.RealWorld || !qualityDiffCard || qualityCardRisky;
 
-    static CompletenessSensorMetrics AnalyzeCompleteness(IReadOnlyList<string> assemblies, int maxExamples, int methodCap, int? workers, bool sequential)
+    static CompletenessSensorMetrics AnalyzeCompleteness(
+        IReadOnlyList<string> assemblies,
+        int maxExamples,
+        int methodCap,
+        int? workers,
+        bool sequential,
+        CorpusProfile profile)
     {
         var residualBuckets = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+        var featureCoverage = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
         var assemblyReports = new ConcurrentBag<CorpusAssemblySnapshot>();
         var methodReports = new ConcurrentBag<CorpusMethodSnapshot>();
         int fullyRaised = 0, passBugs = 0;
@@ -240,6 +266,9 @@ internal static class CorpusSensor
 
         foreach (var assemblyPath in assemblies)
         {
+            if (profile == CorpusProfile.OptInNet11)
+                RecordUnionCoverage(assemblyPath, featureCoverage);
+
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             // Pre-warm the type maps before fan-out to avoid lock contention
             _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
@@ -261,7 +290,19 @@ internal static class CorpusSensor
                 FidelityCauseBuckets.Census? fidelityCensus = null;
                 try
                 {
-                    IrPasses.Run(function);
+                    if (profile == CorpusProfile.OptInNet11)
+                    {
+                        var stages = IrPasses.RunWithStages(function);
+                        RecordMethodFeatureCoverage(
+                            function,
+                            source.AssemblyName,
+                            StageDump.PassesThatChanged(stages),
+                            featureCoverage);
+                    }
+                    else
+                    {
+                        IrPasses.Run(function);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -318,8 +359,89 @@ internal static class CorpusSensor
             fullyRaised,
             passBugs,
             residualBuckets.OrderBy(kvp => kvp.Key, StringComparer.Ordinal).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
-            methodReports.OrderBy(m => MethodKey(m), StringComparer.Ordinal).ToImmutableArray());
+            methodReports.OrderBy(m => MethodKey(m), StringComparer.Ordinal).ToImmutableArray(),
+            featureCoverage.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
     }
+
+    static void RecordUnionCoverage(
+        string assemblyPath,
+        ConcurrentDictionary<string, int> featureCoverage)
+    {
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        if (!pe.HasMetadata)
+            return;
+
+        var unions = UnionTypeScanner.Scan(pe)
+            .Where(union => union.ImplementsIUnion && union.CaseTypes.Count > 0)
+            .ToArray();
+        if (unions.Length == 0)
+            return;
+
+        AddFeature(featureCoverage, "union-types", unions.Length);
+        var unionNames = unions.Select(union => union.TypeName).ToHashSet(StringComparer.Ordinal);
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        foreach (var type in surface.Types.Where(type => unionNames.Contains(type.FullName)))
+        {
+            var source = MemberBodyProducer.Project(type, assemblyPath, pdbPath: null).Output;
+            if (source is not null && source.Split('\n').Any(line =>
+                line.StartsWith("public union ", StringComparison.Ordinal)
+                || line.StartsWith("public readonly union ", StringComparison.Ordinal)))
+            {
+                AddFeature(featureCoverage, "union-declarations");
+            }
+        }
+    }
+
+    static void RecordMethodFeatureCoverage(
+        IrFunction function,
+        string assemblyName,
+        IReadOnlyCollection<string> changedPasses,
+        ConcurrentDictionary<string, int> featureCoverage)
+    {
+        if (function.IsRuntimeAsync == MetadataFactState.Yes)
+        {
+            AddFeature(featureCoverage, "runtime-async-methods");
+            if (function.Descendants.OfType<UsingStatement>().Any(statement => statement.IsAwait))
+                AddFeature(featureCoverage, "runtime-async-await-using-methods");
+            if (function.Descendants.Any(node => node is ForLoop or WhileLoop))
+                AddFeature(featureCoverage, "runtime-async-loop-methods");
+            if (function.Descendants.Any(node => node is TryCatch or TryFinally))
+                AddFeature(featureCoverage, "runtime-async-exception-methods");
+        }
+
+        if (changedPasses.Contains("await-recovery"))
+            AddFeature(featureCoverage, "await-recovery-methods");
+        if (changedPasses.Contains("runtime-async-awaiter"))
+            AddFeature(featureCoverage, "runtime-async-awaiter-methods");
+        if (changedPasses.Contains("union-switch-expression"))
+            AddFeature(featureCoverage, "union-switch-methods");
+
+        if (assemblyName == "ILInspector.Decompiler.Fixtures.NewUnsafe"
+            && function.UsesUpdatedMemorySafetyRules)
+        {
+            AddFeature(featureCoverage, "updated-memory-safety-methods");
+        }
+        else if (assemblyName == "ILInspector.Decompiler.Fixtures.LegacyUnsafe"
+                 && !function.UsesUpdatedMemorySafetyRules)
+        {
+            AddFeature(featureCoverage, "legacy-memory-safety-control-methods");
+        }
+
+        if (function.UsesUpdatedMemorySafetyRules
+            && function.Descendants.OfType<Call>().Any(call =>
+                call.Callee.RequiresUnsafe
+                && call.Callee.DeclaringType.Assembly != function.DeclaringType.Assembly))
+        {
+            AddFeature(featureCoverage, "cross-assembly-requires-unsafe-methods");
+        }
+    }
+
+    static void AddFeature(
+        ConcurrentDictionary<string, int> featureCoverage,
+        string feature,
+        int count = 1)
+        => featureCoverage.AddOrUpdate(feature, count, (_, current) => current + count);
 
     static ValiditySensorMetrics AnalyzeValidity(
         IReadOnlyList<string> assemblies,
@@ -822,6 +944,20 @@ internal static class CorpusSensor
                 $"corpus profile differs (baseline {CorpusProfileName(baseline.Profile)}, "
                 + $"current {CorpusProfileName(current.Profile)})");
         }
+        failures.AddRange(FeatureCoverageFailures(current));
+        if (baseline.FeatureCoverage is not null && current.FeatureCoverage is not null)
+        {
+            foreach (var (feature, baselineCount) in baseline.FeatureCoverage)
+            {
+                int currentCount = current.FeatureCoverage.GetValueOrDefault(feature);
+                if (currentCount < baselineCount)
+                {
+                    failures.Add(
+                        $"feature evidence '{feature}' dropped "
+                        + $"(baseline {baselineCount}, current {currentCount})");
+                }
+            }
+        }
         if (current.ValidityCompileCap < baseline.ValidityCompileCap)
             failures.Add($"validity cap lower than baseline (baseline {baseline.ValidityCompileCap}, current {current.ValidityCompileCap})");
         if (currentFidelityCap < baseline.FidelityCompileCap)
@@ -933,6 +1069,21 @@ internal static class CorpusSensor
 
         AddCountRegression(failures, "pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, tolerance.PassBugIncrease);
 
+        return failures.ToImmutable();
+    }
+
+    internal static ImmutableArray<string> FeatureCoverageFailures(CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.Profile != CorpusProfile.OptInNet11)
+            return [];
+
+        var failures = ImmutableArray.CreateBuilder<string>();
+        foreach (var (feature, minimum) in RequiredOptInNet11Features)
+        {
+            int actual = snapshot.FeatureCoverage?.GetValueOrDefault(feature) ?? 0;
+            if (actual < minimum)
+                failures.Add($"feature evidence '{feature}' is {actual}; expected at least {minimum}");
+        }
         return failures.ToImmutable();
     }
 
@@ -1104,6 +1255,7 @@ internal static class CorpusSensor
             Console.WriteLine($"Semantic defects: {metrics.SemanticDefectMethods}/{metrics.SemanticCheckedMethods}");
         }
         Console.WriteLine($"Pass bugs: {metrics.PassBugs}");
+        PrintFeatureCoverage(snapshot);
         if (snapshot.FidelityCompileCap <= 0)
             Console.WriteLine("Fidelity: not run");
         else if (fidelityReports.Length == 1)
@@ -1172,6 +1324,7 @@ internal static class CorpusSensor
         PrintBaselineStaleness(baseline, current);
         Console.WriteLine();
         PrintQualityMetricChanges(baseline, current);
+        PrintFeatureCoverage(current);
         if (current.Profile == CorpusProfile.RealWorld)
             PrintPinnedGate(baseline, current);
         if (!risky && current.Profile == CorpusProfile.RealWorld)
@@ -1195,6 +1348,7 @@ internal static class CorpusSensor
                     + "regressions are gated on the pinned-NuGet subset where available (a fixed method set), so any "
                     + "`(pinned)` regression listed here is a real decompiler delta, not drift.");
             }
+
             else if (IsBaselineStale(baseline, current))
             {
                 Console.WriteLine();
@@ -1205,6 +1359,17 @@ internal static class CorpusSensor
             }
 
         }
+    }
+
+    static void PrintFeatureCoverage(CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.FeatureCoverage is not { Count: > 0 } coverage)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine("Feature evidence:");
+        foreach (var (feature, count) in coverage.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            Console.WriteLine($"- `{feature}`: {count}");
     }
 
     internal static string QualityCardHeadingForProfile(CorpusProfile profile)
@@ -1710,7 +1875,8 @@ internal sealed record CorpusSensorSnapshot(
     [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusFidelityOracle>))]
     CorpusFidelityOracle FidelityOracle = CorpusFidelityOracle.CompileBack,
     [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusProfile>))]
-    CorpusProfile Profile = CorpusProfile.RealWorld);
+    CorpusProfile Profile = CorpusProfile.RealWorld,
+    IReadOnlyDictionary<string, int>? FeatureCoverage = null);
 
 internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
 
@@ -1732,7 +1898,8 @@ internal sealed record CompletenessSensorMetrics(
     int FullyRaisedMethods,
     int PassBugs,
     IReadOnlyDictionary<string, int> ResidualBuckets,
-    IReadOnlyList<CorpusMethodSnapshot> Methods);
+    IReadOnlyList<CorpusMethodSnapshot> Methods,
+    IReadOnlyDictionary<string, int> FeatureCoverage);
 
 internal sealed record ValiditySensorMetrics(
     int FullMalformedMethods,
