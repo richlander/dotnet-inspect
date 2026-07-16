@@ -2010,10 +2010,16 @@ internal static class GeneratedFixtureCatalog
             return All;
 
         return Catalog
-            .Where(fixture => fixture.Id.Equals(selector, StringComparison.Ordinal)
-                || fixture.Id.StartsWith(selector, StringComparison.Ordinal))
+            .Where(fixture => MatchesSelector(fixture.Id, selector))
             .ToArray();
     }
+
+    // Exact-or-prefix match: a selector selects an id it equals or that starts
+    // with it. Kept as a pure predicate so the contract can be tested against
+    // synthetic ids rather than the live catalog inventory.
+    internal static bool MatchesSelector(string id, string selector)
+        => id.Equals(selector, StringComparison.Ordinal)
+            || id.StartsWith(selector, StringComparison.Ordinal);
 }
 
 internal sealed record GeneratedFixtureDefinition(

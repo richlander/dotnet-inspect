@@ -31,6 +31,18 @@ public class GeneratedFixtureCatalogTests
         Assert.NotEmpty(run.Results);
         Assert.Contains("GENERATED FIXTURE LADDER", report);
 
+        // The run emits exactly one result per advertised target. A runner that
+        // silently drops a target (or fixture) must fail here rather than pass
+        // vacuously, since the checks below only visit results that exist.
+        Assert.Equal(
+            GeneratedFixtureCatalog.MinimalCompileBackRungs
+                .SelectMany(fixture => fixture.Targets.Select(target =>
+                    (fixture.Id, target.Type, target.Method, target.Overload)))
+                .Order(),
+            run.Results
+                .Select(result => (result.FixtureId, result.Type, result.Method, result.Overload))
+                .Order());
+
         foreach (var result in run.Results)
         {
             Assert.True(
@@ -56,28 +68,37 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void CatalogueSelection_MatchesExactIdOrPrefix()
+    public void SelectorPredicate_MatchesExactIdOrPrefixOnly()
+    {
+        // Contract tested against synthetic ids (docs/fixture-governance.md,
+        // "Expectation ownership"): a selector matches an id it equals or is a
+        // prefix of — never a mid-string substring, and case-sensitively.
+        Assert.True(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "a.b.c"));
+        Assert.True(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "a.b"));
+        Assert.True(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "a"));
+
+        Assert.False(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "b.c"));
+        Assert.False(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "b"));
+        Assert.False(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "a.b.c.d"));
+        Assert.False(GeneratedFixtureCatalog.MatchesSelector("a.b.c", "A"));
+    }
+
+    [Fact]
+    public void CatalogueSelection_AppliesSelectorPredicateOverCatalog()
     {
         var catalog = GeneratedFixtureCatalog.Catalog;
 
-        // Exact id selects exactly that fixture.
-        Assert.Equal(
-            ["minimal.property.literal"],
-            Ids(GeneratedFixtureCatalog.Select("minimal.property.literal")));
-
-        // A prefix selects every catalog id under that prefix. The expected set
-        // is derived from the catalog itself, so adding a fixture under an
-        // existing prefix never forces a matching literal-list edit here.
-        foreach (var prefix in new[] { "rts", "record", "minimal" })
+        // Select applies the exact-or-prefix predicate over the live catalog.
+        // Deriving the expected set from the same catalog keeps this an
+        // integration check (no re-encoded id list) while the predicate's
+        // contract is proven synthetically in SelectorPredicate_*.
+        foreach (var selector in new[] { "minimal.property.literal", "rts", "record", "minimal" })
         {
-            var selected = GeneratedFixtureCatalog.Select(prefix);
-            Assert.NotEmpty(selected);
-            Assert.All(selected, fixture => Assert.StartsWith(prefix, fixture.Id, StringComparison.Ordinal));
             Assert.Equal(
-                catalog.Where(fixture => fixture.Id.StartsWith(prefix, StringComparison.Ordinal))
+                catalog.Where(fixture => GeneratedFixtureCatalog.MatchesSelector(fixture.Id, selector))
                     .Select(fixture => fixture.Id)
                     .Order(StringComparer.Ordinal),
-                Ids(selected).Order(StringComparer.Ordinal));
+                Ids(GeneratedFixtureCatalog.Select(selector)).Order(StringComparer.Ordinal));
         }
 
         // An empty selector falls back to the default run; an unknown selector
