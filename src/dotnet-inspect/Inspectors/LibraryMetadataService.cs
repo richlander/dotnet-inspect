@@ -145,7 +145,7 @@ internal static class LibraryMetadataService
                     AssemblyPath = path,
                     Model = inspection,
                     Logger = logger,
-                    IncludeOpportunities = scanners.Contains(Sections.LibrarySections.ScannerOptimizationOpportunities),
+                    BodyAnalysisFeatures = SelectBodyAnalysisFeatures(scanners),
                 });
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
@@ -262,6 +262,26 @@ internal static class LibraryMetadataService
             logger.Log($"Warning: Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
             return null;
         }
+    }
+
+    static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
+        IReadOnlySet<string> scanners)
+    {
+        var features = Analysis.LibraryBodyAnalysisFeatures.None;
+        if (scanners.Contains(Sections.LibrarySections.ScannerUnsafeMembers)
+            || scanners.Contains(Sections.LibrarySections.ScannerTopLeverage))
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
+        }
+        if (scanners.Contains(
+            Sections.LibrarySections.ScannerOptimizationOpportunities))
+        {
+            features |=
+                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        }
+        if (scanners.Contains(Sections.LibrarySections.ScannerResourceTriage))
+            features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
+        return features;
     }
 
     /// <summary>
@@ -834,12 +854,13 @@ internal static class LibraryMetadataService
     }
 
     internal static void ScanResourceTriage(
+        Func<Analysis.LibraryBodyIndex> openIndex,
         string path,
         LibraryInspection inspection,
         VerboseLogger logger)
     {
         var result = Analysis.ResourceLifecycleAnalysis.InspectAssembly(
-            path,
+            openIndex,
             new FindingSubject(Path.GetFullPath(path), Path.GetFileName(path)));
         inspection.ResourceLifecycleInspection = result;
         inspection.ResourceTriage =

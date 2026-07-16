@@ -119,6 +119,7 @@ public static class LibrarySections
                     ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
             .Add(ScannerResourceTriage, ctx =>
                 LibraryMetadataService.ScanResourceTriage(
+                    ctx.BodyIndex,
                     ctx.AssemblyPath,
                     ctx.Model,
                     ctx.Logger))

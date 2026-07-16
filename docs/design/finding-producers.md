@@ -223,6 +223,17 @@ untrusted-actionable assessments, and maps their typed judgments to prose.
 `Complete([])` and `Failed` remain distinct, and the corpus harness consumes the
 same assessments rather than resolving tokens or classifying boundaries itself.
 
+Resource lifecycle acquisition is an opt-in producer in `LibraryBodyIndex`.
+Library commands union the features required by their selected sections and
+materialize one lazy `MethodBodyInspectionSession`; Resource Triage therefore
+shares the PE open, metadata-order method enumeration, and body acquisition with
+the other selected Analysis sections. The standalone Leak Triage API delegates
+to a leak-only index rather than reopening and walking the assembly itself.
+This is one acquisition pass, not one analysis algorithm: Leak Triage still owns
+its instruction interpretation, control-flow, and reaching-definitions work.
+Because its result is a whole-assembly census, scoped body-index requests reject
+the feature instead of returning a success-shaped partial result.
+
 The same three Analysis censuses now compose with the N-address correlation
 tier. `timeline --member M --finding analysis.*` uses Metadata only to resolve
 the structural method focus, then correlates the producer-native Analysis

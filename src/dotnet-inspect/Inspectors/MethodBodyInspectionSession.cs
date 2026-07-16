@@ -59,8 +59,35 @@ public sealed class MethodBodyInspectionSession
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
+        var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
+        if (includeAllocations)
+            features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
+        if (includeOpportunities)
+            features |= Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        return OpenWithFeatures(
+            assemblyPath,
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope);
+    }
+
+    internal static MethodBodyInspectionSession OpenWithFeatures(
+        string assemblyPath,
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+    {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
-        return new(Analysis.LibraryBodyIndex.Open(assemblyPath, resolver, includeAllocations, includeOpportunities, bodyScope, bodyTypeScope), Path.GetFileNameWithoutExtension(assemblyPath));
+        return new(
+            Analysis.LibraryBodyIndex.Open(
+                assemblyPath,
+                features,
+                resolver,
+                bodyScope,
+                bodyTypeScope),
+            Path.GetFileNameWithoutExtension(assemblyPath));
     }
 
     /// <summary>

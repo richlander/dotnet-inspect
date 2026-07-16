@@ -15,13 +15,12 @@ public sealed class ScannerContext
     public required VerboseLogger Logger { get; init; }
 
     /// <summary>
-    /// Whether the shared body session must compute optimization opportunities (and therefore the
-    /// allocation occurrences they build on). True only when the Performance Triage scanner is in
-    /// the requested set; the other body scanners (unsafe members, top leverage) need neither, so
-    /// the index build skips both expensive phases. Defaults to true (compute everything) so an
-    /// unset context never silently drops opportunity data.
+    /// Analysis features required by the complete scanner set. The shared body session computes
+    /// their union once, so Resource Triage can share acquisition with leverage/performance scans
+    /// without making a resource-only request pay for unrelated body evidence.
     /// </summary>
-    public bool IncludeOpportunities { get; init; } = true;
+    public Analysis.LibraryBodyAnalysisFeatures BodyAnalysisFeatures { get; init; }
+        = Analysis.LibraryBodyAnalysisFeatures.Default;
 
     private MethodBodyInspectionSession? _bodySession;
 
@@ -30,11 +29,13 @@ public sealed class ScannerContext
     /// The body-index scanners (unsafe members, top leverage, optimization opportunities) share it
     /// instead of each rebuilding the full <c>LibraryBodyIndex</c>. Scanners run sequentially
     /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required. The build is
-    /// narrowed to the phases the requested scanners consume (see <see cref="IncludeOpportunities"/>).
+    /// narrowed to the phases the requested scanners consume (see
+    /// <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex() =>
-        (_bodySession ??= MethodBodyInspectionSession.Open(
-            AssemblyPath, includeAllocations: IncludeOpportunities, includeOpportunities: IncludeOpportunities)).BodyIndex;
+        (_bodySession ??= MethodBodyInspectionSession.OpenWithFeatures(
+            AssemblyPath,
+            BodyAnalysisFeatures)).BodyIndex;
 }
 
 /// <summary>
