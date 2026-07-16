@@ -96,6 +96,28 @@ a `pt~` candidate id but no exact source Finding, operation, or token.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
 expected producer census.
 
+## Select direct caller-loop repetition
+
+A once-per-call allocation can still be repeated by an upstream caller's loop.
+Select rows with an exact direct invocation receipt:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance Triage" \
+  --where "CallerLoop=direct" --jsonl
+```
+
+`CallerLoopDepth` and `CallerLoopWitness` identify the deterministic invocation
+site. This evidence does not change the row's local `Loop`, multiplicity,
+confidence, weight, candidate identity, or default rank. Use it to select a
+candidate for profiling, not as proof that the caller is hot or that the loop
+executes.
+
+Only resolved invocation edges qualify. Function loads and callback
+registration do not prove callback execution, and recursive traversal does not
+prove realized depth or frequency. Do not infer either case into caller-loop
+evidence; require runtime evidence or a stronger product-owned invocation
+contract.
+
 Not every shape is a pure hot-path win. `async-state-machine` is reported as
 amortized (low confidence) unless the allocation sits in a loop: async lowering
 moves work into a state object rather than eliminating it, often once per
