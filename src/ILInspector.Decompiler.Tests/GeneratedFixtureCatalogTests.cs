@@ -906,7 +906,7 @@ public class GeneratedFixtureCatalogTests
             GeneratedFixtureCatalog.Select("minimal.property.literal").Select(fixture => fixture.Id).ToArray());
 
         Assert.Equal(
-            ["rts.attribute-shell"],
+            ["rts.attribute-shell", "rts.shifted-sibling-nested-generic"],
             GeneratedFixtureCatalog.Select("rts").Select(fixture => fixture.Id).Order(StringComparer.Ordinal).ToArray());
 
         Assert.Equal(
@@ -1440,6 +1440,21 @@ public class GeneratedFixtureCatalogTests
             result.FixtureId == "rts.attribute-shell" &&
             result.Method == "get_FeatureType");
         Assert.DoesNotContain("CS0641", report);
+    }
+
+    [Fact]
+    public void ReturnToSenderRtsCatalog_KeepsShiftedSiblingNestedGenericParameter()
+    {
+        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+            GeneratedFixtureCatalog.Select("rts.shifted-sibling-nested-generic"));
+        string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
+
+        Assert.True(run.Passed, report);
+        var result = Assert.Single(run.Results);
+        Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, result.Status);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
+        Assert.Equal("ShiftedSiblingOuter`1.Inner`3", result.Type);
+        Assert.Equal("ReadShifted", result.Method);
     }
 
     [Fact]
