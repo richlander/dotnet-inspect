@@ -68,7 +68,8 @@ The first implementation is `ILOffsetProjectionProducer`:
 
 This establishes the migration pattern for the existing member projection:
 top-level contracts, a focused `MemberProjectionProducer`, and a thin
-`ResearchViews.ProjectMember` forwarder.
+`ResearchViews.ProjectMember` forwarder. That migration is tracked by
+[#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
 
 ## Selector shapes
 
