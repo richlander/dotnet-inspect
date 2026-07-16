@@ -1481,6 +1481,38 @@ internal static class GeneratedFixtureCatalog
         ],
         ["rts", "attribute", "shell", "return-to-sender"]);
 
+    public static readonly GeneratedFixtureDefinition RtsShiftedSiblingNestedGeneric = new(
+        "rts.shifted-sibling-nested-generic",
+        """
+        public class ShiftedSiblingOuter<T>
+        {
+            public class Inner<A, B>
+            {
+                public int Marker => 123;
+            }
+
+            public class Inner<A, B, C>
+            {
+                public int ReadShifted(ShiftedSiblingOuter<A>.Inner<B, C> shifted) => shifted.Marker;
+            }
+        }
+        """,
+        [
+            new(
+                "ShiftedSiblingOuter`1.Inner`3",
+                "ReadShifted",
+                FidelityCheck.CompileBackStatus.Exact,
+                ExpectedSourceFragments:
+                [
+                    "ShiftedSiblingOuter<A>.Inner<B, C> shifted",
+                ],
+                ExpectedTargetBodyFragments:
+                [
+                    "return shifted.Marker;",
+                ]),
+        ],
+        ["rts", "nested", "generic", "shifted", "return-to-sender"]);
+
     public static readonly GeneratedFixtureDefinition AssertionNodeCoverage = new(
         "assertion.inverse-node-coverage",
         """
@@ -1952,6 +1984,7 @@ internal static class GeneratedFixtureCatalog
     public static IReadOnlyList<GeneratedFixtureDefinition> ReturnToSenderParity { get; } =
     [
         RtsAttributeShell,
+        RtsShiftedSiblingNestedGeneric,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> AssertionCoverage { get; } =
