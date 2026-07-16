@@ -17,6 +17,7 @@ namespace DotnetInspector.CommandLine;
 public static class RouterCommandDefinition
 {
     internal const string EndOfOptionsSentinel = "\0dotnet-inspect-end-of-options";
+    internal const string LiteralTargetSentinel = "\0dotnet-inspect-literal-target";
 
     public static Command Create(RootCommand rootCommand)
     {
@@ -37,6 +38,10 @@ public static class RouterCommandDefinition
         routerCommand.SetAction(async (parseResult, ct) =>
         {
             var tokens = parseResult.GetValue(tokensArg) ?? [];
+            var literalTarget = tokens.FirstOrDefault() == LiteralTargetSentinel;
+            if (literalTarget)
+                tokens = tokens[1..];
+
             var endOfOptionsIndex = Array.IndexOf(tokens, EndOfOptionsSentinel);
             string[] protectedTail = [];
             if (endOfOptionsIndex >= 0)
@@ -68,7 +73,7 @@ public static class RouterCommandDefinition
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
-            var rewritten = await RouterTokenRewriter.RewriteAsync(tokens);
+            var rewritten = await RouterTokenRewriter.RewriteAsync(tokens, literalTarget);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -141,13 +146,15 @@ public static class RouterCommandDefinition
 
     private static class RouterTokenRewriter
     {
-        public static async Task<string[]> RewriteAsync(string[] tokens)
+        public static async Task<string[]> RewriteAsync(string[] tokens, bool literalTarget)
         {
             var target = tokens[0];
             var tail = tokens[1..];
 
-            // A target placed after `--` is literal even when it looks like an option.
-            if (target.StartsWith('-', StringComparison.Ordinal))
+            // A target explicitly marked as coming after `--` is literal even when
+            // it looks like an option. Ordinary router options (for example -S)
+            // must not be mistaken for such a target.
+            if (literalTarget && target.StartsWith('-', StringComparison.Ordinal))
                 return ["package", .. tail, "--", target];
 
             if (CommandLineHelpers.TryClassifyAsFilePath(target, out var dllPath, out var nupkgPath))

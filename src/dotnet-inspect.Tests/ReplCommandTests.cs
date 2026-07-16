@@ -266,6 +266,51 @@ public class ReplCommandTests
     }
 
     [Fact]
+    public async Task EntryPoint_InlineOfflineTrue_EnforcesOfflineMode()
+    {
+        var cacheDirectory = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-inline-offline-{Guid.NewGuid():N}");
+        try
+        {
+            var result = await RunProductAsync(
+                ["--offline=true", "--no-nuget-cache", "package", "DotnetInspect.Offline.Probe.7f3a9d", "-v:q"],
+                new Dictionary<string, string?>
+                {
+                    ["DOTNET_INSPECT_CACHE_DIR"] = cacheDirectory,
+                    ["DOTNET_INSPECT_OFFLINE"] = "0",
+                });
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains("is not available offline", result.Error);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDirectory))
+                Directory.Delete(cacheDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EntryPoint_OptionsBeforeDoubleDash_AreApplied()
+    {
+        var result = await RunProductAsync(["-v:q", "--", "System.Private.CoreLib"]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("# System.Private.CoreLib.dll", result.Output);
+        Assert.DoesNotContain("## Library Info", result.Output);
+    }
+
+    [Fact]
+    public async Task EntryPoint_OptionAfterDoubleDash_RemainsLiteral()
+    {
+        var result = await RunProductAsync(["--", "System.Private.CoreLib", "--offline"]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("Unrecognized command or argument '--offline'.", result.Error);
+    }
+
+    [Fact]
     public async Task CliRouting_StreamsAndPreservesStdoutStderrInterleaving()
     {
         var io = new RecordingIoContext();
@@ -345,7 +390,9 @@ public class ReplCommandTests
         Assert.Same(originalError, Console.Error);
     }
 
-    private static async Task<(int ExitCode, string Output, string Error)> RunProductAsync(string[] arguments)
+    private static async Task<(int ExitCode, string Output, string Error)> RunProductAsync(
+        string[] arguments,
+        IReadOnlyDictionary<string, string?>? environment = null)
     {
         var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
         var runtimeConfig = Path.Combine(AppContext.BaseDirectory, "dotnet-inspect.Tests.runtimeconfig.json");
@@ -363,6 +410,12 @@ public class ReplCommandTests
         startInfo.ArgumentList.Add(typeof(ReplCommand).Assembly.Location);
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
+
+        if (environment is not null)
+        {
+            foreach (var (name, value) in environment)
+                startInfo.Environment[name] = value;
+        }
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start dotnet-inspect.");
         var outputTask = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);

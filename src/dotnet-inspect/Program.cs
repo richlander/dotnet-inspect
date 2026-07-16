@@ -7,22 +7,25 @@ using DotnetInspector.Views;
 using Markout;
 
 // Parse --offline early (before command parsing) to configure HttpClientFactory
-bool offline = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--offline")
+bool? offlineOption = EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(args, "--offline");
+bool offline = offlineOption == true
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1");
-if (offline)
-    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--offline");
+if (offlineOption.HasValue)
+    args = EarlyGlobalOptions.RemoveBooleanBeforeEndOfOptions(args, "--offline");
 
 // Parse --info early (before command parsing) to install counting writer
-bool showInfo = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--info")
+bool? infoOption = EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(args, "--info");
+bool showInfo = infoOption == true
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_INFO"), "1");
-if (showInfo)
-    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--info");
+if (infoOption.HasValue)
+    args = EarlyGlobalOptions.RemoveBooleanBeforeEndOfOptions(args, "--info");
 
 // Parse --trace-mermaid early to subscribe before any request/cache/network breadcrumbs.
-bool showTraceMermaid = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--trace-mermaid")
+bool? traceMermaidOption = EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(args, "--trace-mermaid");
+bool showTraceMermaid = traceMermaidOption == true
     || string.Equals(Environment.GetEnvironmentVariable("DOTNET_INSPECT_TRACE_MERMAID"), "1");
-if (showTraceMermaid)
-    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--trace-mermaid");
+if (traceMermaidOption.HasValue)
+    args = EarlyGlobalOptions.RemoveBooleanBeforeEndOfOptions(args, "--trace-mermaid");
 
 // Parse --isolated <name> and --no-nuget-cache early
 string? sessionName = null;
@@ -46,9 +49,10 @@ if (string.IsNullOrWhiteSpace(sessionName))
 bool isolated = sessionName != null;
 args = argList.ToArray();
 
-bool noNuGetCache = EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--no-nuget-cache") || isolated;
-if (EarlyGlobalOptions.ContainsBeforeEndOfOptions(args, "--no-nuget-cache"))
-    args = EarlyGlobalOptions.RemoveAllBeforeEndOfOptions(args, "--no-nuget-cache");
+bool? noNuGetCacheOption = EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(args, "--no-nuget-cache");
+bool noNuGetCache = noNuGetCacheOption == true || isolated;
+if (noNuGetCacheOption.HasValue)
+    args = EarlyGlobalOptions.RemoveBooleanBeforeEndOfOptions(args, "--no-nuget-cache");
 
 // Resolve cache base path: explicit env var > named session dir > default
 string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE_DIR");

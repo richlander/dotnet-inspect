@@ -14,12 +14,45 @@ internal static class EarlyGlobalOptions
         return Array.IndexOf(arguments, option, 0, boundary);
     }
 
+    internal static bool? GetBooleanValueBeforeEndOfOptions(string[] arguments, string option)
+    {
+        bool? value = null;
+        var boundary = GetEndOfOptionsIndex(arguments);
+        for (var index = 0; index < boundary; index++)
+        {
+            if (arguments[index] == option)
+            {
+                value = true;
+                continue;
+            }
+
+            var prefix = $"{option}=";
+            if (arguments[index].StartsWith(prefix, StringComparison.Ordinal)
+                && bool.TryParse(arguments[index][prefix.Length..], out var inlineValue))
+            {
+                value = inlineValue;
+            }
+        }
+
+        return value;
+    }
+
     internal static string[] RemoveAllBeforeEndOfOptions(string[] arguments, string option)
     {
         var boundary = GetEndOfOptionsIndex(arguments);
         return
         [
             .. arguments[..boundary].Where(argument => argument != option),
+            .. arguments[boundary..],
+        ];
+    }
+
+    internal static string[] RemoveBooleanBeforeEndOfOptions(string[] arguments, string option)
+    {
+        var boundary = GetEndOfOptionsIndex(arguments);
+        return
+        [
+            .. arguments[..boundary].Where(argument => !IsBooleanOption(argument, option)),
             .. arguments[boundary..],
         ];
     }
@@ -34,5 +67,15 @@ internal static class EarlyGlobalOptions
     {
         var index = Array.IndexOf(arguments, "--");
         return index < 0 ? arguments.Length : index;
+    }
+
+    private static bool IsBooleanOption(string argument, string option)
+    {
+        if (argument == option)
+            return true;
+
+        var prefix = $"{option}=";
+        return argument.StartsWith(prefix, StringComparison.Ordinal)
+            && bool.TryParse(argument[prefix.Length..], out _);
     }
 }

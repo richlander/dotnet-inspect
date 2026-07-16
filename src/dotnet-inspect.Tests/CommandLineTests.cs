@@ -60,7 +60,9 @@ public class CommandLineTests
 
         var processed = CommandLineBuilder.PreprocessArgs(arguments);
 
-        Assert.Equal(["router", "--", "System.Private.CoreLib"], processed);
+        Assert.Equal(
+            ["router", "--", RouterCommandDefinition.LiteralTargetSentinel, "System.Private.CoreLib"],
+            processed);
     }
 
     [Fact]
@@ -70,7 +72,9 @@ public class CommandLineTests
 
         var processed = CommandLineBuilder.PreprocessArgs(arguments);
 
-        Assert.Equal(["router", "--", "System.Private.CoreLib", "-T:q"], processed);
+        Assert.Equal(
+            ["router", "--", RouterCommandDefinition.LiteralTargetSentinel, "System.Private.CoreLib", "-T:q"],
+            processed);
     }
 
     [Fact]
@@ -80,7 +84,20 @@ public class CommandLineTests
 
         var processed = CommandLineBuilder.PreprocessArgs(arguments);
 
-        Assert.Equal(["router", "--", "System.Private.CoreLib", "-S", "Libraries"], processed);
+        Assert.Equal(
+            [
+                "router", "--", RouterCommandDefinition.LiteralTargetSentinel,
+                "System.Private.CoreLib", "-S", "Libraries"
+            ],
+            processed);
+    }
+
+    [Fact]
+    public void Preprocessor_RoutesBareSectionDiscoveryWithoutTreatingValueAsTarget()
+    {
+        var processed = CommandLineBuilder.PreprocessArgs(["-S", "Methods", "--help"]);
+
+        Assert.Equal(["router", "-S", "Methods", "--help"], processed);
     }
 
     [Fact]
@@ -91,7 +108,10 @@ public class CommandLineTests
         var processed = CommandLineBuilder.PreprocessArgs(arguments);
 
         Assert.Equal(
-            ["router", "--", "System.Private.CoreLib", RouterCommandDefinition.EndOfOptionsSentinel, "--offline"],
+            [
+                "router", "--", RouterCommandDefinition.LiteralTargetSentinel, "System.Private.CoreLib",
+                RouterCommandDefinition.EndOfOptionsSentinel, "--offline"
+            ],
             processed);
     }
 
@@ -128,6 +148,20 @@ public class CommandLineTests
         Assert.Equal(
             ["type", "-T:q", "--", "--offline"],
             EarlyGlobalOptions.InsertBeforeEndOfOptions(afterOnly, "-T:q"));
+    }
+
+    [Fact]
+    public void EarlyGlobalOptions_ParseInlineBooleanValuesBeforeDoubleDash()
+    {
+        string[] arguments =
+            ["--offline=false", "--offline=true", "type", "--trace-mermaid=False", "--", "--offline=true"];
+
+        Assert.True(EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(arguments, "--offline"));
+        Assert.False(EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(arguments, "--trace-mermaid"));
+        Assert.Null(EarlyGlobalOptions.GetBooleanValueBeforeEndOfOptions(arguments, "--info"));
+        Assert.Equal(
+            ["type", "--trace-mermaid=False", "--", "--offline=true"],
+            EarlyGlobalOptions.RemoveBooleanBeforeEndOfOptions(arguments, "--offline"));
     }
 
     [Fact]

@@ -104,6 +104,27 @@ public static class MemberOptionsParser
         else if (!sourceInputs.HasExplicitSource && sourceInputs.Args.Length >= 3)
             positionalMembers.AddRange(sourceInputs.Args[2..]);
 
+        // A double dash marks subsequent positional values as literals. Capture only
+        // the raw member tokens before that marker for unknown-option validation;
+        // source/type values and members after the marker must remain valid selectors.
+        var argumentsAfterEndOfOptions = 0;
+        var afterEndOfOptions = false;
+        foreach (var token in parseResult.Tokens)
+        {
+            if (token.Type == TokenType.DoubleDash)
+            {
+                afterEndOfOptions = true;
+            }
+            else if (afterEndOfOptions && token.Type == TokenType.Argument)
+            {
+                argumentsAfterEndOfOptions++;
+            }
+        }
+
+        var positionalMembersBeforeEndOfOptions = positionalMembers
+            .Take(Math.Max(0, positionalMembers.Count - argumentsAfterEndOfOptions))
+            .ToArray();
+
         // Resolve source
         SharedParsers.SourceSelection sourceSelection;
         SourceResolver.ResolvedSource source;
@@ -218,8 +239,8 @@ public static class MemberOptionsParser
             }
         }
 
-        // Check for unrecognized options in positional args
-        var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith('-'));
+        // Check for unrecognized options only among positional members before '--'.
+        var badOption = positionalMembersBeforeEndOfOptions.FirstOrDefault(m => m.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 

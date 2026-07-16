@@ -110,6 +110,16 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_DashPrefixedMemberAfterDoubleDash_IsLiteral()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "--package", "System.Text.Json", "--", "JsonSerializer", "-Foo");
+
+        Assert.Equal("JsonSerializer", options.TypeName);
+        Assert.Equal(["-Foo"], options.MemberFilter);
+    }
+
+    [Fact]
     public async Task PackageRangeAddress_IsPreservedForLazyResolution()
     {
         var options = await ParseSuccessAsync(

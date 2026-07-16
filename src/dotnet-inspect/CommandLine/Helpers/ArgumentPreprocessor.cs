@@ -82,10 +82,10 @@ public static class ArgumentPreprocessor
 
         RequestTelemetry.Breadcrumb("implicit-router", target);
         return suffix.Length == 1
-            ? ["router", "--", target, .. processedPrefix]
+            ? ["router", "--", RouterCommandDefinition.LiteralTargetSentinel, target, .. processedPrefix]
             :
             [
-                "router", "--", target, .. processedPrefix,
+                "router", "--", RouterCommandDefinition.LiteralTargetSentinel, target, .. processedPrefix,
                 RouterCommandDefinition.EndOfOptionsSentinel, .. suffix[1..]
             ];
     }
