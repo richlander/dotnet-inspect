@@ -1257,14 +1257,26 @@ internal static class CorpusSensor
 
         if (gateAggregateRates || baselinePinned is null || currentPinned is null)
         {
-            AddRateRegression(failures, "no-detected-lowering-residue rate", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
-            AddRateRegression(failures, "conditional-branch residual rate", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+            AddRateRegression(
+                failures,
+                "detected lowering residue rate",
+                RateBasisPoints(baseline.Metrics.TotalMethods - baseline.Metrics.FullyRaisedMethods, baseline.Metrics.TotalMethods),
+                RateBasisPoints(current.Metrics.TotalMethods - current.Metrics.FullyRaisedMethods, current.Metrics.TotalMethods),
+                tolerance.FullyRaisedDropBasisPoints,
+                lowerIsRegression: false);
+            AddRateRegression(failures, "conditional-branch residue rate", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
             AddRateRegression(failures, "forward-merge stop rate", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
         }
         else
         {
-            AddRateRegression(failures, "no-detected-lowering-residue rate (pinned)", baselinePinned.FullyRaisedBasisPoints, currentPinned.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
-            AddRateRegression(failures, "conditional-branch residual rate (pinned)", baselinePinned.ConditionalBranchBasisPoints, currentPinned.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+            AddRateRegression(
+                failures,
+                "detected lowering residue rate (pinned)",
+                RateBasisPoints(baselinePinned.TotalMethods - baselinePinned.FullyRaisedMethods, baselinePinned.TotalMethods),
+                RateBasisPoints(currentPinned.TotalMethods - currentPinned.FullyRaisedMethods, currentPinned.TotalMethods),
+                tolerance.FullyRaisedDropBasisPoints,
+                lowerIsRegression: false);
+            AddRateRegression(failures, "conditional-branch residue rate (pinned)", baselinePinned.ConditionalBranchBasisPoints, currentPinned.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
             // Forward-merge stops are structuring-container counts, not per-method snapshot
             // rows, so the PR quick gate leaves aggregate movement advisory unless the
             // caller explicitly opts into aggregate rate gating (for risky decompiler work).
@@ -1818,8 +1830,13 @@ internal static class CorpusSensor
     {
         var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
         var advisories = new List<string>();
-        AddAdvisory("no-detected-lowering-residue", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
-        AddAdvisory("conditional-branch residual", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
+        AddAdvisory(
+            "detected lowering residue",
+            RateBasisPoints(baseline.Metrics.TotalMethods - baseline.Metrics.FullyRaisedMethods, baseline.Metrics.TotalMethods),
+            RateBasisPoints(current.Metrics.TotalMethods - current.Metrics.FullyRaisedMethods, current.Metrics.TotalMethods),
+            tolerance.FullyRaisedDropBasisPoints,
+            lowerIsRegression: false);
+        AddAdvisory("conditional-branch residue", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
         AddAdvisory("forward-merge stop", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
         if (advisories.Count == 0)
             return;

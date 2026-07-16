@@ -376,7 +376,7 @@ public class CorpusSensorComparisonTests
 
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: true);
 
-        Assert.Contains(regressions, regression => regression.StartsWith("no-detected-lowering-residue rate dropped", StringComparison.Ordinal));
+        Assert.Contains(regressions, regression => regression.StartsWith("detected lowering residue rate increased", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -395,7 +395,7 @@ public class CorpusSensorComparisonTests
 
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
 
-        Assert.Contains(regressions, regression => regression.StartsWith("no-detected-lowering-residue rate (pinned) dropped", StringComparison.Ordinal));
+        Assert.Contains(regressions, regression => regression.StartsWith("detected lowering residue rate (pinned) increased", StringComparison.Ordinal));
     }
 
     [Fact]
