@@ -14,15 +14,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="dotnet-inspect" />
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
-    <InternalsVisibleTo Include="ILInspector.Research" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
+    <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
   </ItemGroup>
 
   <ItemGroup>

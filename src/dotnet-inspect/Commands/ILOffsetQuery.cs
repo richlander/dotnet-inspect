@@ -88,7 +88,8 @@ internal static class ILOffsetQuery
             methodToken,
             ilOffset,
             capabilities,
-            options.BrowsableUrls));
+            options.BrowsableUrls,
+            logger.Log));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;

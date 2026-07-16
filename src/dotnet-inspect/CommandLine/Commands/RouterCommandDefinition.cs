@@ -7,6 +7,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace DotnetInspector.CommandLine;
 
