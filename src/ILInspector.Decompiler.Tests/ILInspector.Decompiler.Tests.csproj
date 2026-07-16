@@ -63,6 +63,8 @@
              Link="CorpusMethodDelta.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusSensor.cs"
              Link="CorpusSensor.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CompilerFeatureOptions.cs"
+             Link="CompilerFeatureOptions.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCauseBuckets.cs"
              Link="FidelityCauseBuckets.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"

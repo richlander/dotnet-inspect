@@ -27,6 +27,68 @@ public static class RuntimeAsyncTaskFixtures
 
         return 0;
     }
+
+    public static async Task<int> AwaitInLoop(IReadOnlyList<Task<int>> tasks)
+    {
+        int sum = 0;
+        for (int i = 0; i < tasks.Count; i++)
+            sum += await tasks[i];
+
+        return sum;
+    }
+
+    public static async Task<int> AwaitWithCatch(Task<int> task)
+    {
+        try
+        {
+            return await task;
+        }
+        catch (InvalidOperationException)
+        {
+            return -1;
+        }
+    }
+
+    public static async Task<int> AwaitWithFinally(Task<int> task, Action cleanup)
+    {
+        try
+        {
+            return await task;
+        }
+        finally
+        {
+            cleanup();
+        }
+    }
+
+    public static async Task<int> AwaitUsingResource(int value)
+    {
+        await using var resource = new RuntimeAsyncDisposableResource(value);
+        return resource.Value;
+    }
+
+    public static async Task<int> NestedAwaitUsingResources(int outerValue, int innerValue)
+    {
+        await using var outer = new RuntimeAsyncDisposableResource(outerValue);
+        await using var inner = new RuntimeAsyncDisposableResource(innerValue);
+        return outer.Value + inner.Value;
+    }
+
+    public static async Task<int> AwaitForeach(IAsyncEnumerable<int> source)
+    {
+        int sum = 0;
+        await foreach (int value in source)
+            sum += value;
+
+        return sum;
+    }
+}
+
+public sealed class RuntimeAsyncDisposableResource(int value) : IAsyncDisposable
+{
+    public int Value { get; } = value;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
 public static class RuntimeAsyncAwaiterFixtures

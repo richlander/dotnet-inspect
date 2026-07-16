@@ -42,6 +42,10 @@ printf '{\n  "sdk": {\n    "version": "%s",\n    "rollForward": "disable"\n  }\n
 declare -a projects=(
   "src/ILInspector.Decompiler.Fixtures.OptInNet11/ILInspector.Decompiler.Fixtures.OptInNet11.csproj"
   "src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj"
+  "src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj"
+  "src/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj"
+  "src/ILInspector.Decompiler.Fixtures.UnsafeChainB/ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj"
+  "src/ILInspector.Decompiler.Fixtures.UnsafeChainC/ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj"
 )
 
 destination="$repo/artifacts/corpus/opt-in-net11/$mode"

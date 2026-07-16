@@ -99,8 +99,14 @@ Use this order for risky decompiler work:
 Compiler opt-in and preview lowerings use the separate net11 feature corpus
 rather than the real-world corpus. Its pinned-SDK lane measures decompiler
 quality over a stable feature population; its current-SDK lane reports compiler
-shape drift. Keeping those cards separate prevents curated runtime-async and
-updated-memory-safety density from distorting real-world rates.
+shape drift. The corpus deliberately pairs updated and legacy memory-safety
+assemblies, includes a cross-assembly `RequiresUnsafe` chain, and covers both
+runtime-async await reconstruction routes plus control flow, async disposal, and
+native union declaration/switch shapes. Schema-v3 feature evidence makes each
+population and implemented raise a hard non-zero, non-decreasing gate; whole-type
+projection separately proves union declarations, and compiler checks replay the
+memory-safety feature only for opted-in modules. Keeping those cards separate
+prevents curated feature density from distorting real-world rates.
 
 For #1175-class retained-label / forward-merge work, the interim bar is fidelity
 coverage over the methods the PR changes, especially methods in the

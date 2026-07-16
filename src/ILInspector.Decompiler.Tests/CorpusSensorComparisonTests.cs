@@ -51,6 +51,68 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void FeatureCoverageFailures_RejectsMissingOptInEvidence()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11,
+            featureCoverage: CompleteFeatureCoverage().Remove("union-declarations"));
+
+        var failures = CorpusSensor.FeatureCoverageFailures(snapshot);
+
+        Assert.Contains(
+            "feature evidence 'union-declarations' is 0; expected at least 1",
+            failures);
+    }
+
+    [Fact]
+    public void Compare_RejectsFeatureEvidenceDrop()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11,
+            featureCoverage: CompleteFeatureCoverage().SetItem("union-switch-methods", 2));
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11,
+            featureCoverage: CompleteFeatureCoverage());
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            "feature evidence 'union-switch-methods' dropped (baseline 2, current 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void CompilerFeatureOptions_ReplaysMemorySafetyModeFromModuleMetadata()
+    {
+        string updatedAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        string legacyAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures).Assembly.Location;
+
+        var updated = CompilerFeatureOptions.ParseOptions(updatedAssembly);
+        var legacy = CompilerFeatureOptions.ParseOptions(legacyAssembly);
+
+        Assert.Contains(
+            updated.Features,
+            feature => feature.Key == "updated-memory-safety-rules" && feature.Value == "true");
+        Assert.DoesNotContain(
+            legacy.Features,
+            feature => feature.Key == "updated-memory-safety-rules");
+    }
+
+    [Fact]
     public void Compare_NormalPrQuickGate_LeavesAggregateRateDropAdvisoryWhenPinnedSubsetIsStable()
     {
         var baseline = Snapshot(
@@ -516,7 +578,8 @@ public class CorpusSensorComparisonTests
         int fidelityOpcodeDiffMethods = 0,
         CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
         ReturnToSenderParityMetrics? returnToSenderParity = null,
-        CorpusProfile profile = CorpusProfile.RealWorld)
+        CorpusProfile profile = CorpusProfile.RealWorld,
+        IReadOnlyDictionary<string, int>? featureCoverage = null)
     {
         return new CorpusSensorSnapshot(
             SchemaVersion: 1,
@@ -551,8 +614,26 @@ public class CorpusSensorComparisonTests
                     NotFullMethods: 0,
                     ReturnToSenderParity: returnToSenderParity)),
             FidelityOracle: fidelityOracle,
-            Profile: profile);
+            Profile: profile,
+            FeatureCoverage: featureCoverage);
     }
+
+    static ImmutableDictionary<string, int> CompleteFeatureCoverage()
+        => new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["await-recovery-methods"] = 1,
+            ["cross-assembly-requires-unsafe-methods"] = 1,
+            ["legacy-memory-safety-control-methods"] = 1,
+            ["runtime-async-awaiter-methods"] = 1,
+            ["runtime-async-await-using-methods"] = 1,
+            ["runtime-async-exception-methods"] = 1,
+            ["runtime-async-loop-methods"] = 1,
+            ["runtime-async-methods"] = 1,
+            ["union-declarations"] = 1,
+            ["union-switch-methods"] = 1,
+            ["union-types"] = 1,
+            ["updated-memory-safety-methods"] = 1,
+        }.ToImmutableDictionary(StringComparer.Ordinal);
 
     static FidelityCheck.CompileBackResult CompileBackResult(
         string method,
