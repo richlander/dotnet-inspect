@@ -13,6 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 /// a lowered method's recompiled IL into a different stream fails CI.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(FidelityGateCollection.Name)]
 public class LoweredFidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
@@ -51,24 +52,7 @@ public class LoweredFidelityGateTests
         "CollectionListLiteral",
         "GotoCommonExit",
         "NeitherOr",
-        // Runtime-async fixture methods were previously RecompileFail because
-        // their reconstructed shells omitted the defining method's async flag.
-        // They are now compile-checkable. Roslyn 4.14 compile-back emits the
-        // classic state-machine lowering while the .NET 11 daily SDK fixture
-        // uses runtime-async IL, so the canonical streams legitimately differ.
-        "AwaitAcrossVoidCall",
-        "AwaitConfiguredTask",
-        "AwaitConfiguredValueTask",
-        "AwaitForeach",
-        "AwaitInArguments",
-        "AwaitOnce",
-        "AwaitThree",
-        "AwaitTwo",
-        "AwaitUsingResource",
-        "AwaitValueTask",
-        "AwaitVoid",
         "ManualAwaitEnumeratorLoop",
-        "NestedAwaitUsingResources",
         "ReverseCopy",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: the lowered view is representable, but recompiles
@@ -150,6 +134,18 @@ public class LoweredFidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        "AwaitAcrossVoidCall",
+        "AwaitConfiguredTask",
+        "AwaitConfiguredValueTask",
+        "AwaitForeach",
+        "AwaitInArguments",
+        "AwaitOnce",
+        "AwaitThree",
+        "AwaitTwo",
+        "AwaitUsingResource",
+        "AwaitValueTask",
+        "AwaitVoid",
+        "NestedAwaitUsingResources",
         "CheckedAdd",
         // MixedOrAndArms (#1175): mixed ||/&& fold stays opcode-exact in the
         // lowered view too — pinned so a regression trips the always-run gate.
@@ -188,13 +184,15 @@ public class LoweredFidelityGateTests
         "AnonSingle",
     };
 
-    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
+    static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;
         return FidelityCheck.Evaluate(assembly, lowered: true)
             .Where(r => r.Type == FixtureType)
             .ToList();
-    }
+    });
+
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures() => Results.Value;
 
     [Fact]
     public void NoNewOpcodeDiffsBeyondKnownDocket()
@@ -225,7 +223,8 @@ public class LoweredFidelityGateTests
             foreach (var result in matches)
                 Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
                     $"{method} regressed to {result.Status} in the lowered view: a prior fidelity check fix no longer holds.\n" +
-                    $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
+                    $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n" +
+                    $"  detail: {result.Detail}");
         }
     }
 
@@ -242,6 +241,7 @@ public class LoweredFidelityGateTests
                 $"PointerStoreUsesOriginalAddress regressed to {result.Status} in the lowered view: the pointer-store "
                     + "residual (#2644) no longer recompiles. Its lowered C# must stay recompilable so the known-diff "
                     + "docket continues to check the address-preservation shape.\n"
-                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n"
+                    + $"  detail: {result.Detail}");
     }
 }

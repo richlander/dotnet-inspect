@@ -10,6 +10,26 @@ namespace ILInspector.Decompiler.Tests;
 public class CorpusSensorComparisonTests
 {
     [Fact]
+    public void GitBaselineReference_ReadsTrackedBlob()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus/pr-quick-baseline.json");
+
+        string baseline = CorpusSensor.ReadBaselineTextForTesting(path, "HEAD");
+
+        Assert.Contains("\"schemaVersion\"", baseline);
+        Assert.Contains("\"description\"", baseline);
+    }
+
+    [Fact]
     public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
     {
         Assert.Contains(
@@ -176,7 +196,7 @@ public class CorpusSensorComparisonTests
 
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: true);
 
-        Assert.Contains(regressions, regression => regression.StartsWith("fully-raised rate dropped", StringComparison.Ordinal));
+        Assert.Contains(regressions, regression => regression.StartsWith("no-detected-lowering-residue rate dropped", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -195,7 +215,7 @@ public class CorpusSensorComparisonTests
 
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
 
-        Assert.Contains(regressions, regression => regression.StartsWith("fully-raised rate (pinned) dropped", StringComparison.Ordinal));
+        Assert.Contains(regressions, regression => regression.StartsWith("no-detected-lowering-residue rate (pinned) dropped", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -616,12 +636,48 @@ public class CorpusSensorComparisonTests
         string summary = CorpusSensor.CurrentMeasuredDebtForTesting(snapshot);
 
         Assert.Equal(
-            "6 methods not fully raised; 1 malformed Full method; "
+            "6 methods with detected lowering residue; 1 malformed Full method; "
             + "2 semantic defects among 64 checked; "
             + "10 fidelity opcode diffs among 64 checked; "
             + "5 fidelity recompile failures among 64 checked; "
             + "4 fidelity context failures among 64 checked; 1 pass bug.",
             summary);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_SeparatesStructuralAndVerifiedRaises()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                ValidityMethod("One", "valid"),
+                ValidityMethod("Two", "semantic-defect:CS0266"),
+            ],
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                ValidityMethod("One", "valid"),
+                ValidityMethod("Two", "valid"),
+            ],
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("No detected lowering residue (+)", report);
+        Assert.Contains("2 (100.00%) → 2 (100.00%) (neutral)", report);
+        Assert.Contains("Fully raised (+)", report);
+        Assert.Contains("1 (50.00%) → 2 (100.00%) (good)", report);
+        Assert.Equal((2, 2), CorpusSensor.VerifiedFullyRaisedForTesting(current));
     }
 
     [Fact]
@@ -767,6 +823,21 @@ public class CorpusSensorComparisonTests
         }
         return methods.ToImmutable();
     }
+
+    static CorpusMethodSnapshot ValidityMethod(string method, string validity)
+        => new(
+            Assembly: "Fixture",
+            AssemblyPath: "fixture.dll",
+            Type: "T",
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: "Full",
+            FullyRaised: true,
+            Residual: null,
+            PassBug: null,
+            Validity: validity,
+            FidelityCheck: "not-sampled");
 
     static CorpusMethodSnapshot SnapshotMethod(
         string method,

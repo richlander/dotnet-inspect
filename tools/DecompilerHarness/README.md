@@ -300,11 +300,34 @@ and per-row sampled denominators for semantic validity and compile-back fidelity
 so reviewers can tell when evidence is strong or thin. Semantic validity and
 compile-back fidelity samples are hash-stable, so zero-tolerance rows such as
 RTS parity compare the same target population when the corpus and caps match.
+The card separates two raise signals. **No detected lowering residue** is the
+raw structural signal owned by the decompiler's residual census. **Fully
+raised** is stricter: among methods with a completed validity outcome, it
+requires no residual or pass bug and valid bound C#. Methods that were only
+syntax-checked are not counted as verified. Neither metric proves idiomatic
+source shape; use render A/B and feature-specific altitude evidence for that.
 The footer separates **current measured debt** from the **regression verdict**:
-unchanged semantic defects, opcode differences, or incomplete raises remain
+unchanged semantic defects, opcode differences, or detected residue remain
 visible even when the current snapshot matches baseline tolerances.
 Paste that block as the PR's aggregate corpus evidence; do not re-key the table
 by hand.
+
+When a PR also ratchets the tracked baseline, compare against the file at the
+explicit merge base rather than the updated working-tree file:
+
+```bash
+base=$(git merge-base origin/main HEAD)
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
+  --diff-corpus-baseline-ref "$base" \
+  --quality-diff-card
+```
+
+`--diff-corpus-baseline-ref` reads the same repository-relative baseline path
+from that Git ref. The current snapshot may separately be written to the
+tracked path as the next ratchet. Do not preserve comparison baselines by
+manually moving files to temporary directories: the explicit ref is
+reproducible and uses the same merge-base discipline as render A/B.
 
 **Net11 opt-in feature corpus** (`--corpus-profile opt-in-net11`): a separate
 curated lane for compiler lowerings that are absent or too sparse in the
@@ -320,9 +343,10 @@ Snapshot schema v3 records feature-local evidence for those populations and
 raises. The opt-in profile fails if any required evidence is absent or drops
 below the committed baseline, even when aggregate quality rates are unchanged.
 Union declaration evidence checks whole-type product output; method-only
-snapshots cannot prove that `union` was rendered. Validity and compile-back
-checks replay `updated-memory-safety-rules` only for assemblies whose module
-metadata opts in, while the legacy controls remain on normal preview options.
+snapshots cannot prove that `union` was rendered. Validity and compile-back checks replay compiler modes from artifact metadata:
+`updated-memory-safety-rules` for modules carrying the memory-safety marker and
+`runtime-async` for assemblies containing runtime-async method implementation
+flags. Legacy and classic-async artifacts remain on normal preview options.
 
 The pinned lane uses the exact SDK recorded in
 `eng/prepare-decompiler-opt-in-corpus.sh`. Advance that SDK and regenerate

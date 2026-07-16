@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Globalization;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
@@ -64,6 +65,7 @@ internal static class CorpusSensor
         int maxExamples,
         string? emitBaseline,
         string? diffBaseline,
+        string? diffBaselineRef,
         string? emitDelta,
         bool qualityDiffCard = false,
         bool qualityCardRisky = false,
@@ -88,6 +90,11 @@ internal static class CorpusSensor
         if (qualityDiffCard && diffBaseline is null)
         {
             Console.Error.WriteLine("--quality-diff-card requires --diff-corpus-baseline <file>.");
+            return 1;
+        }
+        if (diffBaselineRef is not null && diffBaseline is null)
+        {
+            Console.Error.WriteLine("--diff-corpus-baseline-ref requires --diff-corpus-baseline <file>.");
             return 1;
         }
         if (emitDelta is not null && diffBaseline is null)
@@ -123,7 +130,9 @@ internal static class CorpusSensor
         if (diffBaseline is null)
             return current.Metrics.PassBugs > 0 || FeatureCoverageFailures(current).Length > 0 ? 1 : 0;
 
-        var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
+        var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(
+            ReadBaselineText(diffBaseline, diffBaselineRef),
+            JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
         var regressions = Compare(
             baseline,
@@ -141,7 +150,12 @@ internal static class CorpusSensor
         }
         if (qualityDiffCard)
         {
-            PrintQualityDiffCard(baseline, current, regressions, qualityCardRisky);
+            PrintQualityDiffCard(
+                baseline,
+                current,
+                regressions,
+                qualityCardRisky,
+                diffBaselineRef);
             if (emitDelta is not null)
             {
                 Console.WriteLine();
@@ -153,7 +167,10 @@ internal static class CorpusSensor
         if (regressions.Length == 0)
         {
             Console.WriteLine();
-            Console.WriteLine($"Corpus sensor matched baseline: {diffBaseline}");
+            Console.WriteLine(
+                diffBaselineRef is null
+                    ? $"Corpus sensor matched baseline: {diffBaseline}"
+                    : $"Corpus sensor matched baseline: {diffBaseline} at {diffBaselineRef}");
             return 0;
         }
 
@@ -163,6 +180,61 @@ internal static class CorpusSensor
             Console.WriteLine($"- {regression}");
         return 1;
     }
+
+    static string ReadBaselineText(string path, string? gitRef)
+    {
+        if (gitRef is null)
+            return File.ReadAllText(path);
+
+        string fullPath = Path.GetFullPath(path);
+        string startDirectory = Path.GetDirectoryName(fullPath) ?? Environment.CurrentDirectory;
+        string repositoryRoot = RunGit(startDirectory, "rev-parse", "--show-toplevel").Trim();
+        string relativePath = Path.GetRelativePath(repositoryRoot, fullPath).Replace('\\', '/');
+        if (relativePath == ".."
+            || relativePath.StartsWith("../", StringComparison.Ordinal)
+            || Path.IsPathRooted(relativePath))
+        {
+            throw new InvalidOperationException(
+                $"Baseline '{path}' is outside git repository '{repositoryRoot}'.");
+        }
+
+        string commit = RunGit(
+            repositoryRoot,
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            $"{gitRef}^{{commit}}").Trim();
+        return RunGit(repositoryRoot, "show", $"{commit}:{relativePath}");
+    }
+
+    static string RunGit(string workingDirectory, params string[] arguments)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (string argument in arguments)
+            start.ArgumentList.Add(argument);
+
+        using var process = Process.Start(start)
+            ?? throw new InvalidOperationException("Could not start git.");
+        string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"git {string.Join(' ', arguments)} failed ({process.ExitCode}): {error.Trim()}");
+        }
+
+        return output;
+    }
+
+    internal static string ReadBaselineTextForTesting(string path, string? gitRef)
+        => ReadBaselineText(path, gitRef);
 
     static (CorpusSensorSnapshot Snapshot, ImmutableArray<FidelityCapReport> Reports) Capture(
         IReadOnlyList<string> assemblies,
@@ -995,13 +1067,13 @@ internal static class CorpusSensor
 
         if (gateAggregateRates || baselinePinned is null || currentPinned is null)
         {
-            AddRateRegression(failures, "fully-raised rate", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
+            AddRateRegression(failures, "no-detected-lowering-residue rate", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
             AddRateRegression(failures, "conditional-branch residual rate", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
             AddRateRegression(failures, "forward-merge stop rate", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
         }
         else
         {
-            AddRateRegression(failures, "fully-raised rate (pinned)", baselinePinned.FullyRaisedBasisPoints, currentPinned.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
+            AddRateRegression(failures, "no-detected-lowering-residue rate (pinned)", baselinePinned.FullyRaisedBasisPoints, currentPinned.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
             AddRateRegression(failures, "conditional-branch residual rate (pinned)", baselinePinned.ConditionalBranchBasisPoints, currentPinned.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
             // Forward-merge stops are structuring-container counts, not per-method snapshot
             // rows, so the PR quick gate leaves aggregate movement advisory unless the
@@ -1259,7 +1331,16 @@ internal static class CorpusSensor
         Console.WriteLine($"Methods: {metrics.TotalMethods}");
         if (snapshot.MethodCap is { } cap)
             Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
-        Console.WriteLine($"Fully raised: {metrics.FullyRaisedMethods} ({FormatBps(metrics.FullyRaisedBasisPoints)})");
+        Console.WriteLine(
+            $"No detected lowering residue: {metrics.FullyRaisedMethods} "
+            + $"({FormatBps(metrics.FullyRaisedBasisPoints)})");
+        if (VerifiedFullyRaised(snapshot) is { } verified)
+        {
+            Console.WriteLine(
+                $"Fully raised: {verified.RaisedMethods}/{verified.CheckedMethods} "
+                + $"({FormatBps(RateBasisPoints(verified.RaisedMethods, verified.CheckedMethods))} "
+                + "of validity-checked methods)");
+        }
         Console.WriteLine($"Conditional-branch residual: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
         Console.WriteLine($"Forward-merge stops: {metrics.ForwardMergeStoppedContainers} ({FormatBps(metrics.ForwardMergeBasisPoints)} of methods)");
         if (snapshot.ValidityCompileCap <= 0)
@@ -1329,11 +1410,14 @@ internal static class CorpusSensor
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current,
         IReadOnlyList<string> regressions,
-        bool risky)
+        bool risky,
+        string? baselineRef)
     {
         Console.WriteLine(QualityCardHeadingForProfile(current.Profile));
         Console.WriteLine();
         Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
+        if (baselineRef is not null)
+            Console.WriteLine($"Baseline ref: `{baselineRef}`");
         if (current.MethodCap is { } cap)
             Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
         Console.WriteLine($"Correctness coverage: {CoverageSummary(current)}");
@@ -1381,9 +1465,16 @@ internal static class CorpusSensor
     static string CurrentMeasuredDebt(CorpusSensorSnapshot snapshot)
     {
         var debt = new List<string>();
-        int notFullyRaised = Math.Max(0, snapshot.Metrics.TotalMethods - snapshot.Metrics.FullyRaisedMethods);
-        if (notFullyRaised > 0)
-            debt.Add(Counted(notFullyRaised, "method not fully raised", "methods not fully raised"));
+        int withLoweringResidue =
+            Math.Max(0, snapshot.Metrics.TotalMethods - snapshot.Metrics.FullyRaisedMethods);
+        if (withLoweringResidue > 0)
+        {
+            debt.Add(
+                Counted(
+                    withLoweringResidue,
+                    "method with detected lowering residue",
+                    "methods with detected lowering residue"));
+        }
 
         if (snapshot.ValidityCompileCap > 0)
         {
@@ -1522,7 +1613,7 @@ internal static class CorpusSensor
                 : "semantic defects ungated (sampling differs); "
             : "";
         return "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
-            + $"Fully raised {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
+            + $"No detected lowering residue {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)}); "
             + $"conditional residual {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)}); "
@@ -1535,7 +1626,7 @@ internal static class CorpusSensor
     {
         var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
         var advisories = new List<string>();
-        AddAdvisory("fully-raised", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
+        AddAdvisory("no-detected-lowering-residue", baseline.Metrics.FullyRaisedBasisPoints, current.Metrics.FullyRaisedBasisPoints, tolerance.FullyRaisedDropBasisPoints, lowerIsRegression: true);
         AddAdvisory("conditional-branch residual", baseline.Metrics.ConditionalBranchBasisPoints, current.Metrics.ConditionalBranchBasisPoints, tolerance.ConditionalBranchIncreaseBasisPoints, lowerIsRegression: false);
         AddAdvisory("forward-merge stop", baseline.Metrics.ForwardMergeBasisPoints, current.Metrics.ForwardMergeBasisPoints, tolerance.ForwardMergeIncreaseBasisPoints, lowerIsRegression: false);
         if (advisories.Count == 0)
@@ -1561,7 +1652,7 @@ internal static class CorpusSensor
     /// The real-world corpus includes the repo's own assemblies, which grow as
     /// unrelated code lands, so a baseline captured earlier can disagree with the
     /// current run on method population even when the PR changed nothing. When that
-    /// happens the aggregate count deltas (fully raised, Full malformed, fidelity
+    /// happens the aggregate count deltas (lowering residue, Full malformed, fidelity
     /// diffs) mix the PR's effect with corpus drift and stop being a clean signal.
     /// Surface the drift explicitly so reviewers rebaseline instead of chasing a
     /// phantom regression.
@@ -1626,7 +1717,7 @@ internal static class CorpusSensor
         var rows = new List<MultiSourceRow>
         {
             ShareChangeRow(
-                "Fully raised",
+                "No detected lowering residue",
                 baseline.Metrics.FullyRaisedMethods,
                 baseline.Metrics.TotalMethods,
                 current.Metrics.FullyRaisedMethods,
@@ -1650,6 +1741,26 @@ internal static class CorpusSensor
 
         if (current.ValidityCompileCap > 0)
         {
+            var baselineFullyRaised = VerifiedFullyRaised(baseline);
+            var currentFullyRaised = VerifiedFullyRaised(current);
+            if (baselineFullyRaised is not null && currentFullyRaised is not null)
+            {
+                bool comparableFullyRaisedSamples = HaveSameMethodSample(
+                    baseline.Methods,
+                    current.Methods,
+                    static method => HasValidityOutcome(method.Validity));
+                rows.Add(ShareChangeRow(
+                    comparableFullyRaisedSamples
+                        ? "Fully raised"
+                        : "Fully raised (sampling differs)",
+                    baselineFullyRaised.Value.RaisedMethods,
+                    baselineFullyRaised.Value.CheckedMethods,
+                    currentFullyRaised.Value.RaisedMethods,
+                    currentFullyRaised.Value.CheckedMethods,
+                    comparableFullyRaisedSamples ? Goal.Higher : Goal.Context,
+                    countDeltaKnown: comparableFullyRaisedSamples));
+            }
+
             bool comparableMalformedSamples = HaveSameMethodSample(
                 baseline.Methods,
                 current.Methods,
@@ -1757,6 +1868,41 @@ internal static class CorpusSensor
         var writer = new MarkoutWriter(output ?? Console.Out, new MarkdownFormatter());
         writer.WriteMultiSourceTable("Metric", rows);
     }
+
+    static VerifiedFullyRaisedMetrics? VerifiedFullyRaised(
+        CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.ValidityCompileCap <= 0 || snapshot.Methods is not { } methods)
+            return null;
+
+        int checkedMethods = 0;
+        int raisedMethods = 0;
+        foreach (var method in methods)
+        {
+            if (!HasValidityOutcome(method.Validity))
+                continue;
+
+            checkedMethods++;
+            if (method.FullyRaised && method.Validity == "valid")
+                raisedMethods++;
+        }
+
+        return checkedMethods == 0
+            ? null
+            : new VerifiedFullyRaisedMetrics(raisedMethods, checkedMethods);
+    }
+
+    static bool HasValidityOutcome(string validity)
+        => validity == "valid"
+            || validity.StartsWith("semantic-defect:", StringComparison.Ordinal)
+            || validity.StartsWith("full-malformed:", StringComparison.Ordinal)
+            || validity.StartsWith("partial-malformed:", StringComparison.Ordinal);
+
+    internal static (int RaisedMethods, int CheckedMethods)?
+        VerifiedFullyRaisedForTesting(CorpusSensorSnapshot snapshot)
+        => VerifiedFullyRaised(snapshot) is { } metrics
+            ? (metrics.RaisedMethods, metrics.CheckedMethods)
+            : null;
 
     internal static string QualityMetricChangesForTesting(
         CorpusSensorSnapshot baseline,
@@ -2020,6 +2166,10 @@ internal sealed record FidelitySensorMetrics(
     int NotFullMethods,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     ReturnToSenderParityMetrics? ReturnToSenderParity = null);
+
+readonly record struct VerifiedFullyRaisedMetrics(
+    int RaisedMethods,
+    int CheckedMethods);
 
 internal sealed record ReturnToSenderParityMetrics(
     int RescuedMethods,

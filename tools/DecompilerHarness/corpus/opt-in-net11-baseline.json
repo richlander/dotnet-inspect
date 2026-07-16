@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-16T06:04:52.2043547+00:00",
+  "generatedUtc": "2026-07-16T16:38:50.2350671+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -751,7 +751,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncAwaiterFixtures::YieldInBranch#0"
     },
     {
@@ -766,7 +766,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncAwaiterFixtures::YieldOnce#0"
     },
     {
@@ -796,7 +796,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncAwaiterFixtures::YieldTwice#0"
     },
     {
@@ -1036,7 +1036,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitForeach#0"
     },
     {
@@ -1111,7 +1111,7 @@
       "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitUsingResource#0"
     },
     {
@@ -1126,7 +1126,7 @@
       "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitValueTask#0"
     },
     {
@@ -1171,7 +1171,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::NestedAwaitUsingResources#0"
     },
     {
@@ -1471,8 +1471,8 @@
     },
     "fidelity": {
       "checkedMethods": 64,
-      "exactMethods": 54,
-      "opcodeDiffMethods": 10,
+      "exactMethods": 61,
+      "opcodeDiffMethods": 3,
       "recompileFailMethods": 0,
       "contextFailMethods": 0,
       "notFullMethods": 0
