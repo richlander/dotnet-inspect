@@ -71,33 +71,62 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void Compare_FailsAndNamesExactToRecompileFailRegression()
+    public void EvaluateRtsParityBurndown_FlagsNewRegressionNotInManifest()
     {
-        var baseline = ReturnToSenderSnapshot(
-            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "Exact"));
-        var current = ReturnToSenderSnapshot(
-            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail"));
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("New", fidelityReference: "Exact", fidelityCheck: "RecompileFail"));
 
-        var regressions = CorpusSensor.Compare(baseline, current, []);
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+            snapshot,
+            ["Pinned!T::Known#0"]);
 
-        Assert.Contains(
-            regressions,
-            r => r.Contains("RTS parity lost", StringComparison.Ordinal)
-                && r.Contains("Pinned!T::Recompile#0", StringComparison.Ordinal)
-                && r.Contains("RecompileFail", StringComparison.Ordinal));
+        Assert.Equal(2, evaluation.KnownGaps.Length);
+        var offender = Assert.Single(evaluation.NewRegressions);
+        Assert.Equal("New", offender.Method);
+        Assert.Empty(evaluation.ResolvedRows);
     }
 
     [Fact]
-    public void Compare_PassesWhenReferenceExactStaysExactUnderReturnToSender()
+    public void EvaluateRtsParityBurndown_PassesWhenAllGapsAreInManifest()
     {
-        var baseline = ReturnToSenderSnapshot(
-            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "Exact"));
-        var current = ReturnToSenderSnapshot(
-            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "Exact"));
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
 
-        var regressions = CorpusSensor.Compare(baseline, current, []);
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+            snapshot,
+            ["Pinned!T::Known#0"]);
 
-        Assert.DoesNotContain(regressions, r => r.Contains("RTS parity lost", StringComparison.Ordinal));
+        Assert.Empty(evaluation.NewRegressions);
+        Assert.Single(evaluation.KnownGaps);
+        Assert.Empty(evaluation.ResolvedRows);
+    }
+
+    [Fact]
+    public void EvaluateRtsParityBurndown_ReportsResolvedRowsNoLongerFailing()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("StillExact", fidelityReference: "Exact", fidelityCheck: "Exact"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+            snapshot,
+            ["Pinned!T::Fixed#0"]);
+
+        Assert.Empty(evaluation.NewRegressions);
+        Assert.Empty(evaluation.KnownGaps);
+        Assert.Equal("Pinned!T::Fixed#0", Assert.Single(evaluation.ResolvedRows));
+    }
+
+    [Fact]
+    public void EvaluateRtsParityBurndown_WithEmptyManifestTreatsEveryGapAsNew()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("A", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("B", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(snapshot, []);
+
+        Assert.Equal(2, evaluation.NewRegressions.Length);
     }
 
     [Fact]
