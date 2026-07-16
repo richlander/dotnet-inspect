@@ -215,6 +215,37 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void SpellableConstraintClause_EscapesKeywordTypeNamesUsingStructuredKind()
+    {
+        // A special-constraint keyword and a type literally named the same keyword are
+        // indistinguishable as raw strings; the structured kind disambiguates them so
+        // the type name is escaped (@struct) while the keyword constraint stays verbatim.
+        var parameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints = { "struct", "N.struct", "System.IComparable" },
+            StructuredConstraints =
+            [
+                new TypeParameterConstraint("struct", IsTypeName: false),
+                new TypeParameterConstraint("N.struct", IsTypeName: true),
+                new TypeParameterConstraint("System.IComparable", IsTypeName: true),
+            ],
+        };
+
+        Assert.Equal(
+            "struct, N.@struct, System.IComparable",
+            MetadataDeclarationQuery.SpellableConstraintClause(parameter));
+
+        var globalKeyword = new TypeParameter
+        {
+            Name = "T",
+            Constraints = { "class" },
+            StructuredConstraints = [new TypeParameterConstraint("class", IsTypeName: true)],
+        };
+        Assert.Equal("@class", MetadataDeclarationQuery.SpellableConstraintClause(globalKeyword));
+    }
+
+    [Fact]
     public void IsVolatileField_DetectsVolatileModreq()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));

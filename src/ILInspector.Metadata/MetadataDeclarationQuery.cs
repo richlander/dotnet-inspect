@@ -472,10 +472,64 @@ public static class MetadataDeclarationQuery
     /// </summary>
     internal static string? SpellableConstraintClause(TypeParameter parameter)
     {
-        var spellable = parameter.Constraints
-            .Where(constraint => constraint is not ("System.Object" or "Object" or "object"))
-            .ToList();
+        var structured = parameter.StructuredConstraints;
+        List<string> spellable = [];
+        for (int i = 0; i < parameter.Constraints.Count; i++)
+        {
+            var value = parameter.Constraints[i];
+
+            // Without the structured kind we cannot tell an attribute-derived special
+            // constraint (class/struct/new()/…) from a type name, so preserve the
+            // legacy verbatim spelling (only the vacuous object constraint is dropped).
+            // The real callers (GetGenericConstraintClauses) always populate the kind.
+            if (structured is not { } kinds || i >= kinds.Count)
+            {
+                if (value is not ("System.Object" or "Object" or "object"))
+                    spellable.Add(value);
+                continue;
+            }
+
+            // Special constraints are spelled verbatim; type-name constraints are
+            // subject to reserved-keyword escaping so a type literally named like a
+            // keyword renders as an escaped identifier (global "class" -> "@class").
+            if (!kinds[i].IsTypeName)
+            {
+                spellable.Add(value);
+                continue;
+            }
+
+            // C# forbids an explicit System.Object constraint (CS0702) and it is
+            // vacuous, so drop it. Non-C# compilers can emit it though Roslyn does not.
+            if (value is "System.Object" or "Object" or "object")
+                continue;
+            spellable.Add(EscapeReservedKeywordSegments(value));
+        }
         return spellable.Count > 0 ? string.Join(", ", spellable) : null;
+    }
+
+    // Escapes every reserved-keyword identifier segment inside a (possibly qualified
+    // or generic) constraint type name, so a type literally named like a keyword
+    // renders as an escaped identifier (global "class" -> "@class", "N.class" ->
+    // "N.@class"). Mirrors CSharpDeclarationWriter's owning policy using the local
+    // ReservedKeywords set; segments already prefixed with '@' are left untouched.
+    static string EscapeReservedKeywordSegments(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length;)
+        {
+            if (char.IsLetter(text[i]) || text[i] == '_')
+            {
+                int start = i++;
+                while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
+                    i++;
+                string token = text[start..i];
+                bool alreadyEscaped = start > 0 && text[start - 1] == '@';
+                builder.Append(!alreadyEscaped && ReservedKeywords.Contains(token) ? "@" + token : token);
+                continue;
+            }
+            builder.Append(text[i++]);
+        }
+        return builder.ToString();
     }
 
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
