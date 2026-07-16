@@ -358,6 +358,26 @@ public static class CoreCache
     }
 
     /// <summary>
+    /// Runs registered versioned-category cleanup synchronously against the active cache root.
+    /// </summary>
+    /// <returns>The cumulative maintenance totals observed after cleanup completes.</returns>
+    internal static CacheMaintenanceResult RunVersionedCategoryCleanup()
+    {
+        string root;
+        VersionedCacheCategory[] categories;
+        lock (s_maintenanceLock)
+        {
+            root = GetBasePath();
+            categories = [.. s_versionedCategories];
+        }
+
+        CleanupVersionedCategories(root, categories, CancellationToken.None);
+        return new CacheMaintenanceResult(
+            Interlocked.Read(ref s_maintenanceBytesFreed),
+            Volatile.Read(ref s_maintenanceDirectoriesDeleted));
+    }
+
+    /// <summary>
     /// Waits briefly for in-flight cleanup to finish, cancels if it exceeds the timeout, and returns
     /// the amount of obsolete cache data removed so far.
     /// </summary>

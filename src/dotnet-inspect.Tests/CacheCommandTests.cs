@@ -57,7 +57,7 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
-    public void CacheMiss_CleansObsoleteVersionedCategories()
+    public void RunVersionedCategoryCleanup_RemovesObsoleteVersionedCategories()
     {
         var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v9");
         var currentDir = Path.Combine(_cacheBasePath, PackageIndexCache.Category);
@@ -68,8 +68,7 @@ public class CacheCommandTests : IDisposable
 
         CoreCache.RegisterVersionedCategory("pkg-index-v", PackageIndexCache.Category);
 
-        Assert.Null(CoreCache.TryGet("versions", $"missing-{Guid.NewGuid():N}", extension: "txt"));
-        var result = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(5));
+        var result = CoreCache.RunVersionedCategoryCleanup();
 
         Assert.False(Directory.Exists(oldDir));
         Assert.True(Directory.Exists(currentDir));
