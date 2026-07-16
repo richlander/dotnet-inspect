@@ -25,43 +25,51 @@ contexts to fill `MemberCodeView` sections. `MemberCodeProvider` separately
 opens metadata/decompiler state for source, IL, attributes, overlays, and hidden
 facts.
 
-`library --il-offset` started as a one-off source lookup. `ILOffsetSourceQuery`
-now resolves member, instruction, exception, callsite, return-address,
-allocation, safety, and cost context, builds CLI model rows, and owns fallback
-opcode heuristics. It is no longer just a source query.
+`library --il-offset` started as a one-off source lookup. Its command helper
+grew to resolve member, instruction, exception, callsite, return-address,
+allocation, safety, and cost context, build CLI model rows, and own fallback
+opcode heuristics. It was no longer just a source query.
 
 Both paths have useful pieces, but neither is the target architecture:
 
 - `member` uses the normal command pipeline, but its formatter constructs facts.
-- `library --il-offset` has a standalone query/helper file that should disappear.
+- `library --il-offset` needs a thin command query over a Research-owned projection.
 - Both paths construct overlapping method-body facts differently.
 
 ## Target
 
-The shared abstraction is a command-configured **method body analysis session**:
+The shared abstraction is a command-configured **method body projection** over
+an already-open metadata/source session:
 
 ```text
 ResolvedAssemblyReference
   -> AssemblyInspectionSession
-      -> MethodBodyInspectionSession
-          -> LibraryBodyIndex
-              -> Analysis queries
-                  -> CLI composition and rendering
+      -> Metadata / Instructions / Analysis producers
+          -> Research projection producer
+              -> view-compatible projection
+                  -> CLI selection and rendering
 ```
 
-The command chooses a **selector** (member or IL coordinate), requested
-capabilities, and body scope. `MethodBodyInspectionSession` opens one configured
-`LibraryBodyIndex` and adds the composition state that earns a session:
-source attribution and cross-assembly caller scopes. CLI consumers query the
-index's Analysis APIs directly and render their projections.
+The command chooses a **selector** (member or IL coordinate) and requested
+capabilities. A focused Research `*ProjectionProducer` composes the owner
+libraries into a top-level projection shape. `ResearchViews` is only a thin
+forwarding/aggregation facade; it does not own request/result contracts or
+weighty production logic.
 
-The boundary is semantic ownership, not type concealment:
+The first implementation is `ILOffsetProjectionProducer`:
 
-- Analysis owns method-body query semantics and canonical fact projections.
-- The session owns index construction policy, reuse, and cross-assembly
-  composition.
-- The CLI may hold and query `LibraryBodyIndex`; it must not duplicate Analysis
-  semantics or grow a forwarding method for every Analysis query.
+- `ILOffsetProjectionRequest` carries the already-open `SourceLinkService`,
+  coordinate, and capability flags — never a path, `PEReader`, or command options.
+- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + Analysis +
+  SourceLink composition and returns `ILOffsetProjectionOutcome`.
+- `ResearchViews.ProjectILOffset` forwards directly to the producer.
+- `ILOffsetQuery` retains only CLI parsing, capability selection, symbol
+  acquisition, failure/exit handling, and producer invocation.
+
+This establishes the migration pattern for the existing member projection:
+top-level contracts, a focused `MemberProjectionProducer`, and a thin
+`ResearchViews.ProjectMember` forwarder. That migration is tracked by
+[#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
 
 ## Selector shapes
 

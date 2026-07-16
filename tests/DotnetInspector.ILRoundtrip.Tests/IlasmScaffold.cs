@@ -192,7 +192,7 @@ public static class IlasmScaffold
 
         if (isTarget)
         {
-            var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method, ILSyntax.Canonical)
+            var instructions = MetadataInstructionProducer.Disassemble(peReader, reader, method, ILSyntax.Canonical)
                 ?? throw new InvalidOperationException($"No IL body for {name}");
             var body = peReader.GetMethodBody(method.RelativeVirtualAddress);
 
@@ -326,7 +326,7 @@ public static class IlasmScaffold
                     continue;
                 if (paramTypes is not null && ParamTypes(method) != paramTypes)
                     continue;
-                return ILInstructionPrinter.Disassemble(peReader, reader, method);
+                return MetadataInstructionProducer.Disassemble(peReader, reader, method);
             }
         }
         return null;

@@ -5,14 +5,10 @@ namespace ILInspector.Metadata;
 
 /// <summary>
 /// Resolves IL operand metadata tokens (strings, types, methods, fields) to human-readable text.
-/// Shared by <see cref="ILInstructionPrinter"/> (the IL section) and the decompiler's annotated-IL
-/// emitter so a given call/field/type operand renders identically in both — method operands always
-/// carry their full parameter list and generic type arguments.
+/// Method operands include their full parameter lists and generic type arguments.
 ///
-/// Type resolution accepts an optional <see cref="GenericContext"/> so callers that have the
-/// enclosing method's generic parameters (the annotated emitter) can resolve <c>!0</c>/<c>!!0</c>
-/// references; callers without one (the standalone disassembler) pass null and get the same output
-/// as before.
+/// Type resolution accepts an optional <see cref="GenericContext"/> for resolving
+/// <c>!0</c>/<c>!!0</c> references.
 /// </summary>
 public static class ILTokenResolver
 {

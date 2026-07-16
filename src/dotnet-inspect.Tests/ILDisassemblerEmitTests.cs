@@ -331,7 +331,7 @@ public class ILDisassemblerEmitTests : IDisposable
 
         using var stream = File.OpenRead(dllPath);
         using var peReader = new PEReader(stream);
-        var result = ILInstructionPrinter.DisassembleMethod(
+        var result = MetadataInstructionProducer.DisassembleMethod(
             peReader, $"EmitTest.{typeName}", methodName);
 
         Assert.NotNull(result);

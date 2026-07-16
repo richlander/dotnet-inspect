@@ -69,6 +69,8 @@
              Link="FidelityCauseBuckets.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\MetadataInstructionProducer.cs"
+             Link="MetadataInstructionProducer.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ClosureDiagnosticEvidence.cs"
              Link="ClosureDiagnosticEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\HarnessOpcode.cs"
