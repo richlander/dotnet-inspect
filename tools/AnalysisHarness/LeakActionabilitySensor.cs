@@ -97,25 +97,25 @@ public static class LeakActionabilitySensor
                             []);
             }
 
-            var candidates = ResourceLifecycleAnalysis.SelectCandidates(complete);
-            if (candidates.Length == 0)
+            var assessments = ResourceTriageAnalysis.Assess(complete);
+            if (assessments.Length == 0)
                 return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, 0, new Dictionary<string, int>(), []);
 
             var classCounts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             var examples = new List<LeakActionabilityExample>();
-            foreach (var candidate in candidates)
+            foreach (var assessment in assessments)
             {
                 string cls = FormatActionability(
-                    candidate.Source.Payload.Actionability);
+                    assessment.Actionability);
                 classCounts[cls] = classCounts.GetValueOrDefault(cls) + 1;
                 if (examples.Count < examplesPerAssembly)
                     examples.Add(new LeakActionabilityExample(
                         cls,
-                        $"{candidate.Source.Payload.Method.DeclaringType.Name}::{candidate.Source.Payload.Method.Name}",
-                        FormatBoundarySet(candidate.Source.Payload.Boundaries)));
+                        $"{assessment.Source.Payload.Method.DeclaringType.Name}::{assessment.Source.Payload.Method.Name}",
+                        FormatBoundarySet(assessment.Boundaries)));
             }
 
-            return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, candidates.Length, classCounts, examples);
+            return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, assessments.Length, classCounts, examples);
         }
         // Per-assembly boundary on a background thread: convert any input failure (a directory, a
         // truncated PE, ...) into a failed row and keep sweeping the corpus.
@@ -125,23 +125,23 @@ public static class LeakActionabilitySensor
         }
     }
 
-    static string FormatActionability(ResourceActionability actionability)
+    static string FormatActionability(ResourceTriageActionability actionability)
         => actionability switch
         {
-            ResourceActionability.UntrustedActionable => Untrusted,
-            ResourceActionability.TrustedLowActionability => Trusted,
+            ResourceTriageActionability.UntrustedActionable => Untrusted,
+            ResourceTriageActionability.TrustedLowActionability => Trusted,
             _ => Unknown,
         };
 
     static string FormatBoundarySet(
-        IReadOnlyList<ResourceBoundaryEvidence> boundaries)
+        IReadOnlyList<ResourceTriageBoundaryAssessment> boundaries)
         => boundaries.Count == 0
             ? "(no-boundary)"
             : string.Join(
                 " + ",
                 boundaries
                     .Select(boundary =>
-                        $"{Short(boundary.Operation.DeclaringType.ToQualifiedDisplayString())}::{boundary.Operation.Name}")
+                        $"{Short(boundary.Evidence.Operation.DeclaringType.ToQualifiedDisplayString())}::{boundary.Evidence.Operation.Name}")
                     .Distinct(StringComparer.Ordinal));
 
     static string Short(string type)
