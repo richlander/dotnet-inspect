@@ -1345,7 +1345,10 @@ static class Program
                     dump = IlCfgDump.From(MethodInstructions.Decode(
                         source.Pe.GetMethodBody(method.RelativeVirtualAddress)));
                 }
-                catch (BadImageFormatException ex)
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                    or InvalidOperationException
+                    or IOException)
                 {
                     dump = IlCfgDump.Failed(ex.Message);
                 }
