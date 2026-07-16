@@ -620,7 +620,7 @@ sourced from Metadata/Analysis, not from the printed text:
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
 | CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |
-| Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), and body-subset — all on the IL-offset axis |
+| Research | the join | compose the singular producers — interleave (`RenderMixedCore`), diff (move `CSharpBodyDiff` here beside `ImplementationDiff`), body-subset, and `ILOffsetProjectionProducer` coordinate views — all on the IL-offset axis |
 
 The end state: **shape** (`ApiType` / `ApiMember`, fact-enriched) → **address**
 (identity: `MetadataToken` same-reader, normalized `ResearchMemberIdentity`

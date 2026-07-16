@@ -104,6 +104,9 @@ public class PdbContext : IDisposable
     /// </summary>
     internal Action<string>? Log => _log;
 
+    internal PEReader PeReader => _peReader;
+    internal MetadataReader MetadataReader => _peReader.GetMetadataReader();
+
     // --- PE/Assembly ---
     public bool HasMetadata => _peReader.HasMetadata;
 

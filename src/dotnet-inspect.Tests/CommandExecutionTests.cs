@@ -16,6 +16,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspector.Tests;
 
@@ -6400,7 +6401,7 @@ public class CommandExecutionTests
         try
         {
             await File.WriteAllTextAsync(tempFile, "secret-local-file-line", TestContext.Current.CancellationToken);
-            var result = new ILOffsetResult
+            var result = new ILOffsetProjection
             {
                 Method = "Attacker.Method",
                 File = tempFile,
