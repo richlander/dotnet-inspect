@@ -18,6 +18,78 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void ResourceTriageFailure_IsVisible()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+        var inspection = new LibraryInspection
+        {
+            ResourceLifecycleInspection =
+                new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                    new InspectionError(
+                        subject,
+                        AnalysisFindings.ResourceLifecycleDescriptor,
+                        "fixture failure")),
+        };
+
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.ResourceTriage, failure.Section);
+        Assert.Equal("Resource lifecycle occurrence", failure.Finding);
+        Assert.Equal("fixture failure", failure.Reason);
+    }
+
+    [Fact]
+    public void ResourceTriageSection_PreservesRepeatedOperationBoundaryOffsets()
+    {
+        var rows = new LibraryInspectionView(new LibraryInspection
+        {
+            ResourceTriage =
+            [
+                new ResourceTriageSummary
+                {
+                    Member = "Fixture.ReadTwice",
+                    Candidate = "rt~fixture",
+                    Finding = "analysis.resource-lifecycle",
+                    Provenance = "exact",
+                    Resource = "ArrayPool<T>",
+                    Shape = "pool-churn-on-exception",
+                    Impact = "pool churn if boundary throws",
+                    Actionability = "untrusted-input boundary",
+                    AcquireOffset = 0x0007,
+                    Boundaries =
+                    [
+                        new ResourceBoundarySummary(
+                            "System.IO.Stream::Read",
+                            0x0011),
+                        new ResourceBoundarySummary(
+                            "System.IO.Stream::Read",
+                            0x001A),
+                    ],
+                    Evidence =
+                        "An exact external-input boundary is reached before modeled cleanup; an exception can bypass Return.",
+                    Direction =
+                        "Return the pooled array from finally or catch-all cleanup.",
+                    Confidence = "medium",
+                },
+            ],
+        }).ResourceTriageSection;
+
+        Assert.Collection(
+            rows,
+            row =>
+            {
+                Assert.Contains("System.IO.Stream::Read", row.Boundary);
+                Assert.Contains("IL_0011", row.BoundaryIL);
+            },
+            row =>
+            {
+                Assert.Contains("System.IO.Stream::Read", row.Boundary);
+                Assert.Contains("IL_001A", row.BoundaryIL);
+            });
+        Assert.All(rows, row => Assert.Contains("IL_0007", row.AcquireIL));
+        Assert.Single(rows.Select(row => row.Candidate).Distinct());
+    }
+
+    [Fact]
     public void UnsafeMembersSection_RendersDegradedSignatureScan()
     {
         var view = new LibraryInspectionView(new LibraryInspection

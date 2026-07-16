@@ -830,6 +830,79 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ScanResourceTriage(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger)
+    {
+        var result = Analysis.ResourceLifecycleAnalysis.InspectAssembly(
+            path,
+            new FindingSubject(Path.GetFullPath(path), Path.GetFileName(path)));
+        inspection.ResourceLifecycleInspection = result;
+        inspection.ResourceTriage =
+            result.Value
+                is FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete complete
+                ? ProjectResourceTriage(
+                    path,
+                    complete,
+                    logger)
+                : null;
+    }
+
+    static List<ResourceTriageSummary> ProjectResourceTriage(
+        string path,
+        FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete inspection,
+        VerboseLogger logger)
+    {
+        var drillByToken = BuildLibraryDrillMap(path, logger);
+        return Analysis.ResourceLifecycleAnalysis
+            .SelectCandidates(
+                inspection,
+                Analysis.ResourceActionability.UntrustedActionable)
+            .Select(candidate =>
+            {
+                var occurrence = candidate.Source.Payload;
+                drillByToken.TryGetValue(
+                    occurrence.Method.MetadataToken,
+                    out var drill);
+                return new ResourceTriageSummary
+                {
+                    Member = FormatMethod(occurrence.Method),
+                    Candidate = candidate.CandidateId,
+                    Finding = candidate.Source.Descriptor.Id,
+                    Provenance = "exact",
+                    Resource = occurrence.Resource,
+                    Shape = occurrence.Shape,
+                    Impact = "pool churn if boundary throws",
+                    Actionability = "untrusted-input boundary",
+                    AcquireOffset = occurrence.AcquireOffset,
+                    Boundaries = occurrence.Boundaries
+                        .Select(boundary => new ResourceBoundarySummary(
+                            boundary.Operation.ToQualifiedDisplayString(),
+                            boundary.ILOffset))
+                        .Distinct()
+                        .ToList(),
+                    Evidence =
+                        "An exact external-input boundary is reached before modeled cleanup; an exception can bypass Return.",
+                    Direction = "Return the pooled array from finally or catch-all cleanup.",
+                    Confidence = "medium",
+                    Visibility = drill.Visibility,
+                    Stable = drill.Stable,
+                    Selector = drill.Selector,
+                };
+            })
+            .OrderBy(
+                static row => row.Member,
+                StringComparer.Ordinal)
+            .ThenBy(
+                static row => row.AcquireOffset)
+            .ThenBy(
+                static row => row.Boundaries.Count > 0
+                    ? row.Boundaries[0].ILOffset
+                    : -1)
+            .ToList();
+    }
+
     // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
     // allocations lead, then by confidence, then by call-graph leverage (root reach),
     // then a stable structural tie-break. This is distinct from Top Leverage, which ranks

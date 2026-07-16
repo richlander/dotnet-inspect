@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Options;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.Analysis;
 
 namespace DotnetInspector.Models;
 
@@ -332,6 +333,24 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
 
+    private FindingInspection<ResourceLifecycleOccurrence>?
+        _resourceLifecycleInspection;
+
+    [JsonIgnore]
+    public FindingInspection<ResourceLifecycleOccurrence>?
+        ResourceLifecycleInspection
+    {
+        get => _resourceLifecycleInspection;
+        set
+        {
+            _resourceLifecycleInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ResourceTriageSummary>? ResourceTriage { get; set; }
+
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
@@ -523,6 +542,10 @@ public class LibraryInspection
             AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
             AddFailure(failures, "Union Types", UnionTypeInspection);
             AddFailure(failures, "Switches", SwitchInspection);
+            AddFailure(
+                failures,
+                DotnetInspector.Sections.SectionNames.ResourceTriage,
+                ResourceLifecycleInspection);
             return NullIfEmpty(failures);
             });
 
@@ -1135,6 +1158,33 @@ public record class OptimizationOpportunitySummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Saturated { get; init; }
 }
+
+/// <summary>
+/// A curated exception-path resource lifecycle candidate backed by exact Analysis evidence.
+/// </summary>
+public record class ResourceTriageSummary
+{
+    public required string Member { get; init; }
+    public required string Candidate { get; init; }
+    public required string Finding { get; init; }
+    public required string Provenance { get; init; }
+    public required string Resource { get; init; }
+    public required string Shape { get; init; }
+    public required string Impact { get; init; }
+    public required string Actionability { get; init; }
+    public required int AcquireOffset { get; init; }
+    public required List<ResourceBoundarySummary> Boundaries { get; init; }
+    public required string Evidence { get; init; }
+    public required string Direction { get; init; }
+    public required string Confidence { get; init; }
+    public string? Visibility { get; init; }
+    public string? Stable { get; init; }
+    public string? Selector { get; init; }
+}
+
+public sealed record ResourceBoundarySummary(
+    string Operation,
+    int ILOffset);
 
 /// <summary>
 /// Summary of a dependency age window.

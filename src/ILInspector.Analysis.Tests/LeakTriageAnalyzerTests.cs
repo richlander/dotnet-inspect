@@ -5,6 +5,8 @@ using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 
 using ILInspector.Analysis;
+using ILInspector.AnalysisHarness;
+using ILInspector.Findings;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -72,6 +74,200 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn)));
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallCatchExceptionReturn)));
         Assert.Empty(ForMethod(result.Findings, nameof(ArrayPoolLeakFixtures.RentCrossCallTypedCatchReturn)));
+    }
+
+    [Fact]
+    public void ResourceLifecycleAnalysis_ClassifiesExactBoundaryEvidence()
+    {
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location,
+            new FindingSubject("fixtures", "fixtures"));
+        var complete =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                inspection.Value);
+        var candidates = ResourceLifecycleAnalysis.SelectCandidates(complete);
+
+        var external = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn)));
+        Assert.Equal("analysis.resource-lifecycle", external.Source.Descriptor.Id);
+        Assert.StartsWith("rt~", external.CandidateId);
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            external.Source.Payload.Actionability);
+        var externalBoundary = Assert.Single(external.Source.Payload.Boundaries);
+        Assert.Equal("Read", externalBoundary.Operation.Name);
+        Assert.Equal(ResourceBoundaryKind.ExternalInput, externalBoundary.Kind);
+        Assert.True(
+            externalBoundary.ILOffset > external.Source.Payload.AcquireOffset);
+
+        var throughSetup = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalDecodeThroughSpan)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughSetup.Source.Payload.Actionability);
+        Assert.Contains(throughSetup.Source.Payload.Boundaries, boundary =>
+            boundary.Operation.Name == "GetChars"
+            && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughSetup.Source.Payload.Boundaries, boundary =>
+            boundary.Operation.Name == "AsSpan");
+
+        var throughLocal = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalDecodeThroughSpanLocal)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughLocal.Source.Payload.Actionability);
+        Assert.Contains(throughLocal.Source.Payload.Boundaries, boundary =>
+            boundary.Operation.Name == "GetChars"
+            && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+
+        var throughStringArgument = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithTag)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughStringArgument.Source.Payload.Actionability);
+        Assert.Contains(
+            throughStringArgument.Source.Payload.Boundaries,
+            boundary =>
+                boundary.Operation.Name == "Parse"
+                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+
+        var throughConstructedArgument = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithConstructedTag)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughConstructedArgument.Source.Payload.Actionability);
+        Assert.Contains(
+            throughConstructedArgument.Source.Payload.Boundaries,
+            boundary =>
+                boundary.Operation.Name == "Parse"
+                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(
+            throughConstructedArgument.Source.Payload.Boundaries,
+            boundary => boundary.Operation.Name == ".ctor");
+
+        var throughStaticArgument = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithStaticTag)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughStaticArgument.Source.Payload.Actionability);
+        Assert.Contains(
+            throughStaticArgument.Source.Payload.Boundaries,
+            boundary =>
+                boundary.Operation.Name == "Parse"
+                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+
+        var constructorBoundary = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanConsumedByConstructor)));
+        Assert.Equal(
+            ResourceActionability.Unknown,
+            constructorBoundary.Source.Payload.Actionability);
+        Assert.Equal(
+            ".ctor",
+            Assert.Single(constructorBoundary.Source.Payload.Boundaries)
+                .Operation.Name);
+
+        var unrelatedReader = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.UnrelatedTextReaderReadBeforeReturn)));
+        Assert.Equal(
+            ResourceActionability.Unknown,
+            unrelatedReader.Source.Payload.Actionability);
+        Assert.Equal(
+            ResourceBoundaryKind.Unknown,
+            Assert.Single(unrelatedReader.Source.Payload.Boundaries).Kind);
+
+        var frameworkReader = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.FrameworkTextReaderReadBeforeReturn)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            frameworkReader.Source.Payload.Actionability);
+        Assert.Equal(
+            ResourceBoundaryKind.ExternalInput,
+            Assert.Single(frameworkReader.Source.Payload.Boundaries).Kind);
+
+        var trusted = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.TrustedTransformWithUnrelatedReadAfterReturn)));
+        Assert.Equal(
+            ResourceActionability.TrustedLowActionability,
+            trusted.Source.Payload.Actionability);
+        var trustedBoundary = Assert.Single(trusted.Source.Payload.Boundaries);
+        Assert.Equal("GetBytes", trustedBoundary.Operation.Name);
+        Assert.Equal(
+            ResourceBoundaryKind.InMemoryTransform,
+            trustedBoundary.Kind);
+
+        var actionable = ResourceLifecycleAnalysis.SelectCandidates(
+            complete,
+            ResourceActionability.UntrustedActionable);
+        Assert.Contains(actionable, candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn));
+        Assert.DoesNotContain(actionable, candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.TrustedTransformWithUnrelatedReadAfterReturn));
+
+        var clone = external.Source.Payload with
+        {
+            Boundaries = [.. external.Source.Payload.Boundaries],
+        };
+        Assert.Equal(external.Source.Payload, clone);
+        Assert.Equal(external.Source.Payload.GetHashCode(), clone.GetHashCode());
+    }
+
+    [Fact]
+    public void ResourceLifecycleAnalysis_ReportsInspectionFailure()
+    {
+        var subject = new FindingSubject("missing", "missing");
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            Path.Combine(
+                Path.GetTempPath(),
+                $"{Guid.NewGuid():N}.dll"),
+            subject);
+
+        var failed =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                inspection.Value);
+        Assert.Equal(subject, failed.Error.Subject);
+        Assert.Equal(
+            AnalysisFindings.ResourceLifecycleDescriptor,
+            failed.Error.Descriptor);
+        Assert.Contains("FileNotFoundException", failed.Error.Reason);
+    }
+
+    [Fact]
+    public void LeakActionabilitySensor_ConsumesProductClassification()
+    {
+        var report = LeakActionabilitySensor.Measure(
+            [typeof(ArrayPoolLeakFixtures).Assembly.Location],
+            examplesPerAssembly: 1000);
+        var assembly = Assert.Single(report.Assemblies);
+
+        Assert.True(assembly.Opened);
+        Assert.Contains(assembly.Examples, example =>
+            example.Class == LeakActionabilitySensor.Untrusted
+            && example.Method.EndsWith(
+                $"::{nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn)}",
+                StringComparison.Ordinal)
+            && example.BoundarySet.Contains(
+                "Stream::Read",
+                StringComparison.Ordinal));
+        Assert.Contains(assembly.Examples, example =>
+            example.Class == LeakActionabilitySensor.Trusted
+            && example.Method.EndsWith(
+                $"::{nameof(ArrayPoolLeakFixtures.TrustedTransformWithUnrelatedReadAfterReturn)}",
+                StringComparison.Ordinal)
+            && !example.BoundarySet.Contains(
+                "ReadByte",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -535,6 +731,7 @@ internal static class Synthetic
 internal sealed class ArrayPoolLeakFixtures
 {
     static byte[]? s_field;
+    static readonly string s_tag = "wire";
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static void CorrectRentReturn()
@@ -678,6 +875,115 @@ internal sealed class ArrayPoolLeakFixtures
         throw new InvalidOperationException(buffer.Length.ToString());
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadBeforeReturn(Stream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(buffer, 0, 16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalDecodeThroughSpan(byte[] source)
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = System.Text.Encoding.UTF8
+            .GetDecoder()
+            .GetChars(
+                source.AsSpan(),
+                chars.AsSpan(),
+                flush: true);
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalDecodeThroughSpanLocal(byte[] source)
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> destination = chars.AsSpan();
+        int written = System.Text.Encoding.UTF8
+            .GetDecoder()
+            .GetChars(
+                source.AsSpan(),
+                destination,
+                flush: true);
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanWithTag()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = ExternalInputReader.Parse(chars.AsSpan(), "wire");
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanWithConstructedTag()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = ExternalInputReader.Parse(
+            chars.AsSpan(),
+            new string('a', 5));
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanWithStaticTag()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = ExternalInputReader.Parse(chars.AsSpan(), s_tag);
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int SpanConsumedByConstructor()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        var consumer = new SpanConsumer(chars.AsSpan());
+        ArrayPool<char>.Shared.Return(chars);
+        return consumer.Length;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int UnrelatedTextReaderReadBeforeReturn(TextReader reader)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = reader.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int FrameworkTextReaderReadBeforeReturn(System.IO.TextReader reader)
+    {
+        var buffer = ArrayPool<char>.Shared.Rent(16);
+        int read = reader.Read(buffer, 0, 16);
+        ArrayPool<char>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int TrustedTransformWithUnrelatedReadAfterReturn(Stream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int written = System.Text.Encoding.UTF8.GetBytes(
+            "value",
+            0,
+            5,
+            buffer,
+            0);
+        ArrayPool<byte>.Shared.Return(buffer);
+        _ = stream.ReadByte();
+        return written;
+    }
+
     // A cross-method throwing boundary returned on both the normal path and a catch-ALL cleanup
     // (`catch {}`) - correct code with no try/finally. The exception path is protected, so it must
     // NOT produce an exception-path-leak-candidate once catch-all cleanup is modeled (mirrors
@@ -696,6 +1002,29 @@ internal sealed class ArrayPoolLeakFixtures
             ArrayPool<byte>.Shared.Return(buffer);
             throw;
         }
+    }
+
+    internal sealed class TextReader
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(byte[] buffer) => buffer.Length;
+    }
+
+    internal static class ExternalInputReader
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Parse(Span<char> destination, string tag)
+            => destination.Length + tag.Length;
+    }
+
+    internal sealed class SpanConsumer
+    {
+        public SpanConsumer(Span<char> value)
+        {
+            Length = value.Length;
+        }
+
+        public int Length { get; }
     }
 
     // Same shape with `catch (Exception)`, which also runs for every managed exception type.

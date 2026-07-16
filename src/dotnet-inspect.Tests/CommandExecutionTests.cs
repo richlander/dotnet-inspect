@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -27,6 +28,31 @@ public class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
+
+    private static class ResourceTriageFixture
+    {
+        public static int ReadBeforeReturn(Stream stream)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(16);
+            int read = stream.Read(buffer, 0, 16);
+            ArrayPool<byte>.Shared.Return(buffer);
+            return read;
+        }
+
+        public static int TransformWithUnrelatedReadAfterReturn(Stream stream)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(16);
+            int written = System.Text.Encoding.UTF8.GetBytes(
+                "value",
+                0,
+                5,
+                buffer,
+                0);
+            ArrayPool<byte>.Shared.Return(buffer);
+            _ = stream.ReadByte();
+            return written;
+        }
+    }
 
     private static void WriteFidelityFailureAssembly(string path)
     {
@@ -516,6 +542,81 @@ public class CommandExecutionTests
         Assert.Contains("\"caller_loop\":\"direct\"", output);
         Assert.Contains("\"caller_loop_depth\":\"1\"", output);
         Assert.Contains("\"direct_sites\":\"1\"", output);
+    }
+
+    [Fact]
+    public async Task ResourceTriage_IsExplicitAndUsesExactBoundaryEvidence()
+    {
+        var defaultResult = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-v:m",
+            "--tips",
+            "q");
+        var markdown = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.ResourceTriage,
+            "--tips",
+            "q");
+        var jsonl = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.ResourceTriage,
+            "--jsonl",
+            "--tips",
+            "q");
+        var tsv = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.ResourceTriage,
+            "--tsv",
+            "--tips",
+            "q");
+        var empty = await RunAppAsync(
+            "library",
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            "-S",
+            SectionNames.ResourceTriage,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, defaultResult.Exit);
+        Assert.DoesNotContain(SectionNames.ResourceTriage, defaultResult.Output);
+
+        Assert.Equal(0, markdown.Exit);
+        Assert.Empty(markdown.Error);
+        Assert.Contains("## Resource Triage", markdown.Output);
+        Assert.Contains("ReadBeforeReturn", markdown.Output);
+        Assert.DoesNotContain(
+            nameof(ResourceTriageFixture.TransformWithUnrelatedReadAfterReturn),
+            markdown.Output);
+        Assert.Contains("analysis.resource-lifecycle", markdown.Output);
+        Assert.Contains("pool-churn-on-exception", markdown.Output);
+        Assert.Contains("System.IO.Stream::Read", markdown.Output);
+
+        Assert.Equal(0, jsonl.Exit);
+        Assert.Empty(jsonl.Error);
+        Assert.Contains("\"finding\":\"analysis.resource-lifecycle\"", jsonl.Output);
+        Assert.Contains("\"provenance\":\"exact\"", jsonl.Output);
+        Assert.Contains("\"actionability\":\"untrusted-input boundary\"", jsonl.Output);
+        Assert.Contains("\"acquire_il\":\"IL_", jsonl.Output);
+        Assert.Contains("\"boundary_il\":\"IL_", jsonl.Output);
+
+        Assert.Equal(0, tsv.Exit);
+        Assert.Empty(tsv.Error);
+        Assert.StartsWith(
+            "member\tcandidate\tfinding\tprovenance\tresource\tshape\timpact\tactionability\tboundary\tacquire_il\tboundary_il",
+            tsv.Output);
+
+        Assert.Equal(0, empty.Exit);
+        Assert.Empty(empty.Error);
+        Assert.Contains(
+            "No actionable resource lifecycle candidates found.",
+            empty.Output);
     }
 
     [Fact]
@@ -5715,6 +5816,7 @@ public class CommandExecutionTests
                 "OpenTelemetry",
                 "Options",
                 "Performance Triage",
+                "Resource Triage",
                 "Resources",
                 "Return Address Context",
                 "Safety Context",
@@ -5755,6 +5857,28 @@ public class CommandExecutionTests
         Assert.Contains("| Once Paths | column |", output);
         Assert.Contains("| OncePaths | sortable |", output);
         Assert.Contains("| IL | column |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverResourceTriage_ListsRenderableColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-D",
+            SectionNames.ResourceTriage,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not found", error);
+        Assert.Contains("| Member | column |", output);
+        Assert.Contains("| Candidate | column |", output);
+        Assert.Contains("| Finding | column |", output);
+        Assert.Contains("| Actionability | column |", output);
+        Assert.Contains("| Boundary | column |", output);
+        Assert.Contains("| Acquire IL | column |", output);
+        Assert.Contains("| Boundary IL | column |", output);
     }
 
     [Fact]

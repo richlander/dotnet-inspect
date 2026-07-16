@@ -59,15 +59,14 @@ const string Usage =
           per line in <file>) and report where it fires: total findings, the shape histogram, and
           example methods per assembly, as a Markout card. Default is Markdown; --tsv and --jsonl
           select the tabular formats (--json is an alias for --jsonl). This is the evidence engine
-          for #1992 - the analyzer is precision-first, so an empty card means recall (not a
-          user-facing section) is the next lever. --top bounds examples per assembly.
+          for correctness-oriented #1992 work - the analyzer is precision-first, so an empty
+          findings card means recall is the next lever. --top bounds examples per assembly.
 
       --leak-actionability <file> [--top N] [--tsv | --jsonl]
-          Classify the leak-triage `exception-path-leak-candidate` bucket by actionability
-          (#2439), measurement-only: for each candidate, resolve the boundary members the rented
-          array flows into and bucket the candidate as untrusted-actionable (a boundary reads/
-          decodes/parses external input), trusted-low-actionability (only in-memory transforms -
-          the deliberate no-finally BCL idiom), or unknown. Changes no analyzer behavior. Formats
+          Report Analysis-owned `analysis.resource-lifecycle` findings by actionability (#2439):
+          untrusted-actionable (an exact boundary reads/decodes/parses external input),
+          trusted-low-actionability (only in-memory transforms), or unknown. The harness owns
+          corpus orchestration and reporting, not boundary attribution or classification. Formats
           match --leak-triage; --top bounds examples per class.
 
       --memorypool-lifecycle <file> [--top N] [--tsv | --jsonl]

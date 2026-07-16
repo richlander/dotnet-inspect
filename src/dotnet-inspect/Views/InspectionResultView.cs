@@ -448,6 +448,7 @@ public record PackageSourceFileRow(
 [MarkoutContext(typeof(ClassifiedMethodRow))]
 [MarkoutContext(typeof(PInvokeMethodRow))]
 [MarkoutContext(typeof(ResourceRow))]
+[MarkoutContext(typeof(ResourceTriageRow))]
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]
