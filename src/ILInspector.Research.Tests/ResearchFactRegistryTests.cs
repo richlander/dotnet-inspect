@@ -1,6 +1,7 @@
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
@@ -41,6 +42,40 @@ public class ResearchFactRegistryTests
             Assert.StartsWith("this(", result.ConstructorChain);
             Assert.DoesNotContain(": this(", result.Output);
         });
+    }
+
+    [Fact]
+    public void MemberProjection_TokenAddressingMatchesNameAddressing()
+    {
+        string path = typeof(ResearchConstructorFixture).Assembly.Location;
+        using var metadata = AssemblyInspectionSession.Open(path);
+        var selection = metadata.MethodBodies.ResolveMethod(
+            typeof(ResearchConstructorFixture).FullName!,
+            ".ctor",
+            overloadIndex: 0,
+            publicOnly: false);
+        Assert.NotNull(selection);
+
+        using var source = MetadataSource.Open(path);
+        var byName = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchConstructorFixture).FullName!,
+            ".ctor",
+            AnnotatedSource: true));
+        var byToken = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchConstructorFixture).FullName!,
+            ".ctor",
+            AnnotatedSource: true,
+            MethodToken: selection.MetadataToken));
+
+        Assert.Equal(byName.AnnotatedSource?.Output, byToken.AnnotatedSource?.Output);
+        Assert.Equal(
+            byName.AnnotatedSource?.ConstructorChain,
+            byToken.AnnotatedSource?.ConstructorChain);
+        Assert.Equal(
+            byName.AnnotatedSource?.Diagnostics,
+            byToken.AnnotatedSource?.Diagnostics);
     }
 
     [Fact]

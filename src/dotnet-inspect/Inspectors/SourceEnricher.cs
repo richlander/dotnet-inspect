@@ -289,11 +289,7 @@ internal static class SourceEnricher
             return;
         }
 
-        var resolver = context.GetResolver();
-        var pdbReader = context.GetPdbReader();
-        var metadataReader = context.GetMetadataReader();
-
-        if (resolver == null || pdbReader == null || metadataReader == null)
+        if (!service.HasSourceLink)
         {
             logger.Log("No SourceLink information found in PDB.");
             return;
@@ -305,7 +301,7 @@ internal static class SourceEnricher
         foreach (var apiType in types)
         {
             var typeName = apiType.FullName;
-            var sourceInfo = resolver.ResolveTypeSource(metadataReader, pdbReader, typeName);
+            var sourceInfo = service.ResolveTypeSource(typeName);
             typeSourceInfo.Add((apiType, typeName, sourceInfo));
 
             if (sourceInfo?.SourceUrl != null)

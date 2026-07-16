@@ -1461,8 +1461,8 @@ public class LibraryCommand
 
         try
         {
-            using var stream = File.OpenRead(assemblyPath);
-            var extracted = ResourceScanner.ExtractAll(stream, options.ExtractResources);
+            using var session = AssemblyInspectionSession.Open(assemblyPath);
+            var extracted = session.ExtractResources(options.ExtractResources);
             if (extracted.Count == 0)
             {
                 Console.Error.WriteLine("No embedded resources found.");

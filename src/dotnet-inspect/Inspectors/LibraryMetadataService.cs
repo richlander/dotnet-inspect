@@ -2,10 +2,9 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Globalization;
 using System.Reflection;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -110,7 +109,9 @@ internal static class LibraryMetadataService
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
             HashSet<SwitchInfo> appContextSwitches = [];
-            AddAppContextSwitches(appContextSwitches, AppContextSwitchScanner.Scan(path));
+            AddAppContextSwitches(
+                appContextSwitches,
+                AppContextSwitchProjectionProducer.Produce(pdbContext.MethodBodies));
             inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
             inspection.HasSwitches = inspection.SwitchCount > 0;
 
@@ -1449,14 +1450,13 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            HashSet<SwitchInfo> switches = [.. SwitchScanner.Scan(peReader)];
-            if (peReader.HasMetadata)
+            using var session = AssemblyInspectionSession.Open(path);
+            HashSet<SwitchInfo> switches = [.. session.Switches()];
+            if (session.HasMetadata)
             {
                 AddAppContextSwitches(
                     switches,
-                    AppContextSwitchScanner.Scan(peReader, peReader.GetMetadataReader()));
+                    AppContextSwitchProjectionProducer.Produce(session.MethodBodies));
             }
 
             var orderedSwitches = switches
