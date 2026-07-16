@@ -832,7 +832,7 @@ public class PdbContext : IDisposable
 
     /// <summary>
     /// Cheap metadata-backed presence flags for section discovery, using the
-    /// already-open PEReader. The product composes IL-backed presence separately.
+    /// already-open PEReader. IL-backed presence is outside this scan.
     /// </summary>
     public PresenceFlags ScanPresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_peReader);

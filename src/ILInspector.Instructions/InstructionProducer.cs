@@ -23,7 +23,7 @@ public interface IOperandNameResolver
 /// </summary>
 public enum ILSyntax
 {
-    /// <summary>Human-readable C#-style names (the IL section's historical format).</summary>
+    /// <summary>Human-readable C#-style operand names.</summary>
     Display,
 
     /// <summary>
@@ -39,8 +39,7 @@ public enum ILSyntax
 /// formatted operand text. This is deliberately <b>not</b> a second decoded-instruction model —
 /// offset identity, opcode enum, operand kind/value, branch targets, and control-flow facts live
 /// solely on <see cref="DecodedInstruction"/> / <see cref="MethodInstructions"/>
-/// (<c>ILInspector.Instructions</c>). This record exists only so display/ilasm consumers can work
-/// with formatted text/fields without repeating metadata token/signature traversal themselves.
+/// (<c>ILInspector.Instructions</c>); this record carries only rendered text and its offset.
 /// </summary>
 public record ILInstructionText(int Offset, string OpCodeName, string? Operand = null)
 {
@@ -54,9 +53,9 @@ public record ILInstructionText(int Offset, string OpCodeName, string? Operand =
 }
 
 /// <summary>
-/// Renders decoded IL instructions (<see cref="MethodInstructions"/> — the sole decoded-body
-/// model, shared with <c>IlFindings</c>/<c>IlBodyDiff</c>) into human-readable or canonical ilasm
-/// text. Operand type classification uses a lookup table derived from ILSpy (MIT license).
+/// Renders the sole decoded-body model, <see cref="MethodInstructions"/>, into human-readable or
+/// canonical ilasm text. Operand type classification uses a lookup table derived from ILSpy
+/// (MIT license).
 /// </summary>
 public static class InstructionProducer
 {

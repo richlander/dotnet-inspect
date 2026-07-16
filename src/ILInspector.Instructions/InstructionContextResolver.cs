@@ -37,7 +37,7 @@ public record ILOffsetReturnAddressContextInfo(
 
 /// <summary>
 /// Resolves decoded IL facts at an exact offset. Metadata token spelling is
-/// supplied by the composition layer through <see cref="IOperandNameResolver"/>.
+/// supplied through <see cref="IOperandNameResolver"/>.
 /// </summary>
 public static class InstructionContextResolver
 {
