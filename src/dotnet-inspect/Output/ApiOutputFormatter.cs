@@ -378,7 +378,7 @@ public static class ApiOutputFormatter
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
-                    ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                    ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
                     : tp.DisplayName);
             typeParamsInline = string.Join(", ", paramDescriptions);
         }
@@ -398,7 +398,7 @@ public static class ApiOutputFormatter
         if (!memberFilterActive && type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
-                .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = tp.ConstraintsSummary ?? "" })
+                .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = ConstraintSummary(type.TypeParameters, tp) })
                 .ToList();
         }
 
@@ -609,7 +609,7 @@ public static class ApiOutputFormatter
             {
                 var typeParamDescriptions = type.TypeParameters
                     .Select(tp => tp.Constraints.Count > 0
-                        ? $"{tp.DisplayName} : {tp.ConstraintsSummary}"
+                        ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
                         : tp.DisplayName)
                     .ToList();
                 var insertAt = nodes.FindIndex(n => n.Text != "Inherits" && n.Text != "Implements");
@@ -635,6 +635,14 @@ public static class ApiOutputFormatter
             Members = nodes
         };
     }
+
+    // Renders a type parameter's constraint list for display, delegating C# spelling
+    // (reserved-keyword type-name escaping, keyword/type-name disambiguation via the
+    // metadata-carried constraint kind) to the CSharp layer rather than joining the
+    // raw metadata names. Falls back to a token heuristic when structured kinds are
+    // unavailable (see CSharpDeclarationWriter.FormatConstraintList).
+    private static string ConstraintSummary(IReadOnlyList<TypeParameter> typeParameters, TypeParameter typeParameter)
+        => CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name));
 
     private static List<string> BuildTypeModifiers(ApiType type)
     {

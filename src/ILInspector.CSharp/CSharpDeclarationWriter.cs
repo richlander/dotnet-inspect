@@ -531,18 +531,33 @@ internal static class CSharpDeclarationWriter
             if (typeParameter.Constraints.Count == 0)
                 continue;
 
-            var constraints = string.Join(", ", typeParameter.Constraints.Select(SpellConstraint));
-            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {EscapeKnownIdentifiers(constraints, typeParameters.Select(p => p.Name))}";
+            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
         }
 
         return declaration;
     }
 
-    // A constraint entry is either a special-constraint keyword (class, struct,
-    // new(), …), which is emitted verbatim, or a type name whose identifier
-    // segments must be C#-escaped when they collide with reserved keywords
-    // (e.g. a type literally named "class" renders as "@class"). Constraint
-    // producers carry raw metadata names, so keyword escaping is the printer's job.
+    /// <summary>
+    /// Renders the constraint list that follows <c>where X : </c> for one type
+    /// parameter, escaping reserved-keyword identifiers inside constraint type names
+    /// while emitting special-constraint keywords verbatim. Uses
+    /// <see cref="TypeParameter.StructuredConstraints"/> for the keyword/type-name
+    /// distinction when available; otherwise falls back to a token heuristic that
+    /// cannot disambiguate a type literally named like a constraint keyword.
+    /// </summary>
+    internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
+    {
+        var parts = typeParameter.StructuredConstraints is { } structured
+            ? structured.Select(entry => entry.IsTypeName ? EscapeReservedKeywordIdentifiers(entry.Value) : entry.Value)
+            : typeParameter.Constraints.Select(SpellConstraint);
+        return EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames);
+    }
+
+    // Fallback used only when structured constraint kinds are unavailable: a
+    // constraint entry equal to a special-constraint keyword is emitted verbatim,
+    // otherwise it is treated as a type name subject to reserved-keyword escaping.
+    // This cannot disambiguate a type literally named like a keyword (e.g. a global
+    // type named "class"); producers that populate StructuredConstraints avoid it.
     static string SpellConstraint(string constraint)
         => s_specialConstraintKeywords.Contains(constraint)
             ? constraint

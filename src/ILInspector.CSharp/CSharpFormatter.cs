@@ -149,12 +149,12 @@ public sealed class CSharpFormatter
             $"{attributes}{CSharpDeclarationWriter.TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type, includeVariance: true)}{parameters}";
         foreach (var typeParameter in type.TypeParameters)
         {
-            if (typeParameter.ConstraintsSummary is { } constraints)
+            if (typeParameter.Constraints.Count > 0)
             {
                 declaration +=
                     $" where {EscapeIdentifier(typeParameter.Name)} : "
-                    + EscapeKnownIdentifiers(
-                        constraints,
+                    + CSharpDeclarationWriter.FormatConstraintList(
+                        typeParameter,
                         type.TypeParameters.Select(parameter => parameter.Name));
             }
         }
@@ -235,6 +235,15 @@ public sealed class CSharpFormatter
 
     public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
         => CSharpDeclarationWriter.EscapeKnownIdentifiers(text, rawNames);
+
+    /// <summary>
+    /// Renders the constraint list that follows <c>where X : </c> for one type
+    /// parameter, escaping reserved-keyword type names and using the metadata-carried
+    /// constraint kind (<see cref="TypeParameter.StructuredConstraints"/>) to tell a
+    /// keyword constraint apart from a type literally named like one.
+    /// </summary>
+    public static string FormatTypeParameterConstraints(TypeParameter typeParameter, IEnumerable<string> parameterNames)
+        => CSharpDeclarationWriter.FormatConstraintList(typeParameter, parameterNames);
 
     public static string FormatParameter(ApiParameter parameter)
     {

@@ -158,6 +158,19 @@ public class TypeParameter
     public List<string> Constraints { get; set; } = [];
 
     /// <summary>
+    /// Structured view of <see cref="Constraints"/> (same entries and order) that
+    /// records, per entry, whether it is an attribute-derived special-constraint
+    /// keyword (<c>class</c>, <c>struct</c>, <c>new()</c>, …) or a constraint type
+    /// name. This distinction is a metadata fact the C# printer needs so it can
+    /// escape reserved-keyword type names (a type literally named <c>class</c>
+    /// renders as <c>@class</c>) without misreading them as keyword constraints.
+    /// Populated by metadata producers; <see langword="null"/> when unavailable, in
+    /// which case printers fall back to a token heuristic. Not serialized.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
+
+    /// <summary>
     /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
     /// </summary>
     public string DisplayName => Variance != null ? $"{Variance} {Name}" : Name;
@@ -169,6 +182,16 @@ public class TypeParameter
         ? string.Join(", ", Constraints)
         : null;
 }
+
+/// <summary>
+/// One generic-parameter constraint paired with the metadata fact of whether it is
+/// an attribute-derived special-constraint keyword (<see cref="IsTypeName"/> is
+/// <see langword="false"/> — e.g. <c>class</c>, <c>struct</c>, <c>new()</c>) or a
+/// constraint type name (<see cref="IsTypeName"/> is <see langword="true"/>). The
+/// C# printer uses this to escape reserved-keyword type names while leaving keyword
+/// constraints untouched.
+/// </summary>
+public readonly record struct TypeParameterConstraint(string Value, bool IsTypeName);
 
 public class ApiSignature
 {

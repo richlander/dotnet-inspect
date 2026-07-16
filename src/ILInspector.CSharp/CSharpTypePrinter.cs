@@ -502,7 +502,8 @@ public sealed class CSharpTypePrinter
         {
             Name = parameter.Name,
             Variance = parameter.Variance,
-            Constraints = constraints?.ToList()!
+            Constraints = constraints?.ToList()!,
+            StructuredConstraints = parameter.StructuredConstraints
         };
     }
 

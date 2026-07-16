@@ -702,10 +702,14 @@ public static class MetadataDeclarationQuery
         {
             var parameter = reader.GetGenericParameter(handle);
             var constraints = new List<string>();
+            var structured = new List<TypeParameterConstraint>();
             var attributes = parameter.Attributes;
             var isStruct = (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
             if (GenericConstraintKeywords.PrimaryKeyword(attributes, nullableFlag: 0, isUnmanaged: false) is { } primaryKeyword)
+            {
                 constraints.Add(primaryKeyword);
+                structured.Add(new TypeParameterConstraint(primaryKeyword, IsTypeName: false));
+            }
 
             foreach (var constraintHandle in parameter.GetConstraints())
             {
@@ -715,16 +719,21 @@ public static class MetadataDeclarationQuery
                     if (isStruct && constraintName is "System.ValueType" or "ValueType")
                         continue;
                     constraints.Add(constraintName);
+                    structured.Add(new TypeParameterConstraint(constraintName, IsTypeName: true));
                 }
             }
 
             if (GenericConstraintKeywords.NewConstraintKeyword(attributes) is { } newConstraint)
+            {
                 constraints.Add(newConstraint);
+                structured.Add(new TypeParameterConstraint(newConstraint, IsTypeName: false));
+            }
 
             parameters.Add(new TypeParameter
             {
                 Name = reader.GetString(parameter.Name),
                 Constraints = constraints,
+                StructuredConstraints = structured,
                 Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
             });
         }
