@@ -2,6 +2,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -482,7 +483,7 @@ public class LibraryCommand
                 Urls = false,
                 Paths = false
             };
-            var resolved = await ILOffsetSourceQuery.ResolveBatchAsync(
+            var resolved = await ILOffsetQuery.ResolveBatchAsync(
                 service,
                 packageName,
                 packageVersion,
@@ -524,7 +525,7 @@ public class LibraryCommand
             if (line.Length == 0 || line.StartsWith('#'))
                 continue;
             var tokens = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            var coordinateIndex = Array.FindIndex(tokens, token => ILOffsetSourceQuery.TryParse(token, out _, out _));
+            var coordinateIndex = Array.FindIndex(tokens, token => ILOffsetQuery.TryParse(token, out _, out _));
             if (coordinateIndex < 0)
             {
                 readErrors.Add(new ILCoordinateReadError($"{path}:{lineNumber}", "expected a MethodDef token + IL offset coordinate"));
@@ -548,7 +549,7 @@ public class LibraryCommand
         return true;
     }
 
-    private static ILCoordinateBatchRow BuildILCoordinateBatchRow(ILCoordinateInput input, ILOffsetResult result)
+    private static ILCoordinateBatchRow BuildILCoordinateBatchRow(ILCoordinateInput input, ILOffsetProjection result)
     {
         var (meaning, evidence) = ExplainILCoordinate(result);
         return new ILCoordinateBatchRow(
@@ -560,7 +561,7 @@ public class LibraryCommand
             evidence);
     }
 
-    private static (string Meaning, string Evidence) ExplainILCoordinate(ILOffsetResult result)
+    private static (string Meaning, string Evidence) ExplainILCoordinate(ILOffsetProjection result)
     {
         if (result.ReturnAddressContext is { } returnAddress)
             return ("return address", $"call at {returnAddress.CallOffset} to {returnAddress.Callee}");
@@ -588,7 +589,7 @@ public class LibraryCommand
         return ("member", result.MemberContext?.Signature ?? result.Method ?? "");
     }
 
-    private static string? FormatBatchOffset(ILOffsetResult result)
+    private static string? FormatBatchOffset(ILOffsetProjection result)
         => result.InstructionContext?.ILOffset is { } offset
             ? FormatHexOffset(offset)
             : result.MemberContext?.ILOffset is { } memberOffset
@@ -727,7 +728,7 @@ public class LibraryCommand
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
-        var resolved = await ILOffsetSourceQuery.ResolveAsync(
+        var resolved = await ILOffsetQuery.ResolveAsync(
             assemblyPath, packageName, packageVersion, isPlatformAssembly, options, httpClient, logger);
         if (resolved.ExitCode != 0)
             return resolved.ExitCode;
@@ -862,10 +863,10 @@ public class LibraryCommand
         ]);
     }
 
-    internal static Task<(string? Content, string? Error)> ReadILOffsetSourceLineForTestsAsync(ILOffsetResult result)
+    internal static Task<(string? Content, string? Error)> ReadILOffsetSourceLineForTestsAsync(ILOffsetProjection result)
         => ReadILOffsetSourceLineAsync(result);
 
-    private static async Task<(string? Content, string? Error)> ReadILOffsetSourceLineAsync(ILOffsetResult result)
+    private static async Task<(string? Content, string? Error)> ReadILOffsetSourceLineAsync(ILOffsetProjection result)
     {
         if (result.Line is not { } line || line < 1)
         {
@@ -962,7 +963,7 @@ public class LibraryCommand
             : [new ShapeProjectionRow(1, section, value, Label: result.Method, Url: result.Url, Path: result.File)];
     }
 
-    private static string? SelectLibraryILOffsetValue(ILOffsetResult result, LibraryOptions options)
+    private static string? SelectLibraryILOffsetValue(ILOffsetProjection result, LibraryOptions options)
     {
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         return field?.ToLowerInvariant() switch

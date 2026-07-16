@@ -32,7 +32,7 @@ public class ILAssemblerRoundtripTests
         var reader = peReader.GetMetadataReader();
 
         var method = IlasmScaffold.FindMethod(reader, nameof(RoundtripFixtures), methodName);
-        var original = ILInstructionPrinter.Disassemble(peReader, reader, method);
+        var original = MetadataInstructionProducer.Disassemble(peReader, reader, method);
         Assert.NotNull(original);
 
         string il = IlasmScaffold.BuildCompilationUnit(peReader, reader, method);
@@ -424,7 +424,7 @@ public class ILAssemblerRoundtripTests
         var sourceImage = source.Image!;
         var reader = sourceImage.GetMetadataReader();
         var method = IlasmScaffold.FindMethod(reader, typeName, methodName);
-        var original = ILInstructionPrinter.Disassemble(sourceImage, reader, method);
+        var original = MetadataInstructionProducer.Disassemble(sourceImage, reader, method);
         Assert.NotNull(original);
         Assert.Equal(expectedOps, original.Select(i => i.OpCodeName).ToList());
 

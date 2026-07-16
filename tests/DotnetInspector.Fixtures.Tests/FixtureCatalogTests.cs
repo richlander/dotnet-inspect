@@ -140,29 +140,26 @@ public class FixtureCatalogTests
             Assert.NotEmpty(fixture.Boundaries));
     }
 
-    [Theory]
-    [InlineData(FixtureIds.DiffV1, FixtureBoundary.VersionPair)]
-    [InlineData(FixtureIds.DiffV2, FixtureBoundary.VersionPair)]
-    [InlineData(FixtureIds.DiffAsmCaller, FixtureBoundary.AssemblyIdentity)]
-    [InlineData(FixtureIds.AnalysisCallerGraphCaller, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.AnalysisCallerGraphCallerTwin, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.AnalysisCallerGraphLookalikeCaller, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.AnalysisCallerGraphTarget, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.AnalysisCrossAsmCollision, FixtureBoundary.ExternAlias)]
-    [InlineData(FixtureIds.AnalysisFacade, FixtureBoundary.TargetFramework)]
-    [InlineData(FixtureIds.AnalysisLookalike, FixtureBoundary.AssemblyIdentity)]
-    [InlineData(FixtureIds.AnalysisRender, FixtureBoundary.FrameworkReference)]
-    [InlineData(FixtureIds.DecompilerCheckedArithmetic, FixtureBoundary.CompilerLowering)]
-    [InlineData(FixtureIds.DecompilerClassicAsync, FixtureBoundary.CompilerLowering)]
-    [InlineData(FixtureIds.DecompilerUnsafeLegacy, FixtureBoundary.ModuleAttribute)]
-    [InlineData(FixtureIds.DecompilerUnsafeNew, FixtureBoundary.ModuleAttribute)]
-    [InlineData(FixtureIds.DecompilerUnsafeChainA, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.DecompilerUnsafeChainB, FixtureBoundary.CrossAssemblyBoundary)]
-    [InlineData(FixtureIds.DecompilerUnsafeChainC, FixtureBoundary.OutputKind)]
-    [InlineData(FixtureIds.RunFasterAllocation, FixtureBoundary.SidecarAsset)]
-    public void BoundaryMetadata_DocumentsSemanticAxes(string fixtureId, FixtureBoundary boundary)
+    [Fact]
+    public void BoundaryMetadata_EverySemanticAxisHasFixtureCoverage()
     {
-        AssertBoundary(FixtureCatalog.Get(fixtureId), boundary);
+        // Corpus-design invariant: every FixtureBoundary axis is exercised by at
+        // least one registered fixture. This iterates the advertised inventory and
+        // each fixture's own declared boundaries (docs/fixture-governance.md,
+        // "Expectation ownership") rather than pinning per-fixture id -> boundary
+        // literals, so adding a fixture never forces a matching test edit; only
+        // introducing a brand-new axis with no covering fixture fails here.
+        var covered = FixtureCatalog.All
+            .SelectMany(fixture => fixture.Boundaries)
+            .ToHashSet();
+
+        var uncovered = Enum.GetValues<FixtureBoundary>()
+            .Where(boundary => !covered.Contains(boundary))
+            .ToArray();
+
+        Assert.True(
+            uncovered.Length == 0,
+            $"No fixture declares these boundary axes: {string.Join(", ", uncovered)}");
     }
 
     [Fact]

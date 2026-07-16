@@ -70,9 +70,10 @@ where each `CalculateDepth` step re-scans all spans) — the O(N·D·N) waterfal
 
 ### 2. Leak-after-exception — highest-precision lane
 
-Pooled-buffer churn on the exception path (see catalog issue #2572 and #2439). Analysis classifies
-exact def-use-attributed `ArrayPool` boundaries by whether they consume external input;
-`Resource Triage` exposes the untrusted-actionable candidates.
+Pooled-buffer churn on the exception path (see catalog issue #2572 and #2439).
+`ResourceLifecycleAnalysis` records exact def-use-attributed `ArrayPool` boundaries, and
+`ResourceTriageAnalysis` assesses whether they consume external input; `Resource Triage` exposes
+the untrusted-actionable candidates.
 
 - Historical broadened-package sensor (44 asm): 12 exception-path candidates →
   **5 untrusted-actionable, all confirmed**

@@ -214,12 +214,14 @@ constructors, or merge branches.
 
 Resource lifecycle observations are a single-version Analysis producer under
 `analysis.resource-lifecycle`. Each occurrence retains one acquisition and its
-exact unprotected boundary set; boundary kinds and aggregate actionability are
-producer-owned API-shape facets. The explicit `Resource Triage` section keeps
-the complete `FindingInspection<ResourceLifecycleOccurrence>`, exposes only
-untrusted-actionable candidates, and adds impact/fix language downstream.
+exact unprotected boundary set without scenario policy.
+`ResourceTriageAnalysis` assesses those observations into typed boundary kinds,
+aggregate actionability, reason, impact, remediation, confidence, and
+version-local candidate identity. The explicit `Resource Triage` section keeps
+the complete `FindingInspection<ResourceLifecycleOccurrence>`, selects
+untrusted-actionable assessments, and maps their typed judgments to prose.
 `Complete([])` and `Failed` remain distinct, and the corpus harness consumes the
-same inspection rather than resolving tokens or classifying boundaries itself.
+same assessments rather than resolving tokens or classifying boundaries itself.
 
 The same three Analysis censuses now compose with the N-address correlation
 tier. `timeline --member M --finding analysis.*` uses Metadata only to resolve

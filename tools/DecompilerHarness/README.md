@@ -263,6 +263,31 @@ Because compile-back selects this population before RTS runs, `NotFullMethods`
 is structurally zero and failure buckets describe only the selected parity
 population; this mode measures parity, not independent RTS coverage.
 
+Regardless of the aggregate baseline, `rts-parity` snapshots carry a hard,
+per-row regression gate. A method the compile-back oracle recompiled `Exact`
+must not recompile-fail (`RecompileFail` or `ContextFail`) under RTS — that
+transition means the ReturnToSender orchestrator dropped fidelity the product
+already proved. The current gaps are committed as a small, tool-emitted burn-down
+manifest (`tools/DecompilerHarness/corpus/rts-parity-burndown.json`); the gate
+fails only when a *new* `Exact`-to-recompile-failure row appears that is not
+already in the manifest, naming every offending `Assembly!Type::Method#Overload`.
+The known rows stay a visible, shrinking checklist that the RTS-orchestrator
+issues drain, rather than a silent tolerance. Regenerate the manifest
+mechanically (never hand-edit it) after a deliberate population change:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --compile-cap 0 \
+  --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-parity \
+  --emit-rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json
+```
+
+Pass `--rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json`
+on any `rts-parity` run to enforce the gate; a row present in the manifest but no
+longer failing is reported as `resolved` so the manifest can be trimmed on the
+next regeneration.
+
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode diffs include canonical opcode streams, while
 recompile and context failures include the method and diagnostic detail. Use

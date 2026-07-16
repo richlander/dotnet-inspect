@@ -2,9 +2,10 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
-using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
+using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 using Decompiler = ILInspector.Decompiler;
 
@@ -234,10 +235,11 @@ internal static class MemberCodeProvider
             {
                 try
                 {
+                    var operandResolver = new MetadataOperandNameResolver(reader);
                     var instructions = memberHandle is { } ilHandle
-                        ? ILInstructionPrinter.DisassembleMethod(peReader, reader, ilHandle)
-                        : ILInstructionPrinter.DisassembleMethod(
-                            peReader, reader, typeHandle, method.Name, lookupOverloadIndex, publicOnly);
+                        ? InstructionProducer.DisassembleMethod(peReader, reader, ilHandle, operandResolver)
+                        : InstructionProducer.DisassembleMethod(
+                            peReader, reader, typeHandle, method.Name, lookupOverloadIndex, operandResolver, publicOnly);
                     if (instructions is { Count: > 0 })
                     {
                         // Adopt the offset-anchored SourceLine currency: raw disassembly is

@@ -79,7 +79,7 @@ public sealed class ILSignatureTypeProvider : ISignatureTypeProvider<string, Gen
 }
 
 /// <summary>
-/// Resolves IL operand tokens to canonical ilasm syntax (see <see cref="ILSyntax.Canonical"/>).
+/// Resolves IL operand tokens to canonical ilasm syntax.
 /// Counterpart of <see cref="ILTokenResolver"/>, which renders for human display.
 /// </summary>
 public static class CanonicalIL

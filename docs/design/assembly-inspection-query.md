@@ -273,8 +273,8 @@ share a model:
 
 - `MemberCodeProvider` — per-member decompiled source / IL / attributes / facts (drives the
   decompiler and Research overlays).
-- `ILOffsetSourceQuery` (the `library --il-offset` path) — resolves an IL coordinate to a
-  source location and builds allocation / safety / cost contexts inline from the PDB.
+- `ILOffsetQuery` (the `library --il-offset` command adapter) — parses command input and
+  forwards an `ILOffsetProjectionRequest` to Research.
 
 These want the same shape as the assembly seam, one level down: a query in, a finished result
 out, over the *same* shared PE-owner (so the body path does not re-open the image either).
@@ -286,12 +286,12 @@ out, over the *same* shared PE-owner (so the body path does not re-open the imag
        which body sections)                   source / IL / facts → final shape)
 ```
 
-`MethodBodyInspectionSession` (opened over the same shared PE-owner as the assembly session,
-composing `MetadataSource` for decompilation) is the target. The explicit goal is that
-`ILOffsetSourceQuery` **disappears** into this seam rather than becoming a third one-off, and
-`MemberCodeProvider` becomes a thin caller. This doc defines the assembly seam concretely; the
-method-body seam is its sibling and should follow the same query → session → final-shape
-pattern. Treat them as one program of work under #2122, not two.
+`ILOffsetProjectionProducer` is the first concrete body seam: top-level Research request/result
+contracts, one focused producer, and a thin `ResearchViews` forwarder. `ILOffsetQuery` remains
+only as the CLI adapter; it owns no PE, instruction, metadata-reader, or Analysis implementation.
+`MemberCodeProvider` should migrate to the same producer/facade pattern. This doc defines the
+assembly seam concretely; the method-body seam is its sibling and follows the same
+query → session → producer → final-shape pattern.
 
 That sibling seam is specified in full — facet ownership, layer boundaries, and its own
 migration — in [Method Body Inspection](method-body-inspection.md). One caveat it sharpens:
@@ -530,9 +530,9 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 5. **Proof of concept.** Thread one flow end-to-end first — the platform-assembly `library`
    path is the smallest (single assembly, no package fan-out) — and confirm the CLI loses its
    `System.Reflection.Metadata` / `PortableExecutable` usings for that path.
-6. **Method-body seam.** Apply the same query → session → final-shape pattern one level down:
-   a `MethodBodyInspectionSession` over the shared PE-owner, folding `ILOffsetSourceQuery` and
-   `MemberCodeProvider` into `MemberQuery` / `ILCoordinateQuery` (see
+6. **Method-body seam.** Apply the same query → session → producer → final-shape pattern one
+   level down. `ILOffsetProjectionProducer` establishes it for coordinates; migrate
+   `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
 ## Open questions

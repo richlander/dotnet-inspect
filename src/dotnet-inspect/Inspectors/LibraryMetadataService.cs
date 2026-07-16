@@ -2,6 +2,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Globalization;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -108,8 +109,10 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            inspection.HasSwitches = presenceFlags.HasSwitches;
-            inspection.SwitchCount = presenceFlags.SwitchCount;
+            HashSet<SwitchInfo> appContextSwitches = [];
+            AddAppContextSwitches(appContextSwitches, AppContextSwitchScanner.Scan(path));
+            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
+            inspection.HasSwitches = inspection.SwitchCount > 0;
 
             // PE debug directory fields
             inspection.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
@@ -855,37 +858,40 @@ internal static class LibraryMetadataService
         VerboseLogger logger)
     {
         var drillByToken = BuildLibraryDrillMap(path, logger);
-        return Analysis.ResourceLifecycleAnalysis
-            .SelectCandidates(
-                inspection,
-                Analysis.ResourceActionability.UntrustedActionable)
-            .Select(candidate =>
+        return Analysis.ResourceTriageAnalysis
+            .Assess(inspection)
+            .Where(assessment =>
+                assessment.Actionability
+                    == Analysis.ResourceTriageActionability.UntrustedActionable)
+            .Select(assessment =>
             {
-                var occurrence = candidate.Source.Payload;
+                var occurrence = assessment.Source.Payload;
                 drillByToken.TryGetValue(
                     occurrence.Method.MetadataToken,
                     out var drill);
                 return new ResourceTriageSummary
                 {
                     Member = FormatMethod(occurrence.Method),
-                    Candidate = candidate.CandidateId,
-                    Finding = candidate.Source.Descriptor.Id,
+                    Candidate = assessment.CandidateId,
+                    Finding = assessment.Source.Descriptor.Id,
                     Provenance = "exact",
                     Resource = occurrence.Resource,
                     Shape = occurrence.Shape,
-                    Impact = "pool churn if boundary throws",
-                    Actionability = "untrusted-input boundary",
+                    Impact = FormatResourceTriageImpact(assessment.Impact),
+                    Actionability = FormatResourceTriageActionability(
+                        assessment.Actionability),
                     AcquireOffset = occurrence.AcquireOffset,
-                    Boundaries = occurrence.Boundaries
+                    Boundaries = assessment.Boundaries
                         .Select(boundary => new ResourceBoundarySummary(
-                            boundary.Operation.ToQualifiedDisplayString(),
-                            boundary.ILOffset))
+                            boundary.Evidence.Operation.ToQualifiedDisplayString(),
+                            boundary.Evidence.ILOffset))
                         .Distinct()
                         .ToList(),
-                    Evidence =
-                        "An exact external-input boundary is reached before modeled cleanup; an exception can bypass Return.",
-                    Direction = "Return the pooled array from finally or catch-all cleanup.",
-                    Confidence = "medium",
+                    Evidence = FormatResourceTriageReason(assessment.Reason),
+                    Direction = FormatResourceTriageRemediation(
+                        assessment.Remediation),
+                    Confidence = FormatResourceTriageConfidence(
+                        assessment.Confidence),
                     Visibility = drill.Visibility,
                     Stable = drill.Stable,
                     Selector = drill.Selector,
@@ -902,6 +908,50 @@ internal static class LibraryMetadataService
                     : -1)
             .ToList();
     }
+
+    static string FormatResourceTriageImpact(
+        Analysis.ResourceTriageImpact impact)
+        => impact switch
+        {
+            Analysis.ResourceTriageImpact.PoolChurnOnException =>
+                "pool churn if boundary throws",
+            _ => throw new ArgumentOutOfRangeException(nameof(impact)),
+        };
+
+    static string FormatResourceTriageActionability(
+        Analysis.ResourceTriageActionability actionability)
+        => actionability switch
+        {
+            Analysis.ResourceTriageActionability.UntrustedActionable =>
+                "untrusted-input boundary",
+            _ => throw new ArgumentOutOfRangeException(nameof(actionability)),
+        };
+
+    static string FormatResourceTriageReason(
+        Analysis.ResourceTriageReason reason)
+        => reason switch
+        {
+            Analysis.ResourceTriageReason.ExternalInputBoundaryBeforeCleanup =>
+                "An exact external-input boundary is reached before modeled cleanup; an exception can bypass Return.",
+            _ => throw new ArgumentOutOfRangeException(nameof(reason)),
+        };
+
+    static string FormatResourceTriageRemediation(
+        Analysis.ResourceTriageRemediation remediation)
+        => remediation switch
+        {
+            Analysis.ResourceTriageRemediation.EnsureExceptionalCleanup =>
+                "Return the pooled array from finally or catch-all cleanup.",
+            _ => throw new ArgumentOutOfRangeException(nameof(remediation)),
+        };
+
+    static string FormatResourceTriageConfidence(
+        Analysis.ResourceTriageConfidence confidence)
+        => confidence switch
+        {
+            Analysis.ResourceTriageConfidence.Medium => "medium",
+            _ => throw new ArgumentOutOfRangeException(nameof(confidence)),
+        };
 
     // Performance Triage ordering: surface pay-dirt first. In-loop (repeated, hot)
     // allocations lead, then by confidence, then by call-graph leverage (root reach),
@@ -1446,8 +1496,24 @@ internal static class LibraryMetadataService
     {
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanSwitches(session, path, logger);
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            HashSet<SwitchInfo> switches = [.. SwitchScanner.Scan(peReader)];
+            if (peReader.HasMetadata)
+            {
+                AddAppContextSwitches(
+                    switches,
+                    AppContextSwitchScanner.Scan(peReader, peReader.GetMetadataReader()));
+            }
+
+            var orderedSwitches = switches
+                .OrderBy(s => s.Kind, StringComparer.Ordinal)
+                .ThenBy(s => s.Switch, StringComparer.Ordinal)
+                .ThenBy(s => s.Api, StringComparer.Ordinal)
+                .ToList();
+            return MetadataFindings.InspectSwitches(
+                orderedSwitches,
+                FindingSubjectFor(path));
         }
         catch (Exception ex)
         {
@@ -1457,22 +1523,20 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<SwitchInfo> ScanSwitches(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
+    static void AddAppContextSwitches(
+        HashSet<SwitchInfo> switches,
+        IEnumerable<AppContextSwitchOccurrence> occurrences)
     {
-        try
+        foreach (var occurrence in occurrences)
         {
-            return MetadataFindings.InspectSwitches(
-                session.Switches(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
-            return FailedInspection<SwitchInfo>(
-                path, MetadataFindings.SwitchDescriptor, ex);
+            if (occurrence.Switch.StartsWith("System.Resources.UseSystemResourceKeys", StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith("TestSwitch.", StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith("Switch.", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            switches.Add(new SwitchInfo("AppContext", occurrence.Switch, occurrence.Api));
         }
     }
 
