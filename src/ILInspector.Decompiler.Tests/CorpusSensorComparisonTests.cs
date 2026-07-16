@@ -853,10 +853,16 @@ public class CorpusSensorComparisonTests
 
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
-        Assert.Contains("No detected lowering residue (+)", report);
-        Assert.Contains("2 (100.00%) → 2 (100.00%) (neutral)", report);
         Assert.Contains("Fully raised (+)", report);
         Assert.Contains("1 (50.00%) → 2 (100.00%) (good)", report);
+        Assert.Contains("Detected lowering residue (-)", report);
+        Assert.Contains("0 (0.00%) → 0 (0.00%) (neutral)", report);
+        Assert.True(
+            report.IndexOf("| Fully raised", StringComparison.Ordinal)
+            > report.IndexOf("| Detected lowering residue", StringComparison.Ordinal));
+        Assert.True(
+            report.IndexOf("| Fully raised", StringComparison.Ordinal)
+            > report.IndexOf("| Pass bugs", StringComparison.Ordinal));
         Assert.Equal((2, 2), CorpusSensor.VerifiedFullyRaisedForTesting(current));
     }
 
@@ -895,11 +901,32 @@ public class CorpusSensorComparisonTests
 
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
         string residue = report.Split('\n').Single(
-            line => line.Contains("No detected lowering residue", StringComparison.Ordinal));
+            line => line.Contains("Detected lowering residue", StringComparison.Ordinal));
 
-        Assert.Contains("No detected lowering residue (population differs)", residue);
+        Assert.Contains("Detected lowering residue (population differs)", residue);
         Assert.DoesNotContain("(good)", residue);
         Assert.EndsWith("| n/a |", residue.TrimEnd());
+    }
+
+    [Fact]
+    public void QualityMetricChanges_ReportsDetectedResidueCount()
+    {
+        var methods = ValidityMethods(("One", "not-sampled"));
+        var baseline = Snapshot(
+            totalMethods: 93,
+            fullyRaisedMethods: 87,
+            fullyRaisedBasisPoints: 9_355,
+            pinnedMethods: methods);
+        var current = Snapshot(
+            totalMethods: 93,
+            fullyRaisedMethods: 87,
+            fullyRaisedBasisPoints: 9_355,
+            pinnedMethods: methods);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Detected lowering residue (-)", report);
+        Assert.Contains("6 (6.45%) → 6 (6.45%) (neutral)", report);
     }
 
     [Fact]

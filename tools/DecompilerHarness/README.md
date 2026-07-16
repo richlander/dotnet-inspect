@@ -325,12 +325,13 @@ and per-row sampled denominators for semantic validity and compile-back fidelity
 so reviewers can tell when evidence is strong or thin. Semantic validity and
 compile-back fidelity samples are hash-stable, so zero-tolerance rows such as
 RTS parity compare the same target population when the corpus and caps match.
-The card separates two raise signals. **No detected lowering residue** is the
-raw structural signal owned by the decompiler's residual census. **Fully
-raised** is stricter: among methods with a completed validity outcome, it
-requires no residual or pass bug and valid bound C#. Methods that were only
-syntax-checked are not counted as verified. Neither metric proves idiomatic
-source shape; use render A/B and feature-specific altitude evidence for that.
+The card progresses from problem counts to positive signals. **Detected
+lowering residue** is the raw structural debt count owned by the decompiler's
+residual census. **Fully raised** is the final headline metric: among methods
+with a completed validity outcome, it requires no structural residue or pass
+bug and valid bound C#. Methods that were only syntax-checked are not counted
+as verified. Neither metric proves idiomatic source shape; use render A/B and
+feature-specific altitude evidence for that.
 The footer separates **current measured debt** from the **regression verdict**:
 unchanged semantic defects, opcode differences, or detected residue remain
 visible even when the current snapshot matches baseline tolerances.

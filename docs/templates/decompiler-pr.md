@@ -55,9 +55,10 @@ Run: PR quick corpus, hash-stable 100 methods per assembly; {coverage summary}.
 
 | Metric (goal) | Baseline | PR | Rate delta |
 | --- | ---: | ---: | ---: |
-| Fully raised (+) | {%} | {%} | {pp} |
-| Conditional residual (-) | {%} | {%} | {pp} |
+| Detected lowering residue (-) | {%} | {%} | {pp} |
+| Conditional-branch residue (-) | {%} | {%} | {pp} |
 | Pass bugs (-) | 0 | 0 | 0 |
+| Fully raised (+) | {%} | {%} | {pp} |
 
 > **Conclusion:** **PASS/FAIL** — {one-line gate verdict}.
 
@@ -67,9 +68,10 @@ Corpus: {assemblies}, {methods}. Baseline drift: {none or concise drift}.
 
 | Metric (goal) | Baseline | PR | Count delta |
 | --- | ---: | ---: | ---: |
-| Fully raised (+) | {count/rate} | {count/rate} | {count} |
-| Conditional-branch residual (-) | {count/rate} | {count/rate} | {count} |
+| Detected lowering residue (-) | {count/rate} | {count/rate} | {count} |
+| Conditional-branch residue (-) | {count/rate} | {count/rate} | {count} |
 | Forward-merge stops (-) | {count/rate} | {count/rate} | {count} |
+| Fully raised (+) | {count/rate} | {count/rate} | {count} |
 
 > **Conclusion:** **PASS/ADVISORY/BLOCKED** — {one-line aggregate verdict}.
 

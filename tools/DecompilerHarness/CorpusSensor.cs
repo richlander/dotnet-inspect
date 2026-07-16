@@ -1521,17 +1521,12 @@ internal static class CorpusSensor
         Console.WriteLine($"Methods: {metrics.TotalMethods}");
         if (snapshot.MethodCap is { } cap)
             Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
+        var verified = VerifiedFullyRaised(snapshot);
+        int loweringResidue = metrics.TotalMethods - metrics.FullyRaisedMethods;
         Console.WriteLine(
-            $"No detected lowering residue: {metrics.FullyRaisedMethods} "
-            + $"({FormatBps(metrics.FullyRaisedBasisPoints)})");
-        if (VerifiedFullyRaised(snapshot) is { } verified)
-        {
-            Console.WriteLine(
-                $"Fully raised: {verified.RaisedMethods}/{verified.CheckedMethods} "
-                + $"({FormatBps(RateBasisPoints(verified.RaisedMethods, verified.CheckedMethods))} "
-                + "of completed validity outcomes)");
-        }
-        Console.WriteLine($"Conditional-branch residual: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
+            $"Detected lowering residue: {loweringResidue} "
+            + $"({FormatBps(RateBasisPoints(loweringResidue, metrics.TotalMethods))})");
+        Console.WriteLine($"Conditional-branch residue: {metrics.ConditionalBranchMethods} ({FormatBps(metrics.ConditionalBranchBasisPoints)})");
         Console.WriteLine($"Forward-merge stops: {metrics.ForwardMergeStoppedContainers} ({FormatBps(metrics.ForwardMergeBasisPoints)} of methods)");
         if (snapshot.ValidityCompileCap <= 0)
         {
@@ -1563,6 +1558,13 @@ internal static class CorpusSensor
                 PrintReturnToSenderParity(report.Metrics, "  ");
                 PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "    ");
             }
+        }
+        if (verified is { } fullyRaised)
+        {
+            Console.WriteLine(
+                $"Fully raised: {fullyRaised.RaisedMethods}/{fullyRaised.CheckedMethods} "
+                + $"({FormatBps(RateBasisPoints(fullyRaised.RaisedMethods, fullyRaised.CheckedMethods))} "
+                + "of completed validity outcomes)");
         }
     }
 
@@ -1803,9 +1805,9 @@ internal static class CorpusSensor
                 : "semantic defects ungated (sampling differs); "
             : "";
         return "Pinned-subset gate (PR quick rate/count regressions evaluated here): "
-            + $"No detected lowering residue {FormatBps(basePinned.FullyRaisedBasisPoints)} -> {FormatBps(curPinned.FullyRaisedBasisPoints)} "
-            + $"({DeltaPercentagePoints(curPinned.FullyRaisedBasisPoints - basePinned.FullyRaisedBasisPoints)}); "
-            + $"conditional residual {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
+            + $"detected lowering residue {FormatBps(10_000 - basePinned.FullyRaisedBasisPoints)} -> {FormatBps(10_000 - curPinned.FullyRaisedBasisPoints)} "
+            + $"({DeltaPercentagePoints(basePinned.FullyRaisedBasisPoints - curPinned.FullyRaisedBasisPoints)}); "
+            + $"conditional-branch residue {FormatBps(basePinned.ConditionalBranchBasisPoints)} -> {FormatBps(curPinned.ConditionalBranchBasisPoints)} "
             + $"({DeltaPercentagePoints(curPinned.ConditionalBranchBasisPoints - basePinned.ConditionalBranchBasisPoints)}); "
             + fullMalformed
             + semanticDefects
@@ -1908,23 +1910,50 @@ internal static class CorpusSensor
             baseline.Methods,
             current.Methods,
             static _ => true);
-        Goal structuralHigher = comparableStructuralPopulation ? Goal.Higher : Goal.Context;
         Goal structuralLower = comparableStructuralPopulation ? Goal.Lower : Goal.Context;
         string structuralPopulationSuffix = comparableStructuralPopulation
             ? ""
             : " (population differs)";
-        var rows = new List<MultiSourceRow>
+        var rows = new List<MultiSourceRow>();
+        MultiSourceRow? fullyRaisedRow = null;
+        MultiSourceRow? fidelityCoverageRow = null;
+        MultiSourceRow? fidelityExactRow = null;
+
+        if (current.ValidityCompileCap > 0)
         {
+            var baselineFullyRaised = VerifiedFullyRaised(baseline);
+            var currentFullyRaised = VerifiedFullyRaised(current);
+            if (baselineFullyRaised is not null && currentFullyRaised is not null)
+            {
+                bool comparableFullyRaisedSamples = HaveSameMethodSample(
+                    baseline.Methods,
+                    current.Methods,
+                    static method => HasValidityOutcome(method.Validity));
+                fullyRaisedRow = ShareChangeRow(
+                    comparableFullyRaisedSamples
+                        ? "Fully raised"
+                        : "Fully raised (sampling differs)",
+                    baselineFullyRaised.Value.RaisedMethods,
+                    baselineFullyRaised.Value.CheckedMethods,
+                    currentFullyRaised.Value.RaisedMethods,
+                    currentFullyRaised.Value.CheckedMethods,
+                    comparableFullyRaisedSamples ? Goal.Higher : Goal.Context,
+                    countDeltaKnown: comparableFullyRaisedSamples);
+            }
+        }
+
+        rows.AddRange(
+        [
             ShareChangeRow(
-                "No detected lowering residue" + structuralPopulationSuffix,
-                baseline.Metrics.FullyRaisedMethods,
+                "Detected lowering residue" + structuralPopulationSuffix,
+                baseline.Metrics.TotalMethods - baseline.Metrics.FullyRaisedMethods,
                 baseline.Metrics.TotalMethods,
-                current.Metrics.FullyRaisedMethods,
+                current.Metrics.TotalMethods - current.Metrics.FullyRaisedMethods,
                 current.Metrics.TotalMethods,
-                structuralHigher,
+                structuralLower,
                 countDeltaKnown: comparableStructuralPopulation),
             ShareChangeRow(
-                "Conditional-branch residual" + structuralPopulationSuffix,
+                "Conditional-branch residue" + structuralPopulationSuffix,
                 baseline.Metrics.ConditionalBranchMethods,
                 baseline.Metrics.TotalMethods,
                 current.Metrics.ConditionalBranchMethods,
@@ -1939,30 +1968,10 @@ internal static class CorpusSensor
                 current.Metrics.TotalMethods,
                 structuralLower,
                 countDeltaKnown: comparableStructuralPopulation),
-        };
+        ]);
 
         if (current.ValidityCompileCap > 0)
         {
-            var baselineFullyRaised = VerifiedFullyRaised(baseline);
-            var currentFullyRaised = VerifiedFullyRaised(current);
-            if (baselineFullyRaised is not null && currentFullyRaised is not null)
-            {
-                bool comparableFullyRaisedSamples = HaveSameMethodSample(
-                    baseline.Methods,
-                    current.Methods,
-                    static method => HasValidityOutcome(method.Validity));
-                rows.Add(ShareChangeRow(
-                    comparableFullyRaisedSamples
-                        ? "Fully raised"
-                        : "Fully raised (sampling differs)",
-                    baselineFullyRaised.Value.RaisedMethods,
-                    baselineFullyRaised.Value.CheckedMethods,
-                    currentFullyRaised.Value.RaisedMethods,
-                    currentFullyRaised.Value.CheckedMethods,
-                    comparableFullyRaisedSamples ? Goal.Higher : Goal.Context,
-                    countDeltaKnown: comparableFullyRaisedSamples));
-            }
-
             bool comparableMalformedSamples = HaveSameMethodSample(
                 baseline.Methods,
                 current.Methods,
@@ -2010,7 +2019,7 @@ internal static class CorpusSensor
                 current.Metrics.Fidelity.CheckedMethods,
                 comparableFidelitySamples ? Goal.Lower : Goal.Context,
                 countDeltaKnown: comparableFidelitySamples));
-            rows.Add(ShareChangeRow(
+            fidelityExactRow = ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity exact"
                     : $"Fidelity exact ({fidelityDifference})",
@@ -2019,7 +2028,7 @@ internal static class CorpusSensor
                 current.Metrics.Fidelity.ExactMethods,
                 current.Metrics.Fidelity.CheckedMethods,
                 comparableFidelitySamples ? Goal.Higher : Goal.Context,
-                countDeltaKnown: comparableFidelitySamples));
+                countDeltaKnown: comparableFidelitySamples);
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity recompile failures"
@@ -2056,16 +2065,22 @@ internal static class CorpusSensor
                     comparableParity ? Goal.Lower : Goal.Context,
                     countDeltaKnown: comparableParity));
             }
-            rows.Add(ShareChangeRow(
+            fidelityCoverageRow = ShareChangeRow(
                 "Fidelity check coverage",
                 baseline.Metrics.Fidelity.CheckedMethods,
                 baseline.Metrics.TotalMethods,
                 current.Metrics.Fidelity.CheckedMethods,
                 current.Metrics.TotalMethods,
-                Goal.Higher));
+                Goal.Higher);
         }
 
         rows.Add(CountChangeRow("Pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, Goal.Lower));
+        if (fidelityCoverageRow is { } coverageRow)
+            rows.Add(coverageRow);
+        if (fidelityExactRow is { } exactRow)
+            rows.Add(exactRow);
+        if (fullyRaisedRow is { } raisedRow)
+            rows.Add(raisedRow);
 
         var writer = new MarkoutWriter(output ?? Console.Out, new MarkdownFormatter());
         writer.WriteMultiSourceTable("Metric", rows);
