@@ -130,9 +130,7 @@ public class MemberBodyProducerUnionTests
                     }
                 }
             }
-            """,
-            unsupportedDiagnostic: "CS9374",
-            skipReason: "Installed preview SDK does not yet support non-public single-parameter union constructors.");
+            """);
 
         var source = ComposeType(assembly.Path, "UnionFixtures.Result");
 
@@ -1779,10 +1777,7 @@ public class MemberBodyProducerUnionTests
         return new TempAssembly(path);
     }
 
-    static async Task<TempAssembly> CompileWithSdk(
-        string source,
-        string? unsupportedDiagnostic = null,
-        string? skipReason = null)
+    static async Task<TempAssembly> CompileWithSdk(string source)
     {
         var project = TempDirectory.Create();
         try
@@ -1799,13 +1794,6 @@ public class MemberBodyProducerUnionTests
             File.WriteAllText(Path.Combine(project.Path, "Fixture.cs"), source);
 
             var result = await RunDotnetBuild(project.Path);
-            if (result.ExitCode != 0
-                && unsupportedDiagnostic is not null
-                && result.Output.Contains(unsupportedDiagnostic, StringComparison.Ordinal))
-            {
-                Assert.Skip(skipReason ?? $"Installed preview SDK does not support diagnostic {unsupportedDiagnostic} fixture.");
-            }
-
             Assert.True(result.ExitCode == 0,
                 "Union fixture must build with the preview SDK, got exit "
                 + result.ExitCode + "\n--- output ---\n" + result.Output + "\n--- source ---\n" + source);
