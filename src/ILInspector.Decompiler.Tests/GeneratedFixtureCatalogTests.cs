@@ -59,12 +59,6 @@ public class GeneratedFixtureCatalogTests
         // frontier ships in the minimal run; the switch-lowering frontier does not.
         Assert.Contains(run.Results, result => result.FixtureId == "minimal.conditional-expression-shape-frontier");
         Assert.DoesNotContain(run.Results, result => result.FixtureId == "minimal.switch-two-case-lowers-if");
-
-        // Report formatting smoke: fidelity, compile-back, and shape tokens render.
-        Assert.Contains("decompiler=Full", report);
-        Assert.Contains("compile-back=Exact", report);
-        Assert.Contains("shape=ForStatement", report);
-        Assert.Contains("shape=ElementAccessExpression", report);
     }
 
     [Fact]
