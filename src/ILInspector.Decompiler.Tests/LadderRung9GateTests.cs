@@ -155,13 +155,19 @@ public class LadderRung9GateTests
     [InlineData("Expression<Func<int[], int[]>> e = x => x[1..];", "CS8792")]
     [InlineData("Expression<Func<RecordSample, RecordSample>> e = x => x with { X = 1 };", "CS8849")]
     [InlineData("Expression<Func<int[]>> e = () => [1, 2];", "CS9175")]
-    [InlineData("Expression<Func<int, int>> e = x => Optional(x);", "CS0854")]
-    [InlineData("Expression<Func<int, int>> e = x => Optional(value: x, delta: 1);", "CS0853")]
     public void Rung9ExpressionTreeRestrictions_AreTrackedAsHonestyFrontier(string statement, string expectedDiagnostic)
     {
         var diagnostics = CompileExpressionTreeStatement(statement);
 
         Assert.Contains(expectedDiagnostic, diagnostics);
+    }
+
+    [Theory]
+    [InlineData("Expression<Func<int, int>> e = x => Optional(x);")]
+    [InlineData("Expression<Func<int, int>> e = x => Optional(value: x, delta: 1);")]
+    public void Rung9ExpressionTreeArgumentForms_AreAcceptedByCompilerOracle(string statement)
+    {
+        Assert.Empty(CompileExpressionTreeStatement(statement));
     }
 
     static void AssertDynamicPartial(
