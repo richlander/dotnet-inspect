@@ -8,6 +8,7 @@ using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -6503,6 +6504,37 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
         Assert.DoesNotContain("Integrations", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task AppContextSwitchScanner_UsesRawStringsAndLeavesDeduplicationToConsumer()
+    {
+        var assemblyPath = typeof(AppContextSwitchFixture).Assembly.Location;
+        var occurrences = AppContextSwitchScanner.Scan(assemblyPath);
+
+        Assert.Contains(
+            occurrences,
+            occurrence => occurrence.Switch == @"DotnetInspector.Fixtures.Literal\nSwitch");
+        Assert.Equal(
+            2,
+            occurrences.Count(
+                occurrence => occurrence.Switch == "DotnetInspector.Fixtures.Duplicate"));
+        Assert.DoesNotContain(
+            occurrences,
+            occurrence => occurrence.Switch == "DotnetInspector.Fixtures.Lookalike");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath, "-S", "Switches", "--rows", "-n", "20");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            1,
+            output.Split(
+                "DotnetInspector.Fixtures.Duplicate",
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains(@"DotnetInspector.Fixtures.Literal\nSwitch", output);
+        Assert.DoesNotContain("DotnetInspector.Fixtures.Lookalike", output);
         Assert.DoesNotContain("Tip:", error);
     }
 

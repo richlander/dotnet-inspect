@@ -1,27 +1,32 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
 
+internal sealed record AppContextSwitchOccurrence(
+    string Switch,
+    string Api);
+
 internal static class AppContextSwitchScanner
 {
-    public static List<SwitchInfo> Scan(string path)
+    public static List<AppContextSwitchOccurrence> Scan(string path)
     {
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         if (!peReader.HasMetadata)
             return [];
 
-        var reader = peReader.GetMetadataReader();
-        return Scan(peReader, reader);
+        return Scan(peReader, peReader.GetMetadataReader());
     }
 
-    internal static List<SwitchInfo> Scan(PEReader peReader, MetadataReader reader)
+    internal static List<AppContextSwitchOccurrence> Scan(
+        PEReader peReader,
+        MetadataReader reader)
     {
-        Dictionary<string, SwitchInfo> switches = new(StringComparer.Ordinal);
-        var resolver = new MetadataOperandNameResolver(reader);
+        List<AppContextSwitchOccurrence> switches = [];
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -30,71 +35,121 @@ internal static class AppContextSwitchScanner
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                var instructions = InstructionProducer.Disassemble(peReader, method, resolver);
-                if (instructions is not { Count: > 0 })
+                var instructions = DecodeInstructions(peReader, method);
+                if (instructions is null)
                     continue;
 
                 string? lastString = null;
-                foreach (var instruction in instructions)
+                foreach (var instruction in instructions.Instructions)
                 {
-                    if (instruction.OpCodeName == "ldstr" && instruction.Operand is { } operand)
+                    if (instruction.OpCode == ILOpCode.Ldstr
+                        && instruction.Operand == OperandKind.InlineString)
                     {
-                        lastString = Unquote(operand);
+                        lastString = ResolveUserString(reader, (int)instruction.OperandValue);
                         continue;
                     }
 
-                    if (instruction.OpCodeName is not ("call" or "callvirt")
-                        || instruction.Operand is not { } call
-                        || !call.Contains("System.AppContext::", StringComparison.Ordinal)
-                        || lastString is not { Length: > 0 } switchName)
-                        continue;
-
-                    if (call.Contains("::TryGetSwitch(", StringComparison.Ordinal)
-                        || call.Contains("::SetSwitch(", StringComparison.Ordinal))
+                    if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt)
+                        || instruction.Operand != OperandKind.InlineMethod
+                        || lastString is not { Length: > 0 } switchName
+                        || !IsAppContextSwitchMethod(reader, (int)instruction.OperandValue))
                     {
-                        AddSwitch(
-                            switches,
-                            switchName,
-                            $"{TypeResolver.FormatDisplayName(typeName)}.{reader.GetString(method.Name)}(...)");
+                        continue;
                     }
+
+                    switches.Add(new AppContextSwitchOccurrence(
+                        switchName,
+                        $"{TypeResolver.FormatDisplayName(typeName)}.{reader.GetString(method.Name)}(...)"));
                 }
             }
         }
 
-        return switches.Values
-            .OrderBy(s => s.Kind, StringComparer.Ordinal)
-            .ThenBy(s => s.Switch, StringComparer.Ordinal)
-            .ThenBy(s => s.Api, StringComparer.Ordinal)
-            .ToList();
+        return switches;
     }
 
-    static void AddSwitch(
-        Dictionary<string, SwitchInfo> switches,
-        string switchName,
-        string api)
+    static MethodInstructions? DecodeInstructions(
+        PEReader peReader,
+        MethodDefinition method)
     {
-        if (switchName.StartsWith("System.Resources.UseSystemResourceKeys", StringComparison.Ordinal)
-            || switchName.StartsWith("TestSwitch.", StringComparison.Ordinal)
-            || switchName.StartsWith("Switch.", StringComparison.Ordinal))
+        if (method.RelativeVirtualAddress == 0)
+            return null;
+
+        MethodBodyBlock body;
+        try
         {
-            return;
+            body = peReader.GetMethodBody(method.RelativeVirtualAddress);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            return null;
         }
 
-        const string kind = "AppContext";
-        switches.TryAdd(
-            $"{kind}\0{switchName}\0{api}",
-            new SwitchInfo(kind, switchName, api));
+        var instructions = MethodInstructions.Decode(body);
+        if (!instructions.IsComplete)
+            throw new BadImageFormatException(instructions.Blocks.IncompleteReason ?? "IL body decode failed.");
+        return instructions;
     }
 
-    static string Unquote(string value)
+    static string? ResolveUserString(MetadataReader reader, int token)
     {
-        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
-            value = value[1..^1];
-        return value
-            .Replace("\\\"", "\"", StringComparison.Ordinal)
-            .Replace("\\\\", "\\", StringComparison.Ordinal)
-            .Replace("\\n", "\n", StringComparison.Ordinal)
-            .Replace("\\r", "\r", StringComparison.Ordinal)
-            .Replace("\\t", "\t", StringComparison.Ordinal);
+        try
+        {
+            return reader.GetUserString(MetadataTokens.UserStringHandle(token));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return null;
+        }
     }
+
+    static bool IsAppContextSwitchMethod(MetadataReader reader, int token)
+    {
+        try
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind == HandleKind.MethodSpecification)
+                handle = reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method;
+
+            string methodName;
+            EntityHandle declaringType;
+            switch (handle.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                {
+                    var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+                    methodName = reader.GetString(method.Name);
+                    declaringType = method.GetDeclaringType();
+                    break;
+                }
+                case HandleKind.MemberReference:
+                {
+                    var member = reader.GetMemberReference((MemberReferenceHandle)handle);
+                    if (member.GetKind() != MemberReferenceKind.Method)
+                        return false;
+                    methodName = reader.GetString(member.Name);
+                    declaringType = member.Parent;
+                    break;
+                }
+                default:
+                    return false;
+            }
+
+            return methodName is "TryGetSwitch" or "SetSwitch"
+                && IsSystemAppContext(reader, declaringType);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    static bool IsSystemAppContext(MetadataReader reader, EntityHandle handle)
+        => handle.Kind switch
+        {
+            HandleKind.TypeDefinition
+                => reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)handle)) == "System.AppContext",
+            HandleKind.TypeReference
+                => reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)handle)) == "System.AppContext",
+            _ => false
+        };
 }

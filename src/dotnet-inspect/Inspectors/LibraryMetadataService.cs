@@ -109,7 +109,8 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            var appContextSwitches = AppContextSwitchScanner.Scan(path);
+            HashSet<SwitchInfo> appContextSwitches = [];
+            AddAppContextSwitches(appContextSwitches, AppContextSwitchScanner.Scan(path));
             inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
             inspection.HasSwitches = inspection.SwitchCount > 0;
 
@@ -1450,17 +1451,21 @@ internal static class LibraryMetadataService
         {
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
-            var switches = SwitchScanner.Scan(peReader)
-                .Concat(peReader.HasMetadata
-                    ? AppContextSwitchScanner.Scan(peReader, peReader.GetMetadataReader())
-                    : [])
-                .Distinct()
+            HashSet<SwitchInfo> switches = [.. SwitchScanner.Scan(peReader)];
+            if (peReader.HasMetadata)
+            {
+                AddAppContextSwitches(
+                    switches,
+                    AppContextSwitchScanner.Scan(peReader, peReader.GetMetadataReader()));
+            }
+
+            var orderedSwitches = switches
                 .OrderBy(s => s.Kind, StringComparer.Ordinal)
                 .ThenBy(s => s.Switch, StringComparer.Ordinal)
                 .ThenBy(s => s.Api, StringComparer.Ordinal)
                 .ToList();
             return MetadataFindings.InspectSwitches(
-                switches,
+                orderedSwitches,
                 FindingSubjectFor(path));
         }
         catch (Exception ex)
@@ -1468,6 +1473,23 @@ internal static class LibraryMetadataService
             logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
             return FailedInspection<SwitchInfo>(
                 path, MetadataFindings.SwitchDescriptor, ex);
+        }
+    }
+
+    static void AddAppContextSwitches(
+        HashSet<SwitchInfo> switches,
+        IEnumerable<AppContextSwitchOccurrence> occurrences)
+    {
+        foreach (var occurrence in occurrences)
+        {
+            if (occurrence.Switch.StartsWith("System.Resources.UseSystemResourceKeys", StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith("TestSwitch.", StringComparison.Ordinal)
+                || occurrence.Switch.StartsWith("Switch.", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            switches.Add(new SwitchInfo("AppContext", occurrence.Switch, occurrence.Api));
         }
     }
 
