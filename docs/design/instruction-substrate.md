@@ -247,8 +247,9 @@ Every consumer (`MemberCodeProvider`'s CLI IL section, `SwitchScanner`'s
 AppContext-switch heuristics, `PdbContext`'s display-name lookups,
 `DecompilerHarness`'s `FidelityCheck`/`ReturnToSender`, and the disassembler/emit
 test suites, plus `DotnetInspector.ILRoundtrip.Tests`' canonical-ilasm roundtrip
-via the vendored ILAssembler) has been migrated to a new `ILInstructionPrinter`
-(`ILInstructionText` projection) that decodes via `MethodInstructions.Decode` and
+via the vendored ILAssembler) first migrated to an `ILInstructionText`
+projection over `MethodInstructions`. That projection now lives in
+`Instructions` as `InstructionProducer`, decodes via `MethodInstructions.Decode`, and
 throws `BadImageFormatException` (with the substrate's `IncompleteReason`) when
 the body is not `IsComplete` — the same fail-honest contract `ILDisassembler` had,
 now backed by the shared substrate instead of a second decode path.
@@ -278,8 +279,11 @@ not attempted in that PR.
   MaxStack fidelity gates over CoreLib; Layer 0/1 split with offset→block lookup.
 - De-dup: `ReachingDefinitions` cut over (done, validated).
   `ILInspector.Metadata`'s `ILDisassembler`/`ILInstruction` cut over to
-  `ILInstructionPrinter`/`ILInstructionText` over `MethodInstructions` (done,
-  validated; see "The Metadata cutover" above). Remaining: `LibraryBodyIndex`
+  `InstructionProducer`/`ILInstructionText` over `MethodInstructions`, with
+  Metadata's project dependency on Instructions removed through
+  the shared `IOperandNameResolver` contract and Metadata-owned
+  `MetadataOperandNameResolver` implementation (done, validated; see "The Metadata
+  cutover" above). Remaining: `LibraryBodyIndex`
   (the allocation/triage producer — convert its decode loop with the full corpus
   baseline as guard), the decompiler importer (with the minimal-CFG refactor),
   and consolidating the three metadata-token-to-string traversals

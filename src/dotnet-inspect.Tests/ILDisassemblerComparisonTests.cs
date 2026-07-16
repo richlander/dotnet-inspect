@@ -178,7 +178,7 @@ public class ILDisassemblerComparisonTests
     {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
-        return ILInstructionPrinter.DisassembleMethod(peReader, typeName, methodName);
+        return MetadataInstructionProducer.DisassembleMethod(peReader, typeName, methodName);
     }
 
     static int CountMethods(string assemblyPath)

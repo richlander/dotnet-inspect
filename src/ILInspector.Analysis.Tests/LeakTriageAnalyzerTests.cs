@@ -77,7 +77,7 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
-    public void ResourceLifecycleAnalysis_ClassifiesExactBoundaryEvidence()
+    public void ResourceLifecycleAnalysis_ReportsExactBoundaryEvidence()
     {
         var inspection = ResourceLifecycleAnalysis.InspectAssembly(
             typeof(ArrayPoolLeakFixtures).Assembly.Location,
@@ -85,129 +85,175 @@ public sealed class LeakTriageAnalyzerTests
         var complete =
             Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Complete>(
                 inspection.Value);
-        var candidates = ResourceLifecycleAnalysis.SelectCandidates(complete);
 
-        var external = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var external = Assert.Single(complete.Findings.Where(finding =>
+            finding.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn)));
-        Assert.Equal("analysis.resource-lifecycle", external.Source.Descriptor.Id);
+        Assert.Equal("analysis.resource-lifecycle", external.Descriptor.Id);
+        var externalBoundary = Assert.Single(external.Payload.Boundaries);
+        Assert.Equal("Read", externalBoundary.Operation.Name);
+        Assert.True(
+            externalBoundary.ILOffset > external.Payload.AcquireOffset);
+
+        Assert.DoesNotContain(
+            typeof(ResourceLifecycleOccurrence).GetProperties(),
+            property => property.Name == "Actionability");
+        Assert.DoesNotContain(
+            typeof(ResourceBoundaryEvidence).GetProperties(),
+            property => property.Name == "Kind");
+
+        var clone = external.Payload with
+        {
+            Boundaries = [.. external.Payload.Boundaries],
+        };
+        Assert.Equal(external.Payload, clone);
+        Assert.Equal(external.Payload.GetHashCode(), clone.GetHashCode());
+    }
+
+    [Fact]
+    public void ResourceTriageAnalysis_AssessesExactBoundaryEvidence()
+    {
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location,
+            new FindingSubject("fixtures", "fixtures"));
+        var complete =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                inspection.Value);
+        var assessments = ResourceTriageAnalysis.Assess(complete);
+
+        var external = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn)));
         Assert.StartsWith("rt~", external.CandidateId);
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            external.Source.Payload.Actionability);
-        var externalBoundary = Assert.Single(external.Source.Payload.Boundaries);
-        Assert.Equal("Read", externalBoundary.Operation.Name);
-        Assert.Equal(ResourceBoundaryKind.ExternalInput, externalBoundary.Kind);
-        Assert.True(
-            externalBoundary.ILOffset > external.Source.Payload.AcquireOffset);
+            ResourceTriageActionability.UntrustedActionable,
+            external.Actionability);
+        Assert.Equal(
+            ResourceTriageReason.ExternalInputBoundaryBeforeCleanup,
+            external.Reason);
+        Assert.Equal(
+            ResourceTriageImpact.PoolChurnOnException,
+            external.Impact);
+        Assert.Equal(
+            ResourceTriageRemediation.EnsureExceptionalCleanup,
+            external.Remediation);
+        Assert.Equal(ResourceTriageConfidence.Medium, external.Confidence);
+        var externalBoundary = Assert.Single(external.Boundaries);
+        Assert.Equal("Read", externalBoundary.Evidence.Operation.Name);
+        Assert.Equal(
+            ResourceTriageBoundaryKind.ExternalInput,
+            externalBoundary.Kind);
 
-        var throughSetup = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var throughSetup = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalDecodeThroughSpan)));
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            throughSetup.Source.Payload.Actionability);
-        Assert.Contains(throughSetup.Source.Payload.Boundaries, boundary =>
-            boundary.Operation.Name == "GetChars"
-            && boundary.Kind == ResourceBoundaryKind.ExternalInput);
-        Assert.DoesNotContain(throughSetup.Source.Payload.Boundaries, boundary =>
-            boundary.Operation.Name == "AsSpan");
+            ResourceTriageActionability.UntrustedActionable,
+            throughSetup.Actionability);
+        Assert.Contains(throughSetup.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "GetChars"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughSetup.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "AsSpan");
 
-        var throughLocal = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var throughLocal = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalDecodeThroughSpanLocal)));
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            throughLocal.Source.Payload.Actionability);
-        Assert.Contains(throughLocal.Source.Payload.Boundaries, boundary =>
-            boundary.Operation.Name == "GetChars"
-            && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+            ResourceTriageActionability.UntrustedActionable,
+            throughLocal.Actionability);
+        Assert.Contains(throughLocal.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "GetChars"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
 
-        var throughStringArgument = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var throughStringArgument = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithTag)));
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            throughStringArgument.Source.Payload.Actionability);
+            ResourceTriageActionability.UntrustedActionable,
+            throughStringArgument.Actionability);
         Assert.Contains(
-            throughStringArgument.Source.Payload.Boundaries,
+            throughStringArgument.Boundaries,
             boundary =>
-                boundary.Operation.Name == "Parse"
-                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+                boundary.Evidence.Operation.Name == "Parse"
+                && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
 
-        var throughConstructedArgument = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var throughConstructedArgument = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithConstructedTag)));
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            throughConstructedArgument.Source.Payload.Actionability);
+            ResourceTriageActionability.UntrustedActionable,
+            throughConstructedArgument.Actionability);
         Assert.Contains(
-            throughConstructedArgument.Source.Payload.Boundaries,
+            throughConstructedArgument.Boundaries,
             boundary =>
-                boundary.Operation.Name == "Parse"
-                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+                boundary.Evidence.Operation.Name == "Parse"
+                && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
         Assert.DoesNotContain(
-            throughConstructedArgument.Source.Payload.Boundaries,
-            boundary => boundary.Operation.Name == ".ctor");
+            throughConstructedArgument.Boundaries,
+            boundary => boundary.Evidence.Operation.Name == ".ctor");
 
-        var throughStaticArgument = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var throughStaticArgument = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithStaticTag)));
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            throughStaticArgument.Source.Payload.Actionability);
+            ResourceTriageActionability.UntrustedActionable,
+            throughStaticArgument.Actionability);
         Assert.Contains(
-            throughStaticArgument.Source.Payload.Boundaries,
+            throughStaticArgument.Boundaries,
             boundary =>
-                boundary.Operation.Name == "Parse"
-                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+                boundary.Evidence.Operation.Name == "Parse"
+                && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
 
-        var constructorBoundary = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var constructorBoundary = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.SpanConsumedByConstructor)));
         Assert.Equal(
-            ResourceActionability.Unknown,
-            constructorBoundary.Source.Payload.Actionability);
+            ResourceTriageActionability.Unknown,
+            constructorBoundary.Actionability);
         Assert.Equal(
             ".ctor",
-            Assert.Single(constructorBoundary.Source.Payload.Boundaries)
-                .Operation.Name);
+            Assert.Single(constructorBoundary.Boundaries)
+                .Evidence.Operation.Name);
 
-        var unrelatedReader = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var unrelatedReader = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.UnrelatedTextReaderReadBeforeReturn)));
         Assert.Equal(
-            ResourceActionability.Unknown,
-            unrelatedReader.Source.Payload.Actionability);
+            ResourceTriageActionability.Unknown,
+            unrelatedReader.Actionability);
         Assert.Equal(
-            ResourceBoundaryKind.Unknown,
-            Assert.Single(unrelatedReader.Source.Payload.Boundaries).Kind);
+            ResourceTriageBoundaryKind.Unknown,
+            Assert.Single(unrelatedReader.Boundaries).Kind);
 
-        var frameworkReader = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var frameworkReader = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.FrameworkTextReaderReadBeforeReturn)));
         Assert.Equal(
-            ResourceActionability.UntrustedActionable,
-            frameworkReader.Source.Payload.Actionability);
+            ResourceTriageActionability.UntrustedActionable,
+            frameworkReader.Actionability);
         Assert.Equal(
-            ResourceBoundaryKind.ExternalInput,
-            Assert.Single(frameworkReader.Source.Payload.Boundaries).Kind);
+            ResourceTriageBoundaryKind.ExternalInput,
+            Assert.Single(frameworkReader.Boundaries).Kind);
 
-        var trusted = Assert.Single(candidates.Where(candidate =>
-            candidate.Source.Payload.Method.Name
+        var trusted = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.TrustedTransformWithUnrelatedReadAfterReturn)));
         Assert.Equal(
-            ResourceActionability.TrustedLowActionability,
-            trusted.Source.Payload.Actionability);
-        var trustedBoundary = Assert.Single(trusted.Source.Payload.Boundaries);
-        Assert.Equal("GetBytes", trustedBoundary.Operation.Name);
+            ResourceTriageActionability.TrustedLowActionability,
+            trusted.Actionability);
         Assert.Equal(
-            ResourceBoundaryKind.InMemoryTransform,
+            ResourceTriageReason.InMemoryBoundaryBeforeCleanup,
+            trusted.Reason);
+        var trustedBoundary = Assert.Single(trusted.Boundaries);
+        Assert.Equal("GetBytes", trustedBoundary.Evidence.Operation.Name);
+        Assert.Equal(
+            ResourceTriageBoundaryKind.InMemoryTransform,
             trustedBoundary.Kind);
 
-        var actionable = ResourceLifecycleAnalysis.SelectCandidates(
-            complete,
-            ResourceActionability.UntrustedActionable);
+        var actionable = assessments.Where(assessment =>
+            assessment.Actionability
+                == ResourceTriageActionability.UntrustedActionable);
         Assert.Contains(actionable, candidate =>
             candidate.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn));
@@ -215,12 +261,12 @@ public sealed class LeakTriageAnalyzerTests
             candidate.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.TrustedTransformWithUnrelatedReadAfterReturn));
 
-        var clone = external.Source.Payload with
+        var clone = external with
         {
-            Boundaries = [.. external.Source.Payload.Boundaries],
+            Boundaries = [.. external.Boundaries],
         };
-        Assert.Equal(external.Source.Payload, clone);
-        Assert.Equal(external.Source.Payload.GetHashCode(), clone.GetHashCode());
+        Assert.Equal(external, clone);
+        Assert.Equal(external.GetHashCode(), clone.GetHashCode());
     }
 
     [Fact]

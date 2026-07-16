@@ -831,7 +831,7 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
         var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
 
-        var original = ILInstructionPrinter.Disassemble(pe, reader, getter)
+        var original = MetadataInstructionProducer.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
@@ -884,7 +884,7 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
         var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
 
-        var original = ILInstructionPrinter.Disassemble(pe, reader, method)
+        var original = MetadataInstructionProducer.Disassemble(pe, reader, method)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
@@ -937,7 +937,7 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
         var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
 
-        var original = ILInstructionPrinter.Disassemble(pe, reader, setter)
+        var original = MetadataInstructionProducer.Disassemble(pe, reader, setter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
@@ -1307,7 +1307,7 @@ static class ReturnToSender
         string methodName,
         int overload)
         => FindMethodDefinition(pe, fullType, methodName, overload) is { } found
-            ? ILInstructionPrinter.Disassemble(pe, found.Reader, found.Method)
+            ? MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method)
             : null;
 
     static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(

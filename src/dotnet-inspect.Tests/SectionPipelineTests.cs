@@ -1,5 +1,6 @@
 using ILInspector.Metadata;
 using ILInspector.Findings;
+using ILInspector.Research;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -608,7 +609,7 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Callsite Context", renderable);
         Assert.DoesNotContain("Return Address Context", renderable);
 
-        model.ILOffset = new ILOffsetResult
+        model.ILOffset = new ILOffsetProjection
         {
             MemberContext = new ILOffsetMemberContext(),
             InstructionContext = new ILOffsetInstructionContext(),

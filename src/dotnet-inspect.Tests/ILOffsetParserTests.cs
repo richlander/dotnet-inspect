@@ -14,7 +14,7 @@ public class ILOffsetParserTests
     [InlineData("0x6000002+0x0", 0x6000002, 0x0)]
     public void ValidTokenAndOffset_ParsesCorrectly(string input, int expectedToken, int expectedOffset)
     {
-        Assert.True(ILOffsetSourceQuery.TryParse(input, out var token, out var offset));
+        Assert.True(ILOffsetQuery.TryParse(input, out var token, out var offset));
         Assert.Equal(expectedToken, token);
         Assert.Equal(expectedOffset, offset);
     }
@@ -30,13 +30,13 @@ public class ILOffsetParserTests
     [InlineData("0x6000001+garbage")]   // non-numeric offset
     public void InvalidInput_ReturnsFalse(string input)
     {
-        Assert.False(ILOffsetSourceQuery.TryParse(input, out _, out _));
+        Assert.False(ILOffsetQuery.TryParse(input, out _, out _));
     }
 
     [Fact]
     public void ZeroILOffset_IsValid()
     {
-        Assert.True(ILOffsetSourceQuery.TryParse("0x6000001+0x0", out var token, out var offset));
+        Assert.True(ILOffsetQuery.TryParse("0x6000001+0x0", out var token, out var offset));
         Assert.Equal(0x6000001, token);
         Assert.Equal(0, offset);
     }

@@ -52,6 +52,160 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void ExactReferenceRecompileRegressions_FlagsExactToRecompileAndContextFail()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("Context", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var offenders = CorpusSensor.ExactReferenceRecompileRegressions(snapshot);
+
+        Assert.Equal(2, offenders.Length);
+        Assert.Contains(offenders, m => m.Method == "Recompile");
+        Assert.Contains(offenders, m => m.Method == "Context");
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_IgnoresRescuedSameAndUnpaired()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Rescued", fidelityReference: "OpcodeDiff", fidelityCheck: "Exact"),
+            RtsMethod("Same", fidelityReference: "Exact", fidelityCheck: "Exact"),
+            RtsMethod("OpcodeDrift", fidelityReference: "Exact", fidelityCheck: "OpcodeDiff"),
+            RtsMethod("NoReference", fidelityReference: null, fidelityCheck: "RecompileFail"));
+
+        Assert.Empty(CorpusSensor.ExactReferenceRecompileRegressions(snapshot));
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_OnlyAppliesToReturnToSenderOracle()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail")],
+            fidelityOracle: CorpusFidelityOracle.CompileBack);
+
+        Assert.Empty(CorpusSensor.ExactReferenceRecompileRegressions(snapshot));
+    }
+
+    [Fact]
+    public void EvaluateRtsParityBurndown_FlagsNewRegressionNotInManifest()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("New", fidelityReference: "Exact", fidelityCheck: "RecompileFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+            snapshot,
+            ["Pinned!T::Known#0"]);
+
+        Assert.Equal(2, evaluation.KnownGaps.Length);
+        var offender = Assert.Single(evaluation.NewRegressions);
+        Assert.Equal("New", offender.Method);
+        Assert.Empty(evaluation.ResolvedRows);
+    }
+
+    [Fact]
+    public void EvaluateRtsParityBurndown_PassesWhenAllGapsAreInManifest()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+            snapshot,
+            ["Pinned!T::Known#0"]);
+
+        Assert.Empty(evaluation.NewRegressions);
+        Assert.Single(evaluation.KnownGaps);
+        Assert.Empty(evaluation.ResolvedRows);
+    }
+
+    [Fact]
+    public void EvaluateRtsParityBurndown_ReportsResolvedRowsNoLongerFailing()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("StillExact", fidelityReference: "Exact", fidelityCheck: "Exact"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(
+            snapshot,
+            ["Pinned!T::Fixed#0"]);
+
+        Assert.Empty(evaluation.NewRegressions);
+        Assert.Empty(evaluation.KnownGaps);
+        Assert.Equal("Pinned!T::Fixed#0", Assert.Single(evaluation.ResolvedRows));
+    }
+
+    [Fact]
+    public void EvaluateRtsParityBurndown_WithEmptyManifestTreatsEveryGapAsNew()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("A", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("B", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityBurndown(snapshot, []);
+
+        Assert.Equal(2, evaluation.NewRegressions.Length);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_RejectsNonReturnToSenderOracle()
+    {
+        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.CompileBack, [3], "burndown.json", null);
+
+        Assert.NotNull(error);
+        Assert.Contains("rts-parity", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_RejectsMissingPositiveFidelityCap()
+    {
+        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.ReturnToSender, [0], "burndown.json", null);
+
+        Assert.NotNull(error);
+        Assert.Contains("--corpus-fidelity-cap", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_RejectsEmitAndEnforceSamePath()
+    {
+        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "burndown.json", "burndown.json");
+
+        Assert.NotNull(error);
+        Assert.Contains("same file", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_AllowsWellFormedGateRun()
+    {
+        Assert.Null(CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "burndown.json", null));
+        Assert.Null(CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.CompileBack, [0], null, null));
+    }
+
+    [Fact]
+    public void ReadRtsParityBurndown_ManifestWithoutRowsArray_ReadsAsEmptyWithoutThrowing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"rts-burndown-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            var manifest = CorpusSensor.ReadRtsParityBurndown(path);
+            Assert.False(manifest.Rows.IsDefault);
+            Assert.Empty(manifest.Rows);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Compare_RejectsCorpusProfileMismatch()
     {
         var baseline = Snapshot(
@@ -843,7 +997,8 @@ public class CorpusSensorComparisonTests
         string method,
         string assemblyPath = "nuget:pinned/lib.dll",
         string validity = "not-sampled",
-        string fidelityCheck = "not-sampled")
+        string fidelityCheck = "not-sampled",
+        string? fidelityReference = null)
         => new(
             Assembly: "Pinned",
             AssemblyPath: assemblyPath,
@@ -856,7 +1011,25 @@ public class CorpusSensorComparisonTests
             Residual: null,
             PassBug: null,
             Validity: validity,
-            FidelityCheck: fidelityCheck);
+            FidelityCheck: fidelityCheck,
+            FidelityReference: fidelityReference);
+
+    static CorpusMethodSnapshot RtsMethod(
+        string method,
+        string? fidelityReference,
+        string fidelityCheck)
+        => SnapshotMethod(
+            method,
+            fidelityCheck: fidelityCheck,
+            fidelityReference: fidelityReference);
+
+    static CorpusSensorSnapshot ReturnToSenderSnapshot(params CorpusMethodSnapshot[] methods)
+        => Snapshot(
+            totalMethods: methods.Length,
+            fullyRaisedMethods: methods.Length,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: methods,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender);
 
     static IReadOnlyList<CorpusMethodSnapshot> ValidityMethods(
         params (string Method, string Validity)[] values)

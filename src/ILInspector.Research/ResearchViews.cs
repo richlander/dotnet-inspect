@@ -7,7 +7,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Research;
 
-public static class ResearchViews
+public static partial class ResearchViews
 {
     public sealed record FactRow(
         string Member,
