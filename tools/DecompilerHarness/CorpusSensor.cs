@@ -402,12 +402,21 @@ internal static class CorpusSensor
         if (function.IsRuntimeAsync == MetadataFactState.Yes)
         {
             AddFeature(featureCoverage, "runtime-async-methods");
+            bool hasAwaitForeach = function.Descendants
+                .OfType<ForeachStatement>()
+                .Any(statement => statement.IsAwait);
             if (function.Descendants.OfType<UsingStatement>().Any(statement => statement.IsAwait))
                 AddFeature(featureCoverage, "runtime-async-await-using-methods");
-            if (function.Descendants.Any(node => node is ForLoop or WhileLoop))
+            if (hasAwaitForeach
+                || function.Descendants.Any(node => node is ForLoop or WhileLoop))
+            {
                 AddFeature(featureCoverage, "runtime-async-loop-methods");
-            if (function.Descendants.Any(node => node is TryCatch or TryFinally))
+            }
+            if (hasAwaitForeach
+                || function.Descendants.Any(node => node is TryCatch or TryFinally))
+            {
                 AddFeature(featureCoverage, "runtime-async-exception-methods");
+            }
         }
 
         if (changedPasses.Contains("await-recovery"))
@@ -435,6 +444,15 @@ internal static class CorpusSensor
         {
             AddFeature(featureCoverage, "cross-assembly-requires-unsafe-methods");
         }
+    }
+
+    internal static IReadOnlyDictionary<string, int>
+        RecordMethodFeatureCoverageForTesting(IrFunction function)
+    {
+        var coverage = new ConcurrentDictionary<string, int>(
+            StringComparer.Ordinal);
+        RecordMethodFeatureCoverage(function, "", [], coverage);
+        return coverage;
     }
 
     static void AddFeature(
@@ -1330,9 +1348,8 @@ internal static class CorpusSensor
         if (!risky && current.Profile == CorpusProfile.RealWorld)
             PrintAdvisoryRateMovements(baseline, current);
         Console.WriteLine();
-        Console.WriteLine(regressions.Count == 0
-            ? "Verdict: corpus sensor matched baseline tolerances."
-            : "Verdict: corpus sensor reported regressions; review before merging.");
+        Console.WriteLine($"Current measured debt: {CurrentMeasuredDebt(current)}");
+        Console.WriteLine(RegressionVerdict(regressions.Count));
         if (regressions.Count > 0)
         {
             Console.WriteLine();
@@ -1360,6 +1377,67 @@ internal static class CorpusSensor
 
         }
     }
+
+    static string CurrentMeasuredDebt(CorpusSensorSnapshot snapshot)
+    {
+        var debt = new List<string>();
+        int notFullyRaised = Math.Max(0, snapshot.Metrics.TotalMethods - snapshot.Metrics.FullyRaisedMethods);
+        if (notFullyRaised > 0)
+            debt.Add(Counted(notFullyRaised, "method not fully raised", "methods not fully raised"));
+
+        if (snapshot.ValidityCompileCap > 0)
+        {
+            if (snapshot.Metrics.FullMalformedMethods > 0)
+                debt.Add(Counted(snapshot.Metrics.FullMalformedMethods, "malformed Full method", "malformed Full methods"));
+            if (snapshot.Metrics.SemanticDefectMethods > 0)
+            {
+                debt.Add(
+                    $"{Counted(snapshot.Metrics.SemanticDefectMethods, "semantic defect", "semantic defects")} "
+                    + $"among {Number(snapshot.Metrics.SemanticCheckedMethods)} checked");
+            }
+        }
+
+        if (snapshot.FidelityCompileCap > 0)
+        {
+            var fidelity = snapshot.Metrics.Fidelity;
+            if (fidelity.OpcodeDiffMethods > 0)
+            {
+                debt.Add(
+                    $"{Counted(fidelity.OpcodeDiffMethods, "fidelity opcode diff", "fidelity opcode diffs")} "
+                    + $"among {Number(fidelity.CheckedMethods)} checked");
+            }
+            if (fidelity.RecompileFailMethods > 0)
+            {
+                debt.Add(
+                    $"{Counted(fidelity.RecompileFailMethods, "fidelity recompile failure", "fidelity recompile failures")} "
+                    + $"among {Number(fidelity.CheckedMethods)} checked");
+            }
+            if (fidelity.ContextFailMethods > 0)
+            {
+                debt.Add(
+                    $"{Counted(fidelity.ContextFailMethods, "fidelity context failure", "fidelity context failures")} "
+                    + $"among {Number(fidelity.CheckedMethods)} checked");
+            }
+        }
+
+        if (snapshot.Metrics.PassBugs > 0)
+            debt.Add(Counted(snapshot.Metrics.PassBugs, "pass bug", "pass bugs"));
+
+        return debt.Count == 0
+            ? "none in enabled checks."
+            : string.Join("; ", debt) + ".";
+    }
+
+    static string RegressionVerdict(int regressionCount)
+        => regressionCount == 0
+            ? "Regression verdict: PASS — corpus sensor matched baseline tolerances."
+            : "Regression verdict: FAIL — corpus sensor reported regressions; review before merging.";
+
+    internal static string CurrentMeasuredDebtForTesting(CorpusSensorSnapshot snapshot)
+        => CurrentMeasuredDebt(snapshot);
+
+    internal static string RegressionVerdictForTesting(int regressionCount)
+        => RegressionVerdict(regressionCount);
 
     static void PrintFeatureCoverage(CorpusSensorSnapshot snapshot)
     {
@@ -1797,6 +1875,9 @@ internal static class CorpusSensor
 
     static string AssemblyCount(int count)
         => $"{Number(count)} assembl{(count == 1 ? "y" : "ies")}";
+
+    static string Counted(int count, string singular, string plural)
+        => $"{Number(count)} {(count == 1 ? singular : plural)}";
 
     static string CapText(int? cap)
         => cap is { } value ? Number(value) : "uncapped";

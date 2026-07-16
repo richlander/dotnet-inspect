@@ -849,9 +849,10 @@ public sealed class UsingStatement : IrNode
 }
 
 /// <summary>
-/// A raised <c>foreach</c> statement. Produced by <see cref="ForeachStatementPass"/>
-/// from csc's enumerator lowering: hidden enumerator resource, MoveNext loop,
-/// and Current assignment to the iteration variable.
+/// A raised <c>foreach</c> or <c>await foreach</c> statement. Produced by
+/// <see cref="ForeachStatementPass"/> from csc's enumerator lowering: hidden
+/// enumerator resource, MoveNext/MoveNextAsync loop, and Current assignment to
+/// the iteration variable.
 /// </summary>
 public sealed class ForeachStatement : IrNode
 {
@@ -860,23 +861,26 @@ public sealed class ForeachStatement : IrNode
         TypeRef localType,
         IrExpression collection,
         Block body,
-        ImmutableArray<MethodRef> consumedMemberRefs = default)
+        ImmutableArray<MethodRef> consumedMemberRefs = default,
+        bool isAwait = false)
     {
         LocalIndex = localIndex;
         LocalType = localType;
         ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
+        IsAwait = isAwait;
         AddChild(collection);
         AddChild(body);
     }
 
     public int LocalIndex { get; }
     public TypeRef LocalType { get; }
+    public bool IsAwait { get; }
     public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
     public IrExpression Collection => (IrExpression)Children[0];
     public Block Body => (Block)Children[1];
     public override IEnumerable<TypeRef> DirectTypes => [LocalType];
 
-    public override string Describe() => $"ForeachStatement V_{LocalIndex} ({LocalType.ToDisplayString()})";
+    public override string Describe() => $"{(IsAwait ? "AwaitForeachStatement" : "ForeachStatement")} V_{LocalIndex} ({LocalType.ToDisplayString()})";
 }
 
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>

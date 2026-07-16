@@ -300,6 +300,9 @@ and per-row sampled denominators for semantic validity and compile-back fidelity
 so reviewers can tell when evidence is strong or thin. Semantic validity and
 compile-back fidelity samples are hash-stable, so zero-tolerance rows such as
 RTS parity compare the same target population when the corpus and caps match.
+The footer separates **current measured debt** from the **regression verdict**:
+unchanged semantic defects, opcode differences, or incomplete raises remain
+visible even when the current snapshot matches baseline tolerances.
 Paste that block as the PR's aggregate corpus evidence; do not re-key the table
 by hand.
 

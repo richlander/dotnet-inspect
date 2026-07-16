@@ -65,6 +65,7 @@ public class FidelityGateTests
         "AwaitAcrossVoidCall",
         "AwaitConfiguredTask",
         "AwaitConfiguredValueTask",
+        "AwaitForeach",
         "AwaitInArguments",
         "AwaitOnce",
         "AwaitThree",
@@ -72,6 +73,7 @@ public class FidelityGateTests
         "AwaitUsingResource",
         "AwaitValueTask",
         "AwaitVoid",
+        "ManualAwaitEnumeratorLoop",
         "NestedAwaitUsingResources",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: helper cleanup makes the body representable, but

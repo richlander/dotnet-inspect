@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-16T00:59:50.2338522+00:00",
+  "generatedUtc": "2026-07-16T06:04:52.2043547+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -1035,8 +1035,8 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "semantic-defect:CS0266",
-      "fidelityCheck": "not-sampled",
+      "validity": "valid",
+      "fidelityCheck": "OpcodeDiff",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitForeach#0"
     },
     {
@@ -1170,7 +1170,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "semantic-defect:CS4004,CS4032",
+      "validity": "valid",
       "fidelityCheck": "OpcodeDiff",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::NestedAwaitUsingResources#0"
     },
@@ -1216,7 +1216,7 @@
       "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.UnionDog::.ctor#0"
     },
     {
@@ -1455,7 +1455,7 @@
     "forwardMergeBasisPoints": 0,
     "fullMalformedMethods": 0,
     "semanticCheckedMethods": 64,
-    "semanticDefectMethods": 2,
+    "semanticDefectMethods": 0,
     "passBugs": 0,
     "residualBuckets": {
       "fidelity: DEC0009": 2,

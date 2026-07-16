@@ -59,6 +59,7 @@ public class LoweredFidelityGateTests
         "AwaitAcrossVoidCall",
         "AwaitConfiguredTask",
         "AwaitConfiguredValueTask",
+        "AwaitForeach",
         "AwaitInArguments",
         "AwaitOnce",
         "AwaitThree",
@@ -66,6 +67,7 @@ public class LoweredFidelityGateTests
         "AwaitUsingResource",
         "AwaitValueTask",
         "AwaitVoid",
+        "ManualAwaitEnumeratorLoop",
         "NestedAwaitUsingResources",
         "ReverseCopy",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator

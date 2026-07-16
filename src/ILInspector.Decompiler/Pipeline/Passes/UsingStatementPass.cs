@@ -22,6 +22,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// all become <c>using (T V_0 = resource) { BODY }</c>. The dispose receiver is
 /// a <c>LoadLocal</c> (reference type) or <c>LoadLocalAddress</c> (value type,
 /// constrained callvirt).
+///
+/// <para>Runtime-async disposal regions use a catch-object / awaited-dispose /
+/// ExceptionDispatchInfo rethrow scaffold. The pass first raises that exact
+/// scaffold to <c>await using</c>; a later pass may then recognize the enclosed
+/// async enumerator loop as <c>await foreach</c>.</para>
 /// </summary>
 public sealed class UsingStatementPass : IIrPass
 {
@@ -38,6 +43,13 @@ public sealed class UsingStatementPass : IIrPass
         IfStatement ReturnIf,
         Throw? FailThrow,
         MethodRef Dispose);
+    sealed record AwaitRegionMatch(
+        StoreLocal StoreResource,
+        StoreLocal StoreException,
+        TryCatch TryCatch,
+        IfStatement DisposeIf,
+        IfStatement RethrowIf,
+        MethodRef Dispose);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -51,20 +63,53 @@ public sealed class UsingStatementPass : IIrPass
         foreach (var block in function.Descendants.OfType<Block>().ToList())
         {
             var children = block.Children;
-            for (int i = 0; i + 6 < children.Count; i++)
+            for (int i = 0; i < children.Count; i++)
             {
                 if ((TryMatchAwaitUsing(function, children, i) ?? TryMatchNestedAwaitUsing(function, children, i)) is not { } match)
-                    continue;
+                {
+                    if (TryMatchAwaitDisposeRegion(children, i) is not { } region
+                        || ReferenceOwnership.SubtreeReferencesLocal(region.StoreResource.Value, region.StoreResource.Index)
+                        || ReferenceOwnership.SubtreeStoresLocal(region.TryCatch, region.StoreResource.Index)
+                        || !ReferenceOwnership.LocalReferencesOnlyWithin(
+                            function,
+                            region.StoreResource.Index,
+                            [region.StoreResource, region.TryCatch, region.DisposeIf])
+                        || !ReferenceOwnership.LocalReferencesOnlyWithin(
+                            function,
+                            region.StoreException.Index,
+                            [region.StoreException, region.TryCatch, region.RethrowIf]))
+                    {
+                        continue;
+                    }
+
+                    var regionResource = (IrExpression)region.StoreResource.DetachChildren()[0];
+                    var regionBody = region.TryCatch.TryBody;
+                    regionBody.Detach();
+                    var regionUsing = new UsingStatement(
+                        region.StoreResource.Index,
+                        region.StoreResource.Type,
+                        regionResource,
+                        regionBody,
+                        isAwait: true,
+                        consumedMemberRefs: [region.Dispose]);
+                    stepper.StepOver("raise async dispose region to await using", region.TryCatch);
+                    region.StoreResource.ReplaceWith(regionUsing);
+                    region.StoreException.Detach();
+                    region.TryCatch.Detach();
+                    region.DisposeIf.Detach();
+                    region.RethrowIf.Detach();
+                    new StructuringPass().Run(function, new PassContext(stepper));
+                    return true;
+                }
 
                 if (ReferenceOwnership.SubtreeReferencesLocal(match.StoreResource.Value, match.StoreResource.Index)
                     || ReferenceOwnership.SubtreeStoresLocal(match.TryCatch, match.StoreResource.Index)
-                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryCatch, match.DisposeIf]))
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, match.StoreResource.Index, [match.StoreResource, match.TryCatch, match.DisposeIf])
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, match.StoreException.Index, [match.StoreException, match.TryCatch, match.RethrowIf])
+                    || !RewriteAwaitUsingBody(match.TryCatch.TryBody, match.StoreState.Index, match.ReturnIf))
                 {
                     continue;
                 }
-
-                if (!RewriteAwaitUsingBody(match.TryCatch.TryBody, match.StoreState.Index, match.ReturnIf))
-                    continue;
 
                 var resource = (IrExpression)match.StoreResource.DetachChildren()[0];
                 var body = match.TryCatch.TryBody;
@@ -108,6 +153,57 @@ public sealed class UsingStatementPass : IIrPass
         return false;
     }
 
+    static AwaitRegionMatch? TryMatchAwaitDisposeRegion(IReadOnlyList<IrNode> children, int i)
+    {
+        if (i + 4 >= children.Count
+            || children[i] is not StoreLocal storeResource
+            || children[i + 1] is not StoreLocal storeException
+            || children[i + 2] is not TryCatch tryCatch
+            || children[i + 3] is not IfStatement disposeIf
+            || children[i + 4] is not IfStatement rethrowIf
+            || storeException.Value is not Constant { Value: null })
+        {
+            return null;
+        }
+
+        if (tryCatch.Clauses is not
+            [{
+                ExceptionType: var exceptionType,
+                VariableIndex: var exceptionIndex,
+                Body.Blocks: [{ Children.Count: 0 }],
+            }]
+            || exceptionIndex != storeException.Index
+            || !MemberIdentity.IsCoreLibraryType(
+                exceptionType,
+                "System",
+                "Object"))
+        {
+            return null;
+        }
+
+        if (disposeIf is not
+            {
+                Else: null,
+                Condition: LoadLocal disposeGuard,
+                Then.Children: [ExpressionStatement { Expression: AwaitExpression awaitedDispose }],
+            }
+            || disposeGuard.Index != storeResource.Index
+            || awaitedDispose.Operand is not Call dispose
+            || !IsAsyncDisposeOf(dispose, storeResource)
+            || !IsExceptionRethrowScaffold(rethrowIf, storeException.Index))
+        {
+            return null;
+        }
+
+        return new AwaitRegionMatch(
+            storeResource,
+            storeException,
+            tryCatch,
+            disposeIf,
+            rethrowIf,
+            dispose.Callee);
+    }
+
     static AwaitMatch? TryMatchAwaitUsing(IrFunction function, IReadOnlyList<IrNode> children, int i)
     {
         if (i + 7 >= children.Count)
@@ -132,8 +228,17 @@ public sealed class UsingStatementPass : IIrPass
             return null;
         }
 
-        if (tryCatch.Clauses is not [{ ExceptionType: { Namespace: "System", Name: "Object" }, VariableIndex: var exceptionIndex, Body.Blocks: [{ Children.Count: 0 }] }]
-            || exceptionIndex != storeException.Index)
+        if (tryCatch.Clauses is not
+            [{
+                ExceptionType: var exceptionType,
+                VariableIndex: var exceptionIndex,
+                Body.Blocks: [{ Children.Count: 0 }],
+            }]
+            || exceptionIndex != storeException.Index
+            || !MemberIdentity.IsCoreLibraryType(
+                exceptionType,
+                "System",
+                "Object"))
         {
             return null;
         }
@@ -162,7 +267,8 @@ public sealed class UsingStatementPass : IIrPass
 
     static AwaitMatch? TryMatchNestedAwaitUsing(IrFunction function, IReadOnlyList<IrNode> children, int i)
     {
-        if (children[i] is not StoreLocal storeResource
+        if (i + 6 >= children.Count
+            || children[i] is not StoreLocal storeResource
             || children[i + 1] is not StoreLocal storeException
             || children[i + 2] is not StoreLocal storeState
             || children[i + 3] is not TryCatch tryCatch
@@ -179,8 +285,17 @@ public sealed class UsingStatementPass : IIrPass
             return null;
         }
 
-        if (tryCatch.Clauses is not [{ ExceptionType: { Namespace: "System", Name: "Object" }, VariableIndex: var exceptionIndex, Body.Blocks: [{ Children.Count: 0 }] }]
-            || exceptionIndex != storeException.Index)
+        if (tryCatch.Clauses is not
+            [{
+                ExceptionType: var exceptionType,
+                VariableIndex: var exceptionIndex,
+                Body.Blocks: [{ Children.Count: 0 }],
+            }]
+            || exceptionIndex != storeException.Index
+            || !MemberIdentity.IsCoreLibraryType(
+                exceptionType,
+                "System",
+                "Object"))
         {
             return null;
         }

@@ -13,6 +13,7 @@ internal sealed class ControlFlowScorecardCases : IdiomShapeScorecardTests.ICase
         new("UsingStatementPass", nameof(CfgSampleClass.RefStructPatternUsing), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
         new("UsingStatementPass", nameof(CfgSampleClass.AwaitUsingResource), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
         new("UsingStatementPass", nameof(CfgSampleClass.NestedAwaitUsingResources), SyntaxKind.UsingStatement, [SyntaxKind.TryStatement]),
+        new("ForeachStatementPass", nameof(CfgSampleClass.AwaitForeach), SyntaxKind.ForEachStatement, [SyntaxKind.UsingStatement, SyntaxKind.WhileStatement]),
         new("LockSugarPass", nameof(CfgSampleClass.ClassicLock), SyntaxKind.LockStatement, [SyntaxKind.TryStatement]),
         new("DoWhileLoopPass", nameof(CfgSampleClass.DoWhileLoop), SyntaxKind.DoStatement, [SyntaxKind.WhileStatement]),
         new("DoWhileLoopPass", nameof(CfgSampleClass.PartitionStyleNestedSelfLoops), SyntaxKind.DoStatement, [SyntaxKind.GotoStatement]),

@@ -52,6 +52,7 @@ internal static class FactPrimitiveCatalog
         "no-generated-closure-method",
         "manual-factory-lookalike",
         "mdarray-bounds-and-get-shape",
+        "async-enumerator-call-shape",
         "enumerator-call-shape",
         "cross-method-import");
 

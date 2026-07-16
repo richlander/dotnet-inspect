@@ -120,6 +120,28 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void RuntimeAsyncAwaitForeach_PreservesLoopAndExceptionEvidence()
+    {
+        using var source =
+            MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.AwaitForeach));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        Assert.Contains(
+            function.Descendants.OfType<ForeachStatement>(),
+            statement => statement.IsAwait);
+
+        var coverage =
+            CorpusSensor.RecordMethodFeatureCoverageForTesting(function);
+
+        Assert.Equal(1, coverage["runtime-async-loop-methods"]);
+        Assert.Equal(1, coverage["runtime-async-exception-methods"]);
+    }
+
+    [Fact]
     public void Compare_NormalPrQuickGate_LeavesAggregateRateDropAdvisoryWhenPinnedSubsetIsStable()
     {
         var baseline = Snapshot(
@@ -571,18 +593,78 @@ public class CorpusSensorComparisonTests
         Assert.DoesNotContain("(bad)", report);
     }
 
+    [Fact]
+    public void CurrentMeasuredDebt_ListsEveryNonZeroFailureClass()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 93,
+            fullyRaisedMethods: 87,
+            fullyRaisedBasisPoints: 9355,
+            pinnedMethods: null,
+            validityCompileCap: 25,
+            fullMalformedMethods: 1,
+            semanticCheckedMethods: 64,
+            semanticDefectMethods: 2,
+            fidelityCompileCap: 25,
+            fidelityCheckedMethods: 64,
+            fidelityExactMethods: 45,
+            fidelityOpcodeDiffMethods: 10,
+            fidelityRecompileFailMethods: 5,
+            fidelityContextFailMethods: 4,
+            passBugs: 1);
+
+        string summary = CorpusSensor.CurrentMeasuredDebtForTesting(snapshot);
+
+        Assert.Equal(
+            "6 methods not fully raised; 1 malformed Full method; "
+            + "2 semantic defects among 64 checked; "
+            + "10 fidelity opcode diffs among 64 checked; "
+            + "5 fidelity recompile failures among 64 checked; "
+            + "4 fidelity context failures among 64 checked; 1 pass bug.",
+            summary);
+    }
+
+    [Fact]
+    public void CurrentMeasuredDebt_ReportsNoneForCleanEnabledChecks()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            fidelityCompileCap: 2,
+            fidelityCheckedMethods: 2,
+            fidelityExactMethods: 2);
+
+        Assert.Equal(
+            "none in enabled checks.",
+            CorpusSensor.CurrentMeasuredDebtForTesting(snapshot));
+        Assert.Equal(
+            "Regression verdict: PASS — corpus sensor matched baseline tolerances.",
+            CorpusSensor.RegressionVerdictForTesting(regressionCount: 0));
+        Assert.Equal(
+            "Regression verdict: FAIL — corpus sensor reported regressions; review before merging.",
+            CorpusSensor.RegressionVerdictForTesting(regressionCount: 1));
+    }
+
     static CorpusSensorSnapshot Snapshot(
         int totalMethods,
         int fullyRaisedMethods,
         int fullyRaisedBasisPoints,
         IReadOnlyList<CorpusMethodSnapshot>? pinnedMethods,
         int validityCompileCap = 0,
+        int fullMalformedMethods = 0,
         int semanticCheckedMethods = 0,
         int semanticDefectMethods = 0,
         int fidelityCompileCap = 0,
         int fidelityCheckedMethods = 0,
         int fidelityExactMethods = 0,
         int fidelityOpcodeDiffMethods = 0,
+        int fidelityRecompileFailMethods = 0,
+        int fidelityContextFailMethods = 0,
+        int passBugs = 0,
         CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
         ReturnToSenderParityMetrics? returnToSenderParity = null,
         CorpusProfile profile = CorpusProfile.RealWorld,
@@ -606,18 +688,18 @@ public class CorpusSensorComparisonTests
                 ConditionalBranchBasisPoints: 0,
                 ForwardMergeStoppedContainers: 0,
                 ForwardMergeBasisPoints: 0,
-                FullMalformedMethods: 0,
+                FullMalformedMethods: fullMalformedMethods,
                 SemanticCheckedMethods: semanticCheckedMethods,
                 SemanticDefectMethods: semanticDefectMethods,
-                PassBugs: 0,
+                PassBugs: passBugs,
                 ResidualBuckets: ImmutableDictionary<string, int>.Empty,
                 Structuring: new StructuringSensorMetrics(0, 0, 0, 0, 0, ImmutableDictionary<string, int>.Empty),
                 Fidelity: new FidelitySensorMetrics(
                     fidelityCheckedMethods,
                     fidelityExactMethods,
                     fidelityOpcodeDiffMethods,
-                    RecompileFailMethods: 0,
-                    ContextFailMethods: 0,
+                    RecompileFailMethods: fidelityRecompileFailMethods,
+                    ContextFailMethods: fidelityContextFailMethods,
                     NotFullMethods: 0,
                     ReturnToSenderParity: returnToSenderParity)),
             FidelityOracle: fidelityOracle,
