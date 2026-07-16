@@ -130,6 +130,62 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void ValidateRtsParityBurndownFlags_RejectsNonReturnToSenderOracle()
+    {
+        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.CompileBack, [3], "burndown.json", null);
+
+        Assert.NotNull(error);
+        Assert.Contains("rts-parity", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_RejectsMissingPositiveFidelityCap()
+    {
+        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.ReturnToSender, [0], "burndown.json", null);
+
+        Assert.NotNull(error);
+        Assert.Contains("--corpus-fidelity-cap", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_RejectsEmitAndEnforceSamePath()
+    {
+        var error = CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "burndown.json", "burndown.json");
+
+        Assert.NotNull(error);
+        Assert.Contains("same file", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityBurndownFlags_AllowsWellFormedGateRun()
+    {
+        Assert.Null(CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "burndown.json", null));
+        Assert.Null(CorpusSensor.ValidateRtsParityBurndownFlags(
+            CorpusFidelityOracle.CompileBack, [0], null, null));
+    }
+
+    [Fact]
+    public void ReadRtsParityBurndown_ManifestWithoutRowsArray_ReadsAsEmptyWithoutThrowing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"rts-burndown-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            var manifest = CorpusSensor.ReadRtsParityBurndown(path);
+            Assert.False(manifest.Rows.IsDefault);
+            Assert.Empty(manifest.Rows);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Compare_RejectsCorpusProfileMismatch()
     {
         var baseline = Snapshot(

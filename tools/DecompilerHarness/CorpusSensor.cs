@@ -98,6 +98,17 @@ internal static class CorpusSensor
             return 1;
         }
 
+        if (rtsParityBurndown is not null || emitRtsParityBurndown is not null)
+        {
+            var burndownError = ValidateRtsParityBurndownFlags(
+                fidelityOracle, fidelityCompileCaps, rtsParityBurndown, emitRtsParityBurndown);
+            if (burndownError is not null)
+            {
+                Console.Error.WriteLine(burndownError);
+                return 1;
+            }
+        }
+
         var (current, fidelityReports) = Capture(
             assemblies,
             validityCompileCap,
@@ -827,6 +838,36 @@ internal static class CorpusSensor
         return builder.ToImmutable();
     }
 
+    // Guards that make the RTS-parity burn-down flags refuse to run toothless: they
+    // require the rts-parity oracle (else EnforceRtsParityBurndown never fires) AND a
+    // positive fidelity cap (else the parity population is empty and every manifest row
+    // is spuriously "resolved" while the run exits 0). Enforcing against a just-emitted
+    // manifest (same path) would self-certify new regressions, so that is rejected too.
+    // Returns an error message, or null when the flags are usable.
+    internal static string? ValidateRtsParityBurndownFlags(
+        CorpusFidelityOracle fidelityOracle,
+        IReadOnlyList<int> fidelityCompileCaps,
+        string? rtsParityBurndown,
+        string? emitRtsParityBurndown)
+    {
+        if (rtsParityBurndown is null && emitRtsParityBurndown is null)
+            return null;
+        if (fidelityOracle != CorpusFidelityOracle.ReturnToSender)
+            return "--rts-parity-burndown and --emit-rts-parity-burndown require --corpus-fidelity-oracle rts-parity.";
+        if (!fidelityCompileCaps.Any(cap => cap > 0))
+            return "--rts-parity-burndown and --emit-rts-parity-burndown require a positive --corpus-fidelity-cap so the parity population is actually evaluated.";
+        if (rtsParityBurndown is not null
+            && emitRtsParityBurndown is not null
+            && string.Equals(
+                Path.GetFullPath(rtsParityBurndown),
+                Path.GetFullPath(emitRtsParityBurndown),
+                StringComparison.Ordinal))
+        {
+            return "--rts-parity-burndown and --emit-rts-parity-burndown must not point at the same file; enforcing against a just-emitted manifest would self-certify new regressions.";
+        }
+        return null;
+    }
+
     internal sealed record RtsParityBurndownRow(string Method, string Status);
 
     internal sealed record RtsParityBurndownManifest(
@@ -931,9 +972,12 @@ internal static class CorpusSensor
         return !evaluation.NewRegressions.IsEmpty;
     }
 
-    static RtsParityBurndownManifest ReadRtsParityBurndown(string path)
-        => JsonSerializer.Deserialize<RtsParityBurndownManifest>(File.ReadAllText(path), JsonOptions())
-           ?? throw new InvalidOperationException($"Could not read RTS-parity burn-down '{path}'.");
+    internal static RtsParityBurndownManifest ReadRtsParityBurndown(string path)
+    {
+        var manifest = JsonSerializer.Deserialize<RtsParityBurndownManifest>(File.ReadAllText(path), JsonOptions())
+            ?? throw new InvalidOperationException($"Could not read RTS-parity burn-down '{path}'.");
+        return manifest.Rows.IsDefault ? manifest with { Rows = [] } : manifest;
+    }
 
     static string CompileBackTargetKey(FidelityCheck.CompileBackTarget target)
         => $"{target.Type}::{target.Method}::{target.Overload}::{target.Signature}";
