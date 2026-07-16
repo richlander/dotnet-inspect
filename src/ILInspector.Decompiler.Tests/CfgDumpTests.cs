@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-
 using ILInspector.ControlFlow;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
