@@ -1074,8 +1074,9 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
         bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
+        var bodyFacts = isConstructor ? ConstructorBodyFactExtractor.Extract(function) : ConstructorBodyFacts.None;
         var primaryConstructor = isConstructor
-            ? PrimaryConstructorFromPrologue(reader, method, function, targetBody)
+            ? PrimaryConstructorFromPrologue(reader, method, bodyFacts.PrimaryConstructorPrologue, targetBody)
             : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();
@@ -1087,8 +1088,7 @@ public static class CompileBackSourceComposer
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
 
-        var chainCall = isConstructor ? ConstructorChainCall(function) : null;
-        var chainCallee = chainCall?.Callee;
+        var chainParameterTypes = bodyFacts.ChainParameterTypes;
         // Only this(...) self-chains are re-emitted as constructor initializers.
         // RTS shells are flat (object-based, no reconstructed base class), so a
         // base(args) initializer has no base constructor to bind to and would
@@ -1172,16 +1172,16 @@ public static class CompileBackSourceComposer
         // the chained-to constructor must be reconstructable in the shell, and a
         // same-arity sibling must be present to serve as its binding target.
         bool chainedConstructorReconstructed =
-            chainCallee is { } chainCtor
+            chainParameterTypes is { } chainParams
             // The chained-to constructor is reconstructed only when its signature
             // is fully supported (an unsupported parameter such as a function
             // pointer makes the planner drop it, mirroring MethodRequirement).
-            && chainCtor.ParameterTypes.All(type => !IsUnsupportedChainParameterType(type))
+            && chainParams.All(type => !TypeShellProducer.IsUnsupportedSurfaceSignature(type))
             // A same-arity non-target constructor must actually be present in the
             // shell for `: this(args)` to have a binding target.
             && targetMembers.Any(member => member.Kind == CompileBackMemberKind.Constructor
                 && member.StubBody != CompileBackStubBodyKind.TargetBody
-                && member.Parameters.Count == chainCtor.ParameterTypes.Length);
+                && member.Parameters.Count == chainParams.Count);
         if (targetConstructorInitializer is not null && !chainedConstructorReconstructed)
         {
             // The chained-to constructor was not reconstructed in the shell: either
@@ -1525,45 +1525,6 @@ public static class CompileBackSourceComposer
         => requirement.Kind == CompileBackMemberKind.PropertyGet
             ? new CSharpPropertyBody(body, null)
             : new CSharpPropertyBody(null, body);
-
-    /// <summary>
-    /// The base/this <c>.ctor</c> chain call in the entry block, or null when the
-    /// constructor body has no chain call (a struct ctor, or a body that never
-    /// chains). Mirrors the printer's chain-call detection so the shell can verify
-    /// the chained-to constructor was reconstructed before emitting the initializer
-    /// and letting the Roslyn oracle judge binding.
-    /// </summary>
-    static Call? ConstructorChainCall(IrFunction function)
-    {
-        if (function.Body.Blocks is not [{ } entry, ..])
-            return null;
-        foreach (var child in entry.Children)
-        {
-            if (child is ExpressionStatement
-                {
-                    Expression: Call { Callee: { Name: ".ctor", HasThis: true } } call
-                }
-                && call.Arguments is [_, ..])
-            {
-                return call;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Whether a constructor-chain parameter type would be dropped from the
-    /// reconstructed shell (mirrors <c>IsUnsupportedSurfaceSignature</c>): a
-    /// function pointer or a compiler-generated/anonymous type has no faithful
-    /// C# surface, so the chained-to constructor is not reconstructed and a
-    /// <c>: this(args)</c> initializer targeting it cannot bind.
-    /// </summary>
-    static bool IsUnsupportedChainParameterType(TypeRef type)
-        // Route surface-representability through the product seam (TypeShellProducer)
-        // so every RTS consumer judges droppable surfaces identically, instead of
-        // re-inlining the delegate*/<>/{ heuristic here.
-        => TypeShellProducer.IsUnsupportedSurfaceSignature(type.ToDisplayString());
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
@@ -1968,7 +1929,7 @@ public static class CompileBackSourceComposer
     static CompileBackPrimaryConstructor? PrimaryConstructorFromPrologue(
         MetadataReader reader,
         MethodDefinition method,
-        IrFunction function,
+        IReadOnlyList<PrimaryConstructorFieldStore>? prologue,
         string renderedBody)
     {
         if (reader.GetString(method.Name) != ".ctor"
@@ -1979,25 +1940,10 @@ public static class CompileBackSourceComposer
         if (CountInstanceConstructors(reader, declaringType) != 1
             || HasInAssemblyDerivedType(reader, declaringHandle))
             return null;
-        if (function.Body.Blocks is not [{ } entry, ..])
-            return null;
-
-        int? chainIndex = null;
-        for (int i = 0; i < entry.Children.Count; i++)
-        {
-            if (entry.Children[i] is ExpressionStatement
-                {
-                    Expression: Call { Callee: { Name: ".ctor", HasThis: true }, Arguments: [LoadArgument { Index: 0 }] }
-                })
-            {
-                chainIndex = i;
-                break;
-            }
-        }
-
-        if (chainIndex is not > 0)
-            return null;
-        if (entry.Children.Skip(chainIndex.Value + 1).Any(node => node is not Return))
+        // The IR-shape detection (leading arg->field stores before a parameterless
+        // chain call, then only returns) lives in the product extractor; a null
+        // prologue means the body is not primary-constructor shaped.
+        if (prologue is null)
             return null;
 
         var parameterNames = ParameterNames(reader, method);
@@ -2006,18 +1952,11 @@ public static class CompileBackSourceComposer
 
         var fieldInitializers = new List<CompileBackMemberRequirement>();
         var initializerTexts = new List<(string Field, string Value)>();
-        foreach (var node in entry.Children.Take(chainIndex.Value))
+        foreach (var fieldStore in prologue)
         {
-            if (node is not StoreField
-                {
-                    HasInstance: true,
-                    Instance: LoadArgument { Index: 0 },
-                    Value: LoadArgument { Index: > 0 } value
-                } store)
+            if (!parameterNames.TryGetValue(fieldStore.SourceArgumentIndex - 1, out string? parameterName))
                 return null;
-            if (!parameterNames.TryGetValue(value.Index - 1, out string? parameterName))
-                return null;
-            if (FindField(reader, declaringType, store.Field.Name) is not { } fieldHandle)
+            if (FindField(reader, declaringType, fieldStore.FieldName) is not { } fieldHandle)
                 return null;
 
             var field = reader.GetFieldDefinition(fieldHandle);
@@ -2031,8 +1970,8 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            string fieldName = store.Field.BackingPropertyName
-                ?? store.Field.Name;
+            string fieldName = fieldStore.BackingPropertyName
+                ?? fieldStore.FieldName;
             initializerTexts.Add((fieldName, parameterName));
             fieldInitializers.Add(new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(
