@@ -1,38 +1,9 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
-
-/// <summary>
-/// Resolves metadata-backed IL operand tokens without exposing metadata-reader
-/// types to the instruction rendering layer.
-/// </summary>
-public interface IOperandNameResolver
-{
-    ILSyntax Syntax { get; }
-    string ResolveType(int token);
-    string ResolveMethod(int token);
-    string ResolveField(int token);
-    string ResolveString(int token);
-    string ResolveToken(int token);
-}
-
-/// <summary>
-/// Selects how IL operands are rendered by <see cref="InstructionProducer"/>.
-/// </summary>
-public enum ILSyntax
-{
-    /// <summary>Human-readable C#-style operand names.</summary>
-    Display,
-
-    /// <summary>
-    /// Canonical ilasm syntax — assembly-qualified type names, IL primitive names,
-    /// return types and calling conventions on member refs — suitable for feeding
-    /// back through an IL assembler.
-    /// </summary>
-    Canonical,
-}
 
 /// <summary>
 /// A rendered projection of one decoded IL instruction: opcode display/canonical name plus

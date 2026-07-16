@@ -1,10 +1,11 @@
 using System.Reflection.Metadata;
-using ILInspector.Instructions;
-using ILInspector.Metadata;
 
-namespace DotnetInspector.Inspectors;
+namespace ILInspector.Metadata;
 
-internal sealed class MetadataOperandNameResolver(
+/// <summary>
+/// Resolves metadata-backed IL operands using display or canonical ilasm spelling.
+/// </summary>
+public sealed class MetadataOperandNameResolver(
     MetadataReader reader,
     ILSyntax syntax = ILSyntax.Display) : IOperandNameResolver
 {

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 

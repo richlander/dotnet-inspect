@@ -521,15 +521,15 @@ reasons `Metadata → Instructions` existed:
 - **The IL printer moves to `Instructions` by dependency inversion.**
   `InstructionProducer` owns IL rendering; its sole former `Metadata` tie was turning an
   operand token into a name (`ILTokenResolver` / `CanonicalIL`, over a
-  `MetadataReader`). Name that need as an abstraction `Instructions` owns —
+  `MetadataReader`). Name that need as a dependency-neutral abstraction in
+  `MetadataPrimitives` —
   `IOperandNameResolver` with `ResolveType/Method/Field/String/Token(int token)`,
   phrased in ints and strings, no SRM — have the printer call it, and implement
-  it with an adapter that closes over a `MetadataReader` and forwards to the
-  existing static resolvers. The **high-level policy** (IL rendering) no longer
-  depends on the **low-level detail** (metadata lookup); both depend on the
-  abstraction, which the policy side owns. Placed in the layer that already sees
-  both (the product, harness, and roundtrip composition seams), the adapters
-  **cut** `Metadata ↔ Instructions` outright. AppContext switch discovery moved
+  it once in `Metadata` with `MetadataOperandNameResolver`, which closes over a
+  `MetadataReader` and forwards to the existing static resolvers. Both peer
+  libraries depend on the shared contract; consumers compose the Metadata
+  implementation with `InstructionProducer` without either peer referencing the
+  other. AppContext switch discovery moved
   with the IL scan into product composition; Metadata retains attribute-backed
   switch discovery, and the product merges both sets for presence and rendering.
 - **`PdbContext` splits at a seam that is already there.** Its `Instructions` use
@@ -616,7 +616,7 @@ sourced from Metadata/Analysis, not from the printed text:
 | Layer | Role | Adds |
 | --- | --- | --- |
 | Metadata | `SignatureProducer` + identity + source-link | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); add `SignatureProducer` (type/member, singular or list, no shells); keep the PDB/source-link core (`ResolveByILOffset`, source docs, compilation info) with **no** `Instructions` dependency; expose async classification for the body path |
-| Instructions | `InstructionProducer` | host `InstructionProducer` behind the `IOperandNameResolver` inversion (stays free of the Metadata assembly); own the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
+| Instructions | `InstructionProducer` | host `InstructionProducer` behind the shared `IOperandNameResolver` contract (stays free of the Metadata assembly); own the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
 | CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |

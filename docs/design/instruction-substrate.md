@@ -281,7 +281,8 @@ not attempted in that PR.
   `ILInspector.Metadata`'s `ILDisassembler`/`ILInstruction` cut over to
   `InstructionProducer`/`ILInstructionText` over `MethodInstructions`, with
   Metadata's project dependency on Instructions removed through
-  `IOperandNameResolver` composition (done, validated; see "The Metadata
+  the shared `IOperandNameResolver` contract and Metadata-owned
+  `MetadataOperandNameResolver` implementation (done, validated; see "The Metadata
   cutover" above). Remaining: `LibraryBodyIndex`
   (the allocation/triage producer — convert its decode loop with the full corpus
   baseline as guard), the decompiler importer (with the minimal-CFG refactor),
