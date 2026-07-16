@@ -121,7 +121,14 @@ internal static class CorpusSensor
         }
 
         if (diffBaseline is null)
-            return current.Metrics.PassBugs > 0 || FeatureCoverageFailures(current).Length > 0 ? 1 : 0;
+        {
+            var exactRegressions = ExactReferenceRecompileRegressions(current);
+            foreach (var offender in exactRegressions)
+                Console.WriteLine($"- RTS parity lost: {offender.DisplayMethod} recompiled Exact under the product oracle but {offender.FidelityCheck} under ReturnToSender");
+            return current.Metrics.PassBugs > 0
+                || FeatureCoverageFailures(current).Length > 0
+                || exactRegressions.Length > 0 ? 1 : 0;
+        }
 
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(diffBaseline), JsonOptions())
             ?? throw new InvalidOperationException($"Could not read corpus baseline '{diffBaseline}'.");
@@ -793,6 +800,33 @@ internal static class CorpusSensor
     static string FidelityResultKey(FidelityCheck.CompileBackResult result)
         => $"{result.Type}::{result.Method}::{result.Overload}::{result.Signature}";
 
+    // Absolute RTS-parity invariant: a method the product oracle recompiled Exact
+    // must never recompile-fail under ReturnToSender. This is baseline-independent
+    // (it reads the current snapshot alone) and names every offending row so a
+    // regression can be traced back to the method that lost parity.
+    internal static ImmutableArray<CorpusMethodSnapshot> ExactReferenceRecompileRegressions(
+        CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.FidelityOracle != CorpusFidelityOracle.ReturnToSender
+            || snapshot.Methods is not { } methods)
+        {
+            return [];
+        }
+
+        var builder = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>();
+        foreach (var method in methods)
+        {
+            if (string.Equals(method.FidelityReference, "Exact", StringComparison.Ordinal)
+                && (string.Equals(method.FidelityCheck, "RecompileFail", StringComparison.Ordinal)
+                    || string.Equals(method.FidelityCheck, "ContextFail", StringComparison.Ordinal)))
+            {
+                builder.Add(method);
+            }
+        }
+
+        return builder.ToImmutable();
+    }
+
     static string CompileBackTargetKey(FidelityCheck.CompileBackTarget target)
         => $"{target.Type}::{target.Method}::{target.Overload}::{target.Signature}";
 
@@ -1065,6 +1099,22 @@ internal static class CorpusSensor
                 baselineParity.WorseMethods,
                 currentParity.WorseMethods,
                 tolerance: 0);
+        }
+
+        // Baseline-independent hard gate: any method the product oracle recompiled Exact
+        // must not recompile-fail under ReturnToSender. Reads the current snapshot alone
+        // so it fires even when no comparable baseline sample exists.
+        var exactRegressions = ExactReferenceRecompileRegressions(current);
+        if (!exactRegressions.IsEmpty)
+        {
+            const int shown = 5;
+            var names = string.Join(
+                ", ",
+                exactRegressions.Take(shown).Select(m => $"{m.DisplayMethod} [{m.FidelityCheck}]"));
+            if (exactRegressions.Length > shown)
+                names += $", +{exactRegressions.Length - shown} more";
+            failures.Add(
+                $"RTS parity lost on {exactRegressions.Length} method(s): recompiled Exact under the product oracle but RecompileFail/ContextFail under ReturnToSender ({names})");
         }
 
         AddCountRegression(failures, "pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, tolerance.PassBugIncrease);

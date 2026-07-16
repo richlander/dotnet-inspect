@@ -32,6 +32,75 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void ExactReferenceRecompileRegressions_FlagsExactToRecompileAndContextFail()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("Context", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var offenders = CorpusSensor.ExactReferenceRecompileRegressions(snapshot);
+
+        Assert.Equal(2, offenders.Length);
+        Assert.Contains(offenders, m => m.Method == "Recompile");
+        Assert.Contains(offenders, m => m.Method == "Context");
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_IgnoresRescuedSameAndUnpaired()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Rescued", fidelityReference: "OpcodeDiff", fidelityCheck: "Exact"),
+            RtsMethod("Same", fidelityReference: "Exact", fidelityCheck: "Exact"),
+            RtsMethod("OpcodeDrift", fidelityReference: "Exact", fidelityCheck: "OpcodeDiff"),
+            RtsMethod("NoReference", fidelityReference: null, fidelityCheck: "RecompileFail"));
+
+        Assert.Empty(CorpusSensor.ExactReferenceRecompileRegressions(snapshot));
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_OnlyAppliesToReturnToSenderOracle()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail")],
+            fidelityOracle: CorpusFidelityOracle.CompileBack);
+
+        Assert.Empty(CorpusSensor.ExactReferenceRecompileRegressions(snapshot));
+    }
+
+    [Fact]
+    public void Compare_FailsAndNamesExactToRecompileFailRegression()
+    {
+        var baseline = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "Exact"));
+        var current = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail"));
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            regressions,
+            r => r.Contains("RTS parity lost", StringComparison.Ordinal)
+                && r.Contains("Pinned!T::Recompile#0", StringComparison.Ordinal)
+                && r.Contains("RecompileFail", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PassesWhenReferenceExactStaysExactUnderReturnToSender()
+    {
+        var baseline = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "Exact"));
+        var current = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "Exact"));
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.DoesNotContain(regressions, r => r.Contains("RTS parity lost", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Compare_RejectsCorpusProfileMismatch()
     {
         var baseline = Snapshot(
@@ -690,7 +759,8 @@ public class CorpusSensorComparisonTests
         string method,
         string assemblyPath = "nuget:pinned/lib.dll",
         string validity = "not-sampled",
-        string fidelityCheck = "not-sampled")
+        string fidelityCheck = "not-sampled",
+        string? fidelityReference = null)
         => new(
             Assembly: "Pinned",
             AssemblyPath: assemblyPath,
@@ -703,7 +773,25 @@ public class CorpusSensorComparisonTests
             Residual: null,
             PassBug: null,
             Validity: validity,
-            FidelityCheck: fidelityCheck);
+            FidelityCheck: fidelityCheck,
+            FidelityReference: fidelityReference);
+
+    static CorpusMethodSnapshot RtsMethod(
+        string method,
+        string? fidelityReference,
+        string fidelityCheck)
+        => SnapshotMethod(
+            method,
+            fidelityCheck: fidelityCheck,
+            fidelityReference: fidelityReference);
+
+    static CorpusSensorSnapshot ReturnToSenderSnapshot(params CorpusMethodSnapshot[] methods)
+        => Snapshot(
+            totalMethods: methods.Length,
+            fullyRaisedMethods: methods.Length,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: methods,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender);
 
     static IReadOnlyList<CorpusMethodSnapshot> ValidityMethods(
         params (string Method, string Validity)[] values)

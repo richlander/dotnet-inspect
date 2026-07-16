@@ -263,6 +263,17 @@ Because compile-back selects this population before RTS runs, `NotFullMethods`
 is structurally zero and failure buckets describe only the selected parity
 population; this mode measures parity, not independent RTS coverage.
 
+Regardless of any committed baseline, `rts-parity` snapshots are subject to a
+hard, per-row invariant: a method the compile-back oracle recompiled `Exact`
+must never recompile-fail (`RecompileFail` or `ContextFail`) under RTS. That
+transition means the ReturnToSender orchestrator dropped fidelity the product
+already proved, so the sensor fails and names every offending
+`Assembly!Type::Method#Overload`. The check reads the current snapshot alone, so
+it fires both when diffing against a baseline (`--diff-corpus-baseline`) and on a
+standalone `rts-parity` run with no baseline. It is the backbone gate for the
+RTS-orchestrator work: parity may improve (`OpcodeDiff` → `Exact` rescues) but
+must never regress an already-`Exact` method.
+
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode diffs include canonical opcode streams, while
 recompile and context failures include the method and diagnostic detail. Use
