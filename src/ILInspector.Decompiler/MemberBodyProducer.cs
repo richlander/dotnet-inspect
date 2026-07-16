@@ -210,8 +210,8 @@ public static class MemberBodyProducer
     {
         foreach (var typeParameter in typeParameters)
         {
-            if (typeParameter.ConstraintsSummary is { } constraints)
-                sb.Append($" where {EscapeIdentifier(typeParameter.Name)} : {EscapeKnownIdentifiers(constraints, typeParameters.Select(p => p.Name))}");
+            if (typeParameter.Constraints.Count > 0)
+                sb.Append($" where {EscapeIdentifier(typeParameter.Name)} : {CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name))}");
         }
     }
 

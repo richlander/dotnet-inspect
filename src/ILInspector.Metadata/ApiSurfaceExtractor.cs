@@ -499,6 +499,7 @@ public static class ApiSurfaceExtractor
             {
                 Name = reader.GetString(param.Name)
             };
+            var structured = new List<TypeParameterConstraint>();
 
             var attrs = param.Attributes;
             if (includeVariance && GenericConstraintKeywords.VarianceKeyword(attrs) is { } variance)
@@ -509,7 +510,10 @@ public static class ApiSurfaceExtractor
                 KnownAttributeNames.IsUnmanagedAttribute);
 
             if (GenericConstraintKeywords.PrimaryKeyword(attrs, nullable ?? 0, isUnmanaged) is { } primaryKeyword)
+            {
                 typeParam.Constraints.Add(primaryKeyword);
+                structured.Add(new TypeParameterConstraint(primaryKeyword, IsTypeName: false));
+            }
 
             foreach (var constraintHandle in param.GetConstraints())
             {
@@ -519,14 +523,23 @@ public static class ApiSurfaceExtractor
                     continue;
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
-                typeParam.Constraints.Add(FormatConstraintType(reader, constraint, constraintTypeName, nullableContext));
+                var formatted = FormatConstraintType(reader, constraint, constraintTypeName, nullableContext);
+                typeParam.Constraints.Add(formatted);
+                structured.Add(new TypeParameterConstraint(formatted, IsTypeName: true));
             }
 
             if (GenericConstraintKeywords.NewConstraintKeyword(attrs) is { } newConstraint)
+            {
                 typeParam.Constraints.Add(newConstraint);
+                structured.Add(new TypeParameterConstraint(newConstraint, IsTypeName: false));
+            }
             if (GenericConstraintKeywords.AllowsRefStructKeyword(attrs) is { } allowsRefStruct)
+            {
                 typeParam.Constraints.Add(allowsRefStruct);
+                structured.Add(new TypeParameterConstraint(allowsRefStruct, IsTypeName: false));
+            }
 
+            typeParam.StructuredConstraints = structured;
             parameters.Add(typeParam);
         }
 

@@ -956,6 +956,53 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal("public class KeywordGeneric<@object> : System.Collections.Generic.IEnumerable<@object>", declaration);
     }
 
+    [Fact]
+    public void TypeDeclaration_EscapesKeywordConstraintTypeNamesButNotConstraintKeywords()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "KeywordConstraint`1",
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T", Constraints = ["class", "TestNS.class", "new()"] },
+            ],
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type);
+
+        Assert.Equal("public class KeywordConstraint<T> where T : class, TestNS.@class, new()", declaration);
+    }
+
+    [Fact]
+    public void TypeDeclaration_StructuredConstraintsDisambiguateKeywordFromTypeNamedLikeKeyword()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "GlobalKeywordType`1",
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter
+                {
+                    Name = "T",
+                    Constraints = ["struct", "struct"],
+                    StructuredConstraints =
+                    [
+                        new TypeParameterConstraint("struct", IsTypeName: false),
+                        new TypeParameterConstraint("struct", IsTypeName: true),
+                    ],
+                },
+            ],
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type);
+
+        Assert.Equal("public class GlobalKeywordType<T> where T : struct, @struct", declaration);
+    }
+
     static ApiType CreateSampleType()
         => new()
         {

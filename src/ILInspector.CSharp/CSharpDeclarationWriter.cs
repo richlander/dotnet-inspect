@@ -528,11 +528,59 @@ internal static class CSharpDeclarationWriter
     {
         foreach (var typeParameter in typeParameters)
         {
-            if (typeParameter.ConstraintsSummary is { } constraints)
-                declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {EscapeKnownIdentifiers(constraints, typeParameters.Select(p => p.Name))}";
+            if (typeParameter.Constraints.Count == 0)
+                continue;
+
+            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
         }
 
         return declaration;
+    }
+
+    /// <summary>
+    /// Renders the constraint list that follows <c>where X : </c> for one type
+    /// parameter, escaping reserved-keyword identifiers inside constraint type names
+    /// while emitting special-constraint keywords verbatim. Uses
+    /// <see cref="TypeParameter.StructuredConstraints"/> for the keyword/type-name
+    /// distinction when available; otherwise falls back to a token heuristic that
+    /// cannot disambiguate a type literally named like a constraint keyword.
+    /// </summary>
+    internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
+    {
+        var parts = typeParameter.StructuredConstraints is { } structured
+            ? structured.Select(entry => entry.IsTypeName ? EscapeReservedKeywordIdentifiers(entry.Value) : entry.Value)
+            : typeParameter.Constraints.Select(SpellConstraint);
+        return EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames);
+    }
+
+    // Fallback used only when structured constraint kinds are unavailable: a
+    // constraint entry equal to a special-constraint keyword is emitted verbatim,
+    // otherwise it is treated as a type name subject to reserved-keyword escaping.
+    // This cannot disambiguate a type literally named like a keyword (e.g. a global
+    // type named "class"); producers that populate StructuredConstraints avoid it.
+    static string SpellConstraint(string constraint)
+        => s_specialConstraintKeywords.Contains(constraint)
+            ? constraint
+            : EscapeReservedKeywordIdentifiers(constraint);
+
+    static string EscapeReservedKeywordIdentifiers(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length;)
+        {
+            if (IsIdentifierStart(text[i]))
+            {
+                int start = i++;
+                while (i < text.Length && IsIdentifierPart(text[i]))
+                    i++;
+                string token = text[start..i];
+                bool alreadyEscaped = start > 0 && text[start - 1] == '@';
+                sb.Append(!alreadyEscaped && s_csharpReservedKeywords.Contains(token) ? EscapeIdentifier(token) : token);
+                continue;
+            }
+            sb.Append(text[i++]);
+        }
+        return sb.ToString();
     }
 
     static bool TryRenderSignatureModel(
@@ -1426,6 +1474,13 @@ internal static class CSharpDeclarationWriter
     }
 
     static readonly string[] s_parameterModifiers = ["this", "params", "ref", "out", "in", "scoped"];
+
+    // Special-constraint tokens carried verbatim in TypeParameter.Constraints; every
+    // other entry is a type name subject to reserved-keyword identifier escaping.
+    static readonly HashSet<string> s_specialConstraintKeywords = new(StringComparer.Ordinal)
+    {
+        "class", "class?", "struct", "unmanaged", "notnull", "new()", "default", "allows ref struct",
+    };
 
     // Keep synchronized with MetadataDeclarationQuery's legacy compatibility escaper.
     static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)

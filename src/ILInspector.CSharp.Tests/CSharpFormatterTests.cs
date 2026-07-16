@@ -155,6 +155,39 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatTypeParameterConstraints_UsesStructuredKindToDisambiguateKeywordFromTypeName()
+    {
+        var typeParameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints = ["struct", "struct"],
+            StructuredConstraints =
+            [
+                new TypeParameterConstraint("struct", IsTypeName: false),
+                new TypeParameterConstraint("struct", IsTypeName: true),
+            ],
+        };
+
+        Assert.Equal(
+            "struct, @struct",
+            CSharpFormatter.FormatTypeParameterConstraints(typeParameter, ["T"]));
+    }
+
+    [Fact]
+    public void FormatTypeParameterConstraints_FallsBackToHeuristicWithoutStructuredKind()
+    {
+        var typeParameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints = ["class", "TestNS.class"],
+        };
+
+        Assert.Equal(
+            "class, TestNS.@class",
+            CSharpFormatter.FormatTypeParameterConstraints(typeParameter, ["T"]));
+    }
+
+    [Fact]
     public void RejectsUndefinedPolicies()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
