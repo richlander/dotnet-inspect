@@ -118,6 +118,24 @@ prove realized depth or frequency. Do not infer either case into caller-loop
 evidence; require runtime evidence or a stronger product-owned invocation
 contract.
 
+## Triage exception-path pool churn
+
+Select the explicit `Resource Triage` library section to find `ArrayPool<T>`
+acquisitions whose exact def-use path reaches an external-input boundary before
+modeled cleanup:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Resource Triage" --jsonl
+```
+
+Treat `pool-churn-on-exception` as a profiling and hardening candidate, not a
+permanent-memory-leak or memory-corruption accusation. Static analysis proves
+the unprotected boundary shape and API evidence, not runtime frequency. Use
+`Candidate`, `Finding=analysis.resource-lifecycle`, `Acquire IL`, `Boundary IL`,
+and `Boundary` to retain exact provenance while drilling the method. Each
+boundary is one row; a multi-boundary candidate repeats its candidate and
+acquisition fields so every operation stays paired with its own IL offset.
+
 Not every shape is a pure hot-path win. `async-state-machine` is reported as
 amortized (low confidence) unless the allocation sits in a loop: async lowering
 moves work into a state object rather than eliminating it, often once per

@@ -266,19 +266,22 @@ natural home for those (`Change`/`[MarkoutDelta]`). Each assembly is bounded by 
 timeout, and any per-assembly input failure (a directory path, a truncated PE) becomes an
 `Opened=false` row rather than crashing the sweep.
 
-This is the evidence engine that must earn any user-facing `Leak Triage` section: the analyzer
+This remains the evidence engine for any correctness-oriented `Leak Triage` section: the analyzer
 fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field stores, cross-method
-ownership, and ambiguous uses, so an **empty findings card on real code means recall — not a
-product section — is the next lever**. Use the candidate buckets to decide which recall gate to
+ownership, and ambiguous uses, so an **empty findings card on real code means recall is the next
+lever**. Use the candidate buckets to decide which correctness gate to
 model next. A 2026-07-05 run over CoreLib, `Microsoft.CodeAnalysis`, and
 `Microsoft.CodeAnalysis.CSharp` produced **0 findings** (all gates suppressed), while the fixture
-assembly's three known-misuse methods surfaced exactly once each. Wire the section only once this
-card shows non-zero, high-precision rows on real assemblies.
+assembly's three known-misuse methods surfaced exactly once each. The separate `Resource Triage`
+section uses the actionability contract below and does not reinterpret these rows as correctness
+findings.
 
 ## Leak actionability corpus sensor (#2439)
 
-`--leak-actionability` classifies the leak-triage `exception-path-leak-candidate` bucket by
-**actionability**, as a [Markout](https://github.com/richlander/markout) card:
+`--leak-actionability` reports the leak-triage `exception-path-leak-candidate` bucket by
+**actionability**, as a [Markout](https://github.com/richlander/markout) card. The harness consumes
+the same Analysis-owned `analysis.resource-lifecycle` findings as the product's explicit
+`Resource Triage` section:
 
 ```bash
 dotnet "$DLL" --leak-actionability assemblies.txt --top 5      # Markdown card (default)
@@ -286,10 +289,9 @@ dotnet "$DLL" --leak-actionability assemblies.txt --tsv        # section-tagged 
 dotnet "$DLL" --leak-actionability assemblies.txt --jsonl      # one JSON record per row
 ```
 
-Like `--leak-triage`, this is **measurement-only** — it changes no analyzer behavior and wires no
-product surface. For each `exception-path-leak-candidate`, it re-resolves via SRM every call the
-rented array flows into between `Rent` and the method's end, then classifies the boundary set by
-what it touches:
+The harness owns corpus orchestration and reporting only. Analysis attributes exact unprotected
+boundaries from the rented local's def-use evidence and classifies the boundary set by what it
+touches:
 
 - `untrusted-actionable` — a boundary **reads/decodes/parses external input**
   (`Stream.Read`, `Decoder.GetChars`, `Encoding.GetString`, `Parse`/`Tokenize`/`Deserialize`):
@@ -302,16 +304,18 @@ what it touches:
 
 A candidate is `untrusted-actionable` if **any** boundary is untrusted, else
 `trusted-low-actionability` if any is a known in-memory transform, else `unknown`. This is the
-evidence engine for the #2439 Slice-4 decision about which exception-path candidates could graduate
-toward findings; keeping the split out of the analyzer means it never affects a user-facing
-accusation. A 2026-07-07 run over the .NET 9.0.14 shared framework (305 assemblies) classified the
-34 exception-path candidates as 6 `untrusted-actionable` (e.g. `MessagePackReader::ReadStringSlow`,
-`HashAlgorithm::ComputeHash`), 19 `trusted-low-actionability` (e.g. `Utf8JsonWriter` escape
-writers, `BinaryWriter::Write`), and 9 `unknown`.
+measurement view for the same product-owned contract. `Resource Triage` exposes only
+`untrusted-actionable` rows and describes them as pool-churn-on-exception candidates, not permanent
+memory leaks or memory-corruption findings:
 
-Boundary attribution is a `Rent`-to-end window scan, coarser than the analyzer's def-use set (it
-can include an unrelated call in the window); it is exact for the small single-rent methods this
-bucket is dominated by. A def-use-precise attribution is the natural follow-up.
+```bash
+dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
+```
+
+A 2026-07-16 run over the .NET 11 daily shared framework (314 assemblies) classified
+49 lifecycle candidates as 2 `untrusted-actionable`
+(`MessagePackReader::ReadStringSlow`, `BinaryReader::FillBuffer`),
+1 `trusted-low-actionability`, and 46 `unknown`.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 

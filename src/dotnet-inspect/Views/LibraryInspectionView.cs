@@ -815,6 +815,39 @@ public class LibraryInspectionView
                 o.Saturated))
             .ToList();
 
+    [MarkoutIgnore]
+    public bool HasResourceTriage =>
+        _data.ResourceLifecycleInspection?.Value
+            is ILInspector.Findings.FindingInspection<
+                ILInspector.Analysis.ResourceLifecycleOccurrence>.Complete;
+
+    [MarkoutSection(
+        Name = SectionNames.ResourceTriage,
+        ShowWhenProperty = nameof(HasResourceTriage),
+        EmptyText = "No actionable resource lifecycle candidates found.")]
+    public List<ResourceTriageRow> ResourceTriageSection =>
+        (_data.ResourceTriage ?? [])
+            .SelectMany(row => row.Boundaries.Select(boundary =>
+                new ResourceTriageRow(
+                    MarkoutInline.Code(row.Member),
+                    MarkoutInline.Code(row.Candidate),
+                    row.Finding,
+                    row.Provenance,
+                    row.Resource,
+                    row.Shape,
+                    row.Impact,
+                    row.Actionability,
+                    MarkoutInline.Code(boundary.Operation),
+                    MarkoutInline.Code($"IL_{row.AcquireOffset:X4}"),
+                    MarkoutInline.Code($"IL_{boundary.ILOffset:X4}"),
+                    row.Evidence,
+                    row.Direction,
+                    row.Confidence,
+                    row.Visibility,
+                    row.Stable is null ? null : MarkoutInline.Code(row.Stable),
+                    row.Selector is null ? null : MarkoutInline.Code(row.Selector))))
+            .ToList();
+
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
     public static bool TopLeverageStableEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Stable));
@@ -1115,6 +1148,26 @@ public record ResourceRow(
     string Name,
     string Visibility,
     string Size);
+
+[MarkoutSerializable]
+public record ResourceTriageRow(
+    string Member,
+    string Candidate,
+    string Finding,
+    string Provenance,
+    string Resource,
+    string Shape,
+    string Impact,
+    string Actionability,
+    string Boundary,
+    [property: MarkoutPropertyName("Acquire IL")] string AcquireIL,
+    [property: MarkoutPropertyName("Boundary IL")] string BoundaryIL,
+    string Evidence,
+    string Direction,
+    string Confidence,
+    string? Visibility,
+    string? Stable,
+    string? Selector);
 
 [MarkoutSerializable]
 public record CustomAttributeRow(

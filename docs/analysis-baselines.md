@@ -42,7 +42,7 @@ are the cheapest "found something interesting" wins.
 | # | Analysis type | Command | Volume (44 asm) | Precision | Actionability | Verdict |
 | - | ------------- | ------- | --------------- | --------- | ------------- | ------- |
 | 1 | Algorithmic scan-in-loop | `Performance Triage` (`scan-method-in-loop-call`, `linq-scan-in-loop`, `string-build-in-loop`, `allocation-hotspot`) | 155 | High | **Very high** (quadratic) | **Headline** |
-| 2 | Leak-after-exception | harness `--leak-triage` + `--leak-actionability` | 5 actionable | **Very high (9/9 confirmed)** | High (`try/finally`) | **Headline** |
+| 2 | Leak-after-exception | `Resource Triage` (harness `--leak-actionability` for the full census) | 2 current framework / 9 historical confirmed | **Very high** | High (`try/finally`) | **Headline** |
 | 3 | Delegate allocation | `Performance Triage` (`instance-method-group-delegate`, `capturing-delegate`) | 3,327 raw / 128 hot | High (real) / High in loops | High in loops | **Worthy w/ ranking** |
 | 4 | Enumerator allocation | `Performance Triage` (`enumerator-allocation`) | 121 / 117 hot | High | Med–High | **Worthy** |
 | 5 | Reach / leverage | `Top Leverage` | ranking | — | Impact multiplier for 1,3,4 | **Worthy as a lens** |
@@ -70,14 +70,21 @@ where each `CalculateDepth` step re-scans all spans) — the O(N·D·N) waterfal
 
 ### 2. Leak-after-exception — highest-precision lane
 
-Pooled-buffer leak on the exception path (see catalog issue #2572 and #2439). Harness sensors classify
-the exception-path `ArrayPool` candidates by whether the throwing boundary consumes external input.
+Pooled-buffer churn on the exception path (see catalog issue #2572 and #2439). Analysis classifies
+exact def-use-attributed `ArrayPool` boundaries by whether they consume external input;
+`Resource Triage` exposes the untrusted-actionable candidates.
 
-- Broadened packages (44 asm): 12 exception-path candidates → **5 untrusted-actionable, all confirmed**
+- Historical broadened-package sensor (44 asm): 12 exception-path candidates →
+  **5 untrusted-actionable, all confirmed**
   (MessagePack `ReadStringSlow`, MimeKit `Rfc2047.DecodePhrase`/`DecodeText`, Npgsql
   `TextConverter.GetChars`, Pipelines.Sockets `AsyncPipeStream.ReadByte`).
-- Framework (308 asm): 4 untrusted-actionable, all confirmed.
-- **9/9 confirmed real leaks**, IL-verified. Lowest volume, highest precision, clean `try/finally` fix.
+- Historical framework sensor (308 asm): 4 untrusted-actionable, all confirmed.
+- **9/9 confirmed exception-path pool-retention defects**, IL-verified. Lowest volume,
+  highest precision, clean `try/finally` fix.
+- Current exact product contract (.NET 11 daily, 314 assemblies): 49 lifecycle
+  candidates → 2 untrusted-actionable
+  (`MessagePackReader.ReadStringSlow`, `BinaryReader.FillBuffer`), 1 trusted,
+  and 46 unknown.
 
 ### 3–4. Delegate & enumerator allocation
 

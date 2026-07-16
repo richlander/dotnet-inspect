@@ -212,6 +212,15 @@ Allocation, call-site, and unsafety comparisons share one descriptor-keyed
 retention container; new descriptors do not add parallel flags, lists,
 constructors, or merge branches.
 
+Resource lifecycle observations are a single-version Analysis producer under
+`analysis.resource-lifecycle`. Each occurrence retains one acquisition and its
+exact unprotected boundary set; boundary kinds and aggregate actionability are
+producer-owned API-shape facets. The explicit `Resource Triage` section keeps
+the complete `FindingInspection<ResourceLifecycleOccurrence>`, exposes only
+untrusted-actionable candidates, and adds impact/fix language downstream.
+`Complete([])` and `Failed` remain distinct, and the corpus harness consumes the
+same inspection rather than resolving tokens or classifying boundaries itself.
+
 The same three Analysis censuses now compose with the N-address correlation
 tier. `timeline --member M --finding analysis.*` uses Metadata only to resolve
 the structural method focus, then correlates the producer-native Analysis

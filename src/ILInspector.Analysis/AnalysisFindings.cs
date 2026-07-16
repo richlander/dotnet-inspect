@@ -20,6 +20,9 @@ public static class AnalysisFindings
     public static readonly FindingDescriptor UnsafeEvidenceDescriptor =
         new("analysis.unsafe-evidence", "Unsafe evidence");
 
+    public static readonly FindingDescriptor ResourceLifecycleDescriptor =
+        new("analysis.resource-lifecycle", "Resource lifecycle occurrence");
+
     /// <summary>
     /// Projects one method's allocation occurrences into IL order. An empty occurrence sequence is
     /// a complete empty census; acquisition failures belong to the caller that builds the body index.
@@ -168,17 +171,64 @@ public static class AnalysisFindings
             return key.ToString();
         }
 
-        AppendKeyPart(key, ((int)callee.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture));
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(callee.DeclaringType));
-        AppendKeyPart(key, callee.Name);
-        AppendKeyPart(key, callee.HasThis ? "instance" : "static");
-        AppendKeyPart(key, callee.SignatureHeader.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        AppendKeyPart(key, callee.GenericArity.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        AppendTypes(key, callee.TypeArguments);
-        AppendTypes(key, callee.ParameterTypes);
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(callee.ReturnType));
-        AppendTypes(key, callee.OpenSignatureParameters);
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(callee.OpenSignatureReturn));
+        AppendMemberIdentity(key, callee);
+        return key.ToString();
+    }
+
+    /// <summary>
+    /// Projects exception-path resource lifecycle observations into acquisition order. Identity
+    /// uses the containing method and exact boundary operations; version-local IL coordinates
+    /// remain payload evidence rather than correspondence.
+    /// </summary>
+    public static ImmutableArray<Finding<ResourceLifecycleOccurrence>> InspectResourceLifecycles(
+        IEnumerable<ResourceLifecycleOccurrence> occurrences,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(occurrences);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        var ordered = occurrences
+            .OrderBy(static occurrence => occurrence.Method.MetadataToken)
+            .ThenBy(static occurrence => occurrence.AcquireOffset)
+            .ThenBy(GetResourceLifecycleIdentityKey, StringComparer.Ordinal)
+            .ToImmutableArray();
+        var findings =
+            ImmutableArray.CreateBuilder<Finding<ResourceLifecycleOccurrence>>(ordered.Length);
+        for (int i = 0; i < ordered.Length; i++)
+        {
+            ResourceLifecycleOccurrence occurrence = ordered[i];
+            findings.Add(new Finding<ResourceLifecycleOccurrence>(
+                subject,
+                ResourceLifecycleDescriptor,
+                new FindingKey(GetResourceLifecycleIdentityKey(occurrence)),
+                occurrence,
+                Ordinal: i,
+                Detail: occurrence.Shape));
+        }
+
+        return findings.MoveToImmutable();
+    }
+
+    public static string GetResourceLifecycleIdentityKey(
+        ResourceLifecycleOccurrence occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+
+        var key = new StringBuilder();
+        MethodIdentity method = occurrence.Method;
+        AppendKeyPart(key, method.AssemblyName);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(method.DeclaringType));
+        AppendKeyPart(key, method.Name);
+        AppendTypes(key, method.ParameterTypes);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(method.ReturnType));
+        AppendKeyPart(key, occurrence.Resource);
+        AppendKeyPart(key, occurrence.Shape);
+        AppendKeyPart(
+            key,
+            occurrence.Boundaries.Length.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        foreach (ResourceBoundaryEvidence boundary in occurrence.Boundaries)
+            AppendMemberIdentity(key, boundary.Operation);
         return key.ToString();
     }
 
@@ -402,6 +452,30 @@ public static class AnalysisFindings
         AppendKeyPart(key, types.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
         foreach (TypeRef type in types)
             AppendKeyPart(key, GenericMemberIdentity.KeyFragment(type));
+    }
+
+    static void AppendMemberIdentity(StringBuilder key, MemberRef member)
+    {
+        AppendKeyPart(
+            key,
+            ((int)member.Kind).ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.DeclaringType));
+        AppendKeyPart(key, member.Name);
+        AppendKeyPart(key, member.HasThis ? "instance" : "static");
+        AppendKeyPart(
+            key,
+            member.SignatureHeader.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        AppendKeyPart(
+            key,
+            member.GenericArity.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        AppendTypes(key, member.TypeArguments);
+        AppendTypes(key, member.ParameterTypes);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.ReturnType));
+        AppendTypes(key, member.OpenSignatureParameters);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn));
     }
 
     static void AppendKeyPart(StringBuilder key, string part)

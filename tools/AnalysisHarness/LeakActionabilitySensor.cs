@@ -1,14 +1,8 @@
-using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
-using System.Collections.Immutable;
-using System.Runtime.InteropServices;
-
 using Markout;
 using Markout.Formatting;
 
 using ILInspector.Analysis;
-using ILInspector.Instructions;
+using ILInspector.Findings;
 
 namespace ILInspector.AnalysisHarness;
 
@@ -35,30 +29,10 @@ public sealed record LeakActionabilityReport(
 public enum LeakActionabilityFormat { Markdown, Tsv, Jsonl }
 
 /// <summary>
-/// The leak-actionability corpus sensor (#2439): a measurement-only classifier for the
-/// <see cref="LeakTriageAnalyzer"/> <c>exception-path-leak-candidate</c> bucket. It changes no
-/// analyzer behavior and wires no product surface - it reads the analyzer's public candidates and,
-/// per candidate, re-resolves via SRM every call the rented array flows into between Rent and the
-/// method's end, then classifies the boundary set by what it touches:
-/// <list type="bullet">
-/// <item><b>Untrusted</b> - a boundary reads/decodes/parses <i>external</i> input (Stream.Read,
-/// Decoder.GetChars, Encoding.GetString, Parse/Tokenize/Deserialize): genuinely actionable, since
-/// the exception is one a caller commonly catches.</item>
-/// <item><b>Trusted</b> - every boundary is an in-memory transform of already-validated data
-/// (Escape, Encode/Transcode, Array.Copy, format/write, new string): low actionability - the
-/// deliberate high-perf no-<c>finally</c> BCL idiom that leaks only on a rare/invariant-violating
-/// exception.</item>
-/// <item><b>Unknown</b> - unclassified boundary; stays measurement-only.</item>
-/// </list>
-/// A candidate is Untrusted if <i>any</i> boundary is untrusted, else Trusted if any is a known
-/// in-memory transform, else Unknown. This is the evidence engine for the #2439 Slice-4 decision
-/// about which exception-path candidates could graduate toward findings; the split is deliberately
-/// separate from the analyzer so it never affects a user-facing accusation.
-///
-/// <para>Precision note: boundary attribution is a Rent-to-end window scan, coarser than the
-/// analyzer's def-use set (it can include an unrelated call in the window). It is exact for the
-/// small single-rent methods this bucket is dominated by; a def-use-precise attribution is the
-/// natural follow-up.</para>
+/// Corpus orchestration and reporting over the Analysis-owned resource lifecycle inspection. The
+/// sensor deliberately performs no token resolution, boundary attribution, or actionability
+/// classification; those are product capabilities shared with the user-facing Resource Triage
+/// section.
 /// </summary>
 public static class LeakActionabilitySensor
 {
@@ -99,30 +73,49 @@ public static class LeakActionabilitySensor
         string name = Path.GetFileName(path);
         try
         {
-            var result = LeakTriageAnalyzer.AnalyzeAssemblyDetailed(path);
-            var exceptionPath = result.Candidates.Where(c => c.Shape == "exception-path-leak-candidate").ToList();
-            if (exceptionPath.Count == 0)
-                return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, 0, new Dictionary<string, int>(), []);
+            var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+                path,
+                new FindingSubject(Path.GetFullPath(path), name));
+            if (inspection.Value
+                is not FindingInspection<ResourceLifecycleOccurrence>.Complete complete)
+            {
+                return inspection.Value
+                    is FindingInspection<ResourceLifecycleOccurrence>.Failed
+                        ? new LeakActionabilityAssembly(
+                            name,
+                            Opened: false,
+                            TimedOut: false,
+                            0,
+                            new Dictionary<string, int>(),
+                            [])
+                        : new LeakActionabilityAssembly(
+                            name,
+                            Opened: true,
+                            TimedOut: false,
+                            0,
+                            new Dictionary<string, int>(),
+                            []);
+            }
 
-            // Read into memory so no file handle is held during token resolution
-            // (resolution runs under the outer per-assembly timeout).
-            using var pe = new PEReader(ImmutableCollectionsMarshal.AsImmutableArray(File.ReadAllBytes(path)));
-            var reader = pe.GetMetadataReader();
+            var candidates = ResourceLifecycleAnalysis.SelectCandidates(complete);
+            if (candidates.Length == 0)
+                return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, 0, new Dictionary<string, int>(), []);
 
             var classCounts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             var examples = new List<LeakActionabilityExample>();
-            foreach (var candidate in exceptionPath)
+            foreach (var candidate in candidates)
             {
-                var (cls, boundarySet) = Classify(pe, reader, candidate.Method.MetadataToken, candidate.RentOffset ?? candidate.ILOffset);
+                string cls = FormatActionability(
+                    candidate.Source.Payload.Actionability);
                 classCounts[cls] = classCounts.GetValueOrDefault(cls) + 1;
                 if (examples.Count < examplesPerAssembly)
                     examples.Add(new LeakActionabilityExample(
                         cls,
-                        $"{candidate.Method.DeclaringType.Name}::{candidate.Method.Name}",
-                        boundarySet));
+                        $"{candidate.Source.Payload.Method.DeclaringType.Name}::{candidate.Source.Payload.Method.Name}",
+                        FormatBoundarySet(candidate.Source.Payload.Boundaries)));
             }
 
-            return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, exceptionPath.Count, classCounts, examples);
+            return new LeakActionabilityAssembly(name, Opened: true, TimedOut: false, candidates.Length, classCounts, examples);
         }
         // Per-assembly boundary on a background thread: convert any input failure (a directory, a
         // truncated PE, ...) into a failed row and keep sweeping the corpus.
@@ -132,104 +125,25 @@ public static class LeakActionabilitySensor
         }
     }
 
-    // Resolve the boundary set for one candidate and aggregate its actionability class.
-    static (string Class, string BoundarySet) Classify(PEReader pe, MetadataReader reader, int methodToken, int? offset)
-    {
-        if (offset is not { } startOffset)
-            return (Unknown, "(no-offset)");
-        try
+    static string FormatActionability(ResourceActionability actionability)
+        => actionability switch
         {
-            var md = reader.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.EntityHandle(methodToken));
-            if (md.RelativeVirtualAddress == 0)
-                return (Unknown, "(no-body)");
-            var il = pe.GetMethodBody(md.RelativeVirtualAddress).GetILBytes() ?? [];
-            var instructions = InstructionDecoder.Decode(il);
-            int start = -1;
-            for (int i = 0; i < instructions.Length; i++)
-                if (instructions[i].Offset == startOffset) { start = i; break; }
-            if (start < 0)
-                return (Unknown, "(offset-miss)");
+            ResourceActionability.UntrustedActionable => Untrusted,
+            ResourceActionability.TrustedLowActionability => Trusted,
+            _ => Unknown,
+        };
 
-            // The array typically flows through non-throwing Span/Memory wrappers before its real
-            // boundary, and a rent can have several boundary uses (write-into then consume). Collect
-            // every substantive (non-wrapper) call from the rented-array use to the method's end.
-            var members = new List<(string Type, string Name)>();
-            for (int i = start; i < instructions.Length; i++)
-            {
-                var opcode = instructions[i].OpCode;
-                if (opcode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj))
-                    continue;
-                var member = HarnessMemberResolution.ResolveToken(reader, checked((int)instructions[i].OperandValue));
-                if (IsInertWrapper(member.Type, member.Name))
-                    continue;
-                members.Add(member);
-            }
-            if (members.Count == 0)
-                return (Unknown, "(only-wrappers)");
+    static string FormatBoundarySet(
+        IReadOnlyList<ResourceBoundaryEvidence> boundaries)
+        => boundaries.Count == 0
+            ? "(no-boundary)"
+            : string.Join(
+                " + ",
+                boundaries
+                    .Select(boundary =>
+                        $"{Short(boundary.Operation.DeclaringType.ToQualifiedDisplayString())}::{boundary.Operation.Name}")
+                    .Distinct(StringComparer.Ordinal));
 
-            return (Aggregate(members), string.Join(" + ", members.Select(m => $"{Short(m.Type)}::{m.Name}").Distinct()));
-        }
-        catch (Exception ex)
-        {
-            return (Unknown, $"(err:{ex.GetType().Name})");
-        }
-    }
-
-    // A leak is actionable if ANY reachable boundary can throw on external input, so Untrusted
-    // dominates; else Trusted if any boundary is a known in-memory transform; else Unknown.
-    static string Aggregate(List<(string Type, string Name)> members)
-    {
-        var classes = members.Select(m => ClassifyMember(m.Type, m.Name)).ToList();
-        if (classes.Contains(Untrusted)) return Untrusted;
-        if (classes.Contains(Trusted)) return Trusted;
-        return Unknown;
-    }
-
-    // Non-throwing Span/Memory adapters the rented array flows through before its real boundary.
-    static bool IsInertWrapper(string declaringType, string member)
-    {
-        string type = Short(declaringType);
-        if (member is "op_Implicit" or "op_Explicit")
-            return true;
-        if (member is ".ctor" && type is "Span" or "ReadOnlySpan" or "Memory" or "ReadOnlyMemory")
-            return true;
-        return member is "AsSpan" or "AsMemory" or "Slice" or "GetPinnableReference" or "GetArrayDataReference";
-    }
-
-    // Consume-external => Untrusted; produce-from-memory => Trusted; otherwise Unknown.
-    static string ClassifyMember(string declaringType, string member)
-    {
-        string type = Short(declaringType);
-        string m = member;
-
-        // Untrusted: read / decode / parse external input.
-        if (IsStreamLike(type) && m.StartsWith("Read")) return Untrusted; // Read/ReadByte/ReadAsync/ReadExactly[Async]/ReadAtLeast[Async]
-        if ((type is "Decoder" || type.EndsWith("Decoder")) && m is "GetChars" or "GetString" or "Convert") return Untrusted;
-        if ((type is "Encoding" || type.EndsWith("Encoding")) && m is "GetChars" or "GetString") return Untrusted;
-        if (type is "Socket" && m.StartsWith("Receive")) return Untrusted;
-        if (type is "TextReader" or "StreamReader" or "BinaryReader" && m.StartsWith("Read")) return Untrusted;
-        if (m.StartsWith("Deserialize") || m.StartsWith("Tokenize") || m is "Decode") return Untrusted;
-        if ((m is "Parse" or "TryParse" || m.StartsWith("Parse")) && (type.Contains("Document") || type.Contains("Reader") || type.Contains("Parser"))) return Untrusted;
-
-        // Trusted: produce / transform validated in-memory data.
-        if (m.StartsWith("Escape")) return Trusted; // EscapeString/... - NOT Unescape (which decodes external input)
-        if ((type is "Encoding" || type.EndsWith("Encoding")) && m is "GetBytes" or "GetByteCount") return Trusted;
-        if (m.StartsWith("Encode") || m.StartsWith("Transcode") || m is "ToUtf8" or "EncodeHelper") return Trusted;
-        if (type is "Array" && m is "Copy" or "Clear" or "Resize" or "Fill") return Trusted;
-        if (type is "Buffer" && m.StartsWith("Block")) return Trusted;
-        if (type is "Unsafe" or "MemoryMarshal") return Trusted;
-        if (type is "String" && m is ".ctor") return Trusted;
-        if (m is "CopyTo" && !IsStreamLike(type)) return Trusted;
-        if (m.StartsWith("TryFormat") || m.StartsWith("Format")) return Trusted;
-        if (m.StartsWith("WriteString") || m.StartsWith("WriteValue") || m is "WriteStringByOptions" or "WriteStringByOptionsPropertyName") return Trusted;
-
-        return Unknown;
-    }
-
-    static bool IsStreamLike(string type) => type is "Stream" || type.EndsWith("Stream");
-
-    // Strip the namespace and any generic-arity backtick suffix so classifier checks (which use bare
-    // names like "Stream"/"Encoding"/"Span") match generic instances too (System.Span`1 -> Span).
     static string Short(string type)
     {
         if (type.Contains('.'))
