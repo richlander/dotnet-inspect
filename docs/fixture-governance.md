@@ -54,3 +54,31 @@ metadata just because consumers observe them from another assembly.
   boundary.
 - Add or update contract tests when introducing a new boundary so the semantic
   axis cannot be erased by later cleanup.
+
+## Expectation ownership
+
+Fixtures are test assets, not product. Reserve adversarial rigor for the
+boundary between a test asset and the product under test — not for the boundary
+between two test assets. A check that pins one test asset against another buys
+maintenance cost without adversarial safety: both sides are co-located, edited
+in the same change, and reviewed together, so they move as one.
+
+This applies to both the built-assembly `FixtureCatalog` and the generated
+source-string `GeneratedFixtureCatalog` (`tools/DecompilerHarness`), whose
+targets declare their own expected outcome (status, shape, and fragments).
+
+Rules:
+
+- A fixture owns its input and its expected outcome together. The fixture's
+  declared expectation is the single source of truth for what the product should
+  do with that input.
+- Tests iterate the catalog's advertised inventory and compare the actual
+  product result against each fixture's declared expectation. Prefer data-driven
+  tests (`[Theory]`/`[MemberData]` or a `foreach` over the catalog) so a new
+  fixture registers its own coverage without a matching test edit.
+- Do not re-encode a fixture's expected outcome as a second hard-coded copy in
+  the test to act as an "independent oracle" against the fixture. Two test
+  assets are not independent; the copy only adds a place to drift.
+- A test whose failure mode is "someone added a valid fixture, now update my
+  literal list" is guarding the wrong invariant. Test selection and contract
+  logic against small synthetic inputs, not against the live inventory.
