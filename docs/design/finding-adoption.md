@@ -216,13 +216,15 @@ therefore useful for a runtime/static join within one build, while
 correspondence paths. Aggregate judgments such as `allocation-hotspot`
 deliberately have no exact source Finding.
 
-`Resource Triage` follows the same rule. Its pool-churn impact and cleanup
-direction are downstream judgments over exact
-`analysis.resource-lifecycle` observations; rows retain the native descriptor,
-candidate identity, resolved boundary, and acquisition/boundary IL offsets.
+`Resource Triage` follows the same rule. Exact
+`analysis.resource-lifecycle` observations remain policy-free; the
+Analysis-owned `ResourceTriageAnalysis` contract adds typed actionability,
+reason, impact, remediation, and confidence. CLI projection owns only their
+human wording. Rows retain the native descriptor, version-local candidate
+identity, resolved boundary, and acquisition/boundary IL offsets.
 Multi-boundary candidates expand into one row per typed operation/offset pair.
-The harness measures all actionability classes from that same inspection,
-while the product section selects the untrusted-actionable subset.
+The harness measures every assessment class from the same inspection, while the
+product section selects the untrusted-actionable subset.
 
 ## Adoption review
 

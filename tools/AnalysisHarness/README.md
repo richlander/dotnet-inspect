@@ -289,9 +289,9 @@ dotnet "$DLL" --leak-actionability assemblies.txt --tsv        # section-tagged 
 dotnet "$DLL" --leak-actionability assemblies.txt --jsonl      # one JSON record per row
 ```
 
-The harness owns corpus orchestration and reporting only. Analysis attributes exact unprotected
-boundaries from the rented local's def-use evidence and classifies the boundary set by what it
-touches:
+The harness owns corpus orchestration and reporting only. `ResourceLifecycleAnalysis` attributes
+exact unprotected boundaries from the rented local's def-use evidence;
+`ResourceTriageAnalysis` assesses that evidence by what each boundary touches:
 
 - `untrusted-actionable` — a boundary **reads/decodes/parses external input**
   (`Stream.Read`, `Decoder.GetChars`, `Encoding.GetString`, `Parse`/`Tokenize`/`Deserialize`):
@@ -303,10 +303,10 @@ touches:
 - `unknown` — unclassified boundary; stays measurement-only.
 
 A candidate is `untrusted-actionable` if **any** boundary is untrusted, else
-`trusted-low-actionability` if any is a known in-memory transform, else `unknown`. This is the
-measurement view for the same product-owned contract. `Resource Triage` exposes only
-`untrusted-actionable` rows and describes them as pool-churn-on-exception candidates, not permanent
-memory leaks or memory-corruption findings:
+`trusted-low-actionability` if every boundary is a known in-memory transform, else `unknown`. This
+is the measurement view for the same product-owned assessment contract. `Resource Triage` exposes
+only `untrusted-actionable` rows and describes them as pool-churn-on-exception candidates, not
+permanent memory leaks or memory-corruption findings:
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
