@@ -298,7 +298,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(46, pipeline.AllSectionNames.Length);
+        Assert.Equal(47, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -329,6 +329,7 @@ public class SectionPipelineTests
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Performance Triage", pipeline.AllSectionNames);
+        Assert.Contains("Resource Triage", pipeline.AllSectionNames);
         Assert.Contains("Return Address Context", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
     }

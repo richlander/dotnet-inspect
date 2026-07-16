@@ -113,7 +113,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
-| Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally) and actionable rewrite-shape detection. |
+| Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Resource Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -214,10 +214,22 @@ the allocation's local `Loop`, multiplicity, confidence, weight, or ranking,
 and it does not claim runtime heat. Function loads such as `ldftn` are not
 invocations and do not produce this evidence.
 
+`Resource Triage` is an explicit library section for high-confidence
+exception-path pool-churn candidates. It currently reports `ArrayPool<T>`
+acquisitions whose exact def-use path reaches an external-input boundary before
+modeled cleanup. These are triage candidates, not permanent-memory-leak or
+memory-corruption accusations: the impact is pooled-array churn if the boundary
+throws, and static analysis does not establish runtime frequency. Each row
+retains its `analysis.resource-lifecycle` Finding, stable `Candidate`, exact
+acquire and boundary IL offsets, and the resolved boundary operation. Trusted
+in-memory transforms and unknown boundaries remain available to corpus
+measurement but are not exposed in this curated section.
+
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
 dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
 dotnet-inspect library MyLib.dll -S "Performance Triage"
+dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
 dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl

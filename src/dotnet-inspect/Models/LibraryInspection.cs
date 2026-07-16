@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Options;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.Analysis;
 
 namespace DotnetInspector.Models;
 
@@ -332,6 +333,24 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
 
+    private FindingInspection<ResourceLifecycleOccurrence>?
+        _resourceLifecycleInspection;
+
+    [JsonIgnore]
+    public FindingInspection<ResourceLifecycleOccurrence>?
+        ResourceLifecycleInspection
+    {
+        get => _resourceLifecycleInspection;
+        set
+        {
+            _resourceLifecycleInspection = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ResourceTriageSummary>? ResourceTriage { get; set; }
+
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
@@ -523,6 +542,10 @@ public class LibraryInspection
             AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
             AddFailure(failures, "Union Types", UnionTypeInspection);
             AddFailure(failures, "Switches", SwitchInspection);
+            AddFailure(
+                failures,
+                DotnetInspector.Sections.SectionNames.ResourceTriage,
+                ResourceLifecycleInspection);
             return NullIfEmpty(failures);
             });
 
@@ -1134,6 +1157,30 @@ public record class OptimizationOpportunitySummary
     public long? OpaquePaths { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Saturated { get; init; }
+}
+
+/// <summary>
+/// A curated exception-path resource lifecycle candidate backed by exact Analysis evidence.
+/// </summary>
+public record class ResourceTriageSummary
+{
+    public string Member { get; init; } = "";
+    public string Candidate { get; init; } = "";
+    public string Finding { get; init; } = "";
+    public string Provenance { get; init; } = "";
+    public string Resource { get; init; } = "";
+    public string Shape { get; init; } = "";
+    public string Impact { get; init; } = "";
+    public string Actionability { get; init; } = "";
+    public string Boundary { get; init; } = "";
+    public string AcquireIL { get; init; } = "";
+    public string BoundaryIL { get; init; } = "";
+    public string Evidence { get; init; } = "";
+    public string Direction { get; init; } = "";
+    public string Confidence { get; init; } = "";
+    public string? Visibility { get; init; }
+    public string? Stable { get; init; }
+    public string? Selector { get; init; }
 }
 
 /// <summary>

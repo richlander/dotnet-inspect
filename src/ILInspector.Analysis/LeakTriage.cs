@@ -23,9 +23,50 @@ public sealed record LeakTriageCandidate(
     int? RentOffset,
     int? ILOffset);
 
+public readonly record struct ArrayPoolExceptionBoundary(
+    int ILOffset,
+    MemberRef Operation);
+
+public sealed record ArrayPoolExceptionPathCandidate
+{
+    public ArrayPoolExceptionPathCandidate(
+        MethodIdentity Method,
+        int RentOffset,
+        ImmutableArray<ArrayPoolExceptionBoundary> Boundaries)
+    {
+        this.Method = Method ?? throw new ArgumentNullException(nameof(Method));
+        if (RentOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(RentOffset));
+        this.RentOffset = RentOffset;
+        this.Boundaries = Boundaries.IsDefault ? [] : Boundaries;
+    }
+
+    public MethodIdentity Method { get; }
+    public int RentOffset { get; }
+    public ImmutableArray<ArrayPoolExceptionBoundary> Boundaries { get; }
+
+    public bool Equals(ArrayPoolExceptionPathCandidate? other)
+        => other is not null
+            && Method == other.Method
+            && RentOffset == other.RentOffset
+            && ImmutableArrayValueEquality.SequenceEqual(Boundaries, other.Boundaries);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Method);
+        hash.Add(RentOffset);
+        ImmutableArrayValueEquality.AddToHash(ref hash, Boundaries);
+        return hash.ToHashCode();
+    }
+}
+
 public sealed record LeakTriageResult(
     ImmutableArray<LeakTriageFinding> Findings,
-    ImmutableArray<LeakTriageCandidate> Candidates);
+    ImmutableArray<LeakTriageCandidate> Candidates)
+{
+    public ImmutableArray<ArrayPoolExceptionPathCandidate> ExceptionPathCandidates { get; init; } = [];
+}
 
 public static class LeakTriageAnalyzer
 {
@@ -44,6 +85,7 @@ public static class LeakTriageAnalyzer
         var mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
         var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
+        var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -78,6 +120,7 @@ public static class LeakTriageAnalyzer
                         token => ResolveCatchTypeRef(reader, MetadataTokens.EntityHandle(token), scope));
                     findings.AddRange(result.Findings);
                     candidates.AddRange(result.Candidates);
+                    exceptionPathCandidates.AddRange(result.ExceptionPathCandidates);
                 }
                 catch (Exception ex) when (IsRecoverable(ex))
                 {
@@ -87,7 +130,10 @@ public static class LeakTriageAnalyzer
             }
         }
 
-        return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
+        return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable())
+        {
+            ExceptionPathCandidates = exceptionPathCandidates.ToImmutable(),
+        };
     }
 
     public static ImmutableArray<LeakTriageFinding> AnalyzeMethod(
@@ -146,15 +192,32 @@ public static class LeakTriageAnalyzer
 
             var catchAllCleanup = ComputeCreditableCatchCleanup(exceptionRegions, resolveCatchType);
             var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
+            var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
             var rents = FindRents(method, instructions, graph, reaching, calls, candidates).ToImmutableArray();
             if (rents.Length == 0)
                 return new LeakTriageResult([], candidates.ToImmutable());
 
             var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
             foreach (var rent in rents)
-                AnalyzeRent(method, instructions, graph, reaching, calls, exceptionRegions, catchAllCleanup, rent, findings, candidates);
+            {
+                AnalyzeRent(
+                    method,
+                    instructions,
+                    graph,
+                    reaching,
+                    calls,
+                    exceptionRegions,
+                    catchAllCleanup,
+                    rent,
+                    findings,
+                    candidates,
+                    exceptionPathCandidates);
+            }
 
-            return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable());
+            return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable())
+            {
+                ExceptionPathCandidates = exceptionPathCandidates.ToImmutable(),
+            };
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
@@ -179,11 +242,15 @@ public static class LeakTriageAnalyzer
         IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         RentedLocal rent,
         ImmutableArray<LeakTriageFinding>.Builder findings,
-        ImmutableArray<LeakTriageCandidate>.Builder candidates)
+        ImmutableArray<LeakTriageCandidate>.Builder candidates,
+        ImmutableArray<ArrayPoolExceptionPathCandidate>.Builder exceptionPathCandidates)
     {
         var releases = ImmutableArray.CreateBuilder<int>();
         var safeUses = ImmutableArray.CreateBuilder<int>();
-        var throwingBoundaries = ImmutableArray.CreateBuilder<int>();
+        var throwingBoundaries = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var directThrowingBoundaries =
+            ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var directUseOffsets = new Dictionary<int, int>();
         AmbiguousUse? firstAmbiguous = null;
 
         foreach (var use in reaching.UsesOf(rent.Definition))
@@ -214,8 +281,24 @@ public static class LeakTriageAnalyzer
                         AddCandidate(candidates, method, classification.CandidateShape, classification.Evidence, rent.RentOffset, use.Offset);
                         firstAmbiguous = new AmbiguousUse(use.Offset, classification.CandidateShape);
                     }
-                    if (classification.CandidateShape == "cross-method-suppressed" && !classification.NonThrowingSetupBoundary)
-                        throwingBoundaries.Add(use.Offset);
+                    if (classification.CandidateShape == "cross-method-suppressed"
+                        && classification.Boundary is { } boundary)
+                    {
+                        if (!classification.NonThrowingSetupBoundary)
+                        {
+                            throwingBoundaries.Add(boundary);
+                            directThrowingBoundaries.Add(boundary);
+                            directUseOffsets.TryAdd(boundary.ILOffset, use.Offset);
+                        }
+                        else if (FindBoundaryAfterSetup(
+                            instructions,
+                            reaching,
+                            calls,
+                            boundary) is { } downstream)
+                        {
+                            throwingBoundaries.Add(downstream);
+                        }
+                    }
                     break;
             }
         }
@@ -226,15 +309,41 @@ public static class LeakTriageAnalyzer
         if (firstAmbiguous is { } ambiguous)
         {
             if (ambiguous.Shape == "cross-method-suppressed"
-                && FirstUnprotectedThrowingBoundary(graph, exceptionRegions, catchAllCleanup, releaseOffsets, throwingBoundaries.ToImmutable()) is { } throwingBoundary)
+                && UnprotectedThrowingBoundaries(
+                    graph,
+                    exceptionRegions,
+                    catchAllCleanup,
+                    releaseOffsets,
+                    throwingBoundaries.ToImmutable()) is { Length: > 0 } unprotectedBoundaries)
             {
-                AddCandidate(
-                    candidates,
-                    method,
-                    "exception-path-leak-candidate",
-                    $"Rented array crosses a method boundary at IL_{throwingBoundary:X4} before a modeled cleanup; an exception can bypass Return.",
-                    rent.RentOffset,
-                    throwingBoundary);
+                var directUnprotectedBoundaries =
+                    UnprotectedThrowingBoundaries(
+                        graph,
+                        exceptionRegions,
+                        catchAllCleanup,
+                        releaseOffsets,
+                        directThrowingBoundaries.ToImmutable());
+                if (directUnprotectedBoundaries is { Length: > 0 })
+                {
+                    int throwingBoundary =
+                        directUnprotectedBoundaries[0].ILOffset;
+                    int candidateOffset =
+                        directUseOffsets.GetValueOrDefault(
+                            throwingBoundary,
+                            throwingBoundary);
+                    AddCandidate(
+                        candidates,
+                        method,
+                        "exception-path-leak-candidate",
+                        $"Rented array crosses a method boundary at IL_{candidateOffset:X4} before a modeled cleanup; an exception can bypass Return.",
+                        rent.RentOffset,
+                        candidateOffset);
+                }
+                exceptionPathCandidates.Add(
+                    new ArrayPoolExceptionPathCandidate(
+                        method,
+                        rent.RentOffset,
+                        unprotectedBoundaries));
             }
             return;
         }
@@ -253,6 +362,11 @@ public static class LeakTriageAnalyzer
                 $"ArrayPool<T>.Shared.Rent at IL_{rent.RentOffset:X4} reaches an unreleased {(exitKind == LeakExitKind.Exception ? "exception" : "normal")} exit.",
                 rent.RentOffset,
                 rent.RentOffset);
+            if (exitKind == LeakExitKind.Exception)
+            {
+                exceptionPathCandidates.Add(
+                    new ArrayPoolExceptionPathCandidate(method, rent.RentOffset, []));
+            }
             findings.Add(new LeakTriageFinding(
                 method,
                 "arraypool-rent-not-returned",
@@ -405,23 +519,30 @@ public static class LeakTriageAnalyzer
     static bool ReleasedBeforeUseInSameBlock(BlockGraph graph, ImmutableArray<int> releases, int useOffset)
         => releases.Any(release => ReachesInSameBlock(graph, release, useOffset));
 
-    static int? FirstUnprotectedThrowingBoundary(
+    static ImmutableArray<ArrayPoolExceptionBoundary> UnprotectedThrowingBoundaries(
         BlockGraph graph,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
         IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> catchAllCleanup,
         ImmutableArray<int> releases,
-        ImmutableArray<int> throwingBoundaries)
+        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries)
     {
-        foreach (int boundary in throwingBoundaries)
+        var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var seenOffsets = new HashSet<int>();
+        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
         {
-            if (!ReleasedBeforeUseInSameBlock(graph, releases, boundary)
-                && !HasCleanupReleaseForUse(exceptionRegions, catchAllCleanup, releases, boundary))
+            if (seenOffsets.Add(boundary.ILOffset)
+                && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
+                && !HasCleanupReleaseForUse(
+                    exceptionRegions,
+                    catchAllCleanup,
+                    releases,
+                    boundary.ILOffset))
             {
-                return boundary;
+                result.Add(boundary);
             }
         }
 
-        return null;
+        return result.ToImmutable();
     }
 
     static bool HasCleanupReleaseForUse(
@@ -627,7 +748,8 @@ public static class LeakTriageAnalyzer
                     return UseClassification.Release;
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
-                    IsNonThrowingSetupBoundary(instructions, calls, i, callee));
+                    IsNonThrowingSetupBoundary(instructions, calls, i, callee),
+                    new ArrayPoolExceptionBoundary(instruction.Offset, callee));
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
         }
@@ -647,6 +769,125 @@ public static class LeakTriageAnalyzer
             calls[instruction.Offset] = resolveMethod(checked((int)instruction.OperandValue));
         }
         return calls;
+    }
+
+    static ArrayPoolExceptionBoundary? FindBoundaryAfterSetup(
+        ImmutableArray<DecodedInstruction> instructions,
+        ReachingDefinitionsResult reaching,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        ArrayPoolExceptionBoundary setup,
+        int depth = 0)
+    {
+        if (depth >= 4)
+            return null;
+
+        if (FrameworkIdentity.IsCoreLibraryType(
+            setup.Operation.ReturnType,
+            "System",
+            "Void"))
+        {
+            return null;
+        }
+
+        if (!TryFindInstruction(
+            instructions,
+            setup.ILOffset,
+            out int setupIndex,
+            out _))
+        {
+            return null;
+        }
+
+        int extraArguments = 0;
+        for (int i = setupIndex + 1;
+            i < instructions.Length && i <= setupIndex + 16;
+            i++)
+        {
+            var instruction = instructions[i];
+            if (instruction.OpCode == ILOpCode.Nop)
+                continue;
+            if (IsSimpleArgumentPush(instruction.OpCode))
+            {
+                extraArguments++;
+                continue;
+            }
+
+            if (extraArguments == 0
+                && TryReadStoreLocal(instruction, out int slot))
+            {
+                var definition = reaching.Definitions.FirstOrDefault(candidate =>
+                    !candidate.IsArgument
+                    && candidate.Slot == slot
+                    && candidate.Offset == instruction.Offset);
+                if (definition is null)
+                    return null;
+
+                foreach (var use in reaching.UsesOf(definition)
+                    .OrderBy(static use => use.Offset))
+                {
+                    if (use.Address)
+                        return null;
+
+                    var classification = ClassifyUse(
+                        instructions,
+                        calls,
+                        use.Offset,
+                        slot);
+                    if (classification.CandidateShape
+                            != "cross-method-suppressed"
+                        || classification.Boundary is not { } localBoundary)
+                    {
+                        continue;
+                    }
+
+                    if (!classification.NonThrowingSetupBoundary)
+                        return localBoundary;
+
+                    if (FindBoundaryAfterSetup(
+                            instructions,
+                            reaching,
+                            calls,
+                            localBoundary,
+                            depth + 1) is { } downstream)
+                    {
+                        return downstream;
+                    }
+                }
+
+                return null;
+            }
+
+            if (!calls.TryGetValue(instruction.Offset, out var callee))
+                return null;
+
+            int consumedArguments =
+                callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
+            if (consumedArguments <= extraArguments)
+                return null;
+
+            var boundary =
+                new ArrayPoolExceptionBoundary(instruction.Offset, callee);
+            if (!IsNonThrowingSetupBoundary(
+                instructions,
+                calls,
+                i,
+                callee))
+            {
+                return boundary;
+            }
+
+            if (FrameworkIdentity.IsCoreLibraryType(
+                callee.ReturnType,
+                "System",
+                "Void"))
+            {
+                return null;
+            }
+
+            extraArguments = 0;
+        }
+
+        return null;
     }
 
     static bool TryFindNextNonNop(ImmutableArray<DecodedInstruction> instructions, int offset, out DecodedInstruction instruction)
@@ -777,6 +1018,9 @@ public static class LeakTriageAnalyzer
         if (member.Name == "Clear" && FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "Array"))
             return true;
 
+        if (member.Name == "CopyTo" && IsSpanType(member.DeclaringType))
+            return true;
+
         if (member.Name == "AsSpan"
             && (FrameworkIdentity.IsCoreLibraryType(member.DeclaringType, "System", "MemoryExtensions")
                 || FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Memory", "System", "MemoryExtensions")))
@@ -866,12 +1110,26 @@ public static class LeakTriageAnalyzer
         Ambiguous,
     }
 
-    readonly record struct UseClassification(UseKind Kind, string CandidateShape, string Evidence, bool NonThrowingSetupBoundary = false)
+    readonly record struct UseClassification(
+        UseKind Kind,
+        string CandidateShape,
+        string Evidence,
+        bool NonThrowingSetupBoundary = false,
+        ArrayPoolExceptionBoundary? Boundary = null)
     {
         public static UseClassification Release { get; } = new(UseKind.Release, "", "");
         public static UseClassification LocalUse { get; } = new(UseKind.LocalUse, "", "");
         public static UseClassification AliasOrField(string evidence) => new(UseKind.Ambiguous, "alias-or-field-suppressed", evidence);
-        public static UseClassification CrossMethod(string evidence, bool nonThrowingSetupBoundary) => new(UseKind.Ambiguous, "cross-method-suppressed", evidence, nonThrowingSetupBoundary);
+        public static UseClassification CrossMethod(
+            string evidence,
+            bool nonThrowingSetupBoundary,
+            ArrayPoolExceptionBoundary boundary)
+            => new(
+                UseKind.Ambiguous,
+                "cross-method-suppressed",
+                evidence,
+                nonThrowingSetupBoundary,
+                boundary);
         public static UseClassification OwnershipTransfer(string evidence) => new(UseKind.Ambiguous, "ownership-transfer-suppressed", evidence);
     }
 

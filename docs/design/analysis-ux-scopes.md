@@ -202,6 +202,7 @@ Future semantic sections should use the same facts and nouns across scopes.
 | Exception | `Exception Context` | `Exception Regions` | `Exception Regions` with member column | optional `Exception Triage` |
 | Callsite | `Callsite Context` / `Return Address Context` | `Calls` | `Calls` with member column | `Top Leverage` / call graph summaries |
 | Allocation | `Allocation Context` | `Allocation Facts` | `Allocation Facts` with member column | `Performance Triage` |
+| Resource lifecycle | optional `Resource Context` | optional `Resource Facts` | resource rows with member column | `Resource Triage` |
 | Safety | `Safety Context` | `Safety Facts` | `Safety Facts` with member column | `Safety Triage` or `Correctness Triage` |
 | Cost | `Cost Context` | `Cost Facts` / `Cost Overlay` | cost rows with member column | `Performance Triage` |
 

@@ -18,6 +18,26 @@ namespace DotnetInspector.Tests;
 public class OutputFormatterTests
 {
     [Fact]
+    public void ResourceTriageFailure_IsVisible()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+        var inspection = new LibraryInspection
+        {
+            ResourceLifecycleInspection =
+                new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                    new InspectionError(
+                        subject,
+                        AnalysisFindings.ResourceLifecycleDescriptor,
+                        "fixture failure")),
+        };
+
+        var failure = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.ResourceTriage, failure.Section);
+        Assert.Equal("Resource lifecycle occurrence", failure.Finding);
+        Assert.Equal("fixture failure", failure.Reason);
+    }
+
+    [Fact]
     public void UnsafeMembersSection_RendersDegradedSignatureScan()
     {
         var view = new LibraryInspectionView(new LibraryInspection
