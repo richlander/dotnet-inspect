@@ -1622,46 +1622,11 @@ public static class CompileBackSourceComposer
         MethodSignature<string> signature)
     {
         var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
-        var parameters = ToCompileBackParameters(MetadataDeclarationQuery.GetMethod(
+        return ToCompileBackParameters(MetadataDeclarationQuery.GetMethod(
             reader,
             declaringType,
             method,
             signature).Signature.Parameters);
-        return NormalizeSelfTypeParameters(reader, declaringType, parameters);
-    }
-
-    static IReadOnlyList<CompileBackParameter> NormalizeSelfTypeParameters(
-        MetadataReader reader,
-        TypeDefinition declaringType,
-        IReadOnlyList<CompileBackParameter> parameters)
-    {
-        if (parameters.Count == 0 || declaringType.GetDeclaringType().IsNil)
-            return parameters;
-
-        string selfType = MetadataDeclarationQuery.SelfTypeSignature(reader, declaringType);
-        string directSelfType = DirectSelfTypeSignature(reader, declaringType);
-        if (directSelfType == selfType || parameters.All(parameter => parameter.Type.DisplayName != directSelfType))
-            return parameters;
-
-        return parameters
-            .Select(parameter => parameter.Type.DisplayName == directSelfType
-                ? parameter with { Type = CompileBackTypeSignature.Display(selfType) }
-                : parameter)
-            .ToArray();
-    }
-
-    static string DirectSelfTypeSignature(MetadataReader reader, TypeDefinition type)
-    {
-        var handles = type.GetGenericParameters();
-        int inheritedCount = 0;
-        var declaringType = type.GetDeclaringType();
-        if (!declaringType.IsNil)
-            inheritedCount = reader.GetTypeDefinition(declaringType).GetGenericParameters().Count;
-        var directNames = handles
-            .Skip(inheritedCount)
-            .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
-            .ToArray();
-        return TypeResolver.ApplyGenericArguments(TypeResolver.GetFullName(reader, type), directNames);
     }
 
     static IReadOnlyList<string> MethodReturnAttributes(MetadataReader reader, MethodDefinition method)
