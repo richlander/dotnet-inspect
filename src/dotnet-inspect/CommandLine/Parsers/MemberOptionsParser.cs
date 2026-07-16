@@ -121,10 +121,6 @@ public static class MemberOptionsParser
             }
         }
 
-        var positionalMembersBeforeEndOfOptions = positionalMembers
-            .Take(Math.Max(0, positionalMembers.Count - argumentsAfterEndOfOptions))
-            .ToArray();
-
         // Resolve source
         SharedParsers.SourceSelection sourceSelection;
         SourceResolver.ResolvedSource source;
@@ -240,6 +236,10 @@ public static class MemberOptionsParser
         }
 
         // Check for unrecognized options only among positional members before '--'.
+        // Calculate this after qualified-type/member transformations because they can
+        // move a raw argument into positionalMembers while preserving its boundary order.
+        var positionalMembersBeforeEndOfOptions = positionalMembers
+            .Take(Math.Max(0, positionalMembers.Count - argumentsAfterEndOfOptions));
         var badOption = positionalMembersBeforeEndOfOptions.FirstOrDefault(m => m.StartsWith('-'));
         if (badOption != null)
             return new UnrecognizedOption(badOption);

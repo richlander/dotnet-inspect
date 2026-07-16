@@ -120,6 +120,20 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task QualifiedType_DashPrefixedTrailingValueBeforeDoubleDash_IsRejected()
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(["member", "System.Text.Json.JsonDocument", "--bogus"]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        var unrecognized = Assert.IsType<MemberOptionsParser.UnrecognizedOption>(result);
+        Assert.Equal("--bogus", unrecognized.Option);
+    }
+
+    [Fact]
     public async Task PackageRangeAddress_IsPreservedForLazyResolution()
     {
         var options = await ParseSuccessAsync(
