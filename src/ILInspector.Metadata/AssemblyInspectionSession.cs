@@ -25,7 +25,7 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata => _image.HasMetadata;
 
-    // The method-body / IL seam (the CLI's MemberCodeProvider + ILInstructionPrinter) needs low-level
+    // The method-body / IL seam (the CLI's MemberCodeProvider + InstructionProducer) needs low-level
     // reader access that the public facet API deliberately does not expose. These internal
     // accessors let that composition read through this owned image instead of opening its own raw
     // PEReader, so the single PE open stays owned here. The public contract ("callers never touch a
@@ -47,7 +47,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<ManifestResourceInfo> Resources()
         => ResourceScanner.Scan(_image.PEReader);
 
-    /// <summary>Feature-switch metadata.</summary>
+    /// <summary>
+    /// Attribute-declared feature-switch metadata. AppContext call-site discovery
+    /// is an IL concern composed by the product layer.
+    /// </summary>
     public List<SwitchInfo> Switches()
         => SwitchScanner.Scan(_image.PEReader);
 

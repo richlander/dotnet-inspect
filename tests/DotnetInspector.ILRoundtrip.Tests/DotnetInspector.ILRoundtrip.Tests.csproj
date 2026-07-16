@@ -21,10 +21,15 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <!-- Vendored managed ILAssembler (orphan branch vendor/ilassembler), materialized
          by eng/restore-ilassembler.sh. The Exists condition keeps evaluation from
          failing outright; the target below gives the actionable error. -->
     <ProjectReference Include="$(ILAssemblerProject)" Condition="Exists('$(ILAssemblerProject)')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="ILInspector.Instructions" />
   </ItemGroup>
 
   <Target Name="EnsureILAssemblerRestored"

@@ -6490,6 +6490,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverSwitchesCategory_DetectsAppContextOnlyAssembly()
+    {
+        var assemblyPath = typeof(AppContextSwitchFixture).Assembly.Location;
+        using (var stream = File.OpenRead(assemblyPath))
+        using (var peReader = new PEReader(stream))
+            Assert.Empty(SwitchScanner.Scan(peReader));
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath, "-D", "@Switches", "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Switches", output);
+        Assert.DoesNotContain("Integrations", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverAuditCategory_ListsAuditWorkflowSections()
     {
         var (exit, output, error) = await RunAppAsync(

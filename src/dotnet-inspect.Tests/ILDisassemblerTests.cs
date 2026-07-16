@@ -122,7 +122,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var instructions = ILInstructionPrinter.DisassembleMethod(
+        var instructions = MetadataInstructionProducer.DisassembleMethod(
             peReader,
             "DotnetInspector.Tests.ILSampleClass",
             nameof(ILSampleClass.Add));
@@ -138,7 +138,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var instructions = ILInstructionPrinter.DisassembleMethod(peReader, "NoSuch.Type", "Method");
+        var instructions = MetadataInstructionProducer.DisassembleMethod(peReader, "NoSuch.Type", "Method");
 
         Assert.Null(instructions);
     }
@@ -150,7 +150,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        var instructions = ILInstructionPrinter.DisassembleMethod(
+        var instructions = MetadataInstructionProducer.DisassembleMethod(
             peReader,
             "DotnetInspector.Tests.ILSampleClass",
             "NonexistentMethod");
@@ -180,7 +180,7 @@ public class ILDisassemblerTests
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
-        return ILInstructionPrinter.DisassembleMethod(
+        return MetadataInstructionProducer.DisassembleMethod(
             peReader,
             declaringType.FullName!,
             methodName);
@@ -506,7 +506,7 @@ public class ILDisassemblerTests
 
                     try
                     {
-                        var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method);
+                        var instructions = MetadataInstructionProducer.Disassemble(peReader, reader, method);
                         if (instructions is not null)
                             totalInstructions += instructions.Count;
                     }
@@ -568,7 +568,7 @@ public class ILDisassemblerTests
 
                 try
                 {
-                    var instructions = ILInstructionPrinter.Disassemble(peReader, reader, method);
+                    var instructions = MetadataInstructionProducer.Disassemble(peReader, reader, method);
                     if (instructions is not null)
                         totalInstructions += instructions.Count;
                 }

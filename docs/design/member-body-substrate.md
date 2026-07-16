@@ -182,7 +182,7 @@ The same-reader body-composition callers are migrated onto handle addressing:
   `ResearchViews` mixed IL+C# projection (`MemberProjectionRequest.MethodHandle`),
   body-only modifier classification, and IL disassembly. Layer overloads were
   added at each seam
-  (`AttributeReader.GetMethodAttributes`, `ILInstructionPrinter.DisassembleMethod`,
+  (`AttributeReader.GetMethodAttributes`, `InstructionProducer.DisassembleMethod`,
   `IlProjection.Locate/Project/AnnotatedInstrLines`). Other `ResearchViews` entry
   points keep the name path (nil handle → fallback) — they are not the CLI's drift
   surface.
@@ -514,12 +514,12 @@ The homes above follow a 2×2 of **representation** (IL / C#) × **rung**
 | **IL** | `Metadata` — `SignatureProducer` | `Instructions` — `InstructionProducer` |
 | **C#** | `CSharp` — `TypeShellProducer` | `CSharp.Decompiler` — `MemberBodyProducer` |
 
-Landing `InstructionProducer` in `Instructions` (not `Metadata`) requires two
-moves that also make the `Metadata` surface lean — they retire the *only* reason
-`Metadata → Instructions` exists today:
+`InstructionProducer` now lives in `Instructions` (not `Metadata`) through two
+moves that also make the `Metadata` surface lean — they retired the *only*
+reasons `Metadata → Instructions` existed:
 
 - **The IL printer moves to `Instructions` by dependency inversion.**
-  `ILInstructionPrinter` is IL rendering; its sole `Metadata` tie is turning an
+  `InstructionProducer` owns IL rendering; its sole former `Metadata` tie was turning an
   operand token into a name (`ILTokenResolver` / `CanonicalIL`, over a
   `MetadataReader`). Name that need as an abstraction `Instructions` owns —
   `IOperandNameResolver` with `ResolveType/Method/Field/String/Token(int token)`,
@@ -528,9 +528,10 @@ moves that also make the `Metadata` surface lean — they retire the *only* reas
   existing static resolvers. The **high-level policy** (IL rendering) no longer
   depends on the **low-level detail** (metadata lookup); both depend on the
   abstraction, which the policy side owns. Placed in the layer that already sees
-  both (the composition/IL-text seam), the adapter **cuts**
-  `Metadata ↔ Instructions` outright; placed in `Metadata`, it merely narrows the
-  edge to one interface implementation — the cut is the goal.
+  both (the product, harness, and roundtrip composition seams), the adapters
+  **cut** `Metadata ↔ Instructions` outright. AppContext switch discovery moved
+  with the IL scan into product composition; Metadata retains attribute-backed
+  switch discovery, and the product merges both sets for presence and rendering.
 - **`PdbContext` splits at a seam that is already there.** Its `Instructions` use
   is confined to the IL-offset → *instruction* family
   (`ResolveInstructionContext`, `ResolveCallsiteContext`,
@@ -615,7 +616,7 @@ sourced from Metadata/Analysis, not from the printed text:
 | Layer | Role | Adds |
 | --- | --- | --- |
 | Metadata | `SignatureProducer` + identity + source-link | keep identity addressing the rule (`MetadataToken` same-reader, `ResearchMemberIdentity` cross-reader); add `SignatureProducer` (type/member, singular or list, no shells); keep the PDB/source-link core (`ResolveByILOffset`, source docs, compilation info) with **no** `Instructions` dependency; expose async classification for the body path |
-| Instructions | `InstructionProducer` | host `InstructionProducer`; take `ILInstructionPrinter` in via the `IOperandNameResolver` inversion (stays metadata-free); absorb the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
+| Instructions | `InstructionProducer` | host `InstructionProducer` behind the `IOperandNameResolver` inversion (stays free of the Metadata assembly); own the IL-offset→instruction context helpers (`ResolveInstructionContext`/`ResolveCallsiteContext`/`ResolveReturnAddressContext`) split out of `PdbContext` |
 | Analysis | body-fact source | expose offset-keyed body facts (unsafe/throw/alloc) for the member pre-filter and Research body-subset |
 | CSharp | `TypeShellProducer` | own `ApiType` shape + `TypeShellProducer` that expands Metadata signatures, and its member subset; carry async/unsafe flags on `CSharpMemberBody` |
 | CSharp.Decompiler | `MemberBodyProducer` | produce singular C# bodies that expand CSharp shells — full/partial type shapes; collapse `MemberBodyProducer`'s duplicate declaration rendering onto `TypeShellProducer`; no diffs, no interleave |

@@ -10,6 +10,7 @@ using System.Text.Json;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -936,7 +937,7 @@ static class FidelityCheck
                 continue;
             var requiredNamespaces = RequiredNamespaces(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(reader, method, function, body);
-            var original = ILInstructionPrinter.Disassemble(pe, reader, method);
+            var original = MetadataInstructionProducer.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
@@ -3773,7 +3774,7 @@ static class FidelityCheck
                 if (mn != match)
                     continue;
                 if (seen++ == overload)
-                    return ILInstructionPrinter.Disassemble(pe, reader, m);
+                    return MetadataInstructionProducer.Disassemble(pe, reader, m);
             }
         }
         return null;

@@ -1,9 +1,12 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -70,7 +73,30 @@ internal static class ILOffsetSourceQuery
             return (1, null);
         }
 
-        var instructionContext = pdbContext.ResolveInstructionContext(methodToken, ilOffset, out var instructionError);
+        using var instructionStream = File.OpenRead(pdbContext.AssemblyPath);
+        using var instructionPeReader = new PEReader(instructionStream);
+        var instructionReader = instructionPeReader.GetMetadataReader();
+        var operandResolver = new MetadataOperandNameResolver(instructionReader);
+        var decoded = InstructionContextResolver.TryDecodeMethod(
+            instructionPeReader,
+            instructionReader,
+            methodToken,
+            out var methodInstructions,
+            out var decodeError);
+
+        ILOffsetInstructionContextInfo? instructionContext = null;
+        string? instructionError = decodeError == $"Could not decode IL for token 0x{methodToken:X}."
+            ? $"Could not resolve instruction context for token 0x{methodToken:X}+0x{ilOffset:X}."
+            : decodeError;
+        if (decoded)
+        {
+            instructionContext = InstructionContextResolver.ResolveInstructionContext(
+                methodInstructions!,
+                methodToken,
+                ilOffset,
+                operandResolver,
+                out instructionError);
+        }
         if (instructionContext == null && RequiresInstructionContext(options))
         {
             WriteError(writeErrors, $"Error: {instructionError ?? $"Could not resolve instruction context for token 0x{methodToken:X}+0x{ilOffset:X}."}");
@@ -84,14 +110,34 @@ internal static class ILOffsetSourceQuery
             return (1, null);
         }
 
-        var callsiteContext = pdbContext.ResolveCallsiteContext(methodToken, ilOffset, out var callsiteError);
+        ILOffsetCallsiteContextInfo? callsiteContext = null;
+        string? callsiteError = decodeError;
+        if (decoded)
+        {
+            callsiteContext = InstructionContextResolver.ResolveCallsiteContext(
+                methodInstructions!,
+                methodToken,
+                ilOffset,
+                operandResolver,
+                out callsiteError);
+        }
         if (callsiteError is not null && RequiresCallsiteContext(options))
         {
             WriteError(writeErrors, $"Error: {callsiteError}");
             return (1, null);
         }
 
-        var returnAddressContext = pdbContext.ResolveReturnAddressContext(methodToken, ilOffset, out var returnAddressError);
+        ILOffsetReturnAddressContextInfo? returnAddressContext = null;
+        string? returnAddressError = decodeError;
+        if (decoded)
+        {
+            returnAddressContext = InstructionContextResolver.ResolveReturnAddressContext(
+                methodInstructions!,
+                methodToken,
+                ilOffset,
+                operandResolver,
+                out returnAddressError);
+        }
         if (returnAddressError is not null && RequiresReturnAddressContext(options))
         {
             WriteError(writeErrors, $"Error: {returnAddressError}");
