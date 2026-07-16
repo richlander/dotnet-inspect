@@ -338,7 +338,8 @@ public sealed record CompileBackParameter(
 public sealed record CompileBackTypeParameter(
     string Name,
     IReadOnlyList<string> Constraints,
-    string? Variance = null);
+    string? Variance = null,
+    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null);
 
 public enum CompileBackStubBodyKind
 {
@@ -1386,6 +1387,7 @@ public static class CompileBackSourceComposer
                     {
                         Name = parameter.Name,
                         Constraints = parameter.Constraints.ToList(),
+                        StructuredConstraints = parameter.StructuredConstraints,
                     })
                     .ToList(),
                 Parameters = member.Parameters
@@ -1594,7 +1596,8 @@ public static class CompileBackSourceComposer
             .Select(parameter => new CompileBackTypeParameter(
                 parameter.Name,
                 parameter.Constraints,
-                parameter.Variance))
+                parameter.Variance,
+                parameter.StructuredConstraints))
             .ToArray();
 
     static string AccessibilityText(CompileBackAccessibility accessibility)
