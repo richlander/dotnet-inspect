@@ -201,20 +201,23 @@ public static class ResourceLifecycleAnalysis
 
     static ResourceBoundaryKind ClassifyBoundary(MemberRef member)
     {
-        string type = TypeName(member.DeclaringType);
+        TypeRef declaringType = member.DeclaringType;
+        string type = SimpleTypeName(declaringType);
         string method = member.Name;
 
-        if ((IsStreamLike(type)
+        if ((IsStreamLike(declaringType)
                 && method.StartsWith("Read", StringComparison.Ordinal))
-            || ((type is "Decoder"
-                    || type.EndsWith("Decoder", StringComparison.Ordinal))
+            || ((IsType(declaringType, "System.Text", "Decoder")
+                    || HasTypeNameSuffix(declaringType, "Decoder"))
                 && method is "GetChars" or "GetString" or "Convert")
-            || ((type is "Encoding"
-                    || type.EndsWith("Encoding", StringComparison.Ordinal))
+            || ((IsType(declaringType, "System.Text", "Encoding")
+                    || HasTypeNameSuffix(declaringType, "Encoding"))
                 && method is "GetChars" or "GetString")
-            || (type == "Socket"
+            || (IsType(declaringType, "System.Net.Sockets", "Socket")
                 && method.StartsWith("Receive", StringComparison.Ordinal))
-            || (type is "TextReader" or "StreamReader" or "BinaryReader"
+            || ((IsType(declaringType, "System.IO", "TextReader")
+                    || IsType(declaringType, "System.IO", "StreamReader")
+                    || IsType(declaringType, "System.IO", "BinaryReader"))
                 && method.StartsWith("Read", StringComparison.Ordinal))
             || method.StartsWith("Deserialize", StringComparison.Ordinal)
             || method.StartsWith("Tokenize", StringComparison.Ordinal)
@@ -229,19 +232,27 @@ public static class ResourceLifecycleAnalysis
         }
 
         if (method.StartsWith("Escape", StringComparison.Ordinal)
-            || ((type is "Encoding"
-                    || type.EndsWith("Encoding", StringComparison.Ordinal))
+            || ((IsType(declaringType, "System.Text", "Encoding")
+                    || HasTypeNameSuffix(declaringType, "Encoding"))
                 && method is "GetBytes" or "GetByteCount")
             || method.StartsWith("Encode", StringComparison.Ordinal)
             || method.StartsWith("Transcode", StringComparison.Ordinal)
             || method is "ToUtf8" or "EncodeHelper"
-            || (type == "Array"
+            || (IsType(declaringType, "System", "Array")
                 && method is "Copy" or "Clear" or "Resize" or "Fill")
-            || (type == "Buffer"
+            || (IsType(declaringType, "System", "Buffer")
                 && method.StartsWith("Block", StringComparison.Ordinal))
-            || type is "Unsafe" or "MemoryMarshal"
-            || (type == "String" && method == ".ctor")
-            || (!IsStreamLike(type)
+            || IsType(
+                declaringType,
+                "System.Runtime.CompilerServices",
+                "Unsafe")
+            || IsType(
+                declaringType,
+                "System.Runtime.InteropServices",
+                "MemoryMarshal")
+            || (IsType(declaringType, "System", "String")
+                && method == ".ctor")
+            || (!IsStreamLike(declaringType)
                 && method == "CopyTo")
             || method.StartsWith("TryFormat", StringComparison.Ordinal)
             || method.StartsWith("Format", StringComparison.Ordinal)
@@ -255,21 +266,40 @@ public static class ResourceLifecycleAnalysis
         return ResourceBoundaryKind.Unknown;
     }
 
-    static bool IsStreamLike(string type)
-        => type == "Stream"
-            || type.EndsWith("Stream", StringComparison.Ordinal);
+    static bool IsStreamLike(TypeRef type)
+        => IsType(type, "System.IO", "Stream")
+            || HasTypeNameSuffix(type, "Stream");
 
-    static string TypeName(TypeRef type)
+    static bool IsType(TypeRef type, string @namespace, string name)
     {
-        TypeRef definition =
-            type.Kind == TypeRefKind.GenericInstance
-                ? type.ElementType ?? type
-                : type;
+        TypeRef definition = TypeDefinition(type);
+        return string.Equals(
+                definition.Namespace,
+                @namespace,
+                StringComparison.Ordinal)
+            && string.Equals(definition.Name, name, StringComparison.Ordinal);
+    }
+
+    static bool HasTypeNameSuffix(TypeRef type, string suffix)
+    {
+        string name = SimpleTypeName(type);
+        return name.Length > suffix.Length
+            && name.EndsWith(suffix, StringComparison.Ordinal);
+    }
+
+    static string SimpleTypeName(TypeRef type)
+    {
+        TypeRef definition = TypeDefinition(type);
         int tick = definition.Name.IndexOf('`');
         return tick >= 0
             ? definition.Name[..tick]
             : definition.Name;
     }
+
+    static TypeRef TypeDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
 
     const int InitialFingerprintLength = 16;
     const int MaximumFingerprintLength = 64;

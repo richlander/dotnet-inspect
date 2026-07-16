@@ -123,6 +123,38 @@ public sealed class LeakTriageAnalyzerTests
             boundary.Operation.Name == "GetChars"
             && boundary.Kind == ResourceBoundaryKind.ExternalInput);
 
+        var throughStringArgument = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithTag)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            throughStringArgument.Source.Payload.Actionability);
+        Assert.Contains(
+            throughStringArgument.Source.Payload.Boundaries,
+            boundary =>
+                boundary.Operation.Name == "Parse"
+                && boundary.Kind == ResourceBoundaryKind.ExternalInput);
+
+        var unrelatedReader = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.UnrelatedTextReaderReadBeforeReturn)));
+        Assert.Equal(
+            ResourceActionability.Unknown,
+            unrelatedReader.Source.Payload.Actionability);
+        Assert.Equal(
+            ResourceBoundaryKind.Unknown,
+            Assert.Single(unrelatedReader.Source.Payload.Boundaries).Kind);
+
+        var frameworkReader = Assert.Single(candidates.Where(candidate =>
+            candidate.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.FrameworkTextReaderReadBeforeReturn)));
+        Assert.Equal(
+            ResourceActionability.UntrustedActionable,
+            frameworkReader.Source.Payload.Actionability);
+        Assert.Equal(
+            ResourceBoundaryKind.ExternalInput,
+            Assert.Single(frameworkReader.Source.Payload.Boundaries).Kind);
+
         var trusted = Assert.Single(candidates.Where(candidate =>
             candidate.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.TrustedTransformWithUnrelatedReadAfterReturn)));
@@ -843,6 +875,33 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanWithTag()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        int written = ExternalInputReader.Parse(chars.AsSpan(), "wire");
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int UnrelatedTextReaderReadBeforeReturn(TextReader reader)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = reader.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int FrameworkTextReaderReadBeforeReturn(System.IO.TextReader reader)
+    {
+        var buffer = ArrayPool<char>.Shared.Rent(16);
+        int read = reader.Read(buffer, 0, 16);
+        ArrayPool<char>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int TrustedTransformWithUnrelatedReadAfterReturn(Stream stream)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -875,6 +934,19 @@ internal sealed class ArrayPoolLeakFixtures
             ArrayPool<byte>.Shared.Return(buffer);
             throw;
         }
+    }
+
+    internal sealed class TextReader
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(byte[] buffer) => buffer.Length;
+    }
+
+    internal static class ExternalInputReader
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Parse(Span<char> destination, string tag)
+            => destination.Length + tag.Length;
     }
 
     // Same shape with `catch (Exception)`, which also runs for every managed exception type.

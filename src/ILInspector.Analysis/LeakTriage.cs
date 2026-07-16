@@ -951,7 +951,8 @@ public static class LeakTriageAnalyzer
             or ILOpCode.Ldarg_s or ILOpCode.Ldarg
             or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
             or ILOpCode.Ldloc_s or ILOpCode.Ldloc
-            or ILOpCode.Ldnull;
+            or ILOpCode.Ldnull
+            or ILOpCode.Ldstr;
 
     static bool IsElementRead(ILOpCode opcode)
         => opcode is ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
