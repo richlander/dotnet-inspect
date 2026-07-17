@@ -10,7 +10,7 @@ namespace DotnetInspector.Services;
 /// </summary>
 public class SourceFetcher(HttpClient httpClient)
 {
-    private readonly ConcurrentDictionary<string, string> _memoryCache = new();
+    private readonly AsyncCache<string, string?> _sourceCache = new();
     private readonly ConcurrentDictionary<string, byte[]> _byteMemoryCache = new();
     private readonly HttpClient _httpClient = httpClient;
     private const string ByteCacheCategory = "source-bytes-v1";
@@ -20,32 +20,31 @@ public class SourceFetcher(HttpClient httpClient)
     /// Checks in-memory cache first, then disk cache, then fetches from network.
     /// Returns null if the fetch fails.
     /// </summary>
-    public async Task<string?> FetchSourceAsync(string url)
+    public Task<string?> FetchSourceAsync(string url)
     {
-        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
-
         // URLs originate in untrusted artifacts (SourceLink data in a PDB). Restrict to absolute
         // http/https so attacker-supplied mappings cannot reach file:// or other schemes. The
         // injected HttpClient is additionally SSRF-hardened against private/internal IPs.
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
             || (parsed.Scheme != Uri.UriSchemeHttps && parsed.Scheme != Uri.UriSchemeHttp))
         {
-            return null;
+            return Task.FromResult<string?>(null);
         }
 
-        // Check in-memory cache first
-        if (_memoryCache.TryGetValue(url, out string? cached))
-        {
-            return cached;
-        }
+        return _sourceCache.GetOrAddAsync(
+            url,
+            FetchSourceCoreAsync,
+            static content => content is not null);
+    }
+
+    private async Task<string?> FetchSourceCoreAsync(string url)
+    {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
 
         // Check persistent disk cache
         var diskCached = PackageCacheService.TryGetCachedSource(url);
         if (diskCached != null)
-        {
-            _memoryCache[url] = diskCached;
             return diskCached;
-        }
 
         // Fetch from network with retry
         try
@@ -55,7 +54,6 @@ public class SourceFetcher(HttpClient httpClient)
                 trafficKind: NetworkTrafficKind.SourceFetch).ConfigureAwait(false);
             if (content == null)
                 return null;
-            _memoryCache[url] = content;
             PackageCacheService.CacheSource(url, content);
             return content;
         }
