@@ -51,6 +51,9 @@ public sealed record PackageReferenceTarget(
 /// </summary>
 public static class PackageExtractor
 {
+    private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
+        s_packageRequests = new();
+
     /// <summary>
     /// Extracts a package from a local .nupkg file or downloads from NuGet sources.
     /// </summary>
@@ -189,6 +192,39 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
 
+        var request = new PackageAcquisitionRequest(
+            Path.GetFullPath(
+                NuGetCache.GetPackageCachePath(
+                    normalizedName,
+                    normalizedVersion)));
+        return await s_packageRequests.GetOrAddAsync(
+            request,
+            _ => AcquireResolvedPackageAsync(
+                client,
+                packageName,
+                version,
+                normalizedName,
+                normalizedVersion,
+                sources,
+                sourceOptions,
+                log,
+                tempDirPrefix),
+            // This is an in-flight registry. The committed filesystem entry is
+            // authoritative and is revalidated by every later request.
+            static _ => false).ConfigureAwait(false);
+    }
+
+    private static async Task<PackageExtractionOutcome> AcquireResolvedPackageAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        string normalizedName,
+        string normalizedVersion,
+        IReadOnlyList<NuGetSource> sources,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        string tempDirPrefix)
+    {
         // Check NuGet cache first
         string? cachedPath;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
@@ -209,68 +245,121 @@ public static class PackageExtractor
         string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
         string extractPath = Path.Combine(tempDir, "extracted");
 
-        // Try each source in order, streaming the package straight to disk (no in-memory buffer).
-        string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
-        string? successfulSource = null;
-
-        foreach (var source in sources)
-        {
-            var nupkgUrl = await GetPackageDownloadUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
-            if (nupkgUrl == null)
-                continue;
-
-            log?.Invoke($"Downloading: {packageName} {version} from {source.Name}");
-
-            try
-            {
-                var ok = await HttpRetryHelper.DownloadToFileWithRetryAsync(
-                    client, nupkgUrl, nupkgPath, log: log, auth: source.GetAuthHeader(),
-                    trafficKind: NetworkTrafficKind.PackageDownload).ConfigureAwait(false);
-                if (ok)
-                {
-                    successfulSource = source.Name;
-                    break;
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                log?.Invoke($"Source {source.Name} failed: {ex.Message}");
-                continue;
-            }
-        }
-
-        if (successfulSource == null)
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
-
-            // Differentiate "package doesn't exist" from "version doesn't exist"
-            var knownVersions = await GetVersionsAsync(client, packageName, includePrerelease: true, limit: null, log: null, sourceOptions: sourceOptions).ConfigureAwait(false);
-            if (knownVersions == null || knownVersions.Count == 0)
-                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
-
-            return PackageExtractionOutcome.Error($"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
-        }
-
         try
         {
+            // Try each source in order, streaming the package straight to disk
+            // without an in-memory archive buffer.
+            string nupkgPath = Path.Combine(
+                tempDir,
+                $"{packageName}.{version}.nupkg");
+            string? successfulSource = null;
+
+            foreach (var source in sources)
+            {
+                var nupkgUrl = await GetPackageDownloadUrlAsync(
+                    client,
+                    source,
+                    normalizedName,
+                    normalizedVersion,
+                    log).ConfigureAwait(false);
+                if (nupkgUrl == null)
+                    continue;
+
+                log?.Invoke(
+                    $"Downloading: {packageName} {version} from {source.Name}");
+
+                try
+                {
+                    var ok = await HttpRetryHelper.DownloadToFileWithRetryAsync(
+                        client,
+                        nupkgUrl,
+                        nupkgPath,
+                        log: log,
+                        auth: source.GetAuthHeader(),
+                        trafficKind: NetworkTrafficKind.PackageDownload)
+                        .ConfigureAwait(false);
+                    if (ok)
+                    {
+                        successfulSource = source.Name;
+                        break;
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    log?.Invoke($"Source {source.Name} failed: {ex.Message}");
+                }
+            }
+
+            if (successfulSource == null)
+            {
+                // Differentiate "package doesn't exist" from "version doesn't exist"
+                var knownVersions = await GetVersionsAsync(
+                    client,
+                    packageName,
+                    includePrerelease: true,
+                    limit: null,
+                    log: null,
+                    sourceOptions: sourceOptions).ConfigureAwait(false);
+                if (knownVersions == null || knownVersions.Count == 0)
+                {
+                    return PackageExtractionOutcome.Error(
+                        $"Package '{packageName}' not found.");
+                }
+
+                return PackageExtractionOutcome.Error(
+                    $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
+            }
+
             ZipFile.ExtractToDirectory(nupkgPath, extractPath);
             log?.Invoke($"Package downloaded successfully from {successfulSource}.");
 
-            // Cache the package for future use
-            var newCachePath = NuGetCache.CachePackage(extractPath, packageName, version);
-            if (newCachePath != null)
-            {
-                log?.Invoke($"Cached to: {newCachePath}");
-            }
+            CommittedPackage committed = NuGetCache.CommitPackage(
+                extractPath,
+                nupkgPath,
+                packageName,
+                version);
+            log?.Invoke($"Cached to: {committed.ExtractPath}");
+
+            return new PackageExtractionResult(
+                committed.ExtractPath,
+                TempDir: null,
+                packageName,
+                version,
+                committed.NupkgPath,
+                FromCache: true);
         }
-        catch (Exception ex)
+        catch (IOException ex)
         {
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
             return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
         }
-
-        return new PackageExtractionResult(extractPath, tempDir, packageName, version, nupkgPath);
+        catch (InvalidDataException ex)
+        {
+            return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return PackageExtractionOutcome.Error($"Failed to extract package '{packageName}@{version}': {ex.Message}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+            catch (IOException)
+            {
+                // The committed cache entry is independent of this temporary
+                // download workspace.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // The committed cache entry is independent of this temporary
+                // download workspace.
+            }
+        }
     }
+
+    private readonly record struct PackageAcquisitionRequest(string CachePath);
 
     /// <summary>
     /// Gets the download URL for a package from a specific source.

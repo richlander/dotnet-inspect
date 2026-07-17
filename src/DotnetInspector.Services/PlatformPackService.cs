@@ -268,7 +268,7 @@ public static class PlatformPackService
         try
         {
             Directory.CreateDirectory(packDir);
-            MoveContents(result.ExtractPath, packDir);
+            CopyContents(result.ExtractPath, packDir);
 
             log?.Invoke($"Cached pack: {packDir}");
             return packDir;
@@ -303,10 +303,11 @@ public static class PlatformPackService
     }
 
     /// <summary>
-    /// Moves directory contents from source to destination, preserving structure.
+    /// Copies directory contents from source to destination, preserving structure.
+    /// Package extraction paths may be shared cache entries and must remain immutable.
     /// Skips NuGet metadata files (.nuspec, [Content_Types].xml, _rels/, package/).
     /// </summary>
-    private static void MoveContents(string source, string destination)
+    private static void CopyContents(string source, string destination)
     {
         foreach (var dir in Directory.GetDirectories(source))
         {
@@ -322,7 +323,7 @@ public static class PlatformPackService
                 CoreCache.EnsurePathInCacheContext(destDir);
                 Directory.Delete(destDir, recursive: true);
             }
-            Directory.Move(dir, destDir);
+            CopyDirectory(dir, destDir);
         }
 
         foreach (var file in Directory.GetFiles(source))
@@ -331,11 +332,32 @@ public static class PlatformPackService
 
             // Skip NuGet metadata files
             if (fileName.Equals("[Content_Types].xml", StringComparison.OrdinalIgnoreCase)
-                || fileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+                || fileName.Equals(".dotnet-inspect.complete", StringComparison.Ordinal)
+                || fileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)
+                || fileName.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var destFile = Path.Combine(destination, fileName);
-            File.Move(file, destFile, overwrite: true);
+            File.Copy(file, destFile, overwrite: true);
+        }
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(
+                file,
+                Path.Combine(destination, Path.GetFileName(file)),
+                overwrite: true);
+        }
+
+        foreach (var directory in Directory.GetDirectories(source))
+        {
+            CopyDirectory(
+                directory,
+                Path.Combine(destination, Path.GetFileName(directory)));
         }
     }
 }

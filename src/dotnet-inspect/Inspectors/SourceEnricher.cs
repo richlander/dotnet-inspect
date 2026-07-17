@@ -450,20 +450,7 @@ internal static class SourceEnricher
     /// Finds the latest cached version for a package by checking the cache directory.
     /// </summary>
     private static string? FindCachedPackageVersion(string packageName)
-    {
-        var cachePath = NuGetCache.GetAppCachePath();
-        var packageDir = Path.Combine(cachePath, packageName.ToLowerInvariant());
-        if (!Directory.Exists(packageDir))
-            return null;
-
-        // Return the highest version directory (using numeric ordering for correct semver-like sort)
-        var comparer = StringComparer.Create(System.Globalization.CultureInfo.InvariantCulture, System.Globalization.CompareOptions.NumericOrdering);
-        return Directory.GetDirectories(packageDir)
-            .Select(d => Path.GetFileName(d))
-            .Where(name => name.Length > 0 && char.IsDigit(name[0]))
-            .OrderByDescending(v => v, comparer)
-            .FirstOrDefault();
-    }
+        => NuGetCache.TryGetLatestCachedVersion(packageName);
 
     /// <summary>
     /// Enriches multiple types from a single XML doc file (loaded once).
