@@ -281,8 +281,8 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
+                ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                ExtractResourcesIfRequested(resolvedPath!, options, logger);
                 return IntegrityExitCode(inspection);
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
@@ -351,13 +351,13 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
                 WarnEmptySections(inspections[0], options, pipeline);
+                if (assemblyPaths.Count > 0)
+                    ExtractResourcesIfRequested(assemblyPaths[0], options);
+
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
-
-                if (assemblyPaths.Count > 0)
-                    ExtractResourcesIfRequested(assemblyPaths[0], options, logger);
 
                 return IntegrityExitCode([.. inspections]);
             }
@@ -407,8 +407,8 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
+                ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                ExtractResourcesIfRequested(assemblyPath!, options, logger);
                 return IntegrityExitCode(inspection);
             }
         }
@@ -1454,31 +1454,24 @@ public class LibraryCommand
                    descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options, VerboseLogger logger)
+    private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options)
     {
         if (string.IsNullOrEmpty(options.ExtractResources))
             return;
 
-        try
+        using var session = AssemblyInspectionSession.Open(assemblyPath);
+        var extracted = session.ExtractResources(options.ExtractResources);
+        if (extracted.Count == 0)
         {
-            using var session = AssemblyInspectionSession.Open(assemblyPath);
-            var extracted = session.ExtractResources(options.ExtractResources);
-            if (extracted.Count == 0)
-            {
-                Console.Error.WriteLine("No embedded resources found.");
-            }
-            else
-            {
-                Console.Error.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
-                foreach (var path in extracted)
-                {
-                    Console.Error.WriteLine($"  {Path.GetFileName(path)}");
-                }
-            }
+            Console.Error.WriteLine("No embedded resources found.");
         }
-        catch (Exception ex)
+        else
         {
-            Console.Error.WriteLine($"Error extracting resources: {ex.Message}");
+            Console.Error.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
+            foreach (var path in extracted)
+            {
+                Console.Error.WriteLine($"  {Path.GetFileName(path)}");
+            }
         }
     }
 
