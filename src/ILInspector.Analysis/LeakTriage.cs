@@ -800,9 +800,11 @@ public static class LeakTriageAnalyzer
             {
                 return FindBoundaryAfterInPlaceSetup(
                     instructions,
+                    reaching,
                     calls,
                     setupIndex,
-                    slot);
+                    slot,
+                    depth);
             }
 
             return null;
@@ -910,9 +912,11 @@ public static class LeakTriageAnalyzer
 
     static ArrayPoolExceptionBoundary? FindBoundaryAfterInPlaceSetup(
         ImmutableArray<DecodedInstruction> instructions,
+        ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, MemberRef> calls,
         int setupIndex,
-        int slot)
+        int slot,
+        int depth)
     {
         for (int i = setupIndex + 1;
             i < instructions.Length && i <= setupIndex + 16;
@@ -934,9 +938,20 @@ public static class LeakTriageAnalyzer
                 calls,
                 instruction.Offset,
                 slot);
-            return classification.CandidateShape == "cross-method-suppressed"
-                ? classification.Boundary
-                : null;
+            if (classification.CandidateShape != "cross-method-suppressed"
+                || classification.Boundary is not { } boundary)
+            {
+                return null;
+            }
+            if (!classification.NonThrowingSetupBoundary)
+                return boundary;
+
+            return FindBoundaryAfterSetup(
+                instructions,
+                reaching,
+                calls,
+                boundary,
+                depth + 1);
         }
 
         return null;
@@ -1143,8 +1158,14 @@ public static class LeakTriageAnalyzer
             return true;
         }
 
-        if (IsArrayToSpanConversion(member)
+        if (IsArrayToTypedWrapperConversion(member)
             && valueType?.Equals(member.ParameterTypes[0]) == true)
+        {
+            return true;
+        }
+
+        if (IsExactArrayWrapperConstructor(member, valueType)
+            || IsMemoryToReadOnlyMemoryConversion(member))
         {
             return true;
         }
@@ -1156,16 +1177,36 @@ public static class LeakTriageAnalyzer
     static bool IsTransparentWrapperBoundary(MemberRef member)
         => member.Name == ".ctor"
             && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }, ..]
-            && (IsFrameworkGenericType(member.DeclaringType, "Memory`1")
-                || IsFrameworkGenericType(
-                    member.DeclaringType,
-                    "ReadOnlyMemory`1"));
+            && IsTypedWrapperType(member.DeclaringType);
 
-    static bool IsArrayToSpanConversion(MemberRef member)
+    static bool IsArrayToTypedWrapperConversion(MemberRef member)
         => member.Name == "op_Implicit"
             && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }]
-            && (IsSpanType(member.ReturnType)
-                || IsReadOnlySpanType(member.ReturnType));
+            && IsTypedWrapperType(member.ReturnType);
+
+    static bool IsExactArrayWrapperConstructor(
+        MemberRef member,
+        TypeRef? valueType)
+        => member.Name == ".ctor"
+            && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray } array]
+            && valueType?.Equals(array) == true
+            && IsTypedWrapperType(member.DeclaringType);
+
+    static bool IsMemoryToReadOnlyMemoryConversion(MemberRef member)
+        => member.Name == "op_Implicit"
+            && member.ParameterTypes is [var source]
+            && IsFrameworkGenericType(source, "Memory`1")
+            && IsFrameworkGenericType(
+                member.ReturnType,
+                "ReadOnlyMemory`1")
+            && source.TypeArguments.SequenceEqual(
+                member.ReturnType.TypeArguments);
+
+    static bool IsTypedWrapperType(TypeRef type)
+        => IsSpanType(type)
+            || IsReadOnlySpanType(type)
+            || IsFrameworkGenericType(type, "Memory`1")
+            || IsFrameworkGenericType(type, "ReadOnlyMemory`1");
 
     static bool IsSpanType(TypeRef type)
         => IsFrameworkGenericType(type, "Span`1");

@@ -333,10 +333,10 @@ dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
 ```
 
 A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classified
-57 lifecycle observations as 4 `untrusted-actionable`
+57 lifecycle observations as 5 `untrusted-actionable`
 (`MessagePackReader::ReadStringSlow`, `EncodingExtensions::GetString`,
-`TypeMapLazyDictionary::ConvertUtf8ToUtf16`, and `BinaryReader::FillBuffer`),
-31 `trusted-low-actionability`, and 22 `unknown`.
+`TypeMapLazyDictionary::ConvertUtf8ToUtf16`, `BinaryReader::FillBuffer`, and
+`HashAlgorithm::ComputeHashAsyncCore`), 31 `trusted-low-actionability`, and 21 `unknown`.
 
 The same-day pinned community run classified 19 lifecycle observations as 3
 `untrusted-actionable` (`MessagePackReader::ReadStringSlow`, Npgsql

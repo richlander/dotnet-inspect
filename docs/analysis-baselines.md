@@ -45,7 +45,7 @@ are the cheapest "found something interesting" wins.
 | # | Analysis type | Command | Volume (44 asm) | Precision | Actionability | Verdict |
 | - | ------------- | ------- | --------------- | --------- | ------------- | ------- |
 | 1 | Algorithmic scan-in-loop | `Performance Triage` (`scan-method-in-loop-call`, `linq-scan-in-loop`, `string-build-in-loop`, `allocation-hotspot`) | 155 | High | **Very high** (quadratic) | **Headline** |
-| 2 | Leak-after-exception | `Resource Triage` (harness `--leak-actionability` for the full census) | 4 current framework / 9 historical confirmed | **Very high** | High (`try/finally`) | **Headline** |
+| 2 | Leak-after-exception | `Resource Triage` (harness `--leak-actionability` for the full census) | 5 current framework / 9 historical confirmed | **Very high** | High (`try/finally`) | **Headline** |
 | 3 | Delegate allocation | `Performance Triage` (`instance-method-group-delegate`, `capturing-delegate`) | 3,327 raw / 128 hot | High (real) / High in loops | High in loops | **Worthy w/ ranking** |
 | 4 | Enumerator allocation | `Performance Triage` (`enumerator-allocation`) | 121 / 117 hot | High | Med–High | **Worthy** |
 | 5 | Reach / leverage | `Top Leverage` | ranking | — | Impact multiplier for 1,3,4 | **Worthy as a lens** |
@@ -86,9 +86,10 @@ the untrusted-actionable candidates.
 - **9/9 confirmed exception-path pool-retention defects**, IL-verified. Lowest volume,
   highest precision, clean `try/finally` fix.
 - Current exact product contract (.NET 11 daily, 314 assemblies): 57 lifecycle
-  observations → 4 untrusted-actionable (`MessagePackReader.ReadStringSlow`,
+  observations → 5 untrusted-actionable (`MessagePackReader.ReadStringSlow`,
   `EncodingExtensions.GetString`, `TypeMapLazyDictionary.ConvertUtf8ToUtf16`,
-  and `BinaryReader.FillBuffer`), 31 trusted, and 22 unknown.
+  `BinaryReader.FillBuffer`, and `HashAlgorithm.ComputeHashAsyncCore`), 31
+  trusted, and 21 unknown.
 - Current pinned community contract (9 assemblies): 19 lifecycle observations →
   3 untrusted-actionable (`MessagePackReader.ReadStringSlow`, Npgsql
   `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte`)

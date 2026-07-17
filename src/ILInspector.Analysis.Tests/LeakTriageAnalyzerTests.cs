@@ -217,6 +217,30 @@ public sealed class LeakTriageAnalyzerTests
             boundary.Evidence.Operation.Name == ".ctor"
             && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
 
+        var throughImplicitMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughImplicitMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughImplicitMemory.Actionability);
+        Assert.Contains(throughImplicitMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughImplicitMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var throughMemoryChain = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemoryChain)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemoryChain.Actionability);
+        Assert.Contains(throughMemoryChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughMemoryChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name is ".ctor" or "op_Implicit");
+
         var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpan)));
@@ -228,6 +252,18 @@ public sealed class LeakTriageAnalyzerTests
             && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
         Assert.DoesNotContain(throughReadOnlySpan.Boundaries, boundary =>
             boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var throughExplicitSpan = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughExplicitSpan)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughExplicitSpan.Actionability);
+        Assert.Contains(throughExplicitSpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughExplicitSpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor");
 
         var throughSpanByRef = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
@@ -266,6 +302,9 @@ public sealed class LeakTriageAnalyzerTests
         Assert.DoesNotContain(assessments, assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.SpanFillBeforeReturn));
+        Assert.DoesNotContain(assessments, assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExactMemoryConstructorEscape));
 
         var throughStringArgument = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
@@ -1100,6 +1139,7 @@ internal static class Synthetic
 internal sealed class ArrayPoolLeakFixtures
 {
     static byte[]? s_field;
+    static Memory<byte> s_memory;
     static readonly string s_tag = "wire";
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1326,11 +1366,43 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughImplicitMemory(
+        ExternalMemoryOnlyStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemoryChain(
+        ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer);
+        ReadOnlyMemory<byte> readOnlyMemory = memory;
+        int read = stream.Read(readOnlyMemory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int ExternalParseThroughReadOnlySpan()
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
         ReadOnlySpan<char> value = chars;
         int parsed = ExternalInputReader.Parse(value);
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughExplicitSpan()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        var value = new Span<char>(chars);
+        int parsed = ExternalInputReader.Parse(value, "wire");
         ArrayPool<char>.Shared.Return(chars);
         return parsed;
     }
@@ -1373,6 +1445,14 @@ internal sealed class ArrayPoolLeakFixtures
         Span<char> value = chars;
         value.Fill('x');
         ArrayPool<char>.Shared.Return(chars);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void ExactMemoryConstructorEscape()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        s_memory = new Memory<byte>(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1492,6 +1572,12 @@ internal sealed class ArrayPoolLeakFixtures
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public int Read() => 1;
+    }
+
+    internal sealed class ExternalMemoryOnlyStream
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(Memory<byte> buffer) => buffer.Length;
     }
 
     internal static class ExternalInputReader
