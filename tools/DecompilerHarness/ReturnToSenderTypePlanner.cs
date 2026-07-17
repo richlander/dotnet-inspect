@@ -45,7 +45,7 @@ static class CompileBackCSharpNames
                     int end = close + 1;
                     while (end < type.Length && IsGeneratedTypeSuffixChar(type[end]))
                         end++;
-                    sb.Append(CSharpNaming.SafeIdentifier(type[i..end]));
+                    sb.Append(CSharpIdentifier.Sanitize(type[i..end]));
                     i = end;
                     continue;
                 }
@@ -79,7 +79,7 @@ static class CompileBackCSharpNames
         return tick >= 0 ? name[..tick] : name;
     }
 
-    public static string Identifier(string name) => CSharpNaming.SafeIdentifier(name);
+    public static string Identifier(string name) => CSharpIdentifier.Sanitize(name);
 
     public static string EscapeNamespace(string ns)
         => CSharpFormatter.EscapeNamespace(ns);
