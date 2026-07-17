@@ -206,17 +206,42 @@ public sealed class CSharpTypePrintRequest
     }
 }
 
-public enum CSharpNamespaceStyle
-{
-    FileScoped,
-    BlockScoped
-}
-
 public sealed record CSharpTypePrintOptions
 {
     public bool IncludeCustomAttributes { get; init; }
 
-    public CSharpNamespaceStyle NamespaceStyle { get; init; } = CSharpNamespaceStyle.FileScoped;
+    /// <summary>
+    /// Namespaces to emit as <c>using</c> directives in the composed
+    /// <see cref="CSharpTypePrintResult.Source"/>. Escaped, de-duplicated, and
+    /// ordinal-ordered at composition time. Ignored when <see cref="IncludeUsings"/>
+    /// is false. The per-type <see cref="CSharpTypePrintResult.Units"/> never carry
+    /// usings.
+    /// </summary>
+    public IReadOnlyList<string> Usings { get; init; } = [];
+
+    /// <summary>
+    /// When true (the default), <see cref="Usings"/> are emitted in the composed
+    /// source. Set false to suppress the using block entirely.
+    /// </summary>
+    public bool IncludeUsings { get; init; } = true;
+
+    /// <summary>
+    /// Assembly-level attribute bodies (without the surrounding <c>[assembly: ]</c>)
+    /// emitted at the top of the composed source. Empty by default.
+    /// </summary>
+    public IReadOnlyList<string> AssemblyAttributes { get; init; } = [];
+
+    /// <summary>
+    /// Module-level attribute bodies (without the surrounding <c>[module: ]</c>)
+    /// emitted at the top of the composed source. Empty by default.
+    /// </summary>
+    public IReadOnlyList<string> ModuleAttributes { get; init; } = [];
+
+    /// <summary>
+    /// When true, the composed source begins with <c>#pragma warning disable</c>.
+    /// Off by default; compile-back callers opt in.
+    /// </summary>
+    public bool EmitPragmaWarningDisable { get; init; }
 }
 
 public sealed record CSharpTypeSourceUnit(string? Namespace, string Source);
@@ -225,4 +250,5 @@ public sealed record CSharpTypePrintDiagnostic(string TypeName, string Message);
 
 public sealed record CSharpTypePrintResult(
     ImmutableArray<CSharpTypeSourceUnit> Units,
-    ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics);
+    ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics,
+    string Source);

@@ -19,12 +19,16 @@ public sealed class CSharpTypePrinter
     {
         ArgumentNullException.ThrowIfNull(requests);
         options ??= new CSharpTypePrintOptions();
-        if (!Enum.IsDefined(options.NamespaceStyle))
-            throw new ArgumentOutOfRangeException(nameof(options), options.NamespaceStyle, "Namespace style must be defined.");
 
         var requestList = requests.ToArray();
         if (requestList.Any(request => request is null))
             throw new ArgumentException("Type print requests cannot contain null entries.", nameof(requests));
+
+        // A single request produces at most one namespace, so a file-scoped
+        // namespace declaration is always legal and reads cleaner. Multiple
+        // requests may span namespaces, which only block-scoped namespaces can
+        // represent in one file.
+        bool useFileScopedNamespace = requestList.Length == 1;
 
         var preparedTypes = new List<PreparedType>();
         var canonicalIdentities = new HashSet<TypeOutputIdentity>();
@@ -52,19 +56,41 @@ public sealed class CSharpTypePrinter
             if (containingNamespace is not null)
             {
                 string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
-                source = options.NamespaceStyle switch
-                {
-                    CSharpNamespaceStyle.FileScoped => $"namespace {renderedNamespace};\n\n{source}",
-                    CSharpNamespaceStyle.BlockScoped => $"namespace {renderedNamespace}\n{{\n{Indent(source, 1)}\n}}",
-                    _ => throw new InvalidOperationException(
-                        $"Unsupported namespace style '{options.NamespaceStyle}'."),
-                };
+                source = useFileScopedNamespace
+                    ? $"namespace {renderedNamespace};\n\n{source}"
+                    : $"namespace {renderedNamespace}\n{{\n{Indent(source, 1)}\n}}";
             }
 
             units.Add(new CSharpTypeSourceUnit(containingNamespace, source));
         }
 
-        return new CSharpTypePrintResult(units.ToImmutable(), diagnostics.ToImmutable());
+        var unitList = units.ToImmutable();
+        return new CSharpTypePrintResult(
+            unitList,
+            diagnostics.ToImmutable(),
+            ComposeSource(unitList, options));
+    }
+
+    static string ComposeSource(
+        ImmutableArray<CSharpTypeSourceUnit> units,
+        CSharpTypePrintOptions options)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (options.EmitPragmaWarningDisable)
+            sb.AppendLine("#pragma warning disable");
+        foreach (var attribute in options.AssemblyAttributes)
+            sb.AppendLine($"[assembly: {attribute}]");
+        foreach (var attribute in options.ModuleAttributes)
+            sb.AppendLine($"[module: {attribute}]");
+        if (options.IncludeUsings)
+        {
+            foreach (var ns in options.Usings.Select(CSharpFormatter.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+                sb.AppendLine($"using {ns};");
+        }
+        foreach (var unit in units)
+            sb.AppendLine(unit.Source);
+
+        return sb.ToString();
     }
 
     static string NormalizeNamespace(string? value)

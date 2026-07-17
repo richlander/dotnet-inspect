@@ -794,7 +794,7 @@ public static class CompileBackSourceComposer
             production.Requirements,
             declarations,
             diagnostics);
-        return new CompileBackSourceResult(plan, CSharpCompilationUnitComposer.Compose(ToCompilationUnitSpec(plan)));
+        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
 
     static void AddRequiredMembers(
@@ -974,7 +974,7 @@ public static class CompileBackSourceComposer
             production.Requirements,
             declarations,
             diagnostics);
-        return new CompileBackSourceResult(plan, CSharpCompilationUnitComposer.Compose(ToCompilationUnitSpec(plan)));
+        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
 
     public static CompileBackSourceResult ComposeMethod(
@@ -1180,15 +1180,20 @@ public static class CompileBackSourceComposer
             production.Requirements,
             declarations,
             diagnostics);
-        return new CompileBackSourceResult(plan, CSharpCompilationUnitComposer.Compose(ToCompilationUnitSpec(plan)));
+        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
 
-    static CSharpCompilationUnitSpec ToCompilationUnitSpec(CompileBackReconstructionPlan plan)
-        => new(
-            plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
-            plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
-            plan.Module.Usings,
-            plan.PrintRequests);
+    static string ComposeCompilationUnit(CompileBackReconstructionPlan plan)
+        => new CSharpTypePrinter().PrintBatch(
+            plan.PrintRequests,
+            new CSharpTypePrintOptions
+            {
+                IncludeCustomAttributes = true,
+                EmitPragmaWarningDisable = true,
+                AssemblyAttributes = plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
+                ModuleAttributes = plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
+                Usings = plan.Module.Usings,
+            }).Source;
 
     static IEnumerable<string> DeclarationNamespaces(IEnumerable<CSharpTypePrintRequest> requests)
     {
