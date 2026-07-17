@@ -107,6 +107,56 @@ public class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteResourceAssembly(
+        string path,
+        params (string Name, byte[] Content)[] resources)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(Path.GetFileNameWithoutExtension(path)),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var resourceData = new BlobBuilder();
+        foreach (var (name, content) in resources)
+        {
+            int offset = resourceData.Count;
+            resourceData.WriteInt32(content.Length);
+            resourceData.WriteBytes(content);
+            metadata.AddManifestResource(
+                ManifestResourceAttributes.Public,
+                metadata.GetOrAddString(name),
+                default,
+                (uint)offset);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            managedResources: resourceData,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private sealed class NestedDrillTarget
     {
         public NestedDrillTarget(int value) => Value = value;
@@ -6463,6 +6513,36 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains("--il-offset requires an IL coordinate section", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ExtractResources_RejectsTraversalWithFailureExit()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("resource-extraction-command-");
+        try
+        {
+            var assemblyPath = Path.Combine(tempDirectory.FullName, "MaliciousResources.dll");
+            var outputPath = Path.Combine(tempDirectory.FullName, "output");
+            var escapedPath = Path.Combine(tempDirectory.FullName, "escaped.txt");
+            WriteResourceAssembly(
+                assemblyPath,
+                ("safe.txt", "safe"u8.ToArray()),
+                ("../escaped.txt", "escaped"u8.ToArray()));
+
+            var (exit, _, error) = await RunAppAsync(
+                "library", assemblyPath,
+                "--extract-resources", outputPath,
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("safe relative extraction path", error);
+            Assert.False(Directory.Exists(outputPath));
+            Assert.False(File.Exists(escapedPath));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
     }
 
     [Fact]

@@ -295,7 +295,10 @@ public static class InspectionCommandDefinitions
         typeFilterOption.Aliases.Add("--type");
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
         var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
-        var extractResourcesOption = new Option<string?>("--extract-resources") { Description = "Extract embedded resources to a directory" };
+        var extractResourcesOption = new Option<string?>("--extract-resources")
+        {
+            Description = "Extract embedded resources beneath a directory without overwriting files"
+        };
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);

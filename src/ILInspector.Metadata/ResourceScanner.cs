@@ -79,8 +79,9 @@ public static class ResourceScanner
     }
 
     /// <summary>
-    /// Extracts all embedded resources from an assembly to a directory.
-    /// Returns the list of extracted file paths.
+    /// Extracts embedded resources to validated relative paths beneath a directory.
+    /// The operation fails before writing when a resource path is unsafe, conflicts
+    /// with another resource, or would overwrite an existing file.
     /// </summary>
     public static List<string> ExtractAll(Stream peStream, string outputDir)
     {
@@ -89,57 +90,10 @@ public static class ResourceScanner
     }
 
     /// <summary>
-    /// Extracts all embedded resources from an assembly to a directory.
-    /// Returns the list of extracted file paths.
+    /// Extracts embedded resources to validated relative paths beneath a directory.
+    /// The operation fails before writing when a resource path is unsafe, conflicts
+    /// with another resource, or would overwrite an existing file.
     /// </summary>
     public static List<string> ExtractAll(PEReader peReader, string outputDir)
-    {
-        List<string> extracted = [];
-
-        if (!peReader.HasMetadata)
-            return extracted;
-
-        var reader = peReader.GetMetadataReader();
-        var resourcesDir = peReader.PEHeaders.CorHeader!.ResourcesDirectory;
-        if (resourcesDir.Size == 0)
-            return extracted;
-
-        Directory.CreateDirectory(outputDir);
-
-        foreach (var handle in reader.ManifestResources)
-        {
-            var resource = reader.GetManifestResource(handle);
-            if (!resource.Implementation.IsNil)
-                continue; // skip external resources
-
-            string name = reader.GetString(resource.Name);
-            int rva = resourcesDir.RelativeVirtualAddress + (int)resource.Offset;
-
-            try
-            {
-                var sectionData = peReader.GetSectionData(rva);
-                if (sectionData.Length < 4) continue;
-
-                var blobReader = sectionData.GetReader(0, 4);
-                int size = blobReader.ReadInt32();
-                if (size <= 0 || size + 4 > sectionData.Length) continue;
-
-                var data = sectionData.GetReader(4, size);
-                var filePath = Path.Combine(outputDir, name);
-
-                // Create subdirectories if resource name contains dots that look like paths
-                var dir = Path.GetDirectoryName(filePath);
-                if (dir != null) Directory.CreateDirectory(dir);
-
-                File.WriteAllBytes(filePath, data.ReadBytes(size));
-                extracted.Add(filePath);
-            }
-            catch
-            {
-                // Skip resources that can't be read
-            }
-        }
-
-        return extracted;
-    }
+        => ResourceExtractor.ExtractAll(peReader, outputDir);
 }

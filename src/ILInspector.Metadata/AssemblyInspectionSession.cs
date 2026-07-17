@@ -52,7 +52,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<ManifestResourceInfo> Resources()
         => ResourceScanner.Scan(_image.PEReader);
 
-    /// <summary>Extracts embedded manifest resources to a directory.</summary>
+    /// <summary>
+    /// Extracts embedded manifest resources beneath a directory without allowing
+    /// path escape or overwriting existing files.
+    /// </summary>
     public List<string> ExtractResources(string outputDirectory)
         => ResourceScanner.ExtractAll(_image.PEReader, outputDirectory);
 
