@@ -3783,7 +3783,7 @@ public class ReturnToSenderPrototypeTests
         {
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [                new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
+                [new ReturnToSender.RequestedTarget("Row", "ToString", 0)]));
 
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,

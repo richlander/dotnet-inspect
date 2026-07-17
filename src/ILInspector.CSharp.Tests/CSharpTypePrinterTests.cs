@@ -887,6 +887,32 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void NestedTypeReferencedAsNamespaceIsNotImportedWhenEnclosingTypeIsReferenced()
+    {
+        // `System.Environment.SpecialFolder` is a nested type but arrives as a flat
+        // dotted string, so the last-dot split derives namespace `System.Environment`
+        // — which is actually a type. Emitting `using System.Environment;` is illegal.
+        // When the enclosing type `System.Environment` is itself referenced in the
+        // unit, its full name shows up as a derived namespace and must be excluded, so
+        // the nested reference stays fully qualified.
+        var type = CreateEmptyType("App", "Consumer");
+        var enclosing = CreateMethod("GetEnv");
+        enclosing.SignatureModel!.ReturnType = "System.Environment";
+        var nested = CreateMethod("GetFolder");
+        nested.SignatureModel!.ReturnType = "System.Environment.SpecialFolder";
+        type.Members.Add(enclosing);
+        type.Members.Add(nested);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Environment;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Environment.SpecialFolder GetFolder();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UsingsSuppressedKeepsReferencesQualified()
     {
         // With IncludeUsings=false the composed Source omits using directives, so

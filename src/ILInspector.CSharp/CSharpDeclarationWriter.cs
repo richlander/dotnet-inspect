@@ -174,6 +174,22 @@ internal static class CSharpDeclarationWriter
             .Select(g => g.Key)
             .ToHashSet(StringComparer.Ordinal);
 
+        // A nested type referenced as a type (e.g. `System.Environment.SpecialFolder`)
+        // arrives here as a flat dotted string, indistinguishable from a
+        // namespace-qualified reference: TypeRef.TryCreate splits at the last dot and
+        // derives namespace `System.Environment`, which is actually a type. Emitting
+        // `using System.Environment;` is illegal (CS0138). When the enclosing type is
+        // itself referenced in the unit we can detect this — its full name appears as a
+        // derived namespace — and exclude that namespace. (The isolated case, where the
+        // enclosing type is never referenced on its own, is not detectable from the
+        // flattened string alone; a full fix needs nested-type identity from the
+        // metadata layer. The failure mode is safe-visible: the reference stays
+        // qualified and, for a spurious using, RTS records a RecompileFail rather than
+        // miscompiling.)
+        var referencedFullNames = typeRefs
+            .Select(r => r.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+
         // A namespace contributes a simple name for every reference it owns. Per-type
         // shortening keys off namespace membership, so importing a namespace shortens
         // every reference it owns. If any of those simple names is ambiguous unit-wide
@@ -193,6 +209,8 @@ internal static class CSharpDeclarationWriter
                 continue;
             var ns = group.First().Namespace;
             if (unsafeNamespaces.Contains(ns))
+                continue;
+            if (referencedFullNames.Contains(ns))
                 continue;
             usings.Add(ns);
         }
