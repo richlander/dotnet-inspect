@@ -6,13 +6,14 @@ description: Find evidence instead of guessing for .NET packages, platform libra
 
 # dotnet-inspect
 
-Use dotnet-inspect for evidence instead of guesses about .NET packages, platform
-libraries, assemblies, APIs, dependencies, or API version diffs. Focused skills
-are listed at the end.
+Use dotnet-inspect for evidence instead of guesses about .NET packages,
+platform libraries, assemblies, APIs, dependencies, or API version diffs.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
 ```
+
+`-y` skips interactive confirmation, including after package updates; `--` sends remaining options to dotnet-inspect, so `--help` does not show `dnx` help.
 
 ## Common starts
 
@@ -30,10 +31,9 @@ dnx dotnet-inspect -y -- <command>
 
 ## Member lookup
 
-Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"`
-to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A
-selected overload defaults to `Signature`. You can also pass a fully-qualified
-`Namespace.Type.Member` and the tool finds the type/member split — no scope.
+Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list
+overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
+defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ```bash
 dnx dotnet-inspect -y -- find JsonSerializer
