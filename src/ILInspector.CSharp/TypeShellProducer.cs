@@ -160,4 +160,59 @@ public static class TypeShellProducer
         => (typeDef.Attributes & TypeAttributes.Abstract) != 0
             && (typeDef.Attributes & TypeAttributes.Sealed) != 0
             && (typeDef.Attributes & TypeAttributes.Interface) == 0;
+
+    /// <summary>
+    /// Composes a <see cref="CSharpTypePrintRequest"/> for a reconstructed type shell
+    /// from a neutral <see cref="CSharpTypeShellSpec"/> and the type's own metadata.
+    /// The consumer supplies member discovery, body policies, and the C# spelling of
+    /// the type's name/base/interfaces; this seam owns assembling the
+    /// <see cref="ApiType"/> — kind text, generic parameters, custom attributes, and
+    /// abstract/sealed/static modifiers read straight from metadata — and recursing
+    /// into nested shells. SRM-only, Roslyn-free, and NativeAOT-friendly.
+    /// </summary>
+    public static CSharpTypePrintRequest BuildPrintRequest(MetadataReader reader, CSharpTypeShellSpec spec)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(spec);
+
+        var typeDef = reader.GetTypeDefinition(spec.Handle);
+        var members = spec.MemberPolicies.Select(policy => policy.Member).ToList();
+        var type = new ApiType
+        {
+            Namespace = spec.Namespace,
+            Name = spec.MetadataName,
+            MetadataName = spec.MetadataName,
+            Kind = TypeKindText(spec.Kind),
+            BaseType = spec.BaseTypeDisplayName,
+            TypeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDef).ToList(),
+            Interfaces = spec.InterfaceDisplayNames.ToList(),
+            Members = members,
+            Attributes = AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true),
+            IsAbstract = (typeDef.Attributes & TypeAttributes.Abstract) != 0
+                && (typeDef.Attributes & TypeAttributes.Interface) == 0,
+            IsSealed = (typeDef.Attributes & TypeAttributes.Sealed) != 0,
+            IsStatic = IsStaticType(typeDef),
+        };
+
+        return new CSharpTypePrintRequest(
+            type,
+            members: members,
+            memberPolicyOverrides: spec.MemberPolicies,
+            primaryConstructorParameters: spec.PrimaryConstructorParameters,
+            nestedTypes: spec.NestedTypes
+                .Select(nested => BuildPrintRequest(reader, nested))
+                .ToList());
+    }
+
+    static string TypeKindText(CSharpTypeShellKind kind)
+        => kind switch
+        {
+            CSharpTypeShellKind.Class => "class",
+            CSharpTypeShellKind.Record => "record",
+            CSharpTypeShellKind.Struct => "struct",
+            CSharpTypeShellKind.Interface => "interface",
+            CSharpTypeShellKind.Enum => "enum",
+            CSharpTypeShellKind.Delegate => "delegate",
+            _ => throw new NotSupportedException($"Unsupported C# type-shell kind '{kind}'."),
+        };
 }

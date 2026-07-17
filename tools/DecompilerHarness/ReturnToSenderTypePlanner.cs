@@ -2607,13 +2607,14 @@ public static class CompileBackSourceComposer
                         SourceFacts: [new CompileBackFact("metadata", "declaring-closure-type", rootIdentity.FullName)]);
                 }
 
-                requests.Add(TypeRequest(
+                var rootSpec = BuildSpec(
                     reader,
                     rootHandle,
                     rootRequirement,
                     requirementsByMetadataName,
                     producedRequirements,
-                    diagnostics));
+                    diagnostics);
+                requests.Add(TypeShellProducer.BuildPrintRequest(reader, rootSpec));
             }
 
             return new TypeProduction(requests, producedRequirements);
@@ -2847,7 +2848,7 @@ public static class CompileBackSourceComposer
             return index;
         }
 
-        static CSharpTypePrintRequest TypeRequest(
+        static CSharpTypeShellSpec BuildSpec(
             MetadataReader reader,
             TypeDefinitionHandle handle,
             CompileBackTypeRequirement requirement,
@@ -2885,30 +2886,19 @@ public static class CompileBackSourceComposer
             var policies = members
                 .Select(member => ToMemberPolicy(member, primaryConstructorParameters.Length))
                 .ToArray();
-            var type = new ApiType
-            {
-                Namespace = requirement.Type.Namespace,
-                Name = requirement.Type.MetadataName,
-                MetadataName = requirement.Type.MetadataName,
-                Kind = TypeKindText(kind),
-                BaseType = BaseTypeSignature(reader, typeDef, kind)?.DisplayName,
-                TypeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDef).ToList(),
-                Interfaces = InterfaceSignatures(reader, typeDef)
+
+            return new CSharpTypeShellSpec(
+                Handle: handle,
+                Namespace: requirement.Type.Namespace,
+                MetadataName: requirement.Type.MetadataName,
+                Kind: ToShellKind(kind),
+                BaseTypeDisplayName: BaseTypeSignature(reader, typeDef, kind)?.DisplayName,
+                InterfaceDisplayNames: InterfaceSignatures(reader, typeDef)
                     .Select(signature => signature.DisplayName)
                     .ToList(),
-                Members = policies.Select(policy => policy.Member).ToList(),
-                Attributes = TypeAttributeList(reader, typeDef).ToList(),
-                IsAbstract = (typeDef.Attributes & TypeAttributes.Abstract) != 0
-                    && (typeDef.Attributes & TypeAttributes.Interface) == 0,
-                IsSealed = (typeDef.Attributes & TypeAttributes.Sealed) != 0,
-                IsStatic = TypeShellProducer.IsStaticType(typeDef),
-            };
-            return new CSharpTypePrintRequest(
-                type,
-                members: type.Members,
-                memberPolicyOverrides: policies,
-                primaryConstructorParameters: primaryConstructorParameters,
-                nestedTypes: NestedTypes(
+                MemberPolicies: policies,
+                PrimaryConstructorParameters: primaryConstructorParameters,
+                NestedTypes: NestedSpecs(
                     reader,
                     typeDef,
                     requirementsByMetadataName,
@@ -2917,18 +2907,17 @@ public static class CompileBackSourceComposer
                     diagnostics));
         }
 
-        static string TypeKindText(CompileBackTypeKind kind)
+        static CSharpTypeShellKind ToShellKind(CompileBackTypeKind kind)
             => kind switch
             {
-                CompileBackTypeKind.Class => "class",
-                CompileBackTypeKind.Record => "record",
-                CompileBackTypeKind.Struct => "struct",
-                CompileBackTypeKind.Interface => "interface",
-                CompileBackTypeKind.Enum => "enum",
-                CompileBackTypeKind.Delegate => "delegate",
+                CompileBackTypeKind.Class => CSharpTypeShellKind.Class,
+                CompileBackTypeKind.Record => CSharpTypeShellKind.Record,
+                CompileBackTypeKind.Struct => CSharpTypeShellKind.Struct,
+                CompileBackTypeKind.Interface => CSharpTypeShellKind.Interface,
+                CompileBackTypeKind.Enum => CSharpTypeShellKind.Enum,
+                CompileBackTypeKind.Delegate => CSharpTypeShellKind.Delegate,
                 _ => throw new NotSupportedException($"Unsupported RTS type kind '{kind}'."),
             };
-
         static CompileBackMemberRequirement DelegateInvokeRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
@@ -2961,7 +2950,7 @@ public static class CompileBackSourceComposer
                 .Select(member => member with { Accessibility = CompileBackAccessibility.Public })
                 .ToList();
 
-        static IReadOnlyList<CSharpTypePrintRequest> NestedTypes(
+        static IReadOnlyList<CSharpTypeShellSpec> NestedSpecs(
             MetadataReader reader,
             TypeDefinition typeDef,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
@@ -2969,7 +2958,7 @@ public static class CompileBackSourceComposer
             List<CompileBackTypeRequirement> producedRequirements,
             List<CompileBackPlanningDiagnostic> diagnostics)
         {
-            var nestedTypes = new List<CSharpTypePrintRequest>();
+            var nestedTypes = new List<CSharpTypeShellSpec>();
             foreach (var nestedHandle in typeDef.GetNestedTypes())
             {
                 var nestedDef = reader.GetTypeDefinition(nestedHandle);
@@ -2994,7 +2983,7 @@ public static class CompileBackSourceComposer
                 var nestedRequirement = includeNestedMemberSurface
                     ? requirement with { IncludeMemberSurface = true }
                     : requirement;
-                nestedTypes.Add(TypeRequest(
+                nestedTypes.Add(BuildSpec(
                     reader,
                     nestedHandle,
                     nestedRequirement,
@@ -3009,10 +2998,10 @@ public static class CompileBackSourceComposer
                 {
                     var delegateDef = reader.GetTypeDefinition(delegateHandle);
                     var identity = CompileBackTypeIdentity.FromDefinition(reader, delegateDef);
-                    if (nestedTypes.Any(type => type.Type.Name == identity.MetadataName))
+                    if (nestedTypes.Any(spec => spec.MetadataName == identity.MetadataName))
                         continue;
 
-                    nestedTypes.Add(TypeRequest(
+                    nestedTypes.Add(BuildSpec(
                         reader,
                         delegateHandle,
                         new CompileBackTypeRequirement(
@@ -3050,9 +3039,6 @@ public static class CompileBackSourceComposer
                     yield return handle;
             }
         }
-
-        static IReadOnlyList<string> TypeAttributeList(MetadataReader reader, TypeDefinition typeDef)
-            => AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), qualifyNames: true);
 
         static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
         {
