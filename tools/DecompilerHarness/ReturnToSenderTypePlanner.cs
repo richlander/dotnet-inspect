@@ -2796,7 +2796,6 @@ public static class CompileBackSourceComposer
                 Namespace: requirement.Type.Namespace,
                 MetadataName: requirement.Type.MetadataName,
                 Kind: ToShellKind(kind),
-                BaseTypeDisplayName: BaseTypeSignature(reader, typeDef, kind)?.DisplayName,
                 InterfaceDisplayNames: InterfaceSignatures(reader, typeDef)
                     .Select(signature => signature.DisplayName)
                     .ToList(),
@@ -2944,22 +2943,6 @@ public static class CompileBackSourceComposer
             }
         }
 
-        static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
-        {
-            // The product skeleton (TypeShellProducer) owns the metadata-level
-            // gates that decide which base is reconstructable (interface/nil/same-
-            // assembly/non-generic/object-family). The harness applies its own C#
-            // surface-representability gate on the display form here, where the Clean
-            // normalization lives: Clean strips generated <> segments (so a <>-named
-            // base is kept) but not { or delegate*, matching origin/main exactly.
-            var baseType = TypeShellProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
-            if (baseType is null)
-                return null;
-            if (IsUnsupportedSurfaceSignature(baseType))
-                return null;
-            return CompileBackTypeSignature.Display(baseType);
-        }
-
         // True when some other reconstructed shell type — top-level or nested —
         // derives from this class via a reconstructed (same-assembly) base
         // declaration, so its implicit `: base()` depends on this class exposing an
@@ -3009,7 +2992,7 @@ public static class CompileBackSourceComposer
             var typeDef = reader.GetTypeDefinition(handle);
             if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
                 return null;
-            if (BaseTypeSignature(reader, typeDef, kind) is null)
+            if (TypeShellProducer.ReconstructedBaseTypeDisplay(reader, typeDef, kind == CompileBackTypeKind.Class) is null)
                 return null;
             var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
             return CompileBackTypeIdentity.FromDefinition(reader, baseDef).MetadataFullName;

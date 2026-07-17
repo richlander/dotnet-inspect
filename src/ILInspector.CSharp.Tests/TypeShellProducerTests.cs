@@ -86,22 +86,23 @@ public sealed class TypeShellProducerTests
         var member = new CSharpMemberPolicy(
             new ApiMember { Name = "Value", Kind = "field", ReturnType = "System.Int32" },
             CSharpBodyPolicy.Skeleton);
+        // Nested spec deliberately claims Kind=Struct for a type whose metadata is a
+        // static class, proving modifiers are read from metadata rather than the spec
+        // kind, and that an object-family base is left implicit (null).
         var nested = new CSharpTypeShellSpec(
-            Handle(nameof(InstanceFixture)),
+            Handle(nameof(StaticFixture)),
             Namespace: "Samples",
-            MetadataName: "InstanceFixture",
-            Kind: CSharpTypeShellKind.Class,
-            BaseTypeDisplayName: null,
+            MetadataName: "StaticFixture",
+            Kind: CSharpTypeShellKind.Struct,
             InterfaceDisplayNames: [],
             MemberPolicies: [],
             PrimaryConstructorParameters: [],
             NestedTypes: []);
         var spec = new CSharpTypeShellSpec(
-            Handle(nameof(StaticFixture)),
+            Handle(nameof(DerivedFixture)),
             Namespace: "Samples",
-            MetadataName: "StaticFixture",
-            Kind: CSharpTypeShellKind.Struct,
-            BaseTypeDisplayName: "Samples.Widget",
+            MetadataName: "DerivedFixture",
+            Kind: CSharpTypeShellKind.Class,
             InterfaceDisplayNames: ["System.IDisposable"],
             MemberPolicies: [member],
             PrimaryConstructorParameters: [],
@@ -111,26 +112,28 @@ public sealed class TypeShellProducerTests
 
         // Spec-supplied facts flow straight through.
         Assert.Equal("Samples", request.Type.Namespace);
-        Assert.Equal("StaticFixture", request.Type.Name);
-        Assert.Equal("StaticFixture", request.Type.MetadataName);
-        Assert.Equal("struct", request.Type.Kind);
-        Assert.Equal("Samples.Widget", request.Type.BaseType);
+        Assert.Equal("DerivedFixture", request.Type.Name);
+        Assert.Equal("DerivedFixture", request.Type.MetadataName);
+        Assert.Equal("class", request.Type.Kind);
         Assert.Equal(["System.IDisposable"], request.Type.Interfaces);
         Assert.Same(member, Assert.Single(request.MemberPolicyOverrides));
         Assert.Equal("Value", Assert.Single(request.Type.Members).Name);
         Assert.Same(member.Member, request.Type.Members[0]);
 
-        // Modifiers are read from the type's own metadata, not the spec kind.
-        Assert.True(request.Type.IsStatic);
-        Assert.True(request.Type.IsAbstract);
-        Assert.True(request.Type.IsSealed);
+        // The base type is reconstructed by the seam from the type's own metadata
+        // (same-assembly non-generic class base), not carried on the spec.
+        Assert.NotNull(request.Type.BaseType);
+        Assert.EndsWith("BaseFixture", request.Type.BaseType);
 
-        // Nested shells recurse through the same builder.
+        // Modifiers are read from the type's own metadata, not the spec kind.
         var nestedRequest = Assert.Single(request.NestedTypes);
-        Assert.Equal("InstanceFixture", nestedRequest.Type.Name);
-        Assert.Equal("class", nestedRequest.Type.Kind);
+        Assert.Equal("StaticFixture", nestedRequest.Type.Name);
+        Assert.Equal("struct", nestedRequest.Type.Kind);
+        Assert.True(nestedRequest.Type.IsStatic);
+        Assert.True(nestedRequest.Type.IsAbstract);
         Assert.True(nestedRequest.Type.IsSealed);
-        Assert.False(nestedRequest.Type.IsStatic);
+        // A static class's object-family base is left implicit.
+        Assert.Null(nestedRequest.Type.BaseType);
     }
 
     static async Task RuntimeAsyncFixture()
@@ -148,6 +151,14 @@ public sealed class TypeShellProducerTests
     }
 
     static class StaticFixture
+    {
+    }
+
+    class BaseFixture
+    {
+    }
+
+    sealed class DerivedFixture : BaseFixture
     {
     }
 

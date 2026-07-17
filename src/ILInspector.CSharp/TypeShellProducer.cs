@@ -151,6 +151,26 @@ public static class TypeShellProducer
     }
 
     /// <summary>
+    /// The C# display spelling of the base type a skeletal type shape should
+    /// reconstruct for <paramref name="typeDef"/>, or <see langword="null"/> when no
+    /// base is reconstructed (left implicit) or the reconstructed base cannot be
+    /// represented on a C# surface.
+    ///
+    /// Combines the metadata-level base gate (<see cref="ReconstructedBaseTypeName"/>)
+    /// with C# normalization (<see cref="CSharpFormatter.CleanTypeDisplay"/>) and the
+    /// surface-representability gate (<see cref="IsUnsupportedSurfaceSignature"/>) so
+    /// the seam owns the full base-type spelling decision end to end.
+    /// </summary>
+    public static string? ReconstructedBaseTypeDisplay(MetadataReader reader, TypeDefinition typeDef, bool isClass)
+    {
+        var baseType = ReconstructedBaseTypeName(reader, typeDef, isClass);
+        if (baseType is null)
+            return null;
+        string display = CSharpFormatter.CleanTypeDisplay(baseType);
+        return IsUnsupportedSurfaceSignature(display) ? null : display;
+    }
+
+    /// <summary>
     /// True when <paramref name="typeDef"/> is a C# <c>static class</c> — a type that
     /// is both <c>abstract</c> and <c>sealed</c> and is not an interface. Interfaces
     /// are also abstract, so they are excluded explicitly to avoid misreading an
@@ -183,7 +203,7 @@ public static class TypeShellProducer
             Name = spec.MetadataName,
             MetadataName = spec.MetadataName,
             Kind = TypeKindText(spec.Kind),
-            BaseType = spec.BaseTypeDisplayName,
+            BaseType = ReconstructedBaseTypeDisplay(reader, typeDef, spec.Kind == CSharpTypeShellKind.Class),
             TypeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDef).ToList(),
             Interfaces = spec.InterfaceDisplayNames.ToList(),
             Members = members,
