@@ -94,6 +94,7 @@ public class IndexBuildInvariantTests
                 SectionNames.UnsafeMembers,
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
+                SectionNames.ResourceTriage,
             ],
             Markdown = true,
             Rows = new RowWindow(25, FromEnd: false),
@@ -101,6 +102,23 @@ public class IndexBuildInvariantTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    public void PdbContext_RequiresPrefetchForSharedParallelBodyAnalysis()
+    {
+        using var lazy =
+            ILInspector.Metadata.SourceLinkService.Open(FixtureAssembly);
+        Assert.Throws<InvalidOperationException>(
+            () => lazy.Context.GetPrefetchedImage());
+
+        using var prefetched =
+            ILInspector.Metadata.SourceLinkService.OpenPrefetched(FixtureAssembly);
+        var image = prefetched.Context.GetPrefetchedImage();
+        Assert.False(image.IsDefaultOrEmpty);
+        using var reader =
+            new System.Reflection.PortableExecutable.PEReader(image);
+        Assert.True(reader.HasMetadata);
     }
 }
 

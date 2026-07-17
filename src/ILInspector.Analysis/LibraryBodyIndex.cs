@@ -11,6 +11,31 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+/// <summary>
+/// Selects the Analysis producers that participate in one assembly body
+/// acquisition.
+/// </summary>
+[Flags]
+public enum LibraryBodyAnalysisFeatures
+{
+    /// <summary>Acquire no body-analysis evidence.</summary>
+    None = 0,
+    /// <summary>Produce calls, unsafe evidence, and method/body signals.</summary>
+    MethodEvidence = 1 << 0,
+    /// <summary>Produce allocation occurrences; implies <see cref="MethodEvidence"/>.</summary>
+    Allocations = 1 << 1,
+    /// <summary>
+    /// Produce optimization opportunities; implies <see cref="Allocations"/>.
+    /// </summary>
+    OptimizationOpportunities = 1 << 2,
+    /// <summary>Produce the whole-assembly ArrayPool lifecycle census.</summary>
+    LeakTriage = 1 << 3,
+    /// <summary>The body-analysis features used by the general index.</summary>
+    Default = MethodEvidence | Allocations | OptimizationOpportunities,
+    /// <summary>All available body-analysis producers.</summary>
+    All = Default | LeakTriage,
+}
+
 /// <summary>Materialized IL body evidence for one assembly.</summary>
 public sealed class LibraryBodyIndex
 {
@@ -32,7 +57,9 @@ public sealed class LibraryBodyIndex
         IReadOnlySet<int> suppressedOpportunityTokens,
         IReadOnlySet<string> exceptionTypeNames,
         IReadOnlySet<int> nonHeapNewObjOperandTokens,
-        bool opportunitiesComputed)
+        bool opportunitiesComputed,
+        LibraryBodyAnalysisFeatures features,
+        LeakTriageResult? leakTriage)
     {
         Path = path;
         DeclaredMethods = declaredMethods;
@@ -52,16 +79,40 @@ public sealed class LibraryBodyIndex
         _suppressedOpportunityTokens = suppressedOpportunityTokens;
         _exceptionTypeNames = exceptionTypeNames;
         _nonHeapNewObjOperandTokens = nonHeapNewObjOperandTokens;
+        Features = features;
+        _leakTriage = leakTriage;
     }
 
     public string Path { get; }
-    /// <summary>Every decoded method identity, including abstract and extern members.</summary>
+    /// <summary>
+    /// Every decoded method identity, including abstract and extern members,
+    /// when <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
+    /// </summary>
     public ImmutableArray<MethodIdentity> DeclaredMethods { get; }
-    /// <summary>Method identities whose definitions carry IL bodies.</summary>
+    /// <summary>
+    /// Method identities whose definitions carry IL bodies, when
+    /// <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
+    /// </summary>
     public ImmutableArray<MethodIdentity> Methods { get; }
     public ImmutableArray<DirectCall> DirectCalls { get; }
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
+    /// <summary>The normalized producers included in this index.</summary>
+    public LibraryBodyAnalysisFeatures Features { get; }
+
+    readonly LeakTriageResult? _leakTriage;
+
+    /// <summary>
+    /// Gets the whole-assembly lifecycle census produced when
+    /// <see cref="LibraryBodyAnalysisFeatures.LeakTriage"/> was requested.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The Leak Triage producer was not requested.
+    /// </exception>
+    public LeakTriageResult LeakTriage
+        => _leakTriage
+            ?? throw new InvalidOperationException(
+                "Leak Triage was not requested for this body index.");
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
     readonly bool _opportunitiesComputed;
@@ -1078,11 +1129,40 @@ public sealed class LibraryBodyIndex
             suppressedOpportunityTokens: new HashSet<int>(),
             exceptionTypeNames: new HashSet<string>(StringComparer.Ordinal),
             nonHeapNewObjOperandTokens: new HashSet<int>(),
-            opportunitiesComputed: false);
+            opportunitiesComputed: false,
+            features: LibraryBodyAnalysisFeatures.MethodEvidence
+                | (allocationOccurrences is null
+                    ? LibraryBodyAnalysisFeatures.None
+                    : LibraryBodyAnalysisFeatures.Allocations),
+            leakTriage: null);
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
     {
+        var features = LibraryBodyAnalysisFeatures.MethodEvidence;
+        if (includeAllocations)
+            features |= LibraryBodyAnalysisFeatures.Allocations;
+        if (includeOpportunities)
+            features |= LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        return Open(path, features, resolver, bodyScope, bodyTypeScope);
+    }
+
+    public static LibraryBodyIndex Open(
+        string path,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        features = NormalizeFeatures(features);
+        if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
+            && (bodyScope is not null || bodyTypeScope is not null))
+        {
+            throw new ArgumentException(
+                "Leak Triage requires a full assembly body census.");
+        }
+
         // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
         // so concurrent GetMethodBody reads are served from an immutable in-memory block rather
         // than seeking a shared FileStream (which is not safe for concurrent reads). Scoped builds
@@ -1092,19 +1172,73 @@ public sealed class LibraryBodyIndex
             : PEStreamOptions.Default;
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream, streamOptions);
+        return BuildFromReader(
+            path,
+            peReader,
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope);
+    }
+
+    /// <summary>
+    /// Builds an index over caller-provided immutable PE image content without
+    /// reopening the target file.
+    /// </summary>
+    public static LibraryBodyIndex OpenFromPrefetchedImage(
+        string path,
+        ImmutableArray<byte> image,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+            throw new ArgumentException("A prefetched PE image is required.", nameof(image));
+        features = NormalizeFeatures(features);
+        using var peReader = new PEReader(image);
+        return BuildFromReader(
+            path,
+            peReader,
+            features,
+            resolver,
+            bodyScope: null,
+            bodyTypeScope: null);
+    }
+
+    static LibraryBodyIndex BuildFromReader(
+        string path,
+        PEReader peReader,
+        LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver,
+        IReadOnlySet<int>? bodyScope,
+        Func<TypeRef, bool>? bodyTypeScope)
+    {
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
         using var builder = new IndexBuilder(path, reader, peReader, resolver);
-        // Optimization opportunities are synthesized from allocation occurrences (allocation
-        // hotspots), so requesting opportunities implies computing allocations.
-        var index = builder.Build(includeAllocations || includeOpportunities, includeOpportunities, bodyScope, bodyTypeScope);
+        var index = builder.Build(features, bodyScope, bodyTypeScope);
         return new LibraryBodyIndex(
             path, index.DeclaredMethods, index.Methods, index.DirectCalls, index.UnsafeEvidence, index.Diagnostics,
             index.OptimizationOpportunities, index.UnsafeLeverageMethods, builder.MemorySafetyRulesEnabled, index.UnsafeModes,
             index.BodySignals, index.AllocationOccurrences, index.UnsafetyOccurrences, index.InAssemblyTypeIsException, index.SuppressedOpportunityTokens, index.ExceptionTypeNames,
             index.NonHeapNewObjOperandTokens,
-            opportunitiesComputed: includeOpportunities);
+            opportunitiesComputed:
+                (features & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0,
+            features,
+            index.LeakTriage);
+    }
+
+    static LibraryBodyAnalysisFeatures NormalizeFeatures(
+        LibraryBodyAnalysisFeatures features)
+    {
+        if ((features & ~LibraryBodyAnalysisFeatures.All) != 0)
+            throw new ArgumentOutOfRangeException(nameof(features));
+        if ((features & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0)
+            features |= LibraryBodyAnalysisFeatures.Allocations;
+        if ((features & LibraryBodyAnalysisFeatures.Allocations) != 0)
+            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
+        return features;
     }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
@@ -2322,8 +2456,17 @@ public sealed class LibraryBodyIndex
                 && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
         }
 
-        public (ImmutableArray<MethodIdentity> DeclaredMethods, ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames,         IReadOnlySet<int> NonHeapNewObjOperandTokens) Build(bool includeAllocations, bool includeOpportunities, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
+        public (ImmutableArray<MethodIdentity> DeclaredMethods, ImmutableArray<MethodIdentity> Methods, ImmutableArray<DirectCall> DirectCalls, ImmutableArray<UnsafeEvidence> UnsafeEvidence, ImmutableArray<AnalysisDiagnostic> Diagnostics, ImmutableArray<OptimizationOpportunity> OptimizationOpportunities, ImmutableArray<MethodIdentity> UnsafeLeverageMethods, UnsafeModeBreakdown UnsafeModes, IReadOnlyDictionary<int, BodySignals> BodySignals, IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> AllocationOccurrences, IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> UnsafetyOccurrences, IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException, IReadOnlySet<int> SuppressedOpportunityTokens, IReadOnlySet<string> ExceptionTypeNames, IReadOnlySet<int> NonHeapNewObjOperandTokens, LeakTriageResult? LeakTriage) Build(LibraryBodyAnalysisFeatures features, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
         {
+            bool includeMethodEvidence =
+                (features & LibraryBodyAnalysisFeatures.MethodEvidence) != 0;
+            bool includeAllocations =
+                (features & LibraryBodyAnalysisFeatures.Allocations) != 0;
+            bool includeOpportunities =
+                (features
+                    & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0;
+            bool includeLeakTriage =
+                (features & LibraryBodyAnalysisFeatures.LeakTriage) != 0;
             var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
             var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -2335,7 +2478,13 @@ public sealed class LibraryBodyIndex
             var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
             var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
             var suppressedOpportunityTokens = new HashSet<int>();
-            var exceptionTypeNames = ComputeExceptionTypeNames();
+            var leakFindings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
+            var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
+            var exceptionPathCandidates =
+                ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
+            var exceptionTypeNames = includeMethodEvidence
+                ? ComputeExceptionTypeNames()
+                : new HashSet<string>(StringComparer.Ordinal);
             int none = 0, impl = 0, expl = 0;
 
             // Flatten types->methods into a work list (cheap, reader-bound), then analyze each
@@ -2352,7 +2501,8 @@ public sealed class LibraryBodyIndex
                 // Source-generated types (JSON/regex/etc. carry [GeneratedCode]) are not
                 // actionable source-shape opportunities, so skip optimization-opportunity
                 // collection for them (they are still indexed for calls/leverage/signals).
-                bool typeSourceGenerated = HasGeneratedCodeAttribute(typeDef.GetCustomAttributes());
+                bool typeSourceGenerated = includeOpportunities
+                    && HasGeneratedCodeAttribute(typeDef.GetCustomAttributes());
                 foreach (var methodHandle in typeDef.GetMethods())
                     workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
             }
@@ -2366,12 +2516,14 @@ public sealed class LibraryBodyIndex
             {
                 // Prewarm the async-state-machine set so it is fully computed before the parallel
                 // pass reads it read-only.
-                _ = AsyncStateMachineTypes();
+                if (includeMethodEvidence)
+                    _ = AsyncStateMachineTypes();
                 Parallel.For(0, workItems.Count, i =>
                 {
                     var w = workItems[i];
                     results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
-                        includeAllocations, includeOpportunities, bodyScope, bodyTypeScope);
+                        includeMethodEvidence, includeAllocations, includeOpportunities,
+                        includeLeakTriage, bodyScope, bodyTypeScope);
                 });
             }
             else
@@ -2380,7 +2532,8 @@ public sealed class LibraryBodyIndex
                 {
                     var w = workItems[i];
                     results[i] = ProcessMethod(w.TypeHandle, w.TypeDef, w.TypeSourceGenerated, w.MethodHandle,
-                        includeAllocations, includeOpportunities, bodyScope, bodyTypeScope);
+                        includeMethodEvidence, includeAllocations, includeOpportunities,
+                        includeLeakTriage, bodyScope, bodyTypeScope);
                 }
             }
 
@@ -2390,6 +2543,13 @@ public sealed class LibraryBodyIndex
             // even the failure path is byte-identical to the sequential build.
             foreach (var r in results)
             {
+                if (r.LeakTriage is { } leakTriage)
+                {
+                    leakFindings.AddRange(leakTriage.Findings);
+                    leakCandidates.AddRange(leakTriage.Candidates);
+                    exceptionPathCandidates.AddRange(
+                        leakTriage.ExceptionPathCandidates);
+                }
                 if (!r.HasCaller)
                 {
                     if (r.Diagnostic is not null)
@@ -2427,10 +2587,25 @@ public sealed class LibraryBodyIndex
 
             var methodArray = methods.ToImmutable();
             var directCalls = calls.ToImmutable();
-            var nonHeapNewObjOperandTokens = ComputeNonHeapNewObjOperandTokens(directCalls);
+            var nonHeapNewObjOperandTokens = includeMethodEvidence
+                ? ComputeNonHeapNewObjOperandTokens(directCalls)
+                : new HashSet<int>();
+            LeakTriageResult? leakTriageResult = includeLeakTriage
+                ? new LeakTriageResult(
+                    leakFindings.ToImmutable(),
+                    leakCandidates.ToImmutable())
+                {
+                    ExceptionPathCandidates =
+                        exceptionPathCandidates.ToImmutable(),
+                }
+                : null;
             return (declaredMethods.ToImmutable(), methodArray, directCalls, unsafeEvidence.ToImmutable(), diagnostics.ToImmutable(),
                 optimizationOpportunities.ToImmutable(), unsafeLeverageMethods.ToImmutable(), new UnsafeModeBreakdown(none, impl, expl), bodySignals, allocationOccurrences, unsafetyOccurrences,
-                BuildInAssemblyExceptionMap(), suppressedOpportunityTokens, exceptionTypeNames, nonHeapNewObjOperandTokens);
+                includeMethodEvidence
+                    ? BuildInAssemblyExceptionMap()
+                    : new Dictionary<(string Namespace, string Name), bool>(),
+                suppressedOpportunityTokens, exceptionTypeNames,
+                nonHeapNewObjOperandTokens, leakTriageResult);
         }
 
         // Assemblies with at least this many methods use the parallel per-method analysis path.
@@ -2459,6 +2634,7 @@ public sealed class LibraryBodyIndex
             public bool Suppressed;
             public bool HasSignals;
             public BodySignals Signals;
+            public LeakTriageResult? LeakTriage;
             public AnalysisDiagnostic? Diagnostic;
         }
 
@@ -2468,9 +2644,20 @@ public sealed class LibraryBodyIndex
         // image, and the only lazily-populated shared caches it can touch are AsyncStateMachineTypes
         // (prewarmed) and _referencedAssemblyCache (lock-guarded).
         MethodBuildResult ProcessMethod(TypeDefinitionHandle typeHandle, TypeDefinition typeDef, bool typeSourceGenerated,
-            MethodDefinitionHandle methodHandle, bool includeAllocations, bool includeOpportunities,
+            MethodDefinitionHandle methodHandle, bool includeMethodEvidence,
+            bool includeAllocations, bool includeOpportunities, bool includeLeakTriage,
             IReadOnlySet<int>? bodyScope, Func<TypeRef, bool>? bodyTypeScope)
         {
+            if (!includeMethodEvidence)
+            {
+                return includeLeakTriage
+                    ? ProcessLeakTriageMethod(
+                        typeHandle,
+                        typeDef,
+                        methodHandle)
+                    : new MethodBuildResult();
+            }
+
             var result = new MethodBuildResult();
             var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
             var calls = ImmutableArray.CreateBuilder<DirectCall>();
@@ -2485,10 +2672,15 @@ public sealed class LibraryBodyIndex
                 // Tally the unsafe mode for every method, including bodiless
                 // extern/abstract members (P/Invokes are a major source).
                 result.Mode = caller.CallerUnsafeMode;
-                bool hasUnsafeApiMember = AddUnsafeApiMemberEvidence(caller, evidence);
-                bool hasUnsafeSignature = AddUnsafeSignatureEvidence(caller, evidence);
-                if (caller.CallerUnsafeMode != CallerUnsafeMode.None || hasUnsafeApiMember)
+                bool hasUnsafeApiMember =
+                    AddUnsafeApiMemberEvidence(caller, evidence);
+                bool hasUnsafeSignature =
+                    AddUnsafeSignatureEvidence(caller, evidence);
+                if (caller.CallerUnsafeMode != CallerUnsafeMode.None
+                    || hasUnsafeApiMember)
+                {
                     result.IsLeverage = true;
+                }
                 if (methodDef.RelativeVirtualAddress == 0)
                     return result;
 
@@ -2503,6 +2695,25 @@ public sealed class LibraryBodyIndex
                     return result;
                 var body = _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
                 var il = body.GetILBytes() ?? [];
+                if (includeLeakTriage
+                    && SignatureBlobGuard.IsSafeToDecode(
+                        _reader,
+                        methodDef.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                {
+                    result.LeakTriage = LeakTriageAnalyzer.AnalyzeMethodDetailed(
+                        LeakTriageAnalyzer.CreateAssemblyScanMethodIdentity(caller),
+                        il,
+                        body.ExceptionRegions,
+                        token => MemberResolver.ResolveMethod(
+                            _reader,
+                            MetadataTokens.EntityHandle(token),
+                            scope),
+                        token => LeakTriageAnalyzer.ResolveCatchTypeRef(
+                            _reader,
+                            MetadataTokens.EntityHandle(token),
+                            scope));
+                }
                 var decodedBody = DecodeBody(il, body.ExceptionRegions);
                 bool hasUnsafeLocals = ScanLocals(body, caller, scope, evidence);
                 var loopRegions = decodedBody.LoopRegions;
@@ -2555,6 +2766,67 @@ public sealed class LibraryBodyIndex
                 result.UnsafeEvidence = evidence.ToImmutable();
                 result.Calls = calls.ToImmutable();
             }
+            return result;
+        }
+
+        MethodBuildResult ProcessLeakTriageMethod(
+            TypeDefinitionHandle typeHandle,
+            TypeDefinition typeDef,
+            MethodDefinitionHandle methodHandle)
+        {
+            var result = new MethodBuildResult();
+            try
+            {
+                var methodDef = _reader.GetMethodDefinition(methodHandle);
+                if (methodDef.RelativeVirtualAddress == 0)
+                    return result;
+
+                var scope = CreateScope(typeDef, methodDef);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                    _reader,
+                    methodDef.Signature,
+                    SignatureBlobGuard.Kind.Method))
+                {
+                    return result;
+                }
+
+                var signature =
+                    methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
+                var method = new MethodIdentity(
+                    _assemblyName,
+                    _mvid,
+                    TypeRefDecoder.Instance.GetTypeFromDefinition(
+                        _reader,
+                        typeHandle,
+                        0),
+                    _reader.GetString(methodDef.Name),
+                    signature.ParameterTypes,
+                    signature.ReturnType,
+                    MetadataTokens.GetToken(methodHandle),
+                    (methodDef.Attributes & MethodAttributes.Static) != 0);
+
+                var body =
+                    _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
+                result.LeakTriage = LeakTriageAnalyzer.AnalyzeMethodDetailed(
+                    method,
+                    body.GetILBytes() ?? [],
+                    body.ExceptionRegions,
+                    token => MemberResolver.ResolveMethod(
+                        _reader,
+                        MetadataTokens.EntityHandle(token),
+                        scope),
+                    token => LeakTriageAnalyzer.ResolveCatchTypeRef(
+                        _reader,
+                        MetadataTokens.EntityHandle(token),
+                        scope));
+            }
+            catch (Exception ex)
+                when (LeakTriageAnalyzer.IsRecoverable(ex))
+            {
+                // Preserve the standalone assembly sensor's per-method fail-closed
+                // contract without suppressing other methods in the shared walk.
+            }
+
             return result;
         }
 

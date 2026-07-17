@@ -80,18 +80,22 @@ un-bundled and passed alongside the string.
 
 ## Symptom 3: the same image is parsed multiple times
 
-Because the string carries no live handle, each consumer opens the file itself. A single
-`library` inspection opens the *same* PE image two or three times:
+Historically, because the string carried no live handle, each consumer opened the file itself. A
+single `library` inspection opened the *same* PE image multiple times:
 
 - `LibraryMetadataService.InspectAsync` opens `SourceLinkService.Open(path)` — whose
   `PdbContext` already owns a `PEReader` and exposes metadata operations
-  (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`) — and *then* opens a **separate**
-  `File.OpenRead(path) + new PEReader` to feed the scanners.
+  (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`). The library analysis path now
+  prefetches that owner. AppContext scanning and member-drill projection use its public
+  capabilities; `LibraryBodyIndex` consumes immutable content from the prefetched image, so none
+  of those consumers reopens the target.
 - `MemberCodeProvider` opens a `PEReader` to build a type index, then calls
   `MetadataSource.Open`, which opens the PE image **again** internally.
 
-So the "parse once" batch efficiency the scanners aim for is already defeated at the inspection
-level. A real session must be the single PE-lifetime owner, not one of several.
+The first path now demonstrates one target-file owner for library Analysis commands. It does not
+yet claim one shared `PEReader`: Analysis constructs its own reader over the in-memory image
+content. The member/decompiler path and broader resolver-to-session model still need the complete
+PE-lifetime seam described below.
 
 ## Root cause: the resolution → inspection currency is a `string`
 
@@ -210,15 +214,15 @@ Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReade
 and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
 new parallel one.
 
-There is a prerequisite the current code does not yet provide. Today the PE handle is owned in
-three *separate* places that cannot share it: `PdbContext` opens from a **path** and keeps its
-`PEReader`/`FileStream` private; `MetadataSource` opens its **own** `PEReader` from the
-descriptor; and the scanners take a caller-supplied `PEReader`. `ResolvedAssemblyReference`
-only carries an `OpenRead` opener — nothing consumes it as a shared owner. So "the session
-composes `PdbContext`" is not a free operation; it requires first introducing a **low-level
-PE-owner primitive** — opened once from `ResolvedAssemblyReference.OpenRead` — that
-`PdbContext`, the scanners, and `MetadataSource` are all changed to accept instead of opening
-their own. Concretely that means:
+The library Analysis path now uses `PdbContext` as its target-file owner. It prefetches the
+complete image and exposes lifetime-safe capabilities: `MethodBodySource` for body-local Metadata
+composition, high-level Metadata facets for drill projection, and immutable prefetched content
+for Analysis. This removes target reopens without exposing or lending the context-owned reader;
+Analysis constructs a reader over the in-memory content.
+The broader model still has a prerequisite. `MetadataSource` owns a separate reader, and
+`ResolvedAssemblyReference` carries only an `OpenRead` opener. Completing the session across
+member/decompiler and descriptor-based paths requires a **low-level PE-owner primitive** opened
+once from `ResolvedAssemblyReference.OpenRead` and consumed by all three. Concretely that means:
 
 - a new `PEImage`/owner type constructed from the descriptor (or a `Stream`);
 - `PdbContext` gains a constructor that takes that owner (not just a path) and exposes its
@@ -522,10 +526,11 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
 1. **Adopt the descriptor.** Have the resolvers return `ResolvedAssemblyReference` (the #2051
    type, widened provenance if needed) and stop the `_` discards. Callers can still read
    `resolved.Path` initially. Package/project resolvers return a list.
-2. **Shared PE-owner (the prerequisite).** Introduce the low-level owner opened once from
-   `ResolvedAssemblyReference.OpenRead`, and change `PdbContext` and `MetadataSource` to accept
-   it instead of opening their own reader. This is the enabling step for single-open and can
-   land before any CLI change.
+2. **Shared PE-owner (the prerequisite).** The library Analysis path now has one prefetched
+   `PdbContext` target-file owner and shares capability-bound image content rather than raw
+   readers. Generalize `AssemblyImage` to compose both `PdbContext` and `MetadataSource` from
+   `ResolvedAssemblyReference.OpenRead`. That extends the proven single-target-open path to
+   member/decompiler inspection and converges on one PE lifetime.
 3. **Session.** Add `AssemblyInspectionSession.Open(ResolvedAssemblyReference)` that opens the
    shared owner, composes `PdbContext` over it, and makes the `PEReader`-taking scanners
    session-internal. Route `LibraryMetadataService`'s `Scan*` wrappers (already thin adapters)

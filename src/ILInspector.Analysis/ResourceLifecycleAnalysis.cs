@@ -71,12 +71,24 @@ public static class ResourceLifecycleAnalysis
         FindingSubject subject)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return InspectAssembly(
+            () => LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.LeakTriage),
+            subject);
+    }
+
+    public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
+        Func<LibraryBodyIndex> openIndex,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(openIndex);
         ArgumentNullException.ThrowIfNull(subject);
 
         try
         {
-            var occurrences = LeakTriageAnalyzer
-                .AnalyzeAssemblyDetailed(path)
+            var occurrences = openIndex()
+                .LeakTriage
                 .ExceptionPathCandidates
                 .Select(CreateOccurrence);
             return new FindingInspection<ResourceLifecycleOccurrence>.Complete(

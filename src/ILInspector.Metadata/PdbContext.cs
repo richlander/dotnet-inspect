@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -85,6 +86,7 @@ public class PdbContext : IDisposable
 {
     private readonly PEReader _peReader;
     private readonly FileStream _peStream;
+    private readonly bool _entireImagePrefetched;
     private readonly Action<string>? _log;
     private readonly string _assemblyPath;
 
@@ -116,6 +118,23 @@ public class PdbContext : IDisposable
             EnsureAlive();
             return _methodBodies ??= new MethodBodySource(_peReader, EnsureAlive);
         }
+    }
+
+    /// <summary>
+    /// Gets immutable content for the fully prefetched PE image. Consumers can
+    /// inspect this snapshot without reopening the target file or receiving the
+    /// context-owned reader.
+    /// </summary>
+    public ImmutableArray<byte> GetPrefetchedImage()
+    {
+        EnsureAlive();
+        if (!_entireImagePrefetched)
+        {
+            throw new InvalidOperationException(
+                "Parallel body analysis requires a fully prefetched PE image.");
+        }
+
+        return _peReader.GetEntireImage().GetContent();
     }
 
     // --- PE/Assembly ---
@@ -158,10 +177,16 @@ public class PdbContext : IDisposable
     public string? SourceLinkJson { get; private set; }
     public bool HasSourceLink => SourceLinkJson != null;
 
-    private PdbContext(FileStream peStream, PEReader peReader, string assemblyPath, Action<string>? log)
+    private PdbContext(
+        FileStream peStream,
+        PEReader peReader,
+        string assemblyPath,
+        Action<string>? log,
+        bool entireImagePrefetched)
     {
         _peStream = peStream;
         _peReader = peReader;
+        _entireImagePrefetched = entireImagePrefetched;
         _assemblyPath = assemblyPath;
         _log = log;
         FileSize = peStream.Length;
@@ -173,12 +198,30 @@ public class PdbContext : IDisposable
     /// After return, check NeedsPdb to see if CLI should download a PDB.
     /// </summary>
     public static PdbContext Open(string assemblyPath, Action<string>? log = null)
+        => Open(assemblyPath, log, PEStreamOptions.Default);
+
+    /// <summary>
+    /// Opens a PE file with its complete image prefetched so downstream body
+    /// producers can safely share the reader during parallel analysis.
+    /// </summary>
+    internal static PdbContext OpenPrefetched(
+        string assemblyPath,
+        Action<string>? log = null)
+        => Open(
+            assemblyPath,
+            log,
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
+
+    static PdbContext Open(
+        string assemblyPath,
+        Action<string>? log,
+        PEStreamOptions streamOptions)
     {
         var stream = File.OpenRead(assemblyPath);
         PEReader peReader;
         try
         {
-            peReader = new PEReader(stream);
+            peReader = new PEReader(stream, streamOptions);
         }
         catch
         {
@@ -186,7 +229,12 @@ public class PdbContext : IDisposable
             throw;
         }
 
-        var context = new PdbContext(stream, peReader, assemblyPath, log);
+        var context = new PdbContext(
+            stream,
+            peReader,
+            assemblyPath,
+            log,
+            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0);
 
         if (!peReader.HasMetadata)
             return context;
@@ -202,6 +250,12 @@ public class PdbContext : IDisposable
     /// </summary>
     public AssemblyInfo ExtractAssemblyInfo(bool includeReferences = false)
         => AssemblyInspector.ExtractAssemblyInfo(_peReader, includeReferences);
+
+    /// <summary>Extracts an API surface from the already-open PE image.</summary>
+    public ApiSurface ExtractApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.Extract(_peReader, includeAll, typesOnly);
 
     /// <summary>
     /// Creates an AssemblyInfo for a native (non-managed) binary.
