@@ -10,9 +10,9 @@ Use dotnet-inspect for evidence instead of guesses about .NET packages, platform
 libraries, assemblies, APIs, dependencies, or API version diffs. Focused skills
 are listed at the end.
 
-```bash
-dnx dotnet-inspect -y -- <command>
-```
+Run through `dnx` as `dnx dotnet-inspect -y -- <command>`: `-y` skips
+interactive confirmation, including after package updates; `--` sends the
+remaining options to dotnet-inspect, so `--help` does not show `dnx` help.
 
 ## Common starts
 
