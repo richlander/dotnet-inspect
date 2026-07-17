@@ -107,6 +107,93 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_DirectToolWrapperCycleReturnsError()
+    {
+        const string PackageName = "Wrapper.Direct";
+        const string RedirectPackageName = "wrapper.direct";
+        const string Version = "1.0.0";
+        var handler = new QueuePackageHandler(
+            CreateToolWrapperArchive(
+                PackageName,
+                Version,
+                redirectPackageName: RedirectPackageName));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                PackageName,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(
+            $"Tool wrapper redirect cycle detected: {PackageName} -> {RedirectPackageName}.",
+            outcome.ErrorMessage);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_MultiPackageToolWrapperCycleReturnsError()
+    {
+        const string FirstPackage = "Wrapper.First";
+        const string SecondPackage = "Wrapper.Second";
+        const string Version = "1.0.0";
+        var handler = new QueuePackageHandler(
+            CreateToolWrapperArchive(
+                FirstPackage,
+                Version,
+                redirectPackageName: SecondPackage),
+            CreateToolWrapperArchive(
+                SecondPackage,
+                Version,
+                redirectPackageName: FirstPackage));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                FirstPackage,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(
+            $"Tool wrapper redirect cycle detected: {FirstPackage} -> {SecondPackage} -> {FirstPackage}.",
+            outcome.ErrorMessage);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_ToolWrapperRedirectReturnsPayload()
+    {
+        const string WrapperPackage = "Wrapper.Valid";
+        const string PayloadPackage = "Wrapper.Valid.Any";
+        const string Version = "1.0.0";
+        var handler = new QueuePackageHandler(
+            CreateToolWrapperArchive(
+                WrapperPackage,
+                Version,
+                redirectPackageName: PayloadPackage),
+            CreatePackageArchive(PayloadPackage, Version));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                WrapperPackage,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.True(outcome.IsSuccess);
+        Assert.Equal(PayloadPackage, outcome.Result!.PackageName);
+        Assert.Equal(
+            NuGetCache.GetPackageCachePath(PayloadPackage, Version),
+            outcome.Result.ExtractPath);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task CommitPackage_ConcurrentPublishersConvergeOnOneCompleteTree()
     {
         string packageName = $"publisher.test.{Guid.NewGuid():N}";
@@ -402,6 +489,47 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 </package>
                 """);
             WriteEntry(archive, "lib/net10.0/Test.dll", "fixture");
+        }
+
+        return buffer.ToArray();
+    }
+
+    private static byte[] CreateToolWrapperArchive(
+        string packageName,
+        string version,
+        string redirectPackageName)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            WriteEntry(
+                archive,
+                $"{packageName}.nuspec",
+                $"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{packageName}</id>
+                    <version>{version}</version>
+                  </metadata>
+                </package>
+                """);
+            WriteEntry(
+                archive,
+                "tools/net10.0/any/DotnetToolSettings.xml",
+                $"""
+                <DotNetCliTool Version="2">
+                  <Commands>
+                    <Command Name="{packageName}" />
+                  </Commands>
+                  <RuntimeIdentifierPackages>
+                    <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="{redirectPackageName}" />
+                  </RuntimeIdentifierPackages>
+                </DotNetCliTool>
+                """);
         }
 
         return buffer.ToArray();
