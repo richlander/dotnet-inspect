@@ -202,13 +202,15 @@ failure model, and NuGet, Docker, and Git precedents.
 
 ## Design rationale
 
-The Docker tag analogy below concerns version selection. Docker daemon request
-deduplication is covered separately in
+The following Docker tag analogy concerns version selection. Docker daemon
+request deduplication is covered separately in
 [cache concurrency and publication](cache-concurrency.md).
 
-- `docker run nginx:1.25` → pinned, reproducible
-- `docker run nginx` → uses local image if present, pulls if not
-- `docker pull nginx` → always checks the registry
+| Docker command | dotnet-inspect command | Version behavior |
+| --- | --- | --- |
+| `docker run nginx:1.25` | `dotnet-inspect package System.Text.Json@10.0.0` | Uses a pinned, reproducible coordinate. |
+| `docker run nginx` | `dotnet-inspect package System.Text.Json` | Uses the newest locally cached stable version, or resolves from NuGet when absent. |
+| `docker pull nginx` | `dotnet-inspect package System.Text.Json@latest` | Always checks NuGet for the current version. |
 
 NuGet packages are immutable once published (a given version string always
 refers to the same content), so pinned versions never go stale. The bare-name
