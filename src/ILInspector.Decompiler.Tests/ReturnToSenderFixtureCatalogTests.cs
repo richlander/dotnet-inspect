@@ -7,6 +7,7 @@ using ILInspector.Decompiler;
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -430,31 +431,31 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void CompileBackCSharpNames_EscapesQualifiedDelegateIdentifier()
+    public void CleanTypeDisplay_EscapesQualifiedDelegateIdentifier()
     {
-        Assert.Equal("A.B.@delegate*", CompileBackCSharpNames.Clean("A.B.delegate*"));
-        Assert.Equal("@delegate*", CompileBackCSharpNames.Clean("delegate*"));
-        Assert.Equal("delegate*<int, int>", CompileBackCSharpNames.Clean("delegate*<System.Int32, System.Int32>"));
+        Assert.Equal("A.B.@delegate*", CSharpFormatter.CleanTypeDisplay("A.B.delegate*"));
+        Assert.Equal("@delegate*", CSharpFormatter.CleanTypeDisplay("delegate*"));
+        Assert.Equal("delegate*<int, int>", CSharpFormatter.CleanTypeDisplay("delegate*<System.Int32, System.Int32>"));
     }
 
     [Fact]
-    public void CompileBackCSharpNames_PreservesReadonlyOnlyInRefReadonlyModifier()
+    public void CleanTypeDisplay_PreservesReadonlyOnlyInRefReadonlyModifier()
     {
-        Assert.Equal("ref readonly int", CompileBackCSharpNames.Clean("ref readonly int"));
-        Assert.Equal("ref @readonly", CompileBackCSharpNames.Clean("ref readonly"));
-        Assert.Equal("ref Example.@readonly", CompileBackCSharpNames.Clean("ref Example.readonly"));
+        Assert.Equal("ref readonly int", CSharpFormatter.CleanTypeDisplay("ref readonly int"));
+        Assert.Equal("ref @readonly", CSharpFormatter.CleanTypeDisplay("ref readonly"));
+        Assert.Equal("ref Example.@readonly", CSharpFormatter.CleanTypeDisplay("ref Example.readonly"));
     }
 
     [Fact]
-    public void CompileBackCSharpNames_SanitizesGeneratedTypeSegmentsWithoutBreakingGenerics()
+    public void CleanTypeDisplay_SanitizesGeneratedTypeSegmentsWithoutBreakingGenerics()
     {
-        Assert.Equal("System.Threading.Tasks.Task<int>", CompileBackCSharpNames.Clean("System.Threading.Tasks.Task<int>"));
+        Assert.Equal("System.Threading.Tasks.Task<int>", CSharpFormatter.CleanTypeDisplay("System.Threading.Tasks.Task<int>"));
         Assert.Equal(
             "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.__Data_e__FixedBuffer",
-            CompileBackCSharpNames.Clean("ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.<Data>e__FixedBuffer"));
+            CSharpFormatter.CleanTypeDisplay("ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals.<Data>e__FixedBuffer"));
         Assert.Equal(
             "System.Runtime.CompilerServices.CallSite<___A_00000200_<System.Runtime.CompilerServices.CallSite, object, string, object>>",
-            CompileBackCSharpNames.Clean("System.Runtime.CompilerServices.CallSite<<>A{00000200}<System.Runtime.CompilerServices.CallSite, object, string, object>>"));
+            CSharpFormatter.CleanTypeDisplay("System.Runtime.CompilerServices.CallSite<<>A{00000200}<System.Runtime.CompilerServices.CallSite, object, string, object>>"));
     }
 
     [Fact]
