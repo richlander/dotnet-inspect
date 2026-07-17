@@ -82,10 +82,10 @@ the untrusted-actionable candidates.
 - Historical framework sensor (308 asm): 4 untrusted-actionable, all confirmed.
 - **9/9 confirmed exception-path pool-retention defects**, IL-verified. Lowest volume,
   highest precision, clean `try/finally` fix.
-- Current exact product contract (.NET 11 daily, 314 assemblies): 49 lifecycle
-  candidates → 2 untrusted-actionable
+- Current exact product contract (.NET 11 daily, 314 assemblies): 50 lifecycle
+  observations → 2 untrusted-actionable
   (`MessagePackReader.ReadStringSlow`, `BinaryReader.FillBuffer`), 1 trusted,
-  and 46 unknown.
+  and 47 unknown.
 
 ### 3–4. Delegate & enumerator allocation
 
