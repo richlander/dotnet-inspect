@@ -123,7 +123,7 @@ jobs:
             --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
             --compile-cap 4000 \
-            --corpus-fidelity-cap 3 \
+            --corpus-fidelity-cap 50 \
             --max-examples 3
 
       - name: Run return-address equivalence census
