@@ -6509,10 +6509,11 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task AppContextSwitchScanner_UsesRawStringsAndLeavesDeduplicationToConsumer()
+    public async Task AppContextSwitchProjection_UsesRawStringsAndLeavesDeduplicationToConsumer()
     {
         var assemblyPath = typeof(AppContextSwitchFixture).Assembly.Location;
-        var occurrences = AppContextSwitchScanner.Scan(assemblyPath);
+        using var session = AssemblyInspectionSession.Open(assemblyPath);
+        var occurrences = AppContextSwitchProjectionProducer.Produce(session.MethodBodies);
 
         Assert.Contains(
             occurrences,

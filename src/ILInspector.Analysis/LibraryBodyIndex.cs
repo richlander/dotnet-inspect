@@ -1182,21 +1182,23 @@ public sealed class LibraryBodyIndex
     }
 
     /// <summary>
-    /// Builds an index over a caller-owned, fully prefetched PE image. The
-    /// caller retains ownership and must keep the reader alive for this call.
+    /// Builds an index over caller-provided immutable PE image content without
+    /// reopening the target file.
     /// </summary>
-    internal static LibraryBodyIndex OpenFromPrefetchedImage(
+    public static LibraryBodyIndex OpenFromPrefetchedImage(
         string path,
-        PdbContext context,
+        ImmutableArray<byte> image,
         LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        ArgumentNullException.ThrowIfNull(context);
+        if (image.IsDefaultOrEmpty)
+            throw new ArgumentException("A prefetched PE image is required.", nameof(image));
         features = NormalizeFeatures(features);
+        using var peReader = new PEReader(image);
         return BuildFromReader(
             path,
-            context.GetPrefetchedPeReader(),
+            peReader,
             features,
             resolver,
             bodyScope: null,

@@ -100,7 +100,7 @@ public sealed class MethodBodyInspectionSession
         return new(
             Analysis.LibraryBodyIndex.OpenFromPrefetchedImage(
                 assemblyPath,
-                context,
+                context.GetPrefetchedImage(),
                 features,
                 resolver),
             Path.GetFileNameWithoutExtension(assemblyPath));

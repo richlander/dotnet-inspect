@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 
@@ -44,6 +45,13 @@ public sealed record MethodInstructions(
         ArgumentNullException.ThrowIfNull(body);
         byte[] il = body.GetILBytes() ?? [];
         return Decode(il, il.Length, body.ExceptionRegions);
+    }
+
+    /// <summary>Layer 0 from a reader-independent method-body snapshot.</summary>
+    public static MethodInstructions Decode(MethodBodyData body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return Decode(body.IL.ToArray(), body.IL.Length, body.ExceptionRegions);
     }
 
     /// <summary>

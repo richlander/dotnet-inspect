@@ -17,8 +17,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="analysis-harness" />
-    <InternalsVisibleTo Include="dotnet-inspect" />
-    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="ILInspector.Analysis.Tests" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
   </ItemGroup>

@@ -54,7 +54,7 @@ public class SourceLinkService : IDisposable
     /// Opens an assembly with its complete PE image prefetched for shared
     /// parallel body analysis.
     /// </summary>
-    internal static SourceLinkService OpenPrefetched(
+    public static SourceLinkService OpenPrefetched(
         string assemblyPath,
         Action<string>? log = null)
     {

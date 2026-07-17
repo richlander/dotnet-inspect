@@ -7,7 +7,6 @@ using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.AnalysisHarness;
 using ILInspector.Findings;
-using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -342,11 +341,11 @@ public sealed class LeakTriageAnalyzerTests
     public void LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
-        using var context = PdbContext.OpenPrefetched(path);
+        var image = ImmutableArray.Create(File.ReadAllBytes(path));
 
         var shared = LibraryBodyIndex.OpenFromPrefetchedImage(
             path,
-            context,
+            image,
             LibraryBodyAnalysisFeatures.All);
         var owned = LibraryBodyIndex.Open(
             path,
@@ -359,7 +358,7 @@ public sealed class LeakTriageAnalyzerTests
         Assert.True(
             owned.LeakTriage.ExceptionPathCandidates.SequenceEqual(
                 shared.LeakTriage.ExceptionPathCandidates));
-        Assert.True(context.PeReader.HasMetadata);
+        Assert.False(image.IsDefaultOrEmpty);
     }
 
     [Fact]

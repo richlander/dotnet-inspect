@@ -286,14 +286,15 @@ public class TopLeverageSectionTests
     {
         string path = typeof(LeverageSampleType).Assembly.Location;
         var logger = new VerboseLogger(false);
-        using var context =
-            ILInspector.Metadata.PdbContext.OpenPrefetched(path);
+        using var service =
+            ILInspector.Metadata.SourceLinkService.OpenPrefetched(path);
+        var context = service.Context;
         var drillMap =
             LibraryMetadataService.BuildLibraryDrillMap(context, logger);
         return LibraryMetadataService.ScanTopLeverage(
             () => LibraryBodyIndex.OpenFromPrefetchedImage(
                 path,
-                context,
+                context.GetPrefetchedImage(),
                 LibraryBodyAnalysisFeatures.Default),
             () => drillMap,
             path,

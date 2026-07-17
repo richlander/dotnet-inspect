@@ -472,6 +472,18 @@ public static class IlProjection
         MetadataSource source, MethodDefinitionHandle methodHandle)
         => RenderIlBodyLines(source, Locate(source.Reader, methodHandle));
 
+    /// <summary>
+    /// Token-addressed annotated IL for callers that do not own Metadata's reader.
+    /// </summary>
+    public static IReadOnlyList<SourceLine> RenderIlBodyLines(
+        MetadataSource source, int methodToken)
+    {
+        var handle = MetadataTokens.EntityHandle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+            return [];
+        return RenderIlBodyLines(source, (MethodDefinitionHandle)handle);
+    }
+
     static IReadOnlyList<SourceLine> RenderIlBodyLines(
         MetadataSource source, (TypeDefinition Type, MethodDefinition Method, MethodDefinitionHandle Handle) located)
     {

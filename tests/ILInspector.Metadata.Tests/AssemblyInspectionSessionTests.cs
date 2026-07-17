@@ -46,6 +46,55 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void MethodBodies_ReturnCopiedDataAndValidatedSelection()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        var fixture = Assert.Single(
+            session.MethodBodies.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo));
+
+        var selection = session.MethodBodies.ResolveMethod(
+            fixture.DeclaringType,
+            nameof(MethodBodyFixture.Echo),
+            overloadIndex: 0,
+            publicOnly: true);
+
+        Assert.NotNull(selection);
+        Assert.True(selection.HasBody);
+        Assert.Equal(["T"], selection.GenericParameterNames);
+        Assert.True(session.MethodBodies.TryRead(
+            selection.MetadataToken,
+            out var body,
+            out var error),
+            error);
+        Assert.NotNull(body);
+        Assert.NotEmpty(body.IL);
+    }
+
+    [Fact]
+    public void MethodBodies_RejectResolverUseAfterSessionDisposal()
+    {
+        var session = AssemblyInspectionSession.Open(SelfPath);
+        var source = session.MethodBodies;
+        var fixture = Assert.Single(
+            source.EnumerateMethods(),
+            method => method.Name == nameof(MethodBodyFixture.Echo));
+        var selection = source.ResolveMethod(
+            fixture.DeclaringType,
+            nameof(MethodBodyFixture.Echo),
+            overloadIndex: 0,
+            publicOnly: true);
+        Assert.NotNull(selection);
+        Assert.True(source.TryRead(selection.MetadataToken, out var body, out _));
+
+        session.Dispose();
+
+        Assert.NotEmpty(body!.IL);
+        Assert.Throws<ObjectDisposedException>(
+            () => source.ResolveMethod(selection.MetadataToken));
+    }
+
+    [Fact]
     public void Open_FromResolvedReference_MatchesPathOpen()
     {
         var reference = new ResolvedAssemblyReference(
@@ -130,9 +179,15 @@ public class AssemblyInspectionSessionTests
                     inner.Dispose();
                     _innerDisposed = true;
                 }
+
             }
 
             base.Dispose(disposing);
         }
+    }
+
+    public static class MethodBodyFixture
+    {
+        public static T Echo<T>(T value) => value;
     }
 }

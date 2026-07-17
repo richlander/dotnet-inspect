@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -94,6 +95,8 @@ public class PdbContext : IDisposable
     private SourceLinkResolver? _resolver;
     private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
+    private MethodBodySource? _methodBodies;
+    private bool _disposed;
 
     /// <summary>
     /// The path to the assembly file that was opened.
@@ -105,14 +108,34 @@ public class PdbContext : IDisposable
     /// </summary>
     internal Action<string>? Log => _log;
 
-    internal PEReader PeReader => _peReader;
-    internal MetadataReader MetadataReader => _peReader.GetMetadataReader();
+    /// <summary>
+    /// Session-bound method-body and operand access without exposing raw readers.
+    /// </summary>
+    public MethodBodySource MethodBodies
+    {
+        get
+        {
+            EnsureAlive();
+            return _methodBodies ??= new MethodBodySource(_peReader, EnsureAlive);
+        }
+    }
 
-    internal PEReader GetPrefetchedPeReader()
-        => _entireImagePrefetched
-            ? _peReader
-            : throw new InvalidOperationException(
+    /// <summary>
+    /// Gets immutable content for the fully prefetched PE image. Consumers can
+    /// inspect this snapshot without reopening the target file or receiving the
+    /// context-owned reader.
+    /// </summary>
+    public ImmutableArray<byte> GetPrefetchedImage()
+    {
+        EnsureAlive();
+        if (!_entireImagePrefetched)
+        {
+            throw new InvalidOperationException(
                 "Parallel body analysis requires a fully prefetched PE image.");
+        }
+
+        return _peReader.GetEntireImage().GetContent();
+    }
 
     // --- PE/Assembly ---
     public bool HasMetadata => _peReader.HasMetadata;
@@ -884,6 +907,9 @@ public class PdbContext : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         foreach (var d in _disposables)
         {
             try { d.Dispose(); } catch { }
@@ -896,6 +922,9 @@ public class PdbContext : IDisposable
         try { _peReader.Dispose(); } catch { }
         try { _peStream.Dispose(); } catch { }
     }
+
+    void EnsureAlive()
+        => ObjectDisposedException.ThrowIf(_disposed, this);
 
     // --- Private implementation ---
 

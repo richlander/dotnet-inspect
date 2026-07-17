@@ -60,11 +60,21 @@ The first implementation is `ILOffsetProjectionProducer`:
 
 - `ILOffsetProjectionRequest` carries the already-open `SourceLinkService`,
   coordinate, and capability flags — never a path, `PEReader`, or command options.
+- Metadata exposes a session-bound `MethodBodySource` from both `PdbContext` and
+  `AssemblyInspectionSession`. It returns copied `MethodBodyData` and implements
+  operand-name resolution without exposing its owned readers.
+- `MethodBodyData` lives in `MetadataPrimitives` because it is the neutral
+  Metadata-to-Instructions contract; Instructions decodes the snapshot directly.
 - `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + Analysis +
   SourceLink composition and returns `ILOffsetProjectionOutcome`.
 - `ResearchViews.ProjectILOffset` forwards directly to the producer.
 - `ILOffsetQuery` retains only CLI parsing, capability selection, symbol
   acquisition, failure/exit handling, and producer invocation.
+
+The capability replaces product friendship. Research and the CLI consume
+explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
+The source rejects resolver operations after its owning session is disposed,
+while copied body data remains safe to retain.
 
 This establishes the migration pattern for the existing member projection:
 top-level contracts, a focused `MemberProjectionProducer`, and a thin

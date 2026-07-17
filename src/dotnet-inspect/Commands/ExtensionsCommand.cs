@@ -140,8 +140,8 @@ public class ExtensionsCommand
     {
         try
         {
-            using var stream = File.OpenRead(assembly.Path);
-            var members = ExtensionMethodScanner.FindAllExtensions(stream, includeAll).ToList();
+            using var session = AssemblyInspectionSession.Open(assembly.Path);
+            var members = session.ExtensionMethods(includeAll).ToList();
             var inspection = MetadataFindings.InspectExtensionMembers(
                 members,
                 new FindingSubject(Path.GetFullPath(assembly.Path), Path.GetFileName(assembly.Path)));
