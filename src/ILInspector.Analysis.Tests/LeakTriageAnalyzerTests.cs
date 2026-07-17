@@ -7,11 +7,27 @@ using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.AnalysisHarness;
 using ILInspector.Findings;
+using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Tests;
 
 public sealed class LeakTriageAnalyzerTests
 {
+    [Fact]
+    public void WrapperControlFlowFixtures_UseInPlaceConstructors()
+    {
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.ExternalReadThroughReinitializedMemory));
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.ExternalReadThroughLoopReinitializedMemory),
+            minimumInitobjCount: 2);
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.ExternalReadThroughConditionallyResetMemory),
+            minimumInitobjCount: 1);
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.DisjointMemoryUseDoesNotConsumeRent));
+    }
+
     [Fact]
     public void CleanArrayPoolFixtures_ProduceZeroRows()
     {
@@ -276,6 +292,39 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Contains(reinitializedMemory.Boundaries, boundary =>
             boundary.Evidence.Operation.Name == "Read"
             && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+
+        var loopReinitializedMemory = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ExternalReadThroughLoopReinitializedMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            loopReinitializedMemory.Actionability);
+        Assert.Contains(loopReinitializedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(loopReinitializedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Observe");
+
+        var conditionallyResetMemory = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ExternalReadThroughConditionallyResetMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            conditionallyResetMemory.Actionability);
+        Assert.Contains(conditionallyResetMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+
+        var disjointMemoryUse = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.DisjointMemoryUseDoesNotConsumeRent)));
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            disjointMemoryUse.Actionability);
+        Assert.DoesNotContain(disjointMemoryUse.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read");
 
         var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
@@ -1174,6 +1223,30 @@ public sealed class LeakTriageAnalyzerTests
     static void AssertNoCandidate(LeakTriageResult result, string methodName, string shape)
         => Assert.DoesNotContain(result.Candidates, candidate => candidate.Method.Name == methodName && candidate.Shape == shape);
 
+    static void AssertInPlaceConstructor(
+        string methodName,
+        int minimumInitobjCount = 0)
+    {
+        var method = typeof(ArrayPoolLeakFixtures).GetMethod(methodName)
+            ?? throw new InvalidOperationException(
+                $"Fixture method {methodName} was not found.");
+        var instructions = InstructionDecoder.Decode(
+            method.GetMethodBody()?.GetILAsByteArray() ?? []);
+
+        Assert.Contains(
+            Enumerable.Range(0, instructions.Length),
+            index => instructions[index].OpCode
+                    is ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                && instructions
+                    .Skip(index + 1)
+                    .Take(5)
+                    .Any(instruction => instruction.OpCode == ILOpCode.Call));
+        Assert.True(
+            instructions.Count(instruction =>
+                instruction.OpCode == ILOpCode.Initobj)
+            >= minimumInitobjCount);
+    }
+
     static void AssertSingleShape(ImmutableArray<LeakTriageFinding> findings, string methodName, string shape)
     {
         var finding = Assert.Single(ForMethod(findings, methodName));
@@ -1480,6 +1553,62 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughLoopReinitializedMemory(
+        ExternalMemoryStream stream,
+        bool repeat)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = default;
+        int read;
+        do
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            read = stream.Read(memory);
+            memory = default;
+            stream.Observe(memory);
+        }
+        while (repeat);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int DisjointMemoryUseDoesNotConsumeRent(
+        ExternalMemoryStream stream,
+        Memory<byte> caller,
+        bool useRented)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = caller;
+        int result;
+        if (useRented)
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            result = 0;
+        }
+        else
+        {
+            result = stream.Read(memory);
+        }
+        ArrayPool<byte>.Shared.Return(buffer);
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughConditionallyResetMemory(
+        ExternalMemoryStream stream,
+        bool reset)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        if (reset)
+            memory = default;
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int ExternalParseThroughReadOnlySpan()
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
@@ -1675,6 +1804,9 @@ internal sealed class ArrayPoolLeakFixtures
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public int Read() => 1;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void Observe(Memory<byte> buffer) => s_counter += buffer.Length;
     }
 
     internal sealed class ExternalMemoryOnlyStream

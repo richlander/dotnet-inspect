@@ -999,27 +999,172 @@ public static class LeakTriageAnalyzer
             instructions,
             reaching,
             calls,
-            reaching.Uses.Where(use =>
-                !use.IsArgument
-                && use.Slot == slot
-                && use.Offset > instructions[setupIndex].Offset
-                // The constructor overwrites the value-type local through its
-                // address, so explicit definitions before it no longer apply.
-                && use.ReachingDefinitions.All(definition =>
-                    definition.Offset < instructions[setupIndex].Offset)),
+            FindNormalFlowLocalUses(
+                instructions,
+                calls,
+                setupIndex,
+                slot),
             slot,
             depth);
+
+    static ImmutableArray<LocalUse> FindNormalFlowLocalUses(
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int setupIndex,
+        int slot)
+    {
+        if (setupIndex + 1 >= instructions.Length)
+            return [];
+
+        var definitionReceivers = new HashSet<int>();
+        for (int i = 0; i < instructions.Length; i++)
+        {
+            if (TryFindAddressWriteLocal(
+                    instructions,
+                    i,
+                    out int writeSlot,
+                    out int receiverIndex)
+                && writeSlot == slot)
+            {
+                definitionReceivers.Add(receiverIndex);
+                continue;
+            }
+
+            if (calls.TryGetValue(instructions[i].Offset, out var member)
+                && TryFindInPlaceWrapperLocal(
+                    instructions,
+                    i,
+                    member,
+                    out int constructorSlot,
+                    out receiverIndex)
+                && constructorSlot == slot)
+            {
+                definitionReceivers.Add(receiverIndex);
+            }
+        }
+
+        var indexByOffset = instructions
+            .Select((instruction, index) =>
+                (instruction.Offset, Index: index))
+            .ToDictionary(static pair => pair.Offset, static pair => pair.Index);
+        var pending = new Stack<int>();
+        var visited = new HashSet<int>();
+        var uses = new Dictionary<int, LocalUse>();
+
+        // The local is defined only when the constructor returns, so follow
+        // normal IL edges and stop before any later write to the same slot.
+        pending.Push(setupIndex + 1);
+        while (pending.TryPop(out int index))
+        {
+            if (!visited.Add(index))
+                continue;
+
+            var instruction = instructions[index];
+            if (definitionReceivers.Contains(index)
+                || (TryReadStoreLocal(instruction, out int storedSlot)
+                    && storedSlot == slot))
+            {
+                continue;
+            }
+
+            if (IsLoadLocalOrAddress(instruction, slot))
+            {
+                bool address = TryReadLoadLocalAddress(
+                    instruction,
+                    out _);
+                uses.TryAdd(
+                    instruction.Offset,
+                    new LocalUse(
+                        slot,
+                        IsArgument: false,
+                        instruction.Offset,
+                        address,
+                        []));
+            }
+
+            if (instruction.LeavesRegion)
+                continue;
+
+            foreach (int target in instruction.BranchTargets)
+                if (indexByOffset.TryGetValue(target, out int targetIndex))
+                    pending.Push(targetIndex);
+
+            if (instruction.FallsThrough && index + 1 < instructions.Length)
+                pending.Push(index + 1);
+        }
+
+        return uses.Values
+            .OrderBy(static use => use.Offset)
+            .ToImmutableArray();
+    }
+
+    static bool TryFindAddressWriteLocal(
+        ImmutableArray<DecodedInstruction> instructions,
+        int writeIndex,
+        out int slot,
+        out int receiverIndex)
+    {
+        slot = -1;
+        receiverIndex = -1;
+        int pushedValues = instructions[writeIndex].OpCode switch
+        {
+            ILOpCode.Initobj => 0,
+            ILOpCode.Stobj or ILOpCode.Cpobj => 1,
+            _ => -1,
+        };
+        if (pushedValues < 0)
+            return false;
+
+        int index = writeIndex - 1;
+        for (int remaining = pushedValues; remaining > 0; remaining--)
+        {
+            while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
+                index--;
+            if (index < 0
+                || !IsSetupArgumentPush(instructions[index].OpCode))
+            {
+                return false;
+            }
+            index--;
+        }
+
+        while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
+            index--;
+        if (index < 0
+            || !TryReadLoadLocalAddress(instructions[index], out slot))
+        {
+            return false;
+        }
+
+        receiverIndex = index;
+        return true;
+    }
 
     static bool TryFindInPlaceWrapperLocal(
         ImmutableArray<DecodedInstruction> instructions,
         int setupIndex,
         MemberRef member,
         out int slot)
+        => TryFindInPlaceWrapperLocal(
+            instructions,
+            setupIndex,
+            member,
+            out slot,
+            out _);
+
+    static bool TryFindInPlaceWrapperLocal(
+        ImmutableArray<DecodedInstruction> instructions,
+        int setupIndex,
+        MemberRef member,
+        out int slot,
+        out int receiverIndex)
     {
         slot = -1;
+        receiverIndex = -1;
         if (instructions[setupIndex].OpCode != ILOpCode.Call
             || !member.HasThis
-            || !IsTransparentWrapperBoundary(member))
+            || member.Name != ".ctor"
+            || !IsTypedWrapperType(member.DeclaringType))
         {
             return false;
         }
@@ -1041,8 +1186,14 @@ public static class LeakTriageAnalyzer
 
         while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
             index--;
-        return index >= 0
-            && TryReadLoadLocalAddress(instructions[index], out slot);
+        if (index < 0
+            || !TryReadLoadLocalAddress(instructions[index], out slot))
+        {
+            return false;
+        }
+
+        receiverIndex = index;
+        return true;
     }
 
     static bool TryFindNextNonNop(ImmutableArray<DecodedInstruction> instructions, int offset, out DecodedInstruction instruction)
