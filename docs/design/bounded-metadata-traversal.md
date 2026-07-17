@@ -187,6 +187,47 @@ must not be folded into signature parsing. A shallow signature can reference a
 cyclic TypeRef/TypeDef graph, and a valid graph can contain a structurally
 unsafe signature. Each boundary must remain independently enforced.
 
+## Validation ownership
+
+SRM remains the parser and authority for the structural checks it exposes.
+dotnet-inspect must not independently reimplement:
+
+- metadata header, stream, heap, table-size, or row-count bounds;
+- coded-token decoding and allowed handle kinds;
+- signature grammar and malformed-blob exceptions;
+- individual row and heap access bounds.
+
+SRM performs these checks while constructing the reader and accessing metadata
+([reader bounds](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/MetadataReader.cs#L178-L347),
+[table bounds](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/MetadataReader.cs#L432-L512)).
+The product maps the resulting SRM exception into its failure-bearing outcome
+at the operation boundary. SRM does not enforce every ECMA semantic rule;
+dotnet-inspect adds one only when a product operation requires it, not to
+produce a second general metadata validator.
+
+dotnet-inspect adds checks only where SRM does not provide a resource-safe or
+semantic guarantee:
+
+- a valid accessor can return a cyclic TypeDef, TypeRef, or ExportedType
+  relationship because SRM exposes each relationship edge rather than
+  validating the graph
+  ([TypeDef](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/TypeSystem/TypeDefinition.cs#L153-L159),
+  [TypeRef](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/TypeSystem/TypeReference.cs#L50-L59),
+  [ExportedType](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/TypeSystem/ExportedType.cs#L70-L81));
+- signature decoding can recurse deeply or preallocate from an untrusted count
+  before reaching a catchable malformed-input failure
+  ([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/Ecma335/SignatureDecoder.cs#L134-L153));
+- provider callbacks can re-enter another TypeSpec outside one blob's
+  structural prescan;
+- valid strings and row counts can still amplify into unbounded product work or
+  output.
+
+`SignatureBlobGuard` is therefore an admission check in front of SRM, not a
+second signature implementation. It parses only enough structure to prove that
+calling SRM is bounded; SRM remains responsible for the final grammar and value
+decode. The same rule applies to future guards: do not duplicate validation
+that SRM already performs safely.
+
 ## dotnet/runtime precedent
 
 The runtime validates the overall safety model, but not every proposed
@@ -230,6 +271,40 @@ The typed rejection envelope is also product-specific. Runtime metadata APIs
 primarily use `TryParse`, `BadImageFormatException`, and related exceptions.
 Compatibility wrappers should preserve that exception convention while
 product-level producers retain structured rejection evidence.
+
+Other runtime type systems provide additional precedent but are not drop-in
+product substrates:
+
+- CoreCLR's class loader tracks types currently being loaded, detects a
+  recursive load on the current thread, and throws rather than continuing the
+  cycle
+  ([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/coreclr/vm/clsload.cpp#L3100-L3219)).
+  This supports an explicit in-progress/visited identity, but CoreCLR is an
+  execution loader and is outside the product's no-inspected-assembly-loading
+  boundary.
+- NativeAOT's compiler type system combines cycle knowledge with separate depth
+  and breadth cutoffs because recursive generic expansion also grows laterally
+  ([cycle detector](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/coreclr/tools/Common/Compiler/GenericCycleDetection/ModuleCycleInfo.cs#L91-L280),
+  [policy](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/coreclr/tools/aot/ILCompiler.Compiler/Compiler/CompilerTypeSystemContext.Aot.cs#L14-L28)).
+  This is strong precedent for identity-aware cycle detection plus work
+  budgets, but it addresses compiler generic expansion rather than metadata
+  name qualification.
+- MetadataLoadContext is a public inspection-only loader, but it explicitly
+  accepts syntactically correct metadata that would be unloadable by an
+  execution runtime and requires an assembly resolver
+  ([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.MetadataLoadContext/src/System/Reflection/MetadataLoadContext.Apis.cs#L8-L45)).
+  It is useful for reflection-shaped analysis, not as a semantic-validity or
+  denial-of-service boundary.
+- `Microsoft.ILVerification` is a reusable verifier built on runtime's internal
+  ECMA type system
+  ([project](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/coreclr/tools/ILVerification/ILVerification.csproj#L1-L24)).
+  It can serve as an independent IL/type-system oracle in a harness, but it does
+  not replace product-owned metadata identities, formatting, or bounded raw-row
+  traversal.
+
+The product therefore stays SRM-direct. MetadataLoadContext and ILVerify may be
+evaluated as optional analysis capabilities or differential test oracles in
+separate work; adopting either is not a prerequisite for this safety substrate.
 
 ## Budget policy
 
