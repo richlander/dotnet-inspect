@@ -1003,7 +1003,10 @@ public static class LeakTriageAnalyzer
                 !use.IsArgument
                 && use.Slot == slot
                 && use.Offset > instructions[setupIndex].Offset
-                && use.ReachingDefinitions.IsEmpty),
+                // The constructor overwrites the value-type local through its
+                // address, so explicit definitions before it no longer apply.
+                && use.ReachingDefinitions.All(definition =>
+                    definition.Offset < instructions[setupIndex].Offset)),
             slot,
             depth);
 

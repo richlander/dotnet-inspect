@@ -267,6 +267,16 @@ public sealed class LeakTriageAnalyzerTests
             boundary.Evidence.Operation.Name == ".ctor"
             && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
 
+        var reinitializedMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughReinitializedMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            reinitializedMemory.Actionability);
+        Assert.Contains(reinitializedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+
         var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpan)));
@@ -1451,6 +1461,19 @@ internal sealed class ArrayPoolLeakFixtures
         s_counter++;
         s_counter++;
         s_counter++;
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughReinitializedMemory(
+        ExternalMemoryStream stream)
+    {
+        Memory<byte> memory = Memory<byte>.Empty;
+        _ = stream.Read(memory);
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        memory = new Memory<byte>(buffer, 0, 16);
         int read = stream.Read(memory);
         ArrayPool<byte>.Shared.Return(buffer);
         return read;
