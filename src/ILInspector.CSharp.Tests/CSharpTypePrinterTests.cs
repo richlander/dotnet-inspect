@@ -388,7 +388,7 @@ public sealed class CSharpTypePrinterTests
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains(
-            "public long GetTicks([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(0)] System.DateTime when);",
+            "public long GetTicks([Optional, DateTimeConstant(0)] DateTime when);",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
@@ -621,15 +621,316 @@ public sealed class CSharpTypePrinterTests
         var skeleton = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains(
-            "public unsafe async System.Threading.Tasks.Task Run()",
+            "public unsafe async Task Run()",
             full.Units[0].Source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public System.Threading.Tasks.Task Run();",
+            "public Task Run();",
             skeleton.Units[0].Source,
             StringComparison.Ordinal);
         Assert.False(member.IsAsync);
         Assert.False(member.IsUnsafe);
+    }
+
+    [Fact]
+    public void DerivedUsingShortensCrossNamespaceReference()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Task Run();", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShortenTypeNamesDisabledKeepsReferencesQualified()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions { ShortenTypeNames = false });
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CollidingSimpleNamesAcrossNamespacesStayQualified()
+    {
+        var type = CreateEmptyType("Samples", "Consumer");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Convert",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Widget",
+                MemberName = "Convert",
+                Parameters = [new ApiParameter { Type = "Beta.Widget", Name = "value" }]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using Alpha;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public Alpha.Widget Convert(Beta.Widget value);",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CrossTypeAmbiguousSimpleNameStaysQualifiedAcrossUnit()
+    {
+        // "String" is ambiguous unit-wide (System.String in TypeA, MyNamespace.String
+        // in TypeB) even though each type alone sees only one full name. Importing
+        // System/MyNamespace (justified by the unambiguous Int32/Int64) would shorten
+        // both references to `String`, producing an ambiguous reference. Neither
+        // namespace may be imported; every reference they own stays qualified.
+        var a = CreateEmptyType("Ns1", "TypeA");
+        a.Members.Add(new ApiMember
+        {
+            Name = "M1",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "System.String", MemberName = "M1" }
+        });
+        a.Members.Add(new ApiMember
+        {
+            Name = "M2",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "System.Int32", MemberName = "M2" }
+        });
+        var b = CreateEmptyType("Ns1", "TypeB");
+        b.Members.Add(new ApiMember
+        {
+            Name = "N1",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "MyNamespace.String", MemberName = "N1" }
+        });
+        b.Members.Add(new ApiMember
+        {
+            Name = "N2",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "MyNamespace.Int64", MemberName = "N2" }
+        });
+
+        var result = _printer.PrintBatch([new CSharpTypePrintRequest(a), new CSharpTypePrintRequest(b)]);
+
+        Assert.DoesNotContain("using System;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using MyNamespace;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public System.String M1();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public MyNamespace.String N1();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RawSignatureMethodTypeParameterShadowsReferenceAndStaysQualified()
+    {
+        // A generic method whose signature failed structured decoding falls back to the
+        // raw Signature string (no SignatureModel). Its type parameter `Task` still
+        // shadows the same-named return type reference, so the namespace must not be
+        // imported and the reference must stay qualified.
+        var type = CreateEmptyType("Samples", "Worker");
+        type.IsAbstract = true;
+        type.Members.Add(new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            IsAbstract = true,
+            Signature = "System.Threading.Tasks.Task Run<Task>()"
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("System.Threading.Tasks.Task Run<Task>()", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RawSignatureTupleReturnMethodTypeParameterStaysQualified()
+    {
+        // A tuple return type puts a '(' before the parameter list, so the raw-signature
+        // parser must anchor on the method name + generic list, not the first '('. The
+        // method type parameter `Task` still shadows the same-named references.
+        var type = CreateEmptyType("Samples", "Worker");
+        type.IsAbstract = true;
+        type.Members.Add(new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            IsAbstract = true,
+            Signature = "(System.Threading.Tasks.Task, int) Run<Task>(System.Threading.Tasks.Task value)"
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "(Task, int)",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReferenceCollidingWithDeclaredTypeStaysQualified()
+    {
+        // A type declared as `Task` referencing `System.Threading.Tasks.Task` must not
+        // import the namespace: shortening the reference to `Task` would bind to the
+        // declared type, not the referenced one.
+        var type = CreateEmptyType("Samples", "Task");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AttributeArgumentEnumAccessDoesNotDeriveTypeAsNamespace()
+    {
+        // The attribute argument `UnmanagedType.I4` is a value expression, not a type
+        // reference; deriving `using System.Runtime.InteropServices.UnmanagedType;` from
+        // it would emit an illegal type-as-namespace using and mis-shorten the argument.
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Encode",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Encode",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "int",
+                        Name = "value",
+                        Attributes =
+                        [
+                            "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)"
+                        ]
+                    }
+                ]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("using System.Runtime.InteropServices;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "using System.Runtime.InteropServices.UnmanagedType;",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenericTypeParameterShadowsReferenceAndStaysQualified()
+    {
+        // The type parameter `Task` shadows any same-named type reference within the
+        // type body, so importing System.Threading.Tasks and shortening the return type
+        // to `Task` would rebind it to the parameter. It must stay fully qualified.
+        var type = CreateEmptyType("Samples", "Box`1");
+        type.TypeParameters = [new TypeParameter { Name = "Task" }];
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MethodTypeParameterShadowsReferenceAndStaysQualified()
+    {
+        // A method type parameter named `Task` shadows the same-named type reference;
+        // the namespace must not be imported.
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        member.SignatureModel!.TypeParameters = [new TypeParameter { Name = "Task" }];
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Threading.Tasks.Task Run",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedTypeReferencedAsNamespaceIsNotImportedWhenEnclosingTypeIsReferenced()
+    {
+        // `System.Environment.SpecialFolder` is a nested type but arrives as a flat
+        // dotted string, so the last-dot split derives namespace `System.Environment`
+        // — which is actually a type. Emitting `using System.Environment;` is illegal.
+        // When the enclosing type `System.Environment` is itself referenced in the
+        // unit, its full name shows up as a derived namespace and must be excluded, so
+        // the nested reference stays fully qualified.
+        var type = CreateEmptyType("App", "Consumer");
+        var enclosing = CreateMethod("GetEnv");
+        enclosing.SignatureModel!.ReturnType = "System.Environment";
+        var nested = CreateMethod("GetFolder");
+        nested.SignatureModel!.ReturnType = "System.Environment.SpecialFolder";
+        type.Members.Add(enclosing);
+        type.Members.Add(nested);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Environment;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Environment.SpecialFolder GetFolder();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UsingsSuppressedKeepsReferencesQualified()
+    {
+        // With IncludeUsings=false the composed Source omits using directives, so
+        // shortening a cross-namespace reference would leave it unresolvable.
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions { IncludeUsings = false });
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
     }
 
     [Theory]

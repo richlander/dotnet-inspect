@@ -781,9 +781,6 @@ public static class CompileBackSourceComposer
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CSharpFormatter.EscapeNamespace)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
                 .ToArray(),
             AssemblyAttributes: [],
             ModuleAttributes: []);
@@ -961,9 +958,6 @@ public static class CompileBackSourceComposer
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CSharpFormatter.EscapeNamespace)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
                 .ToArray(),
             AssemblyAttributes: [],
             ModuleAttributes: []);
@@ -1167,9 +1161,6 @@ public static class CompileBackSourceComposer
             Usings: RequiredNamespaces(function)
                 .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CSharpFormatter.EscapeNamespace)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
                 .ToArray(),
             AssemblyAttributes: [],
             ModuleAttributes: []);
