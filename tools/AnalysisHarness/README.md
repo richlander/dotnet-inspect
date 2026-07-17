@@ -238,9 +238,10 @@ measurement-only candidate/suppression buckets, as a
 [Markout](https://github.com/richlander/markout) card:
 
 ```bash
-dotnet "$DLL" --leak-triage assemblies.txt --top 5          # Markdown card (default)
-dotnet "$DLL" --leak-triage assemblies.txt --tsv            # section-tagged TSV
-dotnet "$DLL" --leak-triage assemblies.txt --jsonl          # one heterogeneous JSON record per row
+dotnet run eng/prepare-resource-triage-corpus.cs -- /tmp/resource-triage-assemblies.txt
+dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --top 5
+dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --tsv
+dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --jsonl
 ```
 
 The card has five sections — a **Summary** (assemblies / opened / failed / timed out / total
@@ -269,12 +270,24 @@ timeout, and any per-assembly input failure (a directory path, a truncated PE) b
 This remains the evidence engine for any correctness-oriented `Leak Triage` section: the analyzer
 fails closed on incomplete CFG/RD, non-`Shared` pools, aliases, field stores, cross-method
 ownership, and ambiguous uses, so an **empty findings card on real code means recall is the next
-lever**. Use the candidate buckets to decide which correctness gate to
-model next. A 2026-07-05 run over CoreLib, `Microsoft.CodeAnalysis`, and
-`Microsoft.CodeAnalysis.CSharp` produced **0 findings** (all gates suppressed), while the fixture
-assembly's three known-misuse methods surfaced exactly once each. The separate `Resource Triage`
-section uses the actionability contract below and does not reinterpret these rows as correctness
-findings.
+lever**. Use the candidate buckets to decide which correctness gate to model next.
+
+A 2026-07-17 run over the .NET 11 daily shared framework
+(`Microsoft.NETCore.App` + `Microsoft.AspNetCore.App`, 314 assemblies) produced **0 findings**
+across `arraypool-rent-not-returned`, `arraypool-use-after-return`, and
+`arraypool-double-return`. Its 543 measurement rows comprised 364
+`ownership-transfer-suppressed`, 122 `cross-method-suppressed`, 49
+`exception-path-leak-candidate`, and 8 `alias-or-field-suppressed` rows. The fixture assembly's
+three known-misuse methods still surface exactly once each. The broad real-code result does not
+justify promoting any of these three strict shapes into product output; the separate
+`Resource Triage` section uses the actionability contract below rather than reinterpreting these
+rows as correctness findings.
+
+The shared framework is the false-positive gate, not the profitability corpus. The pinned
+ArrayPool-heavy community corpus prepared above contains the primary library from each of nine
+package roots. It produced **0 strict findings**, from 201 measurement rows: 145
+`ownership-transfer-suppressed`, 36 `cross-method-suppressed`, 19
+`exception-path-leak-candidate`, and 1 `alias-or-field-suppressed`.
 
 The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
 enumerating the PE independently. Product commands can combine that feature with the other
@@ -284,10 +297,10 @@ product acquisition path and does not reconstruct an assembly walk.
 
 ## Leak actionability corpus sensor (#2439)
 
-`--leak-actionability` reports the leak-triage `exception-path-leak-candidate` bucket by
+`--leak-actionability` reports Analysis-owned exception-path lifecycle observations by
 **actionability**, as a [Markout](https://github.com/richlander/markout) card. The harness consumes
-the same Analysis-owned `analysis.resource-lifecycle` findings as the product's explicit
-`Resource Triage` section:
+the same `analysis.resource-lifecycle` findings as the product's explicit `Resource Triage`
+section:
 
 ```bash
 dotnet "$DLL" --leak-actionability assemblies.txt --top 5      # Markdown card (default)
@@ -319,10 +332,19 @@ permanent memory leaks or memory-corruption findings:
 dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
 ```
 
-A 2026-07-16 run over the .NET 11 daily shared framework (314 assemblies) classified
-49 lifecycle candidates as 2 `untrusted-actionable`
+A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classified
+50 lifecycle observations as 2 `untrusted-actionable`
 (`MessagePackReader::ReadStringSlow`, `BinaryReader::FillBuffer`),
-1 `trusted-low-actionability`, and 46 `unknown`.
+1 `trusted-low-actionability`, and 47 `unknown`.
+
+The same-day pinned community run classified 19 lifecycle observations as 1
+`untrusted-actionable` (`MessagePackReader::ReadStringSlow`) and 18 `unknown`. Four of the unknown
+observations are the previously source-verified MimeKit `Rfc2047.DecodePhrase`/`DecodeText`,
+Npgsql `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte` defects. Thirteen
+more are System.Text.Json's deliberate no-`finally` in-memory-transform idiom, historically
+classified as low actionability. The community corpus therefore proves the analysis family is
+profitable while exposing a current producer/classification recall gap; these known cases should
+not be treated as evidence for non-action.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 
