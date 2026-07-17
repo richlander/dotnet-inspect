@@ -258,6 +258,11 @@ public static class ResourceTriageAnalysis
                 && method == ".ctor")
             || (!IsStreamLike(declaringType)
                 && method == "CopyTo")
+            || (method == "Slice"
+                && (IsCoreLibraryGenericType(declaringType, "Span`1")
+                    || IsCoreLibraryGenericType(
+                        declaringType,
+                        "ReadOnlySpan`1")))
             || method.StartsWith("TryFormat", StringComparison.Ordinal)
             || method.StartsWith("Format", StringComparison.Ordinal)
             || method.StartsWith("WriteString", StringComparison.Ordinal)
@@ -273,6 +278,14 @@ public static class ResourceTriageAnalysis
     static bool IsStreamLike(TypeRef type)
         => IsType(type, "System.IO", "Stream")
             || HasTypeNameSuffix(type, "Stream");
+
+    static bool IsCoreLibraryGenericType(TypeRef type, string name)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } definition
+            && FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System",
+                name);
 
     static bool IsType(TypeRef type, string @namespace, string name)
     {

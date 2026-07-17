@@ -7,11 +7,27 @@ using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.AnalysisHarness;
 using ILInspector.Findings;
+using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Tests;
 
 public sealed class LeakTriageAnalyzerTests
 {
+    [Fact]
+    public void WrapperControlFlowFixtures_UseInPlaceConstructors()
+    {
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.ExternalReadThroughReinitializedMemory));
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.ExternalReadThroughLoopReinitializedMemory),
+            minimumInitobjCount: 2);
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.ExternalReadThroughConditionallyResetMemory),
+            minimumInitobjCount: 1);
+        AssertInPlaceConstructor(
+            nameof(ArrayPoolLeakFixtures.DisjointMemoryUseDoesNotConsumeRent));
+    }
+
     [Fact]
     public void CleanArrayPoolFixtures_ProduceZeroRows()
     {
@@ -166,6 +182,228 @@ public sealed class LeakTriageAnalyzerTests
             boundary.Evidence.Operation.Name == "GetChars"
             && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
 
+        var throughImplicitSpan = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalDecodeThroughImplicitSpan)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughImplicitSpan.Actionability);
+        Assert.Contains(throughImplicitSpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "GetChars"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughImplicitSpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var throughMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemory.Actionability);
+        Assert.Contains(throughMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(throughMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
+        var throughReadOnlyMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughReadOnlyMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughReadOnlyMemory.Actionability);
+        Assert.Contains(throughReadOnlyMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(throughReadOnlyMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
+        var throughMemoryLocal = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemoryLocal)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemoryLocal.Actionability);
+        Assert.Contains(throughMemoryLocal.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(throughMemoryLocal.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
+        var throughImplicitMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughImplicitMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughImplicitMemory.Actionability);
+        Assert.Contains(throughImplicitMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughImplicitMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var throughMemoryChain = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemoryChain)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemoryChain.Actionability);
+        Assert.Contains(throughMemoryChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughMemoryChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name is ".ctor" or "op_Implicit");
+
+        var throughMemoryAlias = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemoryAlias)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemoryAlias.Actionability);
+        Assert.Contains(throughMemoryAlias.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(throughMemoryAlias.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
+        var delayedMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughDelayedMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            delayedMemory.Actionability);
+        Assert.Contains(delayedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(delayedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
+        var reinitializedMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughReinitializedMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            reinitializedMemory.Actionability);
+        Assert.Contains(reinitializedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+
+        var loopReinitializedMemory = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ExternalReadThroughLoopReinitializedMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            loopReinitializedMemory.Actionability);
+        Assert.Contains(loopReinitializedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(loopReinitializedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Observe");
+
+        var conditionallyResetMemory = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ExternalReadThroughConditionallyResetMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            conditionallyResetMemory.Actionability);
+        Assert.Contains(conditionallyResetMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+
+        var disjointMemoryUse = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.DisjointMemoryUseDoesNotConsumeRent)));
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            disjointMemoryUse.Actionability);
+        Assert.DoesNotContain(disjointMemoryUse.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read");
+
+        var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpan)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughReadOnlySpan.Actionability);
+        Assert.Contains(throughReadOnlySpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughReadOnlySpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var throughExplicitSpan = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughExplicitSpan)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughExplicitSpan.Actionability);
+        Assert.Contains(throughExplicitSpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughExplicitSpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor");
+
+        var throughReadOnlySpanChain = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpanChain)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughReadOnlySpanChain.Actionability);
+        Assert.Contains(throughReadOnlySpanChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughReadOnlySpanChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var throughSpanByRef = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanByRef)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughSpanByRef.Actionability);
+        Assert.Contains(throughSpanByRef.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughSpanByRef.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var nestedArgument = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanLocalWithNestedExternalRead)));
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            nestedArgument.Actionability);
+        Assert.Contains(nestedArgument.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Blend"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+        Assert.DoesNotContain(nestedArgument.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read");
+
+        var spanSlice = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanSliceBeforeReturn)));
+        Assert.Equal(
+            ResourceTriageActionability.TrustedLowActionability,
+            spanSlice.Actionability);
+        Assert.Contains(spanSlice.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Slice"
+            && boundary.Kind == ResourceTriageBoundaryKind.InMemoryTransform);
+
+        Assert.DoesNotContain(assessments, assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanFillBeforeReturn));
+        Assert.DoesNotContain(assessments, assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExactMemoryConstructorEscape));
+
         var throughStringArgument = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithTag)));
@@ -214,6 +452,18 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Equal(
             ".ctor",
             Assert.Single(constructorBoundary.Boundaries)
+                .Evidence.Operation.Name);
+
+        var implicitConstructorBoundary = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ImplicitSpanConsumedByConstructor)));
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            implicitConstructorBoundary.Actionability);
+        Assert.Equal(
+            ".ctor",
+            Assert.Single(implicitConstructorBoundary.Boundaries)
                 .Evidence.Operation.Name);
 
         var unrelatedReader = Assert.Single(assessments.Where(assessment =>
@@ -647,6 +897,30 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_CovariantArrayToSpan_RemainsThrowingBoundary()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenStringShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenStringRent),
+            0x0A,
+            0x06,
+            .. Call(TokenObjectSpanImplicit),
+            0x26,
+            .. Call(TokenStringShared),
+            0x06,
+            0x16,
+            .. Callvirt(TokenStringReturn),
+            0x2A,
+        ], []);
+
+        AssertCandidate(
+            result,
+            nameof(Synthetic),
+            "exception-path-leak-candidate");
+    }
+
+    [Fact]
     public void DetailedAnalysis_ThrowingBoundaryAfterSetup_IsExceptionPathCandidate()
     {
         var result = AnalyzeSyntheticDetailed([
@@ -792,6 +1066,10 @@ public sealed class LeakTriageAnalyzerTests
     const int TokenArrayClear = 0x0A00000A;
     const int TokenSpanCopyTo = 0x0A00000B;
     const int TokenSpanImplicit = 0x0A00000C;
+    const int TokenStringShared = 0x0A00000D;
+    const int TokenStringRent = 0x0A00000E;
+    const int TokenStringReturn = 0x0A00000F;
+    const int TokenObjectSpanImplicit = 0x0A000010;
 
     static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
         => AnalyzeSyntheticDetailed(il, exceptionRegions).Findings;
@@ -822,13 +1100,26 @@ public sealed class LeakTriageAnalyzerTests
         var coreLibSpanOfByte = TypeRef.GenericInstance(
             TypeRef.CoreLib("System", "Span`1"),
             [TypeRef.CoreLib("System", "Byte")]);
+        var arrayPoolOfString = TypeRef.GenericInstance(
+            TypeRef.Definition("System.Buffers", "System.Buffers", "ArrayPool`1"),
+            [TypeRef.CoreLib("System", "String")]);
+        var stringArray = TypeRef.SzArray(TypeRef.CoreLib("System", "String"));
+        var objectArray = TypeRef.SzArray(TypeRef.CoreLib("System", "Object"));
+        var coreLibSpanOfObject = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Span`1"),
+            [TypeRef.CoreLib("System", "Object")]);
 
         return token switch
         {
             TokenShared => new MemberRef(arrayPoolOfByte, "get_Shared", [], arrayPoolOfByte, MemberKind.Method),
             TokenRent => new MemberRef(arrayPoolOfByte, "Rent", [TypeRef.CoreLib("System", "Int32")], byteArray, MemberKind.Method) { HasThis = true },
             TokenReturn => new MemberRef(arrayPoolOfByte, "Return", [byteArray], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { HasThis = true },
-            TokenUnknown => new MemberRef(TypeRef.Definition("Fixture", "Fixtures", "Unknown"), "Use", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
+            TokenUnknown => new MemberRef(
+                TypeRef.Definition("Fixture", "Fixtures", "Unknown"),
+                "Use",
+                [byteArray],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
             TokenKeepAlive => new MemberRef(TypeRef.CoreLib("System", "GC"), "KeepAlive", [TypeRef.CoreLib("System", "Object")], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
             TokenArrayCopy => new MemberRef(
                 TypeRef.CoreLib("System", "Array"),
@@ -868,6 +1159,32 @@ public sealed class LeakTriageAnalyzerTests
                 [byteArray],
                 coreLibSpanOfByte,
                 MemberKind.Method),
+            TokenStringShared => new MemberRef(
+                arrayPoolOfString,
+                "get_Shared",
+                [],
+                arrayPoolOfString,
+                MemberKind.Method),
+            TokenStringRent => new MemberRef(
+                arrayPoolOfString,
+                "Rent",
+                [TypeRef.CoreLib("System", "Int32")],
+                stringArray,
+                MemberKind.Method)
+            { HasThis = true },
+            TokenStringReturn => new MemberRef(
+                arrayPoolOfString,
+                "Return",
+                [stringArray],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            { HasThis = true },
+            TokenObjectSpanImplicit => new MemberRef(
+                coreLibSpanOfObject,
+                "op_Implicit",
+                [objectArray],
+                coreLibSpanOfObject,
+                MemberKind.Method),
             _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
         };
     }
@@ -906,6 +1223,30 @@ public sealed class LeakTriageAnalyzerTests
     static void AssertNoCandidate(LeakTriageResult result, string methodName, string shape)
         => Assert.DoesNotContain(result.Candidates, candidate => candidate.Method.Name == methodName && candidate.Shape == shape);
 
+    static void AssertInPlaceConstructor(
+        string methodName,
+        int minimumInitobjCount = 0)
+    {
+        var method = typeof(ArrayPoolLeakFixtures).GetMethod(methodName)
+            ?? throw new InvalidOperationException(
+                $"Fixture method {methodName} was not found.");
+        var instructions = InstructionDecoder.Decode(
+            method.GetMethodBody()?.GetILAsByteArray() ?? []);
+
+        Assert.Contains(
+            Enumerable.Range(0, instructions.Length),
+            index => instructions[index].OpCode
+                    is ILOpCode.Ldloca or ILOpCode.Ldloca_s
+                && instructions
+                    .Skip(index + 1)
+                    .Take(5)
+                    .Any(instruction => instruction.OpCode == ILOpCode.Call));
+        Assert.True(
+            instructions.Count(instruction =>
+                instruction.OpCode == ILOpCode.Initobj)
+            >= minimumInitobjCount);
+    }
+
     static void AssertSingleShape(ImmutableArray<LeakTriageFinding> findings, string methodName, string shape)
     {
         var finding = Assert.Single(ForMethod(findings, methodName));
@@ -920,6 +1261,8 @@ internal static class Synthetic
 internal sealed class ArrayPoolLeakFixtures
 {
     static byte[]? s_field;
+    static Memory<byte> s_memory;
+    static int s_counter;
     static readonly string s_tag = "wire";
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1103,6 +1446,248 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalDecodeThroughImplicitSpan(byte[] source)
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> destination = chars;
+        int written = System.Text.Encoding.UTF8
+            .GetDecoder()
+            .GetChars(
+                source.AsSpan(),
+                destination,
+                flush: true);
+        ArrayPool<char>.Shared.Return(chars);
+        return written;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemory(ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(new Memory<byte>(buffer, 0, 16));
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughReadOnlyMemory(ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(new ReadOnlyMemory<byte>(buffer, 0, 16));
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemoryLocal(ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughImplicitMemory(
+        ExternalMemoryOnlyStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemoryChain(
+        ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer);
+        ReadOnlyMemory<byte> readOnlyMemory = memory;
+        int read = stream.Read(readOnlyMemory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemoryAlias(
+        ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        Memory<byte> alias = memory;
+        int read = stream.Read(alias);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughDelayedMemory(
+        ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughReinitializedMemory(
+        ExternalMemoryStream stream)
+    {
+        Memory<byte> memory = Memory<byte>.Empty;
+        _ = stream.Read(memory);
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        memory = new Memory<byte>(buffer, 0, 16);
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughLoopReinitializedMemory(
+        ExternalMemoryStream stream,
+        bool repeat)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = default;
+        int read;
+        do
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            read = stream.Read(memory);
+            memory = default;
+            stream.Observe(memory);
+        }
+        while (repeat);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int DisjointMemoryUseDoesNotConsumeRent(
+        ExternalMemoryStream stream,
+        Memory<byte> caller,
+        bool useRented)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        Memory<byte> memory = caller;
+        int result;
+        if (useRented)
+        {
+            memory = new Memory<byte>(buffer, 0, 16);
+            result = 0;
+        }
+        else
+        {
+            result = stream.Read(memory);
+        }
+        ArrayPool<byte>.Shared.Return(buffer);
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughConditionallyResetMemory(
+        ExternalMemoryStream stream,
+        bool reset)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        if (reset)
+            memory = default;
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughReadOnlySpan()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        ReadOnlySpan<char> value = chars;
+        int parsed = ExternalInputReader.Parse(value);
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughExplicitSpan()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        var value = new Span<char>(chars);
+        int parsed = ExternalInputReader.Parse(value, "wire");
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughReadOnlySpanChain()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        ReadOnlySpan<char> readOnlyValue = value;
+        int parsed = ExternalInputReader.Parse(readOnlyValue);
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanByRef()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        int parsed = ExternalInputReader.Parse(ref value);
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int SpanLocalWithNestedExternalRead(
+        ExternalMemoryStream stream)
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        int result = SpanConsumer.Blend(value, stream.Read());
+        ArrayPool<char>.Shared.Return(chars);
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int SpanSliceBeforeReturn()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        int length = value.Slice(0, 8).Length;
+        ArrayPool<char>.Shared.Return(chars);
+        return length;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void SpanFillBeforeReturn()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        value.Fill('x');
+        ArrayPool<char>.Shared.Return(chars);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void ExactMemoryConstructorEscape()
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        s_memory = new Memory<byte>(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int ExternalParseThroughSpanWithTag()
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
@@ -1136,6 +1721,16 @@ internal sealed class ArrayPoolLeakFixtures
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
         var consumer = new SpanConsumer(chars.AsSpan());
+        ArrayPool<char>.Shared.Return(chars);
+        return consumer.Length;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ImplicitSpanConsumedByConstructor()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        var consumer = new SpanConsumer(value);
         ArrayPool<char>.Shared.Return(chars);
         return consumer.Length;
     }
@@ -1199,11 +1794,38 @@ internal sealed class ArrayPoolLeakFixtures
         public int Read(byte[] buffer) => buffer.Length;
     }
 
+    internal sealed class ExternalMemoryStream
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(Memory<byte> buffer) => buffer.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(ReadOnlyMemory<byte> buffer) => buffer.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read() => 1;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void Observe(Memory<byte> buffer) => s_counter += buffer.Length;
+    }
+
+    internal sealed class ExternalMemoryOnlyStream
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read(Memory<byte> buffer) => buffer.Length;
+    }
+
     internal static class ExternalInputReader
     {
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static int Parse(Span<char> destination, string tag)
             => destination.Length + tag.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Parse(ReadOnlySpan<char> value) => value.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Parse(ref Span<char> value) => value.Length;
     }
 
     internal sealed class SpanConsumer
@@ -1214,6 +1836,10 @@ internal sealed class ArrayPoolLeakFixtures
         }
 
         public int Length { get; }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Blend(Span<char> value, int suffix)
+            => value.Length + suffix;
     }
 
     // Same shape with `catch (Exception)`, which also runs for every managed exception type.

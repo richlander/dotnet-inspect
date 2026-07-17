@@ -45,7 +45,7 @@ are the cheapest "found something interesting" wins.
 | # | Analysis type | Command | Volume (44 asm) | Precision | Actionability | Verdict |
 | - | ------------- | ------- | --------------- | --------- | ------------- | ------- |
 | 1 | Algorithmic scan-in-loop | `Performance Triage` (`scan-method-in-loop-call`, `linq-scan-in-loop`, `string-build-in-loop`, `allocation-hotspot`) | 155 | High | **Very high** (quadratic) | **Headline** |
-| 2 | Leak-after-exception | `Resource Triage` (harness `--leak-actionability` for the full census) | 2 current framework / 9 historical confirmed | **Very high** | High (`try/finally`) | **Headline** |
+| 2 | Leak-after-exception | `Resource Triage` (harness `--leak-actionability` for the full census) | 5 current framework / 9 historical confirmed | **Very high** | High (`try/finally`) | **Headline** |
 | 3 | Delegate allocation | `Performance Triage` (`instance-method-group-delegate`, `capturing-delegate`) | 3,327 raw / 128 hot | High (real) / High in loops | High in loops | **Worthy w/ ranking** |
 | 4 | Enumerator allocation | `Performance Triage` (`enumerator-allocation`) | 121 / 117 hot | High | Med–High | **Worthy** |
 | 5 | Reach / leverage | `Top Leverage` | ranking | — | Impact multiplier for 1,3,4 | **Worthy as a lens** |
@@ -85,15 +85,20 @@ the untrusted-actionable candidates.
 - Historical framework sensor (308 asm): 4 untrusted-actionable, all confirmed.
 - **9/9 confirmed exception-path pool-retention defects**, IL-verified. Lowest volume,
   highest precision, clean `try/finally` fix.
-- Current exact product contract (.NET 11 daily, 314 assemblies): 50 lifecycle
-  observations → 2 untrusted-actionable
-  (`MessagePackReader.ReadStringSlow`, `BinaryReader.FillBuffer`), 1 trusted,
-  and 47 unknown.
+- Current exact product contract (.NET 11 daily, 314 assemblies): 57 lifecycle
+  observations → 5 untrusted-actionable (`MessagePackReader.ReadStringSlow`,
+  `EncodingExtensions.GetString`, `TypeMapLazyDictionary.ConvertUtf8ToUtf16`,
+  `BinaryReader.FillBuffer`, and `HashAlgorithm.ComputeHashAsyncCore`), 31
+  trusted, and 21 unknown.
 - Current pinned community contract (9 assemblies): 19 lifecycle observations →
-  1 untrusted-actionable (`MessagePackReader.ReadStringSlow`) and 18 unknown.
-  Four unknowns are previously confirmed defects in MimeKit, Npgsql, and
-  Pipelines.Sockets; 13 are System.Text.Json's historically low-actionability
-  in-memory-transform idiom. This is a product recall gap rather than a non-action.
+  3 untrusted-actionable (`MessagePackReader.ReadStringSlow`, Npgsql
+  `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte`)
+  plus 11 trusted and 5 unknown. The Npgsql and Pipelines consumers are now
+  reached through typed `Span<T>`/`Memory<T>` wrapper propagation. Eleven
+  System.Text.Json rows identify trusted `Span<T>.Slice` work rather than the
+  implicit conversion. MimeKit's two
+  `TokenDecoder` constructor boundaries remain unknown because the later
+  tokenizer calls are protected by cleanup.
 
 ### 3–4. Delegate & enumerator allocation
 
