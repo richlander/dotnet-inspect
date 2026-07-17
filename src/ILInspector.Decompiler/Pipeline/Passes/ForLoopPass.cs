@@ -13,6 +13,8 @@ public sealed class ForLoopPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        var liveTargets = CollectLiveTargets(function);
+
         foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
         {
             if (loop.Parent is not Block container)
@@ -41,12 +43,31 @@ public sealed class ForLoopPass : IIrPass
             if (ContainsCurrentLoopContinue(loop.Body))
                 continue;
 
+            if (increment.SourceOffset >= 0 && liveTargets.Contains(increment.SourceOffset))
+                continue;
+
             increment.Detach();
             var parts = loop.DetachChildren();  // [condition, body]
             initializer.Detach();               // reindexes the loop's slot
             context.Stepper.StepOver("raise while loop to for loop", loop);
             loop.ReplaceWith(new ForLoop(initializer, (IrExpression)parts[0], increment, (Block)parts[1]));
         }
+    }
+
+    static HashSet<int> CollectLiveTargets(IrFunction function)
+    {
+        var targets = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case Branch b: targets.Add(b.TargetOffset); break;
+                case ConditionalBranch cb: targets.Add(cb.TargetOffset); break;
+                case SwitchBranch sb: foreach (int t in sb.TargetOffsets) targets.Add(t); break;
+                case Leave l: targets.Add(l.TargetOffset); break;
+            }
+        }
+        return targets;
     }
 
     /// <summary>True when a loop increment store value is a user-defined <c>op_CheckedIncrement</c>/<c>op_CheckedDecrement</c> call — a checked increment that has no for-header spelling.</summary>
