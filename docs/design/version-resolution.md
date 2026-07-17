@@ -186,19 +186,39 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
-Exact package acquisition is single-flight within a process. A cache miss is
-downloaded and extracted into temporary storage, copied to a unique sibling
-staging directory, validated, and atomically renamed to its final
-`package-content-v2` path. Concurrent publishers in other processes either win
-that rename or validate and use the committed winner; readers never use staging
-directories. Failed acquisition leaves no final entry and can be retried.
-The flight and durable cache identity follow NuGet's coordinate cache model:
-cache root plus normalized package id and version. Source order selects the
-producer on a miss but is not a separate durable identity.
+## Concurrency and publication model
 
-Platform-pack projection never mutates the committed package. It copies the
-selected pack contents into a unique `packs-v2` staging directory and
-atomically publishes the complete derived pack with its own completion marker.
+The design follows familiar Git and Docker coordination patterns without
+claiming to implement either tool's architecture exactly.
+
+| Precedent | Pattern adopted by dotnet-inspect | Important difference |
+| --- | --- | --- |
+| Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
+| Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the NuGet cache root, normalized package id, and version rather than by a content hash. |
+| Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |
+| Git mutable-state locks | Immutable entries do not require a long-lived cross-process lock when publishers can converge on one valid result. | Explicit locking remains appropriate for future mutable state that cannot use winner convergence. |
+
+For an exact package cache miss, one process downloads and extracts the archive
+once for all of its waiters. It copies the result to a unique sibling staging
+directory, validates the package structure, writes a completion marker, closes
+all files, and atomically renames the directory to its final
+`package-content-v2` path. Readers accept only the final marked directory and
+never inspect staging paths. A competing process either publishes first or
+validates and uses that committed winner.
+
+Platform-pack projection applies the same transaction separately. It never
+mutates the committed package; it copies selected contents into a unique
+`packs-v2` staging directory and atomically publishes a marked derived pack.
+
+The versioned `package-content-v2` and `packs-v2` namespaces fence these
+transactions from older direct-copy writers. An invalid final entry is not
+silently replaced because deleting it could race a valid publisher. Acquisition
+fails visibly and a later retry can proceed after the cache is cleared.
+
+This model guarantees complete publication, not globally unique work. Separate
+processes can download the same immutable coordinate concurrently, but readers
+observe only one validated final entry. Source order selects the producer on a
+miss and is not a separate durable cache identity.
 
 ## Design rationale
 
