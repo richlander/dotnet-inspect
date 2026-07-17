@@ -202,7 +202,9 @@ failure model, and NuGet, Docker, and Git precedents.
 
 ## Design rationale
 
-The Docker analogy:
+The Docker tag analogy below concerns version selection. Docker daemon request
+deduplication is covered separately in
+[cache concurrency and publication](cache-concurrency.md).
 
 - `docker run nginx:1.25` → pinned, reproducible
 - `docker run nginx` → uses local image if present, pulls if not
