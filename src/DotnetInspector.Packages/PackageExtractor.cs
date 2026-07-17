@@ -83,44 +83,69 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        var outcome = await DownloadAndExtractPackageAsync(client, packageSource, log, tempDirPrefix, sourceOptions, version, forceLatest, includePrerelease).ConfigureAwait(false);
-        if (!outcome.IsSuccess)
-            return outcome;
+        // Keep redirect traversal outside exact-coordinate acquisition so one
+        // package flight never waits on another package key.
+        var visitedPackageIds = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        List<string> redirectChain = [];
+        string currentPackageSource = packageSource;
+        string? currentVersion = version;
+        bool currentForceLatest = forceLatest;
+        bool currentIncludePrerelease = includePrerelease;
 
-        return await MaybeRedirectToolWrapperAsync(outcome.Result!, client, log, tempDirPrefix, sourceOptions).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// .NET tool packages built as runtime-specific (NativeAOT) tools ship a thin wrapper
-    /// package whose payload is only a <c>DotnetToolSettings.xml</c> manifest pointing at
-    /// per-RID packages. The wrapper has no managed libraries to inspect, so redirect to the
-    /// portable <c>any</c> RID package (the framework-dependent build) which carries the
-    /// managed assemblies. Detection lives in NuGetFetch (<see cref="NuGetFetch.PackageExtractor.TryGetToolWrapperRedirect"/>).
-    /// </summary>
-    private static async Task<PackageExtractionOutcome> MaybeRedirectToolWrapperAsync(
-        PackageExtractionResult result,
-        HttpClient client,
-        Action<string>? log,
-        string tempDirPrefix,
-        NuGetSourceOptions? sourceOptions)
-    {
-        var anyId = NuGetFetch.PackageExtractor.TryGetToolWrapperRedirect(result.ExtractPath);
-        if (anyId == null || string.Equals(anyId, result.PackageName, StringComparison.OrdinalIgnoreCase))
-            return result;
-
-        log?.Invoke($"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{anyId}' instead.");
-
-        var redirected = await ExtractPackageAsync(
-            client, anyId, log, tempDirPrefix, sourceOptions, version: result.Version).ConfigureAwait(false);
-
-        // The wrapper download is no longer needed; the redirected package owns its own temp dir.
-        if (redirected.IsSuccess && result.TempDir != null)
+        while (true)
         {
-            try { Directory.Delete(result.TempDir, recursive: true); } catch { }
-        }
+            var outcome = await DownloadAndExtractPackageAsync(
+                client,
+                currentPackageSource,
+                log,
+                tempDirPrefix,
+                sourceOptions,
+                currentVersion,
+                currentForceLatest,
+                currentIncludePrerelease).ConfigureAwait(false);
+            if (!outcome.IsSuccess)
+                return outcome;
 
-        return redirected;
+            PackageExtractionResult result = outcome.Result!;
+            string? redirectId =
+                NuGetFetch.PackageExtractor.TryGetToolWrapperRedirect(
+                    result.ExtractPath);
+            if (redirectId is null)
+                return result;
+
+            if (string.IsNullOrWhiteSpace(result.PackageName))
+            {
+                return PackageExtractionOutcome.Error(
+                    $"Tool wrapper at '{result.ExtractPath}' has no package identity.");
+            }
+
+            if (!visitedPackageIds.Add(result.PackageName))
+            {
+                return ToolWrapperRedirectCycle(
+                    redirectChain,
+                    result.PackageName);
+            }
+
+            redirectChain.Add(result.PackageName);
+            if (visitedPackageIds.Contains(redirectId))
+                return ToolWrapperRedirectCycle(redirectChain, redirectId);
+
+            log?.Invoke(
+                $"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{redirectId}' instead.");
+
+            currentPackageSource = redirectId;
+            currentVersion = result.Version;
+            currentForceLatest = false;
+            currentIncludePrerelease = false;
+        }
     }
+
+    private static PackageExtractionOutcome ToolWrapperRedirectCycle(
+        IReadOnlyList<string> redirectChain,
+        string repeatedPackageId)
+        => PackageExtractionOutcome.Error(
+            $"Tool wrapper redirect cycle detected: {string.Join(" -> ", redirectChain)} -> {repeatedPackageId}.");
 
     private static PackageExtractionOutcome ExtractLocalPackage(
         string packageSource,

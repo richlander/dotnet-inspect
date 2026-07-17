@@ -55,7 +55,8 @@ The acquisition factory only downloads, extracts, validates, and commits its
 own coordinate. It does not resolve dependencies or wait on another registry
 key. Follow-on work such as dependency traversal, tool-package redirection, and
 platform-pack projection starts only after that exact-coordinate task has
-completed.
+completed. Tool-package redirection is iterative and fails visibly when a
+package id repeats in one redirect chain.
 
 ## Transactional publication
 
