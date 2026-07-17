@@ -1,5 +1,75 @@
 # Release Notes
 
+## v0.17.0
+
+### Resource Triage
+
+- Adds the explicit `Resource Triage` library section for exception-path
+  `ArrayPool<T>` churn. It reports exact acquisition and external-input
+  boundaries, stable candidate identity, impact, and suggested cleanup
+  remediation (#2773).
+- Separates objective lifecycle observations from typed actionability
+  assessments and keeps the CLI and corpus harness as projections of those
+  Analysis-owned contracts (#2787).
+- Shares assembly/body acquisition across analysis passes and records
+  reproducible .NET framework and pinned community-package corpus baselines
+  (#2792, #2796).
+- Propagates rented-array evidence through exact `Span<T>`,
+  `ReadOnlySpan<T>`, `Memory<T>`, and `ReadOnlyMemory<T>` wrappers to reach the
+  real downstream consumer without package-specific policy (#2801).
+- The pinned .NET 11 framework corpus currently identifies five
+  untrusted-actionable rows; the community corpus identifies MessagePack,
+  Npgsql, and Pipelines.Sockets.Unofficial rows. See issue #2572 for the
+  maintained filing catalog and reproduction evidence.
+
+### Performance analysis and queries
+
+- Detects composed LINQ scans across caller loops, adds transitive allocation
+  fanout paths, and attaches deterministic direct caller-loop witnesses to
+  `Performance Triage` rows (#2725, #2736, #2740).
+- Retains Finding provenance through Performance Triage so rows remain
+  traceable to their originating allocation or call-site evidence (#2716).
+- Adds type-focused package timelines and composes allocation, call-site, and
+  unsafety Finding transitions across version vectors (#2699, #2705).
+- Adds `--tail` row windows and `--row first|last`, with explicit validation
+  for conflicting row-selection options (#2704).
+
+### Implementation, source, and package evidence
+
+- Adds member-scoped implementation diff sections for decompiled C#, IL, and
+  checksum-verified authored source, backed by typed Research/Finding evidence
+  and offset-addressable source lines (#2496, #2641, #2717, #2757).
+- Addresses member bodies, attributes, accessors, and IL by metadata handle
+  rather than ordinal position, preserving identity across overload-heavy
+  types (#2750).
+- Adds portable-PDB Finding producers and hardens metadata/signature decoding
+  against cyclic or over-deep graphs (#2707, #2489, #2581, #2700, #2723).
+- Makes package acquisition transactional and cache population single-flight,
+  and hardens manifest-resource extraction (#2808, #2799, #2800).
+
+### Decompiler and ReturnToSender
+
+- Expands decompiler fidelity across compiler-produced union, async, control
+  flow, constructor, pointer, dynamic, initializer, and type-qualification
+  shapes while surfacing typed fidelity causes instead of plausible output.
+- Adds product implementation/IL/C# diff evidence and committed corpus gates
+  for ReturnToSender compile-back fidelity (#2542, #2641, #2788).
+- Reconstructs base classes in minimal shells, preserves constructor-chain
+  opcodes and parameter-typed arguments, and recovers runtime async helpers
+  (#2732, #2708, #2739, #2756, #2774).
+- Moves C# type spelling and shape ownership behind the
+  `CSharpTypeProducer`/`CSharpTypePrinter` product seam instead of encoding
+  ReturnToSender-specific print contracts in the decompiler (#2737, #2762,
+  #2763, #2764, #2765, #2811).
+
+### Breaking changes
+
+- Removes the hidden `--oneline` compatibility alias and
+  `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table` or
+  `DOTNET_INSPECT_FORMAT=table` (#2703).
+- Rejects `--rows` on `cache`; use the normal line-count limit (`-n`) for that
+  command (#2721).
+
 ## v0.16.0
 
 ### Research overlay and performance analysis (experimental)
@@ -22,9 +92,6 @@
 - Adds JSON array projection output and scalar URL/path shape projections,
   generalizes print row projection, and aligns library value projection with
   rendered fields (#1955, #1950, #1935, #1963, #1928).
-- Removes the hidden `--oneline` compatibility alias and retires
-  `DOTNET_INSPECT_FORMAT=oneline`/`one-line`; use `--table` or
-  `DOTNET_INSPECT_FORMAT=table` for compact table output.
 
 ### Decompiler fidelity and unions (experimental)
 
