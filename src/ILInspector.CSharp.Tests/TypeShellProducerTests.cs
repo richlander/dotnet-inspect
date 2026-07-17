@@ -123,7 +123,9 @@ public sealed class TypeShellProducerTests
         // The base type is reconstructed by the seam from the type's own metadata
         // (same-assembly non-generic class base), not carried on the spec.
         Assert.NotNull(request.Type.BaseType);
-        Assert.EndsWith("BaseFixture", request.Type.BaseType);
+        Assert.Equal(
+            "ILInspector.CSharp.Tests.TypeShellProducerTests.BaseFixture",
+            request.Type.BaseType);
 
         // Modifiers are read from the type's own metadata, not the spec kind.
         var nestedRequest = Assert.Single(request.NestedTypes);
