@@ -156,6 +156,11 @@ Do not catch `Exception` and return an ordinary empty result for malformed
 input. Empty means the producer completed and found no evidence; failure is a
 different state.
 
+Metadata relationship and name traversal follows the
+[bounded metadata traversal](bounded-metadata-traversal.md) contract. Cycles,
+depth, count expansion, and projected text are separate budget dimensions;
+exceeding any one produces a visible rejection rather than a partial identity.
+
 ### Network and caches
 
 Network access derived from inspected content must be explicit in the command
@@ -193,8 +198,9 @@ only ordinary compiler output.
    server cache path construction.
 3. Audit Markdown, plain-text, and stderr rendering for terminal control
    characters and structure injection.
-4. Expand malformed PE/PDB fuzz and adversarial fixtures around parser depth,
-   row count, and allocation limits.
+4. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
+   migration and expand malformed PE/PDB product-entry-point coverage around
+   graph depth, row count, and allocation limits.
 5. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
 6. Revisit filesystem containment if .NET exposes a portable atomic
