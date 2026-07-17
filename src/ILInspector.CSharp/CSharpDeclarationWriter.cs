@@ -143,14 +143,52 @@ internal static class CSharpDeclarationWriter
             .Select(type => CSharpFormatter.StripArity(type.Name))
             .ToHashSet(StringComparer.Ordinal);
 
+        // Generic type/method parameters shadow same-named type references within
+        // their scope: importing a namespace and shortening a reference to a simple
+        // name that matches an in-scope type parameter would rebind it to the
+        // parameter. Exclude those namespaces so such references stay qualified.
+        foreach (var type in types)
+        {
+            foreach (var typeParameter in type.TypeParameters)
+                declaredSimpleNames.Add(typeParameter.Name);
+            foreach (var member in type.Members)
+            {
+                if (member.SignatureModel is { } signature)
+                {
+                    foreach (var typeParameter in signature.TypeParameters)
+                        declaredSimpleNames.Add(typeParameter.Name);
+                }
+            }
+        }
+
         var usings = new SortedSet<string>(StringComparer.Ordinal);
+        var collidingSimpleNames = typeRefs
+            .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
+            .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // A namespace contributes a simple name for every reference it owns. Per-type
+        // shortening keys off namespace membership, so importing a namespace shortens
+        // every reference it owns. If any of those simple names is ambiguous unit-wide
+        // or shadowed by a declared type or type parameter, importing the namespace is
+        // unsafe: the shortened reference would become ambiguous or rebind. Exclude the
+        // whole namespace so every reference it owns stays fully qualified.
+        var unsafeNamespaces = typeRefs
+            .Where(r => collidingSimpleNames.Contains(r.SimpleName) || declaredSimpleNames.Contains(r.SimpleName))
+            .Select(r => r.Namespace)
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
         {
-            if (group.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
+            if (collidingSimpleNames.Contains(group.Key))
                 continue;
             if (declaredSimpleNames.Contains(group.Key))
                 continue;
-            usings.Add(group.First().Namespace);
+            var ns = group.First().Namespace;
+            if (unsafeNamespaces.Contains(ns))
+                continue;
+            usings.Add(ns);
         }
 
         return usings.ToList();

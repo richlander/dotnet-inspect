@@ -82,7 +82,10 @@ public sealed class CSharpTypePrinter
         IReadOnlyList<PreparedType> preparedTypes,
         CSharpTypePrintOptions options)
     {
-        if (!options.ShortenTypeNames)
+        // Shortening is only sound when the enabling `using` directives are
+        // actually emitted. When usings are suppressed, keep references qualified
+        // so the composed source stays compilable.
+        if (!options.ShortenTypeNames || !options.IncludeUsings)
             return [];
 
         var allTypes = new List<ApiType>();

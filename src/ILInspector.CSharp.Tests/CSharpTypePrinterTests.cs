@@ -692,6 +692,49 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void CrossTypeAmbiguousSimpleNameStaysQualifiedAcrossUnit()
+    {
+        // "String" is ambiguous unit-wide (System.String in TypeA, MyNamespace.String
+        // in TypeB) even though each type alone sees only one full name. Importing
+        // System/MyNamespace (justified by the unambiguous Int32/Int64) would shorten
+        // both references to `String`, producing an ambiguous reference. Neither
+        // namespace may be imported; every reference they own stays qualified.
+        var a = CreateEmptyType("Ns1", "TypeA");
+        a.Members.Add(new ApiMember
+        {
+            Name = "M1",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "System.String", MemberName = "M1" }
+        });
+        a.Members.Add(new ApiMember
+        {
+            Name = "M2",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "System.Int32", MemberName = "M2" }
+        });
+        var b = CreateEmptyType("Ns1", "TypeB");
+        b.Members.Add(new ApiMember
+        {
+            Name = "N1",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "MyNamespace.String", MemberName = "N1" }
+        });
+        b.Members.Add(new ApiMember
+        {
+            Name = "N2",
+            Kind = "method",
+            SignatureModel = new ApiSignature { ReturnType = "MyNamespace.Int64", MemberName = "N2" }
+        });
+
+        var result = _printer.PrintBatch([new CSharpTypePrintRequest(a), new CSharpTypePrintRequest(b)]);
+
+        Assert.DoesNotContain("using System;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using MyNamespace;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public System.String M1();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public MyNamespace.String N1();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReferenceCollidingWithDeclaredTypeStaysQualified()
     {
         // A type declared as `Task` referencing `System.Threading.Tasks.Task` must not
@@ -750,6 +793,68 @@ public sealed class CSharpTypePrinterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "[MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenericTypeParameterShadowsReferenceAndStaysQualified()
+    {
+        // The type parameter `Task` shadows any same-named type reference within the
+        // type body, so importing System.Threading.Tasks and shortening the return type
+        // to `Task` would rebind it to the parameter. It must stay fully qualified.
+        var type = CreateEmptyType("Samples", "Box`1");
+        type.TypeParameters = [new TypeParameter { Name = "Task" }];
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MethodTypeParameterShadowsReferenceAndStaysQualified()
+    {
+        // A method type parameter named `Task` shadows the same-named type reference;
+        // the namespace must not be imported.
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        member.SignatureModel!.TypeParameters = [new TypeParameter { Name = "Task" }];
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Threading.Tasks.Task Run",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UsingsSuppressedKeepsReferencesQualified()
+    {
+        // With IncludeUsings=false the composed Source omits using directives, so
+        // shortening a cross-namespace reference would leave it unresolvable.
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions { IncludeUsings = false });
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
