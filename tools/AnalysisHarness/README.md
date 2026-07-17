@@ -238,9 +238,10 @@ measurement-only candidate/suppression buckets, as a
 [Markout](https://github.com/richlander/markout) card:
 
 ```bash
-dotnet "$DLL" --leak-triage assemblies.txt --top 5          # Markdown card (default)
-dotnet "$DLL" --leak-triage assemblies.txt --tsv            # section-tagged TSV
-dotnet "$DLL" --leak-triage assemblies.txt --jsonl          # one heterogeneous JSON record per row
+eng/prepare-resource-triage-corpus.sh /tmp/resource-triage-assemblies.txt
+dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --top 5
+dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --tsv
+dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --jsonl
 ```
 
 The card has five sections — a **Summary** (assemblies / opened / failed / timed out / total
@@ -281,6 +282,12 @@ three known-misuse methods still surface exactly once each. The broad real-code 
 justify promoting any of these three strict shapes into product output; the separate
 `Resource Triage` section uses the actionability contract below rather than reinterpreting these
 rows as correctness findings.
+
+The shared framework is the false-positive gate, not the profitability corpus. The pinned
+ArrayPool-heavy community corpus prepared above currently contains 25 runtime assemblies from
+nine package roots and their dependencies. It also produced **0 strict findings**, from 114
+measurement rows: 89 `ownership-transfer-suppressed`, 18 `cross-method-suppressed`, 6
+`exception-path-leak-candidate`, and 1 `alias-or-field-suppressed`.
 
 The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
 enumerating the PE independently. Product commands can combine that feature with the other
@@ -329,6 +336,14 @@ A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classi
 50 lifecycle observations as 2 `untrusted-actionable`
 (`MessagePackReader::ReadStringSlow`, `BinaryReader::FillBuffer`),
 1 `trusted-low-actionability`, and 47 `unknown`.
+
+The same-day pinned community run classified 6 lifecycle observations as 1
+`untrusted-actionable` (`MessagePackReader::ReadStringSlow`) and 5 `unknown`. Four of the unknown
+observations are the previously source-verified MimeKit `Rfc2047.DecodePhrase`/`DecodeText`,
+Npgsql `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte` defects. The
+community corpus therefore proves the analysis family is profitable while exposing a current
+producer/classification recall gap; these known cases should not be treated as evidence for
+non-action.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 
