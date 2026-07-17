@@ -53,6 +53,77 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void RuntimeAsyncEnumeratorLoop_RaisesToAwaitForeach()
+    {
+        var function = Raised(nameof(CfgSampleClass.AwaitForeach));
+
+        var foreachStatement =
+            Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.True(foreachStatement.IsAwait);
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.IsType<LoadArgument>(foreachStatement.Collection);
+        Assert.Contains(
+            foreachStatement.ConsumedMemberRefs,
+            method => method.Name == "GetAsyncEnumerator");
+        Assert.Contains(
+            foreachStatement.ConsumedMemberRefs,
+            method => method.Name == "MoveNextAsync");
+        Assert.Contains(
+            foreachStatement.ConsumedMemberRefs,
+            method => method.Name == "get_Current");
+        Assert.Contains(
+            foreachStatement.ConsumedMemberRefs,
+            method => method.Name == "DisposeAsync");
+        Assert.DoesNotContain(
+            function.Descendants.OfType<UsingStatement>(),
+            _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
+    }
+
+    [Fact]
+    public void RuntimeAsyncEnumeratorLoop_RendersAwaitForeach()
+    {
+        var output =
+            CSharpPrinter.Print(Raised(nameof(CfgSampleClass.AwaitForeach))).Output;
+
+        Assert.NotNull(output);
+        Assert.Contains("await foreach (int value in source)", output);
+        Assert.Contains("sum += value;", output);
+        Assert.DoesNotContain("GetAsyncEnumerator", output);
+        Assert.DoesNotContain("MoveNextAsync", output);
+        Assert.DoesNotContain("DisposeAsync", output);
+        Assert.DoesNotContain("ExceptionDispatchInfo", output);
+    }
+
+    [Fact]
+    public void ManualAwaitEnumeratorLoop_StaysAwaitUsingWhile()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualAwaitEnumeratorLoop));
+
+        Assert.DoesNotContain(
+            function.Descendants.OfType<ForeachStatement>(),
+            _ => true);
+        Assert.Contains(
+            function.Descendants.OfType<UsingStatement>(),
+            statement => statement.IsAwait);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RuntimeAsyncEnumeratorLoop_WithoutSymbols_StillRaises()
+    {
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.AwaitForeach));
+
+        var foreachStatement =
+            Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.True(foreachStatement.IsAwait);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<UsingStatement>(),
+            _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), _ => true);
+    }
+
+    [Fact]
     public void ForeachLoop_WithoutSymbols_StillRaisesToForeach()
     {
         var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ForeachLoop));

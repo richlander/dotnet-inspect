@@ -105,6 +105,18 @@ public class DynamicAndExpressionTrees
     {
         return x => x > threshold;
     }
+
+    public Expression<Func<int, int>> OptionalArgumentExpressionTree()
+    {
+        return x => Optional(x);
+    }
+
+    public Expression<Func<int, int>> NamedArgumentExpressionTree()
+    {
+        return x => Optional(value: x, delta: 1);
+    }
+
+    static int Optional(int value, int delta = 1) => value + delta;
 }
 
 public sealed class DynamicConstructTarget

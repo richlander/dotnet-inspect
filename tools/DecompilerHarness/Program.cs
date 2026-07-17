@@ -109,6 +109,7 @@ static class Program
         bool keepGeneratedFixtures = false;
         string? emitCorpusSnapshot = null;
         string? diffCorpusBaseline = null;
+        string? diffCorpusBaselineRef = null;
         string? emitCorpusDelta = null;
         string? rtsParityBurndown = null;
         string? emitRtsParityBurndown = null;
@@ -233,6 +234,7 @@ static class Program
                     case "--emit-corpus-baseline": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
                     case "--emit-corpus-snapshot": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
                     case "--diff-corpus-baseline": diffCorpusBaseline = NextArg(args, ref i, flag); break;
+                    case "--diff-corpus-baseline-ref": diffCorpusBaselineRef = NextArg(args, ref i, flag); break;
                     case "--rts-parity-burndown": rtsParityBurndown = NextArg(args, ref i, flag); break;
                     case "--emit-rts-parity-burndown": emitRtsParityBurndown = NextArg(args, ref i, flag); break;
                     case "--emit-corpus-delta": emitCorpusDelta = NextArg(args, ref i, flag); break;
@@ -419,8 +421,8 @@ static class Program
         if (classifyDec0009)
             return Dec0009Classifier.Run(assemblies, maxExamples, json);
 
-        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityBurndown is not null || rtsParityBurndown is not null)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityBurndown, emitRtsParityBurndown);
+        if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || diffCorpusBaselineRef is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityBurndown is not null || rtsParityBurndown is not null)
+            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, diffCorpusBaselineRef, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityBurndown, emitRtsParityBurndown);
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(assemblies, renderAb, emitRenderAb, maxExamples, corpusMethodCap, workers, sequential);
@@ -1849,6 +1851,11 @@ static class Program
                                 in baseline <f>.
                                 Uses --compile-cap as a per-assembly semantic
                                 validity cap.
+          --diff-corpus-baseline-ref <r> with --diff-corpus-baseline: read the
+                                baseline file from git ref <r> instead of the
+                                working tree. Use the explicit merge-base ref
+                                for PR before/after cards that also ratchet the
+                                tracked baseline.
           --emit-corpus-delta <f>        with --diff-corpus-baseline: write
                                 changed per-method corpus rows as JSON for
                                 reviewer drill-down and targeted fidelity runs.

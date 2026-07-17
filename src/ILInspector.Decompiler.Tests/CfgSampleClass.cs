@@ -3680,6 +3680,31 @@ public class CfgSampleClass
         return outer.Value + inner.Value;
     }
 
+    public static async System.Threading.Tasks.Task<int> AwaitForeach(
+        System.Collections.Generic.IAsyncEnumerable<int> source)
+    {
+        int sum = 0;
+        await foreach (int value in source)
+            sum += value;
+
+        return sum;
+    }
+
+    public static async System.Threading.Tasks.Task<int> ManualAwaitEnumeratorLoop(
+        System.Collections.Generic.IAsyncEnumerable<int> source)
+    {
+        int sum = 0;
+        await using System.Collections.Generic.IAsyncEnumerator<int> enumerator =
+            source.GetAsyncEnumerator();
+        while (await enumerator.MoveNextAsync())
+        {
+            int value = enumerator.Current;
+            sum += value;
+        }
+
+        return sum;
+    }
+
     // ---- iterator fixtures: kickoff hands off to a <Method>d__N state machine ----
     // The simplest linear case: two constant yields, no params or captures.
     public static System.Collections.Generic.IEnumerable<int> YieldTwo()

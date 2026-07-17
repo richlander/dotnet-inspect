@@ -6,6 +6,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Raises supported compiler <c>foreach</c> lowerings back to a
 /// <see cref="ForeachStatement"/>.
 ///
+/// <para><b>Async enumerator form</b> — the runtime-async
+/// <c>IAsyncEnumerable&lt;T&gt;</c> lowering is first reduced to an
+/// <c>await using</c> around <c>while (await e.MoveNextAsync())</c>. Exact core
+/// interface identities plus the Current store recover <c>await foreach</c>.
+/// Source-named enumerator or default-token locals veto the raise when symbols
+/// are available; without symbols, the exact core-interface lowering is
+/// accepted, matching the synchronous core-interface policy.</para>
+///
 /// <para><b>Enumerator form</b> — the general <c>IEnumerable</c> path:
 /// <code>
 /// using (var e = collection.GetEnumerator())
@@ -65,6 +73,27 @@ public sealed class ForeachStatementPass : IIrPass
     {
         foreach (var usingStatement in function.Descendants.OfType<UsingStatement>().ToList())
         {
+            if (TryMatchAsyncEnumerator(function, usingStatement) is { } asyncMatch)
+            {
+                var asyncCollection = asyncMatch.Collection;
+                if (asyncCollection.Parent is not null)
+                    asyncCollection.Detach();
+                asyncMatch.CurrentStore.Detach();
+                var asyncBody = asyncMatch.Loop.Body;
+                asyncBody.Detach();
+                var awaitForeachStatement = new ForeachStatement(
+                    asyncMatch.CurrentStore.Index,
+                    asyncMatch.CurrentStore.Type,
+                    asyncCollection,
+                    asyncBody,
+                    asyncMatch.ConsumedMemberRefs,
+                    isAwait: true);
+                context.Stepper.StepOver("raise async enumerator loop to await foreach", usingStatement);
+                usingStatement.ReplaceWith(awaitForeachStatement);
+                asyncMatch.TokenInitialization.Detach();
+                continue;
+            }
+
             if (TryMatchEnumerator(function, usingStatement) is not { } match)
                 continue;
 
@@ -173,6 +202,197 @@ public sealed class ForeachStatementPass : IIrPass
         WhileLoop Loop,
         StoreLocal CurrentStore,
         ImmutableArray<MethodRef> ConsumedMemberRefs);
+
+    sealed record AsyncEnumeratorMatch(
+        InitObject TokenInitialization,
+        IrExpression Collection,
+        WhileLoop Loop,
+        StoreLocal CurrentStore,
+        ImmutableArray<MethodRef> ConsumedMemberRefs);
+
+    static AsyncEnumeratorMatch? TryMatchAsyncEnumerator(
+        IrFunction function,
+        UsingStatement usingStatement)
+    {
+        int enumeratorIndex = usingStatement.LocalIndex;
+        if (!usingStatement.IsAwait
+            || HasSourceLocalName(function, enumeratorIndex)
+            || usingStatement.Parent is not Block block
+            || usingStatement.ChildIndex == 0
+            || block.Children[usingStatement.ChildIndex - 1] is not InitObject
+            {
+                Type: var tokenType,
+                Address: LoadLocalAddress tokenAddress,
+            } tokenInitialization
+            || !MemberIdentity.IsCoreLibraryType(
+                tokenType,
+                "System.Threading",
+                "CancellationToken")
+            || HasSourceLocalName(function, tokenAddress.Index)
+            || usingStatement.Resource is not Call getAsyncEnumerator
+            || !TryMatchGetAsyncEnumerator(
+                getAsyncEnumerator,
+                tokenAddress.Index,
+                usingStatement.ResourceType,
+                out var collectionReceiver,
+                out var itemType))
+        {
+            return null;
+        }
+
+        if (usingStatement.Body.Blocks is not [{ Children: [WhileLoop loop] }]
+            || loop.Condition is not AwaitExpression { Operand: Call moveNextAsync }
+            || !IsMoveNextAsyncOn(
+                moveNextAsync,
+                enumeratorIndex,
+                usingStatement.ResourceType)
+            || loop.Body.Children is not
+                [StoreLocal { Value: LoadProperty current } currentStore, ..]
+            || !currentStore.Type.Equals(itemType)
+            || !IsAsyncCurrentOn(
+                current,
+                enumeratorIndex,
+                usingStatement.ResourceType,
+                itemType)
+            || loop.Body.Children.Skip(1)
+                .Any(child => ReferencesLocal(child, enumeratorIndex))
+            || !ReferenceOwnership.LocalReferencesOnlyWithin(
+                function,
+                tokenAddress.Index,
+                [tokenInitialization, usingStatement]))
+        {
+            return null;
+        }
+
+        return new AsyncEnumeratorMatch(
+            tokenInitialization,
+            CollectionValue(collectionReceiver),
+            loop,
+            currentStore,
+            [
+                getAsyncEnumerator.Callee,
+                moveNextAsync.Callee,
+                current.Accessor,
+                .. usingStatement.ConsumedMemberRefs,
+            ]);
+    }
+
+    static bool TryMatchGetAsyncEnumerator(
+        Call call,
+        int tokenIndex,
+        TypeRef resourceType,
+        out IrExpression collection,
+        out TypeRef itemType)
+    {
+        collection = null!;
+        itemType = null!;
+        if (call.Callee is not
+            {
+                Name: "GetAsyncEnumerator",
+                HasThis: true,
+                TypeArguments.IsEmpty: true,
+                ParameterTypes: [var cancellationToken],
+                DeclaringType:
+                {
+                    Kind: TypeRefKind.GenericInstance,
+                    TypeArguments: [var declaredItemType],
+                } declaringType,
+                ReturnType:
+                {
+                    Kind: TypeRefKind.GenericInstance,
+                    TypeArguments: [var returnedItemType],
+                } returnType,
+            }
+            || call.Arguments is not [var receiver, LoadLocal token]
+            || token.Index != tokenIndex
+            || !MemberIdentity.IsCoreLibraryType(
+                cancellationToken,
+                "System.Threading",
+                "CancellationToken")
+            || !MemberIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Collections.Generic",
+                "IAsyncEnumerable`1")
+            || !MemberIdentity.IsCoreLibraryType(
+                returnType,
+                "System.Collections.Generic",
+                "IAsyncEnumerator`1")
+            || !declaredItemType.Equals(returnedItemType)
+            || !returnType.Equals(resourceType))
+        {
+            return false;
+        }
+
+        collection = receiver;
+        itemType = declaredItemType;
+        return true;
+    }
+
+    static bool IsMoveNextAsyncOn(
+        Call call,
+        int enumeratorIndex,
+        TypeRef enumeratorType)
+        => call is
+            {
+                Callee:
+                {
+                    Name: "MoveNextAsync",
+                    HasThis: true,
+                    TypeArguments.IsEmpty: true,
+                    ParameterTypes.IsEmpty: true,
+                    DeclaringType: var declaringType,
+                    ReturnType:
+                    {
+                        Kind: TypeRefKind.GenericInstance,
+                        TypeArguments: [var resultType],
+                    } returnType,
+                },
+                Arguments: [var receiver],
+            }
+            && MemberIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Collections.Generic",
+                "IAsyncEnumerator`1")
+            && declaringType.Equals(enumeratorType)
+            && MemberIdentity.IsCoreLibraryType(
+                returnType,
+                "System.Threading.Tasks",
+                "ValueTask`1")
+            && MemberIdentity.IsCoreLibraryType(resultType, "System", "Boolean")
+            && IsEnumeratorReceiver(receiver, enumeratorIndex);
+
+    static bool IsAsyncCurrentOn(
+        LoadProperty property,
+        int enumeratorIndex,
+        TypeRef enumeratorType,
+        TypeRef itemType)
+        => property is
+            {
+                HasInstance: true,
+                PropertyName: "Current",
+                Instance: { } receiver,
+                Accessor:
+                {
+                    Name: "get_Current",
+                    HasThis: true,
+                    TypeArguments.IsEmpty: true,
+                    ParameterTypes.IsEmpty: true,
+                    DeclaringType:
+                    {
+                        Kind: TypeRefKind.GenericInstance,
+                        TypeArguments: [var declaredItemType],
+                    } declaringType,
+                    ReturnType: var returnType,
+                },
+            }
+            && MemberIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Collections.Generic",
+                "IAsyncEnumerator`1")
+            && declaringType.Equals(enumeratorType)
+            && declaredItemType.Equals(itemType)
+            && returnType.Equals(itemType)
+            && IsEnumeratorReceiver(receiver, enumeratorIndex);
 
     static EnumeratorMatch? TryMatchEnumerator(IrFunction function, UsingStatement usingStatement)
     {

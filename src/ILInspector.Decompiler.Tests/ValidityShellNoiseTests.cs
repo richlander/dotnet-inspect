@@ -15,6 +15,32 @@ public class ValidityShellNoiseTests
         TypeRef.Definition("ILInspector.Decompiler", "ILInspector.Decompiler.Pipeline", "Convert");
 
     [Theory]
+    [InlineData(nameof(CfgSampleClass.AwaitUsingResource))]
+    [InlineData(nameof(CfgSampleClass.NestedAwaitUsingResources))]
+    public void AwaitUsingShell_UsesAsyncBodyFactAfterAwaitExpressionsAreConsumed(
+        string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.True(function.RequiresAsyncBodyModifier);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+
+        string body = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            typeof(CfgSampleClass).FullName!,
+            methodName,
+            new Dictionary<string, Dictionary<string, string>>());
+
+        Assert.Contains("async Task<int> __M(", shell);
+        Assert.DoesNotContain("unsafe Task<int> __M(", shell);
+    }
+
+    [Theory]
     [InlineData("CS0029", "class Real {} sealed class __Shell { Real M() => this; }")]
     [InlineData("CS0019", "sealed class Real {} sealed class __Shell { bool M(Real value) => this == value; }")]
     [InlineData("CS0019", "class Real {} sealed class __Shell { bool M((int, Real) value) => (1, this) == value; }")]

@@ -1645,7 +1645,8 @@ public sealed partial class CSharpPrinter
         if (node is ForeachStatement foreachStatement)
         {
             sb.Append(pad)
-                .Append("foreach (").Append(TypeText(foreachStatement.LocalType)).Append(' ')
+                .Append(foreachStatement.IsAwait ? "await foreach (" : "foreach (")
+                .Append(TypeText(foreachStatement.LocalType)).Append(' ')
                 .Append(LocalName(foreachStatement.LocalIndex)).Append(" in ")
                 .Append(Expression(foreachStatement.Collection)).AppendLine(")");
             sb.Append(pad).AppendLine("{");

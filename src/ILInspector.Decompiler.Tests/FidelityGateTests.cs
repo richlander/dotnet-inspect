@@ -12,6 +12,7 @@ namespace ILInspector.Decompiler.Tests;
 /// methods that still diverge (the open docket) so the gate stays green on main.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(FidelityGateCollection.Name)]
 public class FidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
@@ -57,22 +58,10 @@ public class FidelityGateTests
         "CollectionListLiteral",
         "GotoCommonExit",
         "NeitherOr",
-        // Runtime-async fixture methods were previously RecompileFail because
-        // their reconstructed shells omitted the defining method's async flag.
-        // They are now compile-checkable. Roslyn 4.14 compile-back emits the
-        // classic state-machine lowering while the .NET 11 daily SDK fixture
-        // uses runtime-async IL, so the canonical streams legitimately differ.
-        "AwaitAcrossVoidCall",
-        "AwaitConfiguredTask",
-        "AwaitConfiguredValueTask",
-        "AwaitInArguments",
-        "AwaitOnce",
-        "AwaitThree",
-        "AwaitTwo",
-        "AwaitUsingResource",
-        "AwaitValueTask",
-        "AwaitVoid",
-        "NestedAwaitUsingResources",
+        // This hand-written await-enumerator loop recompiles through the same
+        // runtime-async shape but schedules the receiver load after the
+        // enumerator-local initialization rather than before it.
+        "ManualAwaitEnumeratorLoop",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: helper cleanup makes the body representable, but
         // recompiling `(V_1)[i]` reintroduces an extra span conversion call before
@@ -215,6 +204,21 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // The compile-back oracle replays the fixture's runtime-async feature,
+        // so these methods must retain the same lowering rather than merely
+        // remaining recompilable.
+        "AwaitAcrossVoidCall",
+        "AwaitConfiguredTask",
+        "AwaitConfiguredValueTask",
+        "AwaitForeach",
+        "AwaitInArguments",
+        "AwaitOnce",
+        "AwaitThree",
+        "AwaitTwo",
+        "AwaitUsingResource",
+        "AwaitValueTask",
+        "AwaitVoid",
+        "NestedAwaitUsingResources",
         "SharedCaptureLambdas",
         "DoubleViaLocalFunction",
         "CapturingLocalFunction",
@@ -293,13 +297,15 @@ public class FidelityGateTests
         "Finalize",
     };
 
-    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures()
+    static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;
         return FidelityCheck.Evaluate(assembly)
             .Where(r => r.Type == FixtureType)
             .ToList();
-    }
+    });
+
+    static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures() => Results.Value;
 
     [Fact]
     public void NoNewOpcodeDiffsBeyondKnownDocket()
@@ -330,7 +336,8 @@ public class FidelityGateTests
             foreach (var result in matches)
                 Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
                     $"{method} regressed to {result.Status}: a prior fidelity check fix no longer holds.\n" +
-                    $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
+                    $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n" +
+                    $"  detail: {result.Detail}");
         }
     }
 
@@ -358,7 +365,8 @@ public class FidelityGateTests
                 result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
                 $"SwitchStoreThenUse regressed to {result.Status}: the switch-store fold (#1710) no longer "
                     + "recompiles. Its decompiled C# must stay recompilable.\n"
-                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n"
+                    + $"  detail: {result.Detail}");
     }
 
     [Fact]
@@ -374,6 +382,7 @@ public class FidelityGateTests
                 $"PointerStoreUsesOriginalAddress regressed to {result.Status}: the pointer-store residual (#2644) "
                     + "no longer recompiles. Its decompiled C# must stay recompilable so the known-diff docket "
                     + "continues to check the address-preservation shape.\n"
-                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}");
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n"
+                    + $"  detail: {result.Detail}");
     }
 }
