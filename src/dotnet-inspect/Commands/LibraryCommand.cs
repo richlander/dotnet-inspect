@@ -281,8 +281,8 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
-                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
+                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return IntegrityExitCode(inspection);
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
@@ -351,13 +351,13 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
                 WarnEmptySections(inspections[0], options, pipeline);
+                if (assemblyPaths.Count > 0)
+                    ExtractResourcesIfRequested(assemblyPaths[0], options);
+
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
-
-                if (assemblyPaths.Count > 0)
-                    ExtractResourcesIfRequested(assemblyPaths[0], options);
 
                 return IntegrityExitCode([.. inspections]);
             }
@@ -407,8 +407,8 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
                 WarnEmptySections(inspection, options, pipeline);
-                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
+                OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return IntegrityExitCode(inspection);
             }
         }

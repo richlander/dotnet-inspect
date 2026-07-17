@@ -6529,12 +6529,14 @@ public class CommandExecutionTests
                 ("safe.txt", "safe"u8.ToArray()),
                 ("../escaped.txt", "escaped"u8.ToArray()));
 
-            var (exit, _, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
                 "--extract-resources", outputPath,
+                "--json",
                 "--tips", "q");
 
             Assert.Equal(1, exit);
+            Assert.Empty(output);
             Assert.Contains("safe relative extraction path", error);
             Assert.False(Directory.Exists(outputPath));
             Assert.False(File.Exists(escapedPath));
