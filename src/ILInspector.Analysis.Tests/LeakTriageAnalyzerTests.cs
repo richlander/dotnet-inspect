@@ -241,6 +241,19 @@ public sealed class LeakTriageAnalyzerTests
         Assert.DoesNotContain(throughMemoryChain.Boundaries, boundary =>
             boundary.Evidence.Operation.Name is ".ctor" or "op_Implicit");
 
+        var throughMemoryAlias = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemoryAlias)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemoryAlias.Actionability);
+        Assert.Contains(throughMemoryAlias.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(throughMemoryAlias.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
         var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpan)));
@@ -264,6 +277,19 @@ public sealed class LeakTriageAnalyzerTests
             && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
         Assert.DoesNotContain(throughExplicitSpan.Boundaries, boundary =>
             boundary.Evidence.Operation.Name == ".ctor");
+
+        var throughReadOnlySpanChain = Assert.Single(
+            assessments.Where(assessment =>
+                assessment.Source.Payload.Method.Name
+                    == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpanChain)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughReadOnlySpanChain.Actionability);
+        Assert.Contains(throughReadOnlySpanChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughReadOnlySpanChain.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
 
         var throughSpanByRef = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
@@ -1388,6 +1414,18 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemoryAlias(
+        ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        Memory<byte> alias = memory;
+        int read = stream.Read(alias);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int ExternalParseThroughReadOnlySpan()
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
@@ -1403,6 +1441,17 @@ internal sealed class ArrayPoolLeakFixtures
         var chars = ArrayPool<char>.Shared.Rent(16);
         var value = new Span<char>(chars);
         int parsed = ExternalInputReader.Parse(value, "wire");
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughReadOnlySpanChain()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        ReadOnlySpan<char> readOnlyValue = value;
+        int parsed = ExternalInputReader.Parse(readOnlyValue);
         ArrayPool<char>.Shared.Return(chars);
         return parsed;
     }

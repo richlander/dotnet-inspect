@@ -834,36 +834,12 @@ public static class LeakTriageAnalyzer
                 if (definition is null)
                     return null;
 
-                foreach (var use in reaching.UsesOf(definition)
-                    .OrderBy(static use => use.Offset))
-                {
-                    var classification = ClassifyUse(
-                        instructions,
-                        calls,
-                        use.Offset,
-                        slot);
-                    if (classification.CandidateShape
-                            != "cross-method-suppressed"
-                        || classification.Boundary is not { } localBoundary)
-                    {
-                        continue;
-                    }
-
-                    if (!classification.NonThrowingSetupBoundary)
-                        return localBoundary;
-
-                    if (FindBoundaryAfterSetup(
-                            instructions,
-                            reaching,
-                            calls,
-                            localBoundary,
-                            depth + 1) is { } downstream)
-                    {
-                        return downstream;
-                    }
-                }
-
-                return null;
+                return FindBoundaryFromLocalDefinition(
+                    instructions,
+                    reaching,
+                    calls,
+                    definition,
+                    depth);
             }
 
             if (!calls.TryGetValue(instruction.Offset, out var callee))
@@ -910,6 +886,94 @@ public static class LeakTriageAnalyzer
         return null;
     }
 
+    static ArrayPoolExceptionBoundary? FindBoundaryFromLocalDefinition(
+        ImmutableArray<DecodedInstruction> instructions,
+        ReachingDefinitionsResult reaching,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        LocalDefinition definition,
+        int depth)
+    {
+        if (depth >= 4)
+            return null;
+
+        foreach (var use in reaching.UsesOf(definition)
+            .OrderBy(static use => use.Offset))
+        {
+            var classification = ClassifyUse(
+                instructions,
+                calls,
+                use.Offset,
+                definition.Slot);
+            if (classification.CandidateShape
+                    != "cross-method-suppressed"
+                || classification.Boundary is not { } boundary)
+            {
+                if (classification.CandidateShape
+                        == "alias-or-field-suppressed"
+                    && FindBoundaryAfterLocalAlias(
+                        instructions,
+                        reaching,
+                        calls,
+                        use.Offset,
+                        depth + 1) is { } aliasBoundary)
+                {
+                    return aliasBoundary;
+                }
+                continue;
+            }
+            if (!classification.NonThrowingSetupBoundary)
+                return boundary;
+
+            if (FindBoundaryAfterSetup(
+                    instructions,
+                    reaching,
+                    calls,
+                    boundary,
+                    depth + 1) is { } downstream)
+            {
+                return downstream;
+            }
+        }
+
+        return null;
+    }
+
+    static ArrayPoolExceptionBoundary? FindBoundaryAfterLocalAlias(
+        ImmutableArray<DecodedInstruction> instructions,
+        ReachingDefinitionsResult reaching,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int loadOffset,
+        int depth)
+    {
+        if (depth >= 4
+            || !TryFindInstruction(
+                instructions,
+                loadOffset,
+                out _,
+                out var load)
+            || !TryFindNextNonNop(
+                instructions,
+                load.NextOffset,
+                out var store)
+            || !TryReadStoreLocal(store, out int aliasSlot))
+        {
+            return null;
+        }
+
+        var definition = reaching.Definitions.FirstOrDefault(candidate =>
+            !candidate.IsArgument
+            && candidate.Slot == aliasSlot
+            && candidate.Offset == store.Offset);
+        return definition is null
+            ? null
+            : FindBoundaryFromLocalDefinition(
+                instructions,
+                reaching,
+                calls,
+                definition,
+                depth);
+    }
+
     static ArrayPoolExceptionBoundary? FindBoundaryAfterInPlaceSetup(
         ImmutableArray<DecodedInstruction> instructions,
         ReachingDefinitionsResult reaching,
@@ -941,7 +1005,18 @@ public static class LeakTriageAnalyzer
             if (classification.CandidateShape != "cross-method-suppressed"
                 || classification.Boundary is not { } boundary)
             {
-                return null;
+                if (classification.CandidateShape
+                        == "alias-or-field-suppressed"
+                    && FindBoundaryAfterLocalAlias(
+                        instructions,
+                        reaching,
+                        calls,
+                        instruction.Offset,
+                        depth + 1) is { } aliasBoundary)
+                {
+                    return aliasBoundary;
+                }
+                continue;
             }
             if (!classification.NonThrowingSetupBoundary)
                 return boundary;
@@ -1165,7 +1240,7 @@ public static class LeakTriageAnalyzer
         }
 
         if (IsExactArrayWrapperConstructor(member, valueType)
-            || IsMemoryToReadOnlyMemoryConversion(member))
+            || IsMutableToReadOnlyWrapperConversion(member))
         {
             return true;
         }
@@ -1192,13 +1267,15 @@ public static class LeakTriageAnalyzer
             && valueType?.Equals(array) == true
             && IsTypedWrapperType(member.DeclaringType);
 
-    static bool IsMemoryToReadOnlyMemoryConversion(MemberRef member)
+    static bool IsMutableToReadOnlyWrapperConversion(MemberRef member)
         => member.Name == "op_Implicit"
             && member.ParameterTypes is [var source]
-            && IsFrameworkGenericType(source, "Memory`1")
-            && IsFrameworkGenericType(
-                member.ReturnType,
-                "ReadOnlyMemory`1")
+            && ((IsFrameworkGenericType(source, "Memory`1")
+                    && IsFrameworkGenericType(
+                        member.ReturnType,
+                        "ReadOnlyMemory`1"))
+                || (IsSpanType(source)
+                    && IsReadOnlySpanType(member.ReturnType)))
             && source.TypeArguments.SequenceEqual(
                 member.ReturnType.TypeArguments);
 
