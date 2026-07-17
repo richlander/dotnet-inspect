@@ -958,6 +958,42 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void SignatureDecodeIsEmpty_HidesColumnOnlyWhenNoMemberDegraded()
+    {
+        Assert.True(TypeView.SignatureDecodeIsEmpty(null));
+        Assert.True(TypeView.SignatureDecodeIsEmpty(
+        [
+            new MemberSignatureRow("void A()", null, null),
+            new MemberSignatureRow("void B()", "", null),
+        ]));
+
+        // A degraded member must keep the Decode column so the failure marker stays visible.
+        Assert.False(TypeView.SignatureDecodeIsEmpty(
+        [
+            new MemberSignatureRow("void A()", null, null),
+            new MemberSignatureRow("void B()", "degraded", null),
+        ]));
+    }
+
+    [Fact]
+    public void MemberIndexDecodeIsEmpty_HidesColumnOnlyWhenNoMemberDegraded()
+    {
+        Assert.True(MemberIndexView.DecodeIsEmpty(null));
+        Assert.True(MemberIndexView.DecodeIsEmpty(
+        [
+            new MemberIndexRow("A:0", "A~0", "M:A", null, "d0"),
+            new MemberIndexRow("B:0", "B~0", "M:B", "", "d1"),
+        ]));
+
+        // A degraded member must keep the Decode column so the failure marker stays visible.
+        Assert.False(MemberIndexView.DecodeIsEmpty(
+        [
+            new MemberIndexRow("A:0", "A~0", "M:A", null, "d0"),
+            new MemberIndexRow("B:0", "B~0", "M:B", "degraded", "d1"),
+        ]));
+    }
+
+    [Fact]
     public void BuildTypeRenderManifest_CapturesActualMemberTable()
     {
         var type = new ApiType
