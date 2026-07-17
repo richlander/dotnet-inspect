@@ -3044,11 +3044,14 @@ public static class CompileBackSourceComposer
         {
             // The product skeleton (TypeShellProducer) owns the metadata-level
             // gates that decide which base is reconstructable (interface/nil/same-
-            // assembly/non-generic/object-family). The harness applies its own C#
+            // assembly/object-family). The harness applies its own C#
             // surface-representability gate on the display form here, where the Clean
             // normalization lives: Clean strips generated <> segments (so a <>-named
             // base is kept) but not { or delegate*, matching origin/main exactly.
-            var baseType = TypeShellProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
+            var baseType = TypeShellProducer.GetReconstructedBaseType(
+                reader,
+                typeDef,
+                kind == CompileBackTypeKind.Class)?.DisplayName;
             if (baseType is null)
                 return null;
             if (IsUnsupportedSurfaceSignature(baseType))
@@ -3060,7 +3063,7 @@ public static class CompileBackSourceComposer
         // derives from this class via a reconstructed (same-assembly) base
         // declaration, so its implicit `: base()` depends on this class exposing an
         // accessible parameterless constructor. Nested types are emitted by
-        // NestedTypes() from their enclosing requirement and are not present in
+        // NestedSpecs() from their enclosing requirement and are not present in
         // requirementsByMetadataName, so each requirement's nested tree is walked.
         static bool IsReconstructedBaseOfAnotherType(
             MetadataReader reader,
@@ -3103,11 +3106,14 @@ public static class CompileBackSourceComposer
         static string? ReconstructedSameAssemblyBaseName(MetadataReader reader, TypeDefinitionHandle handle, CompileBackTypeKind kind)
         {
             var typeDef = reader.GetTypeDefinition(handle);
-            if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+            var baseType = TypeShellProducer.GetReconstructedBaseType(
+                reader,
+                typeDef,
+                kind == CompileBackTypeKind.Class);
+            if (baseType is not { Definition.IsNil: false }
+                || IsUnsupportedSurfaceSignature(baseType.Value.DisplayName))
                 return null;
-            if (BaseTypeSignature(reader, typeDef, kind) is null)
-                return null;
-            var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
+            var baseDef = reader.GetTypeDefinition(baseType.Value.Definition);
             return CompileBackTypeIdentity.FromDefinition(reader, baseDef).MetadataFullName;
         }
 

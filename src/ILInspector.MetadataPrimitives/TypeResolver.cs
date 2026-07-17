@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
@@ -69,6 +70,47 @@ public static class TypeResolver
         TypeSpecificationHandle handle,
         GenericContext? context = null)
         => GuardedSignatureDecoder.DecodeTypeSpecification(reader, handle, context);
+
+    /// <summary>
+    /// Resolves a direct type definition or the generic type underlying a guarded
+    /// <see cref="HandleKind.TypeSpecification"/> when that definition belongs to
+    /// the current assembly. Type references and non-type signatures return
+    /// <see langword="false"/>.
+    /// </summary>
+    public static bool TryGetSameAssemblyTypeDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context,
+        out TypeDefinitionHandle definition)
+    {
+        definition = default;
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            definition = (TypeDefinitionHandle)handle;
+            return true;
+        }
+        if (handle.Kind != HandleKind.TypeSpecification)
+            return false;
+
+        try
+        {
+            if (!TypeSpecGuard.TryEnter(reader, (TypeSpecificationHandle)handle, out var scope))
+                return false;
+            using (scope)
+            {
+                var origin = reader.GetTypeSpecification((TypeSpecificationHandle)handle)
+                    .DecodeSignature(TypeDefinitionOriginProvider.Instance, context);
+                if (origin.IsDegraded || origin.Handle.Kind != HandleKind.TypeDefinition)
+                    return false;
+                definition = (TypeDefinitionHandle)origin.Handle;
+                return true;
+            }
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Gets the full name of a type definition (Namespace.Name), qualifying a
@@ -189,5 +231,67 @@ public static class TypeResolver
         }
 
         return result.ToString();
+    }
+
+    readonly record struct TypeDefinitionOrigin(EntityHandle Handle, bool IsDegraded);
+
+    sealed class TypeDefinitionOriginProvider : ISignatureTypeProvider<TypeDefinitionOrigin, GenericContext?>
+    {
+        public static TypeDefinitionOriginProvider Instance { get; } = new();
+
+        public TypeDefinitionOrigin GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+            => new(handle, IsDegraded: false);
+
+        public TypeDefinitionOrigin GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+            => new(handle, IsDegraded: false);
+
+        public TypeDefinitionOrigin GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return new(default, IsDegraded: true);
+            using (scope)
+            {
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            }
+        }
+
+        public TypeDefinitionOrigin GetGenericInstantiation(
+            TypeDefinitionOrigin genericType,
+            ImmutableArray<TypeDefinitionOrigin> typeArguments)
+            => new(
+                genericType.Handle,
+                genericType.IsDegraded || typeArguments.Any(argument => argument.IsDegraded));
+
+        public TypeDefinitionOrigin GetModifiedType(
+            TypeDefinitionOrigin modifier,
+            TypeDefinitionOrigin unmodifiedType,
+            bool isRequired)
+            => new(unmodifiedType.Handle, modifier.IsDegraded || unmodifiedType.IsDegraded);
+
+        public TypeDefinitionOrigin GetPinnedType(TypeDefinitionOrigin elementType)
+            => elementType;
+
+        public TypeDefinitionOrigin GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
+        public TypeDefinitionOrigin GetSZArrayType(TypeDefinitionOrigin elementType) => new(default, elementType.IsDegraded);
+        public TypeDefinitionOrigin GetArrayType(TypeDefinitionOrigin elementType, ArrayShape shape) => new(default, elementType.IsDegraded);
+        public TypeDefinitionOrigin GetByReferenceType(TypeDefinitionOrigin elementType) => new(default, elementType.IsDegraded);
+        public TypeDefinitionOrigin GetPointerType(TypeDefinitionOrigin elementType) => new(default, elementType.IsDegraded);
+        public TypeDefinitionOrigin GetGenericMethodParameter(GenericContext? context, int index) => default;
+        public TypeDefinitionOrigin GetGenericTypeParameter(GenericContext? context, int index) => default;
+        public TypeDefinitionOrigin GetFunctionPointerType(MethodSignature<TypeDefinitionOrigin> signature)
+            => new(
+                default,
+                signature.ReturnType.IsDegraded
+                    || signature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
 }

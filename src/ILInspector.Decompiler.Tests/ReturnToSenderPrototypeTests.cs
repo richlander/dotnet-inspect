@@ -78,51 +78,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotReconstructGenericBaseClass()
+    public void CompileBackTargets_ReconstructsSameAssemblyGenericBaseClass()
     {
-        // Issue #2527 guard (Gemini review of #2732): a closed generic base
-        // instantiation (`Derived : Base<int>`) is a TypeSpecification, which the
-        // flat shell cannot carry and cannot own a synthetic constructor for. It must
-        // be dropped rather than emitted, so the derived stub does not fail on an
-        // implicit `: base()` with no parameterless target.
+        // Issue #2779: a constructed generic base is a TypeSpecification,
+        // but its generic type is a same-assembly TypeDefinition. The product seam
+        // reconstructs the base signature and definition identity. The inherited
+        // field access cannot compile without that relationship.
         var assemblyPath = CompileFixture("""
-            using System;
-
             public class Base<T>
             {
-                public Base(int seed)
+                protected Base(T value)
                 {
-                    Seed = seed;
+                    Value = value;
                 }
 
-                public int Seed { get; }
+                protected T Value;
             }
 
-            public class Derived : Base<int>
+            public class Derived<T> : Base<T>
             {
-                public Derived() : base(1)
+                public Derived(T value) : base(value)
                 {
                 }
-            }
 
-            public static class Use
-            {
-                public static void Run()
-                {
-                    Console.WriteLine(new Base<int>(1));
-                    Console.WriteLine(new Derived());
-                }
+                public T Read() => Value;
             }
             """);
         try
         {
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
-                [new ReturnToSender.RequestedTarget("Use", "Run", 0)]));
+                [new ReturnToSender.RequestedTarget("Derived`1", "Read", 0)]));
 
-            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
-            Assert.DoesNotContain(": Base", result.Source);
+            Assert.Contains("public class Base<T>", result.Source);
+            Assert.Contains("public class Derived<T> : Base<T>", result.Source);
         }
         finally
         {

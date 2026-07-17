@@ -133,6 +133,36 @@ public sealed class TypeShellProducerTests
         Assert.False(nestedRequest.Type.IsStatic);
     }
 
+    [Fact]
+    public void GetReconstructedBaseType_ResolvesSameAssemblyGenericBases()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(TypeShellProducerTests).Assembly.Location));
+        var reader = pe.GetMetadataReader();
+
+        TypeDefinitionHandle Handle(string name) => reader.TypeDefinitions
+            .Single(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == name);
+        TypeDefinition Type(string name) => reader.GetTypeDefinition(Handle(name));
+
+        var open = Assert.NotNull(TypeShellProducer.GetReconstructedBaseType(
+            reader,
+            Type("ShellOpenGenericDerived`1"),
+            isClass: true));
+        Assert.Equal("ILInspector.CSharp.Tests.ShellGenericBase<T>", open.DisplayName);
+        Assert.Equal(Handle("ShellGenericBase`1"), open.Definition);
+
+        var closed = Assert.NotNull(TypeShellProducer.GetReconstructedBaseType(
+            reader,
+            Type(nameof(ShellClosedGenericDerived)),
+            isClass: true));
+        Assert.Equal("ILInspector.CSharp.Tests.ShellGenericBase<int>", closed.DisplayName);
+        Assert.Equal(Handle("ShellGenericBase`1"), closed.Definition);
+
+        Assert.Null(TypeShellProducer.GetReconstructedBaseType(
+            reader,
+            Type(nameof(ShellExternalGenericDerived)),
+            isClass: true));
+    }
+
     static async Task RuntimeAsyncFixture()
         => await Task.Yield();
 
@@ -158,4 +188,29 @@ public sealed class TypeShellProducerTests
     interface IInterfaceFixture
     {
     }
+}
+
+class ShellGenericBase<T>
+{
+    public ShellGenericBase(int seed)
+    {
+    }
+}
+
+class ShellOpenGenericDerived<T> : ShellGenericBase<T>
+{
+    public ShellOpenGenericDerived() : base(1)
+    {
+    }
+}
+
+class ShellClosedGenericDerived : ShellGenericBase<int>
+{
+    public ShellClosedGenericDerived() : base(1)
+    {
+    }
+}
+
+class ShellExternalGenericDerived : List<int>
+{
 }

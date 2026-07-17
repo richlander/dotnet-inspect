@@ -6,6 +6,14 @@ using ILInspector.Metadata;
 namespace ILInspector.CSharp;
 
 /// <summary>
+/// A product-owned C# base clause and, when same-assembly, the metadata
+/// definition from which the shell can reconstruct supporting members.
+/// </summary>
+public readonly record struct ReconstructedBaseType(
+    string DisplayName,
+    TypeDefinitionHandle Definition);
+
+/// <summary>
 /// Produces C#-flavored type <em>shapes</em> — the skeletal facts a consumer needs
 /// to render a type declaration and its members without decompiling method bodies,
 /// loading the inspected assembly, or using Roslyn. It is the C#-spelling companion
@@ -95,15 +103,28 @@ public static class TypeShellProducer
     /// <paramref name="typeDef"/>, or <see langword="null"/> when the base should
     /// be dropped (left to its compiler-implied default).
     ///
-    /// Attributes always keep their <c>System.Attribute</c> base. Otherwise only a
-    /// same-assembly (<see cref="HandleKind.TypeDefinition"/>) non-generic plain
-    /// class base is reconstructed: external (TypeReference) and generic
-    /// instantiation (TypeSpecification) bases are dropped because the shell cannot
-    /// own their construction, and object-family / value-type / delegate bases are
-    /// left implicit to avoid conflicts. <paramref name="isClass"/> is the caller's
-    /// resolved kind (records/structs/enums/delegates pass <see langword="false"/>).
+    /// This name-only compatibility form delegates to
+    /// <see cref="GetReconstructedBaseType"/>.
     /// </summary>
     public static string? ReconstructedBaseTypeName(MetadataReader reader, TypeDefinition typeDef, bool isClass)
+        => GetReconstructedBaseType(reader, typeDef, isClass)?.DisplayName;
+
+    /// <summary>
+    /// The base type a skeletal type shape should reconstruct for
+    /// <paramref name="typeDef"/>, or <see langword="null"/> when the base should
+    /// be dropped.
+    ///
+    /// Attributes always keep their <c>System.Attribute</c> base. Otherwise the
+    /// base must resolve to a same-assembly type definition, either directly or as
+    /// the generic type in a <see cref="HandleKind.TypeSpecification"/>. External
+    /// bases and object-family / value-type / delegate bases remain implicit.
+    /// <paramref name="isClass"/> is the caller's resolved kind
+    /// (records/structs/enums/delegates pass <see langword="false"/>).
+    /// </summary>
+    public static ReconstructedBaseType? GetReconstructedBaseType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        bool isClass)
     {
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
             return null;
@@ -111,9 +132,22 @@ public static class TypeShellProducer
             return null;
 
         string? baseType;
+        TypeDefinitionHandle baseDefinition;
         try
         {
-            baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, GenericContext.ForType(reader, typeDef));
+            var context = GenericContext.ForType(reader, typeDef);
+            baseType = TypeResolver.GetTypeName(reader, typeDef.BaseType, context);
+            // Attributes are the one supported external base.
+            if (baseType is "System.Attribute")
+                return new ReconstructedBaseType(baseType, default);
+            if (!TypeResolver.TryGetSameAssemblyTypeDefinition(
+                    reader,
+                    typeDef.BaseType,
+                    context,
+                    out baseDefinition))
+            {
+                return null;
+            }
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -122,21 +156,15 @@ public static class TypeShellProducer
 
         if (baseType is null)
             return null;
-        // Attributes must derive from System.Attribute (existing behavior).
-        if (baseType is "System.Attribute")
-            return baseType;
-        // Only reconstruct same-assembly base classes. External (TypeReference) and
-        // generic-instantiation (TypeSpecification) bases are dropped: the shell
-        // cannot own their construction, so an external base whose only constructor
-        // is parameterized would make the derived stub's implicit `: base()` fail
-        // (CS7036) where the baseline compiled without a base.
-        if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
+        // An external base whose only constructor is parameterized would make the
+        // derived stub's implicit `: base()` fail (CS7036) where the baseline
+        // compiled without a base.
+        if (baseDefinition.IsNil)
             return null;
         // Only plain classes reconstruct a real base class; records/structs/enums/
         // delegates keep their compiler-implied base to avoid primary-constructor
-        // and value-type conflicts. A generic type's base can reference its own type
-        // parameters, which the flat shell does not carry, so skip it.
-        if (!isClass || typeDef.GetGenericParameters().Count != 0)
+        // and value-type conflicts.
+        if (!isClass)
             return null;
         if (baseType is "System.Object" or "System.ValueType" or "System.Enum"
             or "System.Delegate" or "System.MulticastDelegate")
@@ -147,7 +175,7 @@ public static class TypeShellProducer
         // Clean'd display name. Running the pure heuristic on the RAW metadata name
         // here would diverge from that normalized decision (e.g. wrongly dropping a
         // generated `<>`-named base). This method owns only the metadata-level gates.
-        return baseType;
+        return new ReconstructedBaseType(baseType, baseDefinition);
     }
 
     /// <summary>

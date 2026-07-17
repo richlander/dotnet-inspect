@@ -142,6 +142,73 @@ public class SignatureBlobGuardTests
     }
 
     [Fact]
+    public void SameAssemblyGenericTypeSpecification_ResolvesDefinition()
+    {
+        var md = NewModule();
+        var definition = md.AddTypeDefinition(
+            default,
+            default,
+            md.GetOrAddString("Base`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        signature.WriteBytes(new byte[]
+        {
+            GenericInst,
+            Class,
+            0x08, // TypeDef row 2: (2 << 2) | TypeDef tag 0
+            0x01, // one generic argument
+            I4,
+        });
+        var specification = md.AddTypeSpecification(md.GetOrAddBlob(signature));
+        var reader = Serialize(md);
+
+        Assert.True(TypeResolver.TryGetSameAssemblyTypeDefinition(
+            reader,
+            specification,
+            context: null,
+            out var actual));
+        Assert.Equal(definition, actual);
+    }
+
+    [Fact]
+    public void SameAssemblyGenericTypeSpecification_RejectsUnsafeNestedSpecification()
+    {
+        var md = NewModule();
+        md.AddTypeDefinition(
+            default,
+            default,
+            md.GetOrAddString("Base`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var nestedSignature = new BlobBuilder();
+        nestedSignature.WriteBytes(Nested(SzArray, 512));
+        md.AddTypeSpecification(md.GetOrAddBlob(nestedSignature));
+
+        var signature = new BlobBuilder();
+        signature.WriteBytes(new byte[]
+        {
+            GenericInst,
+            Class,
+            0x08, // TypeDef row 2
+            0x01, // one generic argument
+            Class,
+            0x06, // TypeSpec row 1: (1 << 2) | TypeSpec tag 2
+        });
+        var specification = md.AddTypeSpecification(md.GetOrAddBlob(signature));
+        var reader = Serialize(md);
+
+        Assert.False(TypeResolver.TryGetSameAssemblyTypeDefinition(
+            reader,
+            specification,
+            context: null,
+            out _));
+    }
+
+    [Fact]
     public void DeepPrefixChains_AreUnsafe()
     {
         // SRM recurses natively through by-ref, pinned, and custom-modifier prefixes, so a long
