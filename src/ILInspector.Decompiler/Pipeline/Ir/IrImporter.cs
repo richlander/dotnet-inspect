@@ -218,12 +218,24 @@ public static class IrImporter
                 return null;
             return Build(source, MethodImporter.Import(source, typeDefHandle, methodHandle), CallerScope(reader, typeDef, method));
         }
+
         catch (Exception ex)
         {
             return reader is null
                 ? CrashFunction("<method>", "<type>", ex)
                 : CrashFunction(SafeName(reader, methodHandle), SafeTypeName(reader, methodHandle), ex);
         }
+    }
+
+    /// <summary>
+    /// Token-addressed import for callers that do not own Metadata's reader.
+    /// </summary>
+    public static IrFunction? Import(MetadataSource source, int methodToken)
+    {
+        var handle = MetadataTokens.EntityHandle(methodToken);
+        return handle.Kind == HandleKind.MethodDefinition
+            ? Import(source, (MethodDefinitionHandle)handle)
+            : null;
     }
 
     static string SafeName(MetadataReader reader, MethodDefinitionHandle handle)

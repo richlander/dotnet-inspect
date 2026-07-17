@@ -93,6 +93,8 @@ public class PdbContext : IDisposable
     private SourceLinkResolver? _resolver;
     private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
+    private MethodBodySource? _methodBodies;
+    private bool _disposed;
 
     /// <summary>
     /// The path to the assembly file that was opened.
@@ -104,8 +106,17 @@ public class PdbContext : IDisposable
     /// </summary>
     internal Action<string>? Log => _log;
 
-    internal PEReader PeReader => _peReader;
-    internal MetadataReader MetadataReader => _peReader.GetMetadataReader();
+    /// <summary>
+    /// Session-bound method-body and operand access without exposing raw readers.
+    /// </summary>
+    public MethodBodySource MethodBodies
+    {
+        get
+        {
+            EnsureAlive();
+            return _methodBodies ??= new MethodBodySource(_peReader, EnsureAlive);
+        }
+    }
 
     // --- PE/Assembly ---
     public bool HasMetadata => _peReader.HasMetadata;
@@ -842,6 +853,9 @@ public class PdbContext : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         foreach (var d in _disposables)
         {
             try { d.Dispose(); } catch { }
@@ -854,6 +868,9 @@ public class PdbContext : IDisposable
         try { _peReader.Dispose(); } catch { }
         try { _peStream.Dispose(); } catch { }
     }
+
+    void EnsureAlive()
+        => ObjectDisposedException.ThrowIf(_disposed, this);
 
     // --- Private implementation ---
 

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 
 using DotnetInspector.Services;
+using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
@@ -936,7 +937,8 @@ static class FidelityCheck
             if (body is null)
                 continue;
             var requiredNamespaces = RequiredNamespaces(function);
-            PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(reader, method, function, body);
+            PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(
+                reader, method, ConstructorBodyFactExtractor.Extract(function).PrimaryConstructorPrologue, body);
             var original = MetadataInstructionProducer.Disassemble(pe, reader, method);
             if (original is null)
                 continue;
@@ -1014,7 +1016,7 @@ static class FidelityCheck
     static PrimaryConstructorShape? PrimaryConstructorFromPrologue(
         MetadataReader reader,
         MethodDefinition method,
-        IrFunction function,
+        IReadOnlyList<PrimaryConstructorFieldStore>? prologue,
         string renderedBody)
     {
         if (reader.GetString(method.Name) != ".ctor"
@@ -1025,25 +1027,9 @@ static class FidelityCheck
         if (CountInstanceConstructors(reader, declaringType) != 1
             || HasInAssemblyDerivedType(reader, declaringHandle))
             return null;
-        if (function.Body.Blocks is not [{ } entry, ..])
-            return null;
-
-        int? chainIndex = null;
-        for (int i = 0; i < entry.Children.Count; i++)
-        {
-            if (entry.Children[i] is ExpressionStatement
-                {
-                    Expression: Call { Callee: { Name: ".ctor", HasThis: true }, Arguments: [LoadArgument { Index: 0 }] }
-                })
-            {
-                chainIndex = i;
-                break;
-            }
-        }
-
-        if (chainIndex is not > 0)
-            return null;
-        if (entry.Children.Skip(chainIndex.Value + 1).Any(node => node is not Return))
+        // The IR-shape detection lives in the product extractor; a null prologue
+        // means the body is not primary-constructor shaped.
+        if (prologue is null)
             return null;
 
         var parameterNames = ParameterNames(reader, method);
@@ -1051,20 +1037,13 @@ static class FidelityCheck
             return null;
 
         var initializers = new List<(string Field, string Value)>();
-        foreach (var node in entry.Children.Take(chainIndex.Value))
+        foreach (var fieldStore in prologue)
         {
-            if (node is not StoreField
-                {
-                    HasInstance: true,
-                    Instance: LoadArgument { Index: 0 },
-                    Value: LoadArgument { Index: > 0 } value
-                } store)
-                return null;
-            if (!parameterNames.TryGetValue(value.Index - 1, out string? parameterName))
+            if (!parameterNames.TryGetValue(fieldStore.SourceArgumentIndex - 1, out string? parameterName))
                 return null;
 
-            string name = AutoPropertyNameForBackingField(reader, declaringType, store.Field.Name)
-                ?? store.Field.Name;
+            string name = AutoPropertyNameForBackingField(reader, declaringType, fieldStore.FieldName)
+                ?? fieldStore.FieldName;
             initializers.Add((name, parameterName));
         }
 

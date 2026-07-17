@@ -13,6 +13,7 @@ namespace ILInspector.Metadata;
 public sealed class AssemblyInspectionSession : IDisposable
 {
     readonly AssemblyImage _image;
+    MethodBodySource? _methodBodies;
 
     AssemblyInspectionSession(AssemblyImage image) => _image = image;
 
@@ -25,10 +26,17 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata => _image.HasMetadata;
 
-    // Body-view composition needs access to the session-owned PE and metadata readers.
-    // Keep them internal so public callers use facet models and cannot outlive the owned image.
-    internal System.Reflection.PortableExecutable.PEReader PeReader => _image.PEReader;
-    internal System.Reflection.Metadata.MetadataReader MetadataReader => _image.GetMetadataReader();
+    /// <summary>
+    /// Session-bound method-body and operand access without exposing raw readers.
+    /// </summary>
+    public MethodBodySource MethodBodies
+    {
+        get
+        {
+            _image.EnsureAlive();
+            return _methodBodies ??= new MethodBodySource(_image.PEReader, _image.EnsureAlive);
+        }
+    }
 
     // --- assembly facets: each produced once over the single shared reader ---
 
@@ -43,6 +51,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
         => ResourceScanner.Scan(_image.PEReader);
+
+    /// <summary>Extracts embedded manifest resources to a directory.</summary>
+    public List<string> ExtractResources(string outputDirectory)
+        => ResourceScanner.ExtractAll(_image.PEReader, outputDirectory);
 
     /// <summary>
     /// Attribute-declared feature-switch metadata. IL call-site discovery is

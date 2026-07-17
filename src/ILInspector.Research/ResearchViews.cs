@@ -1,4 +1,3 @@
-using System.Reflection.Metadata;
 using System.Text;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -35,7 +34,7 @@ public static partial class ResearchViews
         bool FactRows = false,
         AnnotationStage AnnotatedStage = AnnotationStage.Raised,
         ResearchFactRegistry? Registry = null,
-        MethodDefinitionHandle MethodHandle = default);
+        int? MethodToken = null);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -48,14 +47,14 @@ public static partial class ResearchViews
     {
         try
         {
-            var imported = (request.MethodHandle.IsNil
+            var imported = (request.MethodToken is null
                 ? IrImporter.Import(
                     request.Source,
                     request.Type,
                     request.Method,
                     request.OverloadIndex,
                     request.PublicOnly)
-                : IrImporter.Import(request.Source, request.MethodHandle))
+                : IrImporter.Import(request.Source, request.MethodToken.Value))
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
             var assembly = imported.AssemblyPath is { Length: > 0 } path
@@ -81,7 +80,7 @@ public static partial class ResearchViews
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly,
-                        request.MethodHandle),
+                        request.MethodToken),
                         emptyOutputIsFailure: false),
                     request.Source);
             }
@@ -200,7 +199,7 @@ public static partial class ResearchViews
         AnnotationStage stage,
         int overloadIndex,
         bool publicOnly,
-        MethodDefinitionHandle methodHandle = default)
+        int? methodToken = null)
     {
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
@@ -210,9 +209,9 @@ public static partial class ResearchViews
         if (csResult.Output is not { } csText)
             return csResult;
 
-        var annotatedInstrLines = methodHandle.IsNil
+        var annotatedInstrLines = methodToken is null
             ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
-            : IlProjection.RenderIlBodyLines(source, methodHandle);
+            : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
         return csResult with { Output = RenderMixedStream(stream) };

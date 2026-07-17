@@ -77,10 +77,10 @@ public static class FqnParser
         return new ParseResult(qualifiedPrefix, TypeMatcher.Normalize(typePart), rightSegment, overloadIndex);
     }
 
-    // Returns the index of the last '.' that sits outside any generic angle-bracket group,
-    // or -1 if there is none. Prevents splitting inside type arguments like
-    // "Dictionary&lt;System.Int32,string&gt;".
-    internal static int LastTopLevelDot(string value)
+    /// <summary>
+    /// Returns the last dot outside a generic argument list, or -1 when none exists.
+    /// </summary>
+    public static int LastTopLevelDot(string value)
     {
         var depth = 0;
         for (var i = value.Length - 1; i >= 0; i--)

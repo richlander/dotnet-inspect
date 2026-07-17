@@ -31,14 +31,23 @@ public static class ILOffsetProjectionProducer
                 "The method token may be invalid or may not identify a MethodDef row.");
         }
 
-        var reader = context.MetadataReader;
-        var operandResolver = new MetadataOperandNameResolver(reader);
-        var decoded = InstructionContextResolver.TryDecodeMethod(
-            context.PeReader,
-            reader,
+        var bodySource = context.MethodBodies;
+        var decoded = bodySource.TryRead(
             request.MethodToken,
-            out var methodInstructions,
+            out var methodBody,
             out var decodeError);
+        MethodInstructions? methodInstructions = null;
+        if (decoded)
+        {
+            methodInstructions = MethodInstructions.Decode(methodBody!);
+            if (!methodInstructions.IsComplete)
+            {
+                decodeError = $"Could not decode IL for token 0x{request.MethodToken:X}: "
+                    + methodInstructions.Blocks.IncompleteReason;
+                methodInstructions = null;
+                decoded = false;
+            }
+        }
 
         ILOffsetInstructionContextInfo? instructionContext = null;
         string? instructionError = decodeError == $"Could not decode IL for token 0x{request.MethodToken:X}."
@@ -50,7 +59,7 @@ public static class ILOffsetProjectionProducer
                 methodInstructions!,
                 request.MethodToken,
                 request.ILOffset,
-                operandResolver,
+                bodySource,
                 out instructionError);
         }
 
@@ -83,7 +92,7 @@ public static class ILOffsetProjectionProducer
                 methodInstructions!,
                 request.MethodToken,
                 request.ILOffset,
-                operandResolver,
+                bodySource,
                 out callsiteError);
         }
 
@@ -103,7 +112,7 @@ public static class ILOffsetProjectionProducer
                 methodInstructions!,
                 request.MethodToken,
                 request.ILOffset,
-                operandResolver,
+                bodySource,
                 out returnAddressError);
         }
 
@@ -125,7 +134,7 @@ public static class ILOffsetProjectionProducer
                 request.MethodToken,
                 request.ILOffset,
                 instructionContext,
-                context.Log);
+                request.Log);
         }
         if (Includes(request, ILOffsetProjectionCapabilities.SafetyContext))
             safetyContext = BuildSafetyContext(instructionContext);

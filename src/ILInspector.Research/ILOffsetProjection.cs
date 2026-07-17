@@ -26,7 +26,8 @@ public sealed record ILOffsetProjectionRequest(
     int MethodToken,
     int ILOffset,
     ILOffsetProjectionCapabilities Capabilities,
-    bool BrowsableUrls = false);
+    bool BrowsableUrls = false,
+    Action<string>? Log = null);
 
 /// <summary>The stage that prevented an IL-offset projection from being produced.</summary>
 public enum ILOffsetProjectionFailureKind

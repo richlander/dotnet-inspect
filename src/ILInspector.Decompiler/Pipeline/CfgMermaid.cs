@@ -24,34 +24,50 @@ public static class CfgMermaid
     public static string Render(IReadOnlyList<Block> blocks)
     {
         var edges = Cfg.Build(blocks);
+        return Render(blocks.Select(block => block.StartOffset).ToArray(), edges);
+    }
+
+    /// <summary>
+    /// Returns a complete <c>flowchart TD</c> for representation-neutral block
+    /// offsets and their already-computed edges.
+    /// </summary>
+    internal static string Render(
+        IReadOnlyList<int> blockOffsets,
+        IReadOnlyList<BlockEdges> edges)
+    {
+        ArgumentNullException.ThrowIfNull(blockOffsets);
+        ArgumentNullException.ThrowIfNull(edges);
+        if (blockOffsets.Count != edges.Count)
+            throw new ArgumentException("Block offsets and edges must have the same count.");
+
         var sb = new StringBuilder();
         sb.AppendLine("flowchart TD");
 
-        for (int i = 0; i < blocks.Count; i++)
-            sb.AppendLine($"  {NodeId(blocks[i])}[\"IL_{blocks[i].StartOffset:X4}\"]");
+        for (int i = 0; i < blockOffsets.Count; i++)
+            sb.AppendLine($"  {NodeId(blockOffsets[i])}[\"IL_{blockOffsets[i]:X4}\"]");
 
         bool exits = false, leaves = false;
         var externals = new SortedSet<int>();
 
-        for (int i = 0; i < blocks.Count; i++)
+        for (int i = 0; i < blockOffsets.Count; i++)
         {
             var e = edges[i];
             foreach (int s in e.Successors)
-                sb.AppendLine($"  {NodeId(blocks[i])} --> {NodeId(blocks[s])}");
+                sb.AppendLine($"  {NodeId(blockOffsets[i])} --> {NodeId(blockOffsets[s])}");
             foreach (int t in e.ExternalTargets)
             {
                 externals.Add(t);
-                sb.AppendLine($"  {NodeId(blocks[i])} -.->|external| ext_{t:X4}");
+                sb.AppendLine($"  {NodeId(blockOffsets[i])} -.->|external| ext_{t:X4}");
             }
             if (e.ExitsMethod)
             {
                 exits = true;
-                sb.AppendLine($"  {NodeId(blocks[i])} --> _ret");
+                sb.AppendLine($"  {NodeId(blockOffsets[i])} --> _ret");
             }
             if (e.LeavesRegion)
             {
                 leaves = true;
-                sb.AppendLine($"  {NodeId(blocks[i])} --> _leave");
+                sb.AppendLine($"  {NodeId(blockOffsets[i])} --> _leave");
             }
         }
 
@@ -65,5 +81,5 @@ public static class CfgMermaid
         return sb.ToString();
     }
 
-    static string NodeId(Block block) => $"b{block.StartOffset:X4}";
+    static string NodeId(int offset) => $"b{offset:X4}";
 }

@@ -1,4 +1,3 @@
-using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Output;

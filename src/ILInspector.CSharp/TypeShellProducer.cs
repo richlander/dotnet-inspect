@@ -61,11 +61,20 @@ public static class TypeShellProducer
             return handle.Kind == HandleKind.MethodDefinition
                 && RequiresAsyncBodyModifier(reader, (MethodDefinitionHandle)handle);
         }
+
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
             return false;
         }
     }
+
+    /// <summary>
+    /// Reader-free form for a method selection produced by Metadata.
+    /// </summary>
+    public static bool RequiresAsyncBodyModifier(MethodBodySelection selection)
+        => selection.AsyncClassification == MethodClassification.RuntimeAsync
+            || selection.AsyncClassification == MethodClassification.StateMachineAsync
+                && selection.HasAsyncStateMachineAttribute;
 
     /// <summary>
     /// True when a C# type display name cannot be represented on a skeletal type

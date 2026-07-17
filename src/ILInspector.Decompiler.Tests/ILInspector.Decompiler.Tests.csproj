@@ -121,6 +121,8 @@
              Link="ConditionalBranchShapeClassifier.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\EhShapeClassifier.cs"
              Link="EhShapeClassifier.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\CfgDump.cs"
+             Link="CfgDump.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ShellNoise.cs"
              Link="ShellNoise.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ShellConstraints.cs"

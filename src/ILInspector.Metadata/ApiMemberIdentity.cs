@@ -680,7 +680,7 @@ public static class ApiMemberIdentity
     public static string NormalizeXmlDocParameterType(string parameter)
         => NormalizeXmlDocParameterType(parameter, EmptyParameterMap, EmptyParameterMap);
 
-    internal static string NormalizeXmlDocSignatureParameter(
+    public static string NormalizeXmlDocSignatureParameter(
         string parameter,
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)
@@ -700,7 +700,7 @@ public static class ApiMemberIdentity
         "System.UIntPtr"
     };
 
-    internal static string NormalizeXmlDocParameterType(
+    public static string NormalizeXmlDocParameterType(
         string parameter,
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)

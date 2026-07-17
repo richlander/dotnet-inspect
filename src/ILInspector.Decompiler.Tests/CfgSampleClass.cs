@@ -4636,3 +4636,31 @@ public class ForeachElementProbe
         return total;
     }
 }
+
+// Fixtures for ConstructorBodyFactExtractorTests. The neutral constructor
+// body-fact extractor pattern-matches decompiled IR, so these compiled
+// constructor shapes exercise the chain-call and primary-constructor-prologue
+// detections directly.
+public class ChainedCtorSample
+{
+    public int Value;
+    public string Label;
+
+    // Overload 0 (declared first): parameterless ctor chaining to the
+    // (int, string) overload -> chain parameter types [int, string].
+    public ChainedCtorSample() : this(0, "none")
+    {
+    }
+
+    public ChainedCtorSample(int value, string label)
+    {
+        Value = value;
+        Label = label;
+    }
+}
+
+public class PrimaryCtorSample(int alpha, string beta)
+{
+    public int Alpha => alpha;
+    public string Beta => beta;
+}

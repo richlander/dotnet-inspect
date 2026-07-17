@@ -12,6 +12,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -83,6 +84,8 @@ static class Program
         bool skipPdb = false;
         bool facts = false;
         bool cfg = false;
+        bool cfgStageSpecified = false;
+        var cfgStage = CfgDumpStage.Raised;
         bool mermaid = false;
         bool diff = false;
         bool remarks = false;
@@ -140,6 +143,10 @@ static class Program
                     case "--steps": steps = true; break;
                     case "--facts": facts = true; break;
                     case "--cfg": cfg = true; break;
+                    case "--cfg-stage":
+                        cfgStage = CfgDumpStageParser.Parse(NextArg(args, ref i, flag));
+                        cfgStageSpecified = true;
+                        break;
                     case "--mermaid": mermaid = true; break;
                     case "--diff": diff = true; break;
                     case "--remarks": remarks = true; break;
@@ -280,6 +287,8 @@ static class Program
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
+        if (cfgStageSpecified && (!cfg || dumpMethod is null))
+            return Fail("--cfg-stage requires --dump --cfg.");
 
         if (generatedFixtures)
         {
@@ -447,7 +456,7 @@ static class Program
             if (facts)
                 return DumpFacts(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (cfg)
-                return DumpCfg(assemblies, dumpMethod, dumpIndex, mermaid, skipPdb);
+                return DumpCfg(assemblies, dumpMethod, dumpIndex, cfgStage, mermaid, skipPdb);
             if (diff)
                 return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb);
             if (remarks)
@@ -1300,14 +1309,17 @@ static class Program
     }
 
     /// <summary>
-    /// Renders the control-flow graph of each block container in the raised IR —
-    /// the predecessor/successor edges that otherwise have to be reconstructed
-    /// by eye from <c>Branch IL_xxxx</c> targets across many blocks (issue #633
-    /// item 2). Edges come from the shared <see cref="Cfg.Build"/> the printer's
-    /// definite-assignment dataflow also uses, so the view cannot drift from the
-    /// analysis.
+    /// Renders either the EH-aware IL block graph or each block container in the
+    /// raised IR. Each stage consumes the product-owned edges used by its own
+    /// analysis rather than reconstructing control flow in the harness.
     /// </summary>
-    static int DumpCfg(List<string> assemblies, string dumpMethod, int overloadIndex, bool mermaid = false, bool skipPdb = false)
+    static int DumpCfg(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        CfgDumpStage stage,
+        bool mermaid = false,
+        bool skipPdb = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1319,14 +1331,47 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
-            var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
-            if (function is null)
+            if (IrImporter.ResolveMethodHandle(
+                source.Reader,
+                typeName,
+                methodName,
+                overloadIndex) is not { } methodHandle)
+            {
+                continue;
+            }
+            var method = source.Reader.GetMethodDefinition(methodHandle);
+            if (method.RelativeVirtualAddress == 0)
                 continue;
 
+            if (stage == CfgDumpStage.Il)
+            {
+                IlCfgDump dump;
+                try
+                {
+                    dump = IlCfgDump.From(MethodInstructions.Decode(
+                        source.Pe.GetMethodBody(method.RelativeVirtualAddress)));
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                    or InvalidOperationException
+                    or IOException)
+                {
+                    dump = IlCfgDump.Failed(ex.Message);
+                }
+
+                WriteCfgHeader(assemblyPath, dumpMethod, "il", mermaid);
+                if (dump.Diagnostic is not null)
+                    Console.WriteLine(dump.Diagnostic);
+                WriteCfgGraph(dump.Graph, "IL block graph", mermaid);
+                return dump.ExitCode;
+            }
+
+            var function = IrImporter.Import(source, methodHandle);
+            if (function is null)
+                continue;
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
 
-            string form = mermaid ? "mermaid flowchart" : "control-flow graph";
-            Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {form})");
+            WriteCfgHeader(assemblyPath, dumpMethod, "next", mermaid);
 
             var containers = function.Descendants.Prepend(function).OfType<BlockContainer>().ToList();
             int index = 0;
@@ -1336,56 +1381,48 @@ static class Program
                 if (blocks.Count == 0)
                     continue;
 
-                if (mermaid)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine($"%% container #{index++} ({blocks.Count} block{(blocks.Count == 1 ? "" : "s")})");
-                    Console.WriteLine("```mermaid");
-                    Console.Write(CfgMermaid.Render(blocks));
-                    Console.WriteLine("```");
-                    continue;
-                }
-
-                var edges = Cfg.Build(blocks);
-
-                var preds = new List<int>[blocks.Count];
-                for (int i = 0; i < blocks.Count; i++)
-                    preds[i] = [];
-                for (int i = 0; i < blocks.Count; i++)
-                    foreach (int s in edges[i].Successors)
-                        preds[s].Add(i);
-
-                Console.WriteLine();
-                Console.WriteLine($"container #{index++} ({blocks.Count} block{(blocks.Count == 1 ? "" : "s")}):");
-                for (int i = 0; i < blocks.Count; i++)
-                {
-                    var predOffsets = preds[i].Select(p => blocks[p].StartOffset).Order().ToList();
-                    Console.WriteLine($"  IL_{blocks[i].StartOffset:X4}  preds: {OffsetSet(predOffsets),-28}  succs: {Succs(blocks, edges[i])}");
-                }
+                WriteCfgGraph(
+                    CfgDumpGraph.FromRaised(blocks),
+                    $"container #{index++}",
+                    mermaid);
             }
             return 0;
         }
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
     }
 
+    static void WriteCfgHeader(
+        string assemblyPath,
+        string dumpMethod,
+        string pipeline,
+        bool mermaid)
+    {
+        string form = mermaid ? "mermaid flowchart" : "control-flow graph";
+        Console.WriteLine(
+            $"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: {pipeline}, {form})");
+    }
+
+    static void WriteCfgGraph(CfgDumpGraph graph, string name, bool mermaid)
+    {
+        string count = $"{graph.BlockOffsets.Count} block{(graph.BlockOffsets.Count == 1 ? "" : "s")}";
+        Console.WriteLine();
+        if (mermaid)
+        {
+            Console.WriteLine($"%% {name} ({count})");
+            Console.WriteLine("```mermaid");
+            Console.Write(CfgDumpRenderer.RenderMermaid(graph));
+            Console.WriteLine("```");
+            return;
+        }
+
+        Console.WriteLine($"{name} ({count}):");
+        Console.Write(CfgDumpRenderer.RenderText(graph));
+    }
+
     static MetadataSource OpenSource(string assemblyPath, bool skipPdb, MetadataContext metadata)
         => skipPdb
             ? MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata)
             : MetadataSource.Open(assemblyPath, context: metadata);
-
-    static string Succs(IReadOnlyList<Block> blocks, BlockEdges edges)
-    {
-        var parts = new List<string>();
-        foreach (int s in edges.Successors)
-            parts.Add($"IL_{blocks[s].StartOffset:X4}");
-        foreach (int t in edges.ExternalTargets)
-            parts.Add($"IL_{t:X4} (external)");
-        if (edges.ExitsMethod)
-            parts.Add("(return)");
-        if (edges.LeavesRegion)
-            parts.Add("(leave region)");
-        return parts.Count == 0 ? "-" : string.Join(", ", parts);
-    }
 
     static IReadOnlyList<string> ResolveFixtureAssemblies(string? groupId)
         => groupId is null
@@ -1604,7 +1641,9 @@ static class Program
                                 method sample per assembly.
           --cfg                 with --dump: print the control-flow graph (per-block
                                 predecessor/successor edges) of each block container
-                                in the raised IR.
+                                in the raised IR (the default CFG stage).
+          --cfg-stage <stage>   with --dump --cfg: select raised or il. The il
+                                stage is the flat, EH-aware rung-1 BlockGraph.
           --mermaid             with --dump --cfg: render the control-flow graph as a
                                 mermaid flowchart (GitHub renders it inline) instead
                                 of the textual edge listing.

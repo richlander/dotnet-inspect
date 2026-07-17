@@ -10,7 +10,8 @@ public class DocComment
     public string? Summary { get; set; }
     public string? Remarks { get; set; }
 
-    internal Dictionary<string, string>? Parameters { get; set; }
+    [JsonIgnore]
+    public Dictionary<string, string>? Parameters { get; set; }
     public string? Returns { get; set; }
 
     /// <summary>

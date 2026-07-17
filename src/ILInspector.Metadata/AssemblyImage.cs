@@ -15,6 +15,7 @@ namespace ILInspector.Metadata;
 public sealed class AssemblyImage : IDisposable
 {
     readonly Stream _stream;
+    bool _disposed;
 
     internal PEReader PEReader { get; }
 
@@ -53,8 +54,14 @@ public sealed class AssemblyImage : IDisposable
 
     internal MetadataReader GetMetadataReader() => PEReader.GetMetadataReader();
 
+    internal void EnsureAlive()
+        => ObjectDisposedException.ThrowIf(_disposed, this);
+
     public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         PEReader.Dispose();
         _stream.Dispose();
     }
