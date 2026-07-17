@@ -59,9 +59,14 @@ public static class SelectOutput
                 if (miss.Suggestions.Count > 0)
                 {
                     Console.Error.WriteLine();
-                    Console.Error.WriteLine("Did you mean:");
+                    Console.Error.WriteLine(miss.ListsAllSections ? "Available sections:" : "Did you mean:");
                     foreach (var s in miss.Suggestions)
                         Console.Error.WriteLine($"  {s}");
+                    if (miss.ListsAllSections)
+                    {
+                        Console.Error.WriteLine();
+                        Console.Error.WriteLine("Run with -D to discover sections for this target.");
+                    }
                 }
             }
         }

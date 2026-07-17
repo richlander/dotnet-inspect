@@ -10,6 +10,14 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
+    /// <summary>
+    /// Renders a type's simple name with generic arity expanded to a C#-friendly
+    /// form (<c>JsonConverter`1</c> → <c>JsonConverter&lt;T&gt;</c>) so diff headings
+    /// and rows avoid raw metadata arity backticks.
+    /// </summary>
+    private static string FormatTypeDisplayName(string typeFullName)
+        => MetadataTypeNameFormatter.FormatGenericTypeName(TypeMatcher.GetSimpleName(typeFullName));
+
     public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
         foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
@@ -54,7 +62,7 @@ public static class DiffOutputFormatter
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            return new DiffTableRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
+            return new DiffTableRow(symbol, FormatTypeDisplayName(td.TypeFullName), detail);
         }).ToList();
 
         return new DiffTableView
@@ -240,7 +248,7 @@ public static class DiffOutputFormatter
         var view = new DiffFullView
         {
             Title = $"API Diff: {name}",
-            Versions = $"**{fromVersion}** -> **{toVersion}**",
+            Versions = $"**{fromVersion}** → **{toVersion}**",
         };
 
         if (typeDiffs.Count == 0)
@@ -445,7 +453,7 @@ public static class DiffOutputFormatter
 
         foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
         {
-            var typeName = TypeMatcher.GetSimpleName(td.TypeFullName);
+            var typeName = FormatTypeDisplayName(td.TypeFullName);
             foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
                 var message = change.Message;
@@ -465,7 +473,7 @@ public static class DiffOutputFormatter
         => new(
             ChangeSymbol(change.Classification, change.Kind),
             ClassificationText(change.Classification),
-            TypeMatcher.GetSimpleName(typeFullName),
+            FormatTypeDisplayName(typeFullName),
             change.Subject?.OldMember?.StableSelector
                 ?? change.Subject?.NewMember?.StableSelector
                 ?? "",

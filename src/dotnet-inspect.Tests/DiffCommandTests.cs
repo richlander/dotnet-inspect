@@ -131,6 +131,47 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void RenderFullMarkdown_GenericType_UsesCSharpFriendlyHeading()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'Write' signature changed",
+            "void Write(T value)",
+            "void Write(T? value)");
+
+        var markdown = DiffOutputFormatter.RenderFullMarkdown(
+            "Sample",
+            [new TypeDiff("Sample.Box`1", [change])],
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Contains("Box&lt;T&gt;", markdown);
+        Assert.DoesNotContain("Box`1", markdown);
+        Assert.DoesNotContain("&#96;", markdown);
+    }
+
+    [Fact]
+    public void RenderFullMarkdown_Versions_UsesArrowNotAsciiHyphen()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'M' signature changed",
+            "void M()",
+            "void M(int x)");
+
+        var markdown = DiffOutputFormatter.RenderFullMarkdown(
+            "Sample",
+            [new TypeDiff("Sample.Widget", [change])],
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Contains("**1.0.0** → **2.0.0**", markdown);
+        Assert.DoesNotContain("**1.0.0** -> **2.0.0**", markdown);
+    }
+
+    [Fact]
     public void BuildFindingTransitions_TypeIntroduction_IsNativeAddedPair()
     {
         var oldSurface = new ApiSurface();
