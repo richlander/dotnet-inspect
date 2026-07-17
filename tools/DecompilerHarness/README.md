@@ -278,7 +278,7 @@ mechanically (never hand-edit it) after a deliberate population change:
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --compile-cap 0 \
-  --corpus-fidelity-cap 50 \
+  --corpus-fidelity-cap 3 \
   --corpus-fidelity-oracle rts-parity \
   --emit-rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json
 ```
@@ -304,9 +304,15 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
   --quality-diff-card \
   --compile-cap 4000 \
-  --corpus-fidelity-cap 3 \
+  --corpus-fidelity-cap 50 \
   --max-examples 3
 ```
+
+The cap-50 baseline also incorporates the structured validity classification
+already shipped in #2684. Its 39 `CS0161` rows were previously hidden by the
+old message-substring shell filter; they are genuine missing-return defects and
+remain visible measured debt. The fidelity-cap increase did not create that
+semantic-validity population.
 
 To capture an RTS snapshot without comparing it to the compile-back baseline:
 
