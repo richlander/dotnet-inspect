@@ -276,6 +276,12 @@ assembly's three known-misuse methods surfaced exactly once each. The separate `
 section uses the actionability contract below and does not reinterpret these rows as correctness
 findings.
 
+The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
+enumerating the PE independently. Product commands can combine that feature with the other
+Analysis producers in one metadata/body acquisition; the Leak Triage producer still owns its
+specialized instruction, CFG, and reaching-definitions interpretation. The harness consumes this
+product acquisition path and does not reconstruct an assembly walk.
+
 ## Leak actionability corpus sensor (#2439)
 
 `--leak-actionability` reports the leak-triage `exception-path-leak-candidate` bucket by
@@ -289,8 +295,9 @@ dotnet "$DLL" --leak-actionability assemblies.txt --tsv        # section-tagged 
 dotnet "$DLL" --leak-actionability assemblies.txt --jsonl      # one JSON record per row
 ```
 
-The harness owns corpus orchestration and reporting only. `ResourceLifecycleAnalysis` attributes
-exact unprotected boundaries from the rented local's def-use evidence;
+The harness owns corpus orchestration and reporting only. `ResourceLifecycleAnalysis` consumes
+the same opt-in body-index producer as Leak Triage and attributes exact unprotected boundaries
+from the rented local's def-use evidence;
 `ResourceTriageAnalysis` assesses that evidence by what each boundary touches:
 
 - `untrusted-actionable` — a boundary **reads/decodes/parses external input**

@@ -51,6 +51,18 @@ public class SourceLinkService : IDisposable
     }
 
     /// <summary>
+    /// Opens an assembly with its complete PE image prefetched for shared
+    /// parallel body analysis.
+    /// </summary>
+    public static SourceLinkService OpenPrefetched(
+        string assemblyPath,
+        Action<string>? log = null)
+    {
+        var context = PdbContext.OpenPrefetched(assemblyPath, log);
+        return new SourceLinkService(context, DefaultCache);
+    }
+
+    /// <summary>
     /// The underlying PdbContext for PE/PDB plumbing not covered by this service.
     /// </summary>
     public PdbContext Context => _context;

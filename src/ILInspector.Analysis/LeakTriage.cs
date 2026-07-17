@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -76,63 +75,21 @@ public static class LeakTriageAnalyzer
     public static LeakTriageResult AnalyzeAssemblyDetailed(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.LeakTriage).LeakTriage;
+    }
 
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
-        var assembly = reader.GetAssemblyDefinition();
-        var assemblyName = reader.GetString(assembly.Name);
-        var mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
-        var findings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
-        var candidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
-        var exceptionPathCandidates = ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
-
-        foreach (var typeHandle in reader.TypeDefinitions)
+    internal static MethodIdentity CreateAssemblyScanMethodIdentity(
+        MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        return method with
         {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var methodDef = reader.GetMethodDefinition(methodHandle);
-                if (methodDef.RelativeVirtualAddress == 0)
-                    continue;
-
-                try
-                {
-                    var scope = CreateScope(reader, typeDef, methodDef);
-                    if (!ILInspector.Metadata.SignatureBlobGuard.IsSafeToDecode(reader, methodDef.Signature, ILInspector.Metadata.SignatureBlobGuard.Kind.Method))
-                        continue;
-                    var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
-                    var method = new MethodIdentity(
-                        assemblyName,
-                        mvid,
-                        TypeRefDecoder.Instance.GetTypeFromDefinition(reader, typeHandle, 0),
-                        reader.GetString(methodDef.Name),
-                        signature.ParameterTypes,
-                        signature.ReturnType,
-                        MetadataTokens.GetToken(methodHandle),
-                        (methodDef.Attributes & MethodAttributes.Static) != 0);
-                    var body = peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-                    var result = AnalyzeMethodDetailed(
-                        method,
-                        body.GetILBytes() ?? [],
-                        body.ExceptionRegions,
-                        token => MemberResolver.ResolveMethod(reader, MetadataTokens.EntityHandle(token), scope),
-                        token => ResolveCatchTypeRef(reader, MetadataTokens.EntityHandle(token), scope));
-                    findings.AddRange(result.Findings);
-                    candidates.AddRange(result.Candidates);
-                    exceptionPathCandidates.AddRange(result.ExceptionPathCandidates);
-                }
-                catch (Exception ex) when (IsRecoverable(ex))
-                {
-                    // Correctness triage is fail-closed: malformed or unsupported method
-                    // evidence yields no accusations for that method.
-                }
-            }
-        }
-
-        return new LeakTriageResult(findings.ToImmutable(), candidates.ToImmutable())
-        {
-            ExceptionPathCandidates = exceptionPathCandidates.ToImmutable(),
+            IsExtension = false,
+            CallerUnsafeMode = CallerUnsafeMode.None,
+            GenericArity = 0,
+            GenericParameterNames = [],
         };
     }
 
@@ -620,7 +577,11 @@ public static class LeakTriageAnalyzer
     static readonly IReadOnlySet<(int TryOffset, int TryLength, int HandlerOffset)> EmptyCatchCleanup =
         ImmutableHashSet<(int, int, int)>.Empty;
 
-    static TypeRef? ResolveCatchTypeRef(MetadataReader reader, EntityHandle handle, GenericScope scope) => handle.Kind switch
+    internal static TypeRef? ResolveCatchTypeRef(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericScope scope)
+        => handle.Kind switch
     {
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)handle, 0),
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)handle, 0),
@@ -1108,20 +1069,7 @@ public static class LeakTriageAnalyzer
     static int ArgumentSlotCount(MethodIdentity method)
         => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
 
-    static GenericScope CreateScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
-        => new(GenericParameterNames(reader, typeDef.GetGenericParameters()), GenericParameterNames(reader, methodDef.GetGenericParameters()));
-
-    static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
-    {
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
-    }
-
-    static bool IsRecoverable(Exception ex)
+    internal static bool IsRecoverable(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException;
 
     sealed record RentedLocal(int RentOffset, int StoreOffset, int Slot, LocalDefinition Definition);

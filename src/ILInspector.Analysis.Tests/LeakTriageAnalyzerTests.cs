@@ -290,6 +290,149 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void LibraryBodyIndex_RequiresLeakTriageFeature()
+    {
+        string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+
+        Assert.Throws<InvalidOperationException>(() => index.LeakTriage);
+
+        var leakIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.LeakTriage);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.LeakTriage,
+            leakIndex.Features);
+        Assert.Empty(leakIndex.DeclaredMethods);
+        Assert.Empty(leakIndex.Methods);
+        Assert.Empty(leakIndex.DirectCalls);
+        Assert.Empty(leakIndex.UnsafeEvidence);
+        Assert.Empty(leakIndex.GetAllocationOccurrences());
+        Assert.Empty(leakIndex.GetUnsafetyOccurrences());
+        Assert.Contains(leakIndex.LeakTriage.ExceptionPathCandidates, candidate =>
+            candidate.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn));
+    }
+
+    [Fact]
+    public void LibraryBodyIndex_NormalizesFeatureDependencies()
+    {
+        string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
+
+        var allocations = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.Allocations);
+        var opportunities = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.Allocations,
+            allocations.Features);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.Default,
+            opportunities.Features);
+    }
+
+    [Fact]
+    public void LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage()
+    {
+        string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
+        var image = ImmutableArray.Create(File.ReadAllBytes(path));
+
+        var shared = LibraryBodyIndex.OpenFromPrefetchedImage(
+            path,
+            image,
+            LibraryBodyAnalysisFeatures.All);
+        var owned = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.All);
+
+        Assert.True(owned.DirectCalls.SequenceEqual(shared.DirectCalls));
+        Assert.True(
+            owned.LeakTriage.Candidates.SequenceEqual(
+                shared.LeakTriage.Candidates));
+        Assert.True(
+            owned.LeakTriage.ExceptionPathCandidates.SequenceEqual(
+                shared.LeakTriage.ExceptionPathCandidates));
+        Assert.False(image.IsDefaultOrEmpty);
+    }
+
+    [Fact]
+    public void LibraryBodyIndex_RejectsScopedLeakTriageCensus()
+    {
+        string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
+
+        Assert.Throws<ArgumentException>(() => LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.LeakTriage,
+            bodyScope: new HashSet<int>()));
+    }
+
+    [Fact]
+    public void ResourceLifecycleAnalysis_ConsumesSharedBodyIndex()
+    {
+        string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.LeakTriage);
+        int acquisitions = 0;
+
+        var inspection = ResourceLifecycleAnalysis.InspectAssembly(
+            () =>
+            {
+                acquisitions++;
+                return index;
+            },
+            new FindingSubject("fixtures", "fixtures"));
+
+        Assert.Equal(1, acquisitions);
+        var complete =
+            Assert.IsType<FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                inspection.Value);
+        Assert.Contains(complete.Findings, finding =>
+            finding.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadBeforeReturn));
+    }
+
+    [Fact]
+    public void LeakTriageAssemblyIdentity_PreservesLegacyShape()
+    {
+        var indexed = new MethodIdentity(
+            "Fixtures",
+            Guid.NewGuid(),
+            TypeRef.Definition("Fixtures", "Fixtures", "Extensions"),
+            "Read",
+            [TypeRef.CoreLib("System.IO", "Stream")],
+            TypeRef.CoreLib("System", "Int32"),
+            0x06000001,
+            IsStatic: true,
+            IsExtension: true,
+            CallerUnsafeMode.Explicit,
+            GenericArity: 1,
+            GenericParameterNames: ["T"]);
+
+        var assemblyScan =
+            LeakTriageAnalyzer.CreateAssemblyScanMethodIdentity(indexed);
+
+        Assert.False(assemblyScan.IsExtension);
+        Assert.Equal(CallerUnsafeMode.None, assemblyScan.CallerUnsafeMode);
+        Assert.Equal(0, assemblyScan.GenericArity);
+        Assert.Empty(assemblyScan.GenericParameterNames);
+        Assert.Equal(indexed.AssemblyName, assemblyScan.AssemblyName);
+        Assert.Equal(indexed.ModuleVersionId, assemblyScan.ModuleVersionId);
+        Assert.Equal(indexed.DeclaringType, assemblyScan.DeclaringType);
+        Assert.Equal(indexed.Name, assemblyScan.Name);
+        Assert.Equal(indexed.ParameterTypes, assemblyScan.ParameterTypes);
+        Assert.Equal(indexed.ReturnType, assemblyScan.ReturnType);
+        Assert.Equal(indexed.MetadataToken, assemblyScan.MetadataToken);
+        Assert.Equal(indexed.IsStatic, assemblyScan.IsStatic);
+    }
+
+    [Fact]
     public void LeakActionabilitySensor_ConsumesProductClassification()
     {
         var report = LeakActionabilitySensor.Measure(
