@@ -158,6 +158,12 @@ internal static class CSharpDeclarationWriter
                     foreach (var typeParameter in signature.TypeParameters)
                         declaredSimpleNames.Add(typeParameter.Name);
                 }
+
+                // Members whose signature failed structured decoding fall back to the
+                // raw signature string, whose generic method parameters are not in
+                // SignatureModel. Parse them so they still shadow same-named references.
+                foreach (var name in RawSignatureGenericParameterNames(member))
+                    declaredSimpleNames.Add(name);
             }
         }
 
@@ -466,6 +472,61 @@ internal static class CSharpDeclarationWriter
         {
             if (TryParameterType(parameter, out var parameterType))
                 yield return parameterType;
+        }
+    }
+
+    static IEnumerable<string> RawSignatureGenericParameterNames(ApiMember member)
+    {
+        var signature = member.Signature;
+        if (string.IsNullOrWhiteSpace(signature))
+            yield break;
+        if (member.Kind is "property" or "field" or "event" or "constructor")
+            yield break;
+
+        var parenStart = signature.IndexOf('(');
+        if (parenStart < 0)
+            yield break;
+
+        var prefix = signature[..parenStart].TrimEnd();
+        var nameIndex = prefix.LastIndexOf(member.Name, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            yield break;
+
+        var afterName = prefix[(nameIndex + member.Name.Length)..];
+        var i = 0;
+        while (i < afterName.Length && char.IsWhiteSpace(afterName[i]))
+            i++;
+        if (i >= afterName.Length || afterName[i] != '<')
+            yield break;
+
+        var depth = 0;
+        var start = i + 1;
+        var end = -1;
+        for (; i < afterName.Length; i++)
+        {
+            if (afterName[i] == '<')
+                depth++;
+            else if (afterName[i] == '>')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        if (end < 0)
+            yield break;
+
+        foreach (var part in SplitTopLevel(afterName[start..end]))
+        {
+            var name = part.Trim();
+            var space = name.IndexOf(' ');
+            if (space >= 0)
+                name = name[(space + 1)..].Trim();
+            if (name.Length > 0)
+                yield return name;
         }
     }
 

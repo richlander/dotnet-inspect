@@ -735,6 +735,29 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RawSignatureMethodTypeParameterShadowsReferenceAndStaysQualified()
+    {
+        // A generic method whose signature failed structured decoding falls back to the
+        // raw Signature string (no SignatureModel). Its type parameter `Task` still
+        // shadows the same-named return type reference, so the namespace must not be
+        // imported and the reference must stay qualified.
+        var type = CreateEmptyType("Samples", "Worker");
+        type.IsAbstract = true;
+        type.Members.Add(new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            IsAbstract = true,
+            Signature = "System.Threading.Tasks.Task Run<Task>()"
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("System.Threading.Tasks.Task Run<Task>()", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReferenceCollidingWithDeclaredTypeStaysQualified()
     {
         // A type declared as `Task` referencing `System.Threading.Tasks.Task` must not
