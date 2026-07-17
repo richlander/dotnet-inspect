@@ -194,6 +194,25 @@ public class MetadataRelationshipTraversalTests
     }
 
     [Fact]
+    public void CompatibilityApis_NormalizeMalformedLeafHandles()
+    {
+        using var image = BuildMetadata(static _ => { });
+
+        AssertCompatibilityMalformed(
+            () => TypeResolver.GetTypeNameFromDefinition(
+                image.Reader,
+                MetadataTokens.TypeDefinitionHandle(99)));
+        AssertCompatibilityMalformed(
+            () => TypeResolver.GetTypeNameFromReference(
+                image.Reader,
+                MetadataTokens.TypeReferenceHandle(99)));
+        AssertCompatibilityMalformed(
+            () => TypeResolver.GetTypeNameFromExportedType(
+                image.Reader,
+                MetadataTokens.ExportedTypeHandle(99)));
+    }
+
+    [Fact]
     public void CyclicRelationshipFunnels_AreContainedInChildProcess()
         => RunWorker(nameof(CyclicRelationshipFunnelsWorker));
 
@@ -359,6 +378,15 @@ public class MetadataRelationshipTraversalTests
         var rejected = Assert.IsType<RelationshipTraversalResult<T>.Rejected>(result);
         Assert.Equal(kind, rejected.Rejection.Kind);
         Assert.Equal(consumedNodes, rejected.Rejection.ConsumedNodes);
+    }
+
+    static void AssertCompatibilityMalformed(Action action)
+    {
+        var exception = Assert.Throws<BadImageFormatException>(action);
+        Assert.StartsWith(
+            "Metadata relationship traversal rejected (MalformedMetadata):",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     static bool IsSelectedWorker(string methodName)

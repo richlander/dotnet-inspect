@@ -41,10 +41,18 @@ public static class TypeResolver
     /// </summary>
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
     {
-        var typeRef = reader.GetTypeReference(handle);
-        return typeRef.ResolutionScope.Kind != HandleKind.TypeReference
-            ? GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name))
-            : ResolveTypeNameFromReference(reader, handle).GetValueOrThrow();
+        try
+        {
+            var typeRef = reader.GetTypeReference(handle);
+            if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
+                return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return ThrowMalformed(ex, handle);
+        }
+
+        return ResolveTypeNameFromReference(reader, handle).GetValueOrThrow();
     }
 
     /// <summary>
@@ -93,10 +101,18 @@ public static class TypeResolver
     /// </summary>
     public static string GetTypeNameFromDefinition(MetadataReader reader, TypeDefinitionHandle handle)
     {
-        var typeDef = reader.GetTypeDefinition(handle);
-        return typeDef.GetDeclaringType().IsNil
-            ? GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name))
-            : ResolveTypeNameFromDefinition(reader, handle).GetValueOrThrow();
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (typeDef.GetDeclaringType().IsNil)
+                return GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return ThrowMalformed(ex, handle);
+        }
+
+        return ResolveTypeNameFromDefinition(reader, handle).GetValueOrThrow();
     }
 
     /// <summary>
@@ -188,10 +204,18 @@ public static class TypeResolver
         MetadataReader reader,
         ExportedTypeHandle handle)
     {
-        var exportedType = reader.GetExportedType(handle);
-        return exportedType.Implementation.Kind != HandleKind.ExportedType
-            ? GetFullName(reader.GetString(exportedType.Namespace), reader.GetString(exportedType.Name))
-            : ResolveTypeNameFromExportedType(reader, handle).GetValueOrThrow();
+        try
+        {
+            var exportedType = reader.GetExportedType(handle);
+            if (exportedType.Implementation.Kind != HandleKind.ExportedType)
+                return GetFullName(reader.GetString(exportedType.Namespace), reader.GetString(exportedType.Name));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return ThrowMalformed(ex, handle);
+        }
+
+        return ResolveTypeNameFromExportedType(reader, handle).GetValueOrThrow();
     }
 
     /// <summary>
@@ -564,4 +588,9 @@ public static class TypeResolver
         RelationshipTraversalRejection rejection)
         where T : notnull
         => new RelationshipTraversalResult<T>.Rejected(rejection);
+
+    static string ThrowMalformed(
+        Exception exception,
+        EntityHandle subject)
+        => Malformed<string>(exception, subject, consumedNodes: 1).GetValueOrThrow();
 }
