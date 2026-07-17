@@ -65,9 +65,32 @@ public static class MetadataRelationshipTraversal
                 consumedNodes: 0);
         }
 
-        var visited = new HashSet<EntityHandle>();
+        THandle firstHandle;
+        EntityHandle current;
+        try
+        {
+            firstHandle = convert(start);
+            current = next(firstHandle);
+        }
+        catch (BadImageFormatException ex)
+        {
+            return Malformed<THandle>(ex, start, consumedNodes: 1);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return Malformed<THandle>(ex, start, consumedNodes: 1);
+        }
+
+        if (current.IsNil || current.Kind != relationshipKind)
+        {
+            return new RelationshipTraversalResult<RelationshipChain<THandle>>.Completed(
+                new RelationshipChain<THandle>([firstHandle], current),
+                consumedNodes: 1);
+        }
+
+        var visited = new HashSet<EntityHandle> { start };
         var leafToRoot = ImmutableArray.CreateBuilder<THandle>();
-        var current = start;
+        leafToRoot.Add(firstHandle);
 
         while (!current.IsNil && current.Kind == relationshipKind)
         {
@@ -90,10 +113,9 @@ public static class MetadataRelationshipTraversal
                     leafToRoot.Count);
             }
 
-            THandle typedHandle;
             try
             {
-                typedHandle = convert(current);
+                var typedHandle = convert(current);
                 leafToRoot.Add(typedHandle);
                 current = next(typedHandle);
             }

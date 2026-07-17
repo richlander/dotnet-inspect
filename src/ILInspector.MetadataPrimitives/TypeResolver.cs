@@ -40,7 +40,12 @@ public static class TypeResolver
     /// <c>Builder</c>). Mirrors <see cref="GetFullName(MetadataReader, TypeDefinition)"/>.
     /// </summary>
     public static string GetTypeNameFromReference(MetadataReader reader, TypeReferenceHandle handle)
-        => ResolveTypeNameFromReference(reader, handle).GetValueOrThrow();
+    {
+        var typeRef = reader.GetTypeReference(handle);
+        return typeRef.ResolutionScope.Kind != HandleKind.TypeReference
+            ? GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name))
+            : ResolveTypeNameFromReference(reader, handle).GetValueOrThrow();
+    }
 
     /// <summary>
     /// Resolves a TypeReference name through a bounded, cycle-aware
@@ -49,7 +54,30 @@ public static class TypeResolver
     public static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
         MetadataReader reader,
         TypeReferenceHandle handle)
-        => FormatChain(
+    {
+        try
+        {
+            var typeRef = reader.GetTypeReference(handle);
+            if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
+            {
+                return CompleteLeafName(
+                    reader,
+                    typeRef.Namespace,
+                    typeRef.Name,
+                    handle,
+                    consumedNodes: 1);
+            }
+        }
+        catch (BadImageFormatException ex)
+        {
+            return Malformed<string>(ex, handle, consumedNodes: 1);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return Malformed<string>(ex, handle, consumedNodes: 1);
+        }
+
+        return FormatChain(
             reader,
             MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle),
             current =>
@@ -58,12 +86,18 @@ public static class TypeResolver
                 return (typeRef.Namespace, typeRef.Name);
             },
             static current => current);
+    }
 
     /// <summary>
     /// Gets the type name from a TypeDefinition handle.
     /// </summary>
     public static string GetTypeNameFromDefinition(MetadataReader reader, TypeDefinitionHandle handle)
-        => ResolveTypeNameFromDefinition(reader, handle).GetValueOrThrow();
+    {
+        var typeDef = reader.GetTypeDefinition(handle);
+        return typeDef.GetDeclaringType().IsNil
+            ? GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name))
+            : ResolveTypeNameFromDefinition(reader, handle).GetValueOrThrow();
+    }
 
     /// <summary>
     /// Resolves a TypeDefinition name through a bounded, cycle-aware
@@ -72,7 +106,30 @@ public static class TypeResolver
     public static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
         MetadataReader reader,
         TypeDefinitionHandle handle)
-        => FormatChain(
+    {
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(handle);
+            if (typeDef.GetDeclaringType().IsNil)
+            {
+                return CompleteLeafName(
+                    reader,
+                    typeDef.Namespace,
+                    typeDef.Name,
+                    handle,
+                    consumedNodes: 1);
+            }
+        }
+        catch (BadImageFormatException ex)
+        {
+            return Malformed<string>(ex, handle, consumedNodes: 1);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return Malformed<string>(ex, handle, consumedNodes: 1);
+        }
+
+        return FormatChain(
             reader,
             MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
             current =>
@@ -81,6 +138,7 @@ public static class TypeResolver
                 return (typeDef.Namespace, typeDef.Name);
             },
             static current => current);
+    }
 
     /// <summary>
     /// Resolves an ExportedType name through a bounded, cycle-aware
@@ -89,7 +147,30 @@ public static class TypeResolver
     public static RelationshipTraversalResult<string> ResolveTypeNameFromExportedType(
         MetadataReader reader,
         ExportedTypeHandle handle)
-        => FormatChain(
+    {
+        try
+        {
+            var exportedType = reader.GetExportedType(handle);
+            if (exportedType.Implementation.Kind != HandleKind.ExportedType)
+            {
+                return CompleteLeafName(
+                    reader,
+                    exportedType.Namespace,
+                    exportedType.Name,
+                    handle,
+                    consumedNodes: 1);
+            }
+        }
+        catch (BadImageFormatException ex)
+        {
+            return Malformed<string>(ex, handle, consumedNodes: 1);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return Malformed<string>(ex, handle, consumedNodes: 1);
+        }
+
+        return FormatChain(
             reader,
             MetadataRelationshipTraversal.WalkExportedTypeImplementationChain(reader, handle),
             current =>
@@ -98,6 +179,7 @@ public static class TypeResolver
                 return (exportedType.Namespace, exportedType.Name);
             },
             static current => current);
+    }
 
     /// <summary>
     /// Gets an ExportedType name or throws at a caller-owned failure boundary.
@@ -105,7 +187,12 @@ public static class TypeResolver
     public static string GetTypeNameFromExportedType(
         MetadataReader reader,
         ExportedTypeHandle handle)
-        => ResolveTypeNameFromExportedType(reader, handle).GetValueOrThrow();
+    {
+        var exportedType = reader.GetExportedType(handle);
+        return exportedType.Implementation.Kind != HandleKind.ExportedType
+            ? GetFullName(reader.GetString(exportedType.Namespace), reader.GetString(exportedType.Name))
+            : ResolveTypeNameFromExportedType(reader, handle).GetValueOrThrow();
+    }
 
     /// <summary>
     /// Gets the type name from a TypeSpecification handle (generic instantiations).

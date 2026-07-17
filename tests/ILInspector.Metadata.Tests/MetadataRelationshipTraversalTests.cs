@@ -115,6 +115,9 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal([outer, middle, leaf], completed.Value.Handles);
         Assert.Equal((EntityHandle)assembly, completed.Value.Terminal);
         Assert.Equal(
+            "N.Outer",
+            image.Reader.GetFullTypeName(image.Reader.GetExportedType(outer)));
+        Assert.Equal(
             "N.Outer.Middle.Leaf",
             image.Reader.ResolveFullTypeName(leaf).GetValueOrThrow());
     }
