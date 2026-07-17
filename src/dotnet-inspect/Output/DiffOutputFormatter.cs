@@ -12,8 +12,10 @@ public static class DiffOutputFormatter
 {
     /// <summary>
     /// Renders a type's simple name with generic arity expanded to a C#-friendly
-    /// form (<c>JsonConverter`1</c> → <c>JsonConverter&lt;T&gt;</c>) so diff headings
-    /// and rows avoid raw metadata arity backticks.
+    /// form (<c>JsonConverter`1</c> → <c>JsonConverter&lt;T&gt;</c>) for the human
+    /// Markdown diff view only. Machine-facing tabular views (<c>--table</c>/<c>--tsv</c>/
+    /// <c>--jsonl</c>) keep the canonical metadata name (arity backtick) so the Type
+    /// field stays a stable, script-parseable identifier.
     /// </summary>
     private static string FormatTypeDisplayName(string typeFullName)
         => MetadataTypeNameFormatter.FormatGenericTypeName(TypeMatcher.GetSimpleName(typeFullName));
@@ -62,7 +64,7 @@ public static class DiffOutputFormatter
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            return new DiffTableRow(symbol, FormatTypeDisplayName(td.TypeFullName), detail);
+            return new DiffTableRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
         }).ToList();
 
         return new DiffTableView
@@ -473,7 +475,7 @@ public static class DiffOutputFormatter
         => new(
             ChangeSymbol(change.Classification, change.Kind),
             ClassificationText(change.Classification),
-            FormatTypeDisplayName(typeFullName),
+            TypeMatcher.GetSimpleName(typeFullName),
             change.Subject?.OldMember?.StableSelector
                 ?? change.Subject?.NewMember?.StableSelector
                 ?? "",

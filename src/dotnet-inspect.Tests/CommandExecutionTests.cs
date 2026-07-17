@@ -9577,7 +9577,7 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Contains("not found", error);
         Assert.Contains("Available sections:", error);
-        Assert.Contains("-D", error);
+        Assert.Contains("Run with -D to discover sections", error);
     }
 
     [Fact]
