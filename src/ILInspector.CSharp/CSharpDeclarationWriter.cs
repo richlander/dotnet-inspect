@@ -483,50 +483,69 @@ internal static class CSharpDeclarationWriter
         if (member.Kind is "property" or "field" or "event" or "constructor")
             yield break;
 
-        var parenStart = signature.IndexOf('(');
-        if (parenStart < 0)
+        // The generic method parameter list is `Name<...>(` — the method name (a whole
+        // token) immediately followed by an angle-bracket group and then the parameter
+        // list. Anchor on that shape rather than on the first '(' in the signature, so a
+        // tuple or generic return type (whose own '(' / '<' come first) does not fool the
+        // parser. Scan every occurrence of the name to skip matches inside the return
+        // type (e.g. `TaskRun Run<T>()` or `Run<U> Run<T>()`).
+        var name = member.Name;
+        if (name.Length == 0)
             yield break;
 
-        var prefix = signature[..parenStart].TrimEnd();
-        var nameIndex = prefix.LastIndexOf(member.Name, StringComparison.Ordinal);
-        if (nameIndex < 0)
-            yield break;
-
-        var afterName = prefix[(nameIndex + member.Name.Length)..];
-        var i = 0;
-        while (i < afterName.Length && char.IsWhiteSpace(afterName[i]))
-            i++;
-        if (i >= afterName.Length || afterName[i] != '<')
-            yield break;
-
-        var depth = 0;
-        var start = i + 1;
-        var end = -1;
-        for (; i < afterName.Length; i++)
+        var searchStart = 0;
+        while (searchStart <= signature.Length - name.Length)
         {
-            if (afterName[i] == '<')
-                depth++;
-            else if (afterName[i] == '>')
+            var nameIndex = signature.IndexOf(name, searchStart, StringComparison.Ordinal);
+            if (nameIndex < 0)
+                yield break;
+            searchStart = nameIndex + 1;
+
+            if (nameIndex > 0 && (char.IsLetterOrDigit(signature[nameIndex - 1]) || signature[nameIndex - 1] == '_'))
+                continue;
+
+            var j = nameIndex + name.Length;
+            while (j < signature.Length && char.IsWhiteSpace(signature[j]))
+                j++;
+            if (j >= signature.Length || signature[j] != '<')
+                continue;
+
+            var depth = 0;
+            var start = j + 1;
+            var end = -1;
+            for (var i = j; i < signature.Length; i++)
             {
-                depth--;
-                if (depth == 0)
+                if (signature[i] == '<')
+                    depth++;
+                else if (signature[i] == '>')
                 {
-                    end = i;
-                    break;
+                    depth--;
+                    if (depth == 0)
+                    {
+                        end = i;
+                        break;
+                    }
                 }
             }
-        }
-        if (end < 0)
-            yield break;
+            if (end < 0)
+                continue;
 
-        foreach (var part in SplitTopLevel(afterName[start..end]))
-        {
-            var name = part.Trim();
-            var space = name.IndexOf(' ');
-            if (space >= 0)
-                name = name[(space + 1)..].Trim();
-            if (name.Length > 0)
-                yield return name;
+            var afterBracket = end + 1;
+            while (afterBracket < signature.Length && char.IsWhiteSpace(signature[afterBracket]))
+                afterBracket++;
+            if (afterBracket >= signature.Length || signature[afterBracket] != '(')
+                continue;
+
+            foreach (var part in SplitTopLevel(signature[start..end]))
+            {
+                var parameterName = part.Trim();
+                var space = parameterName.IndexOf(' ');
+                if (space >= 0)
+                    parameterName = parameterName[(space + 1)..].Trim();
+                if (parameterName.Length > 0)
+                    yield return parameterName;
+            }
+            yield break;
         }
     }
 

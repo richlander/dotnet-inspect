@@ -758,6 +758,31 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RawSignatureTupleReturnMethodTypeParameterStaysQualified()
+    {
+        // A tuple return type puts a '(' before the parameter list, so the raw-signature
+        // parser must anchor on the method name + generic list, not the first '('. The
+        // method type parameter `Task` still shadows the same-named references.
+        var type = CreateEmptyType("Samples", "Worker");
+        type.IsAbstract = true;
+        type.Members.Add(new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            IsAbstract = true,
+            Signature = "(System.Threading.Tasks.Task, int) Run<Task>(System.Threading.Tasks.Task value)"
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "(Task, int)",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReferenceCollidingWithDeclaredTypeStaysQualified()
     {
         // A type declared as `Task` referencing `System.Threading.Tasks.Task` must not
