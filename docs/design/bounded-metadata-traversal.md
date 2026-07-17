@@ -187,6 +187,50 @@ must not be folded into signature parsing. A shallow signature can reference a
 cyclic TypeRef/TypeDef graph, and a valid graph can contain a structurally
 unsafe signature. Each boundary must remain independently enforced.
 
+## dotnet/runtime precedent
+
+The runtime validates the overall safety model, but not every proposed
+mechanic.
+
+`System.Reflection.Metadata.TypeName` applies an explicit node budget to
+potentially hostile input. `TypeNameParseOptions.MaxNodes` defaults to 20 and
+warns that a large value can make parsing susceptible to denial-of-service
+attacks
+([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/TypeNameParseOptions.cs#L7-L29)).
+The formatter documents that this node count bounds total work and recursive
+stack depth
+([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/TypeName.cs#L194-L202)).
+Over-budget or invalid input is rejected through `TryParse`/exceptions; it is
+not returned as a plausible truncated type name.
+
+SRM also applies a mechanism-specific anti-cycle rule during signature decode:
+a `CLASS` or `VALUETYPE` token may not name a TypeSpec, explicitly "to prevent
+cycles," and malformed handles produce `BadImageFormatException`
+([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.Metadata/src/System/Reflection/Metadata/Ecma335/SignatureDecoder.cs#L300-L330)).
+This supports keeping signature structure, TypeSpec re-entry, and relationship
+graphs as separate safety mechanisms.
+
+MetadataLoadContext provides partial precedent for ownership separation: its
+type-string helpers build names from raw metadata without resolving `Type`
+objects
+([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.MetadataLoadContext/src/System/Reflection/TypeLoading/General/Ecma/EcmaToStringHelpers.cs#L8-L65)).
+The traversal and formatting are still fused there, however.
+
+The runtime does **not** provide direct precedent for the proposed iterative
+visited-handle walks. The same MetadataLoadContext helpers recursively climb
+TypeDef declaring types and TypeRef resolution scopes without cycle detection
+or a depth budget, and forwarded-type lookup recursively enters the target
+assembly
+([source](https://github.com/dotnet/runtime/blob/402ed14c4080491d0965638b7a1dfd673239b586/src/libraries/System.Reflection.MetadataLoadContext/src/System/Reflection/TypeLoading/Modules/Ecma/EcmaModule.GetTypeCore.cs#L41-L60)).
+The visited-set traversal is therefore an intentional hardening beyond managed
+runtime behavior, justified by dotnet-inspect's explicit untrusted-artifact
+contract.
+
+The typed rejection envelope is also product-specific. Runtime metadata APIs
+primarily use `TryParse`, `BadImageFormatException`, and related exceptions.
+Compatibility wrappers should preserve that exception convention while
+product-level producers retain structured rejection evidence.
+
 ## Budget policy
 
 All limits live in one metadata-safety policy rather than in individual
