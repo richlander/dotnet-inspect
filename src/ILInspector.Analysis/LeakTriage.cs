@@ -892,18 +892,32 @@ public static class LeakTriageAnalyzer
         IReadOnlyDictionary<int, MemberRef> calls,
         LocalDefinition definition,
         int depth)
+        => FindBoundaryFromLocalUses(
+            instructions,
+            reaching,
+            calls,
+            reaching.UsesOf(definition),
+            definition.Slot,
+            depth);
+
+    static ArrayPoolExceptionBoundary? FindBoundaryFromLocalUses(
+        ImmutableArray<DecodedInstruction> instructions,
+        ReachingDefinitionsResult reaching,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        IEnumerable<LocalUse> uses,
+        int slot,
+        int depth)
     {
         if (depth >= 4)
             return null;
 
-        foreach (var use in reaching.UsesOf(definition)
-            .OrderBy(static use => use.Offset))
+        foreach (var use in uses.OrderBy(static use => use.Offset))
         {
             var classification = ClassifyUse(
                 instructions,
                 calls,
                 use.Offset,
-                definition.Slot);
+                slot);
             if (classification.CandidateShape
                     != "cross-method-suppressed"
                 || classification.Boundary is not { } boundary)
@@ -981,56 +995,17 @@ public static class LeakTriageAnalyzer
         int setupIndex,
         int slot,
         int depth)
-    {
-        for (int i = setupIndex + 1;
-            i < instructions.Length && i <= setupIndex + 16;
-            i++)
-        {
-            var instruction = instructions[i];
-            if (instruction.OpCode == ILOpCode.Nop)
-                continue;
-            if (TryReadStoreLocal(instruction, out int storedSlot)
-                && storedSlot == slot)
-            {
-                return null;
-            }
-            if (!IsLoadLocalOrAddress(instruction, slot))
-                continue;
-
-            var classification = ClassifyUse(
-                instructions,
-                calls,
-                instruction.Offset,
-                slot);
-            if (classification.CandidateShape != "cross-method-suppressed"
-                || classification.Boundary is not { } boundary)
-            {
-                if (classification.CandidateShape
-                        == "alias-or-field-suppressed"
-                    && FindBoundaryAfterLocalAlias(
-                        instructions,
-                        reaching,
-                        calls,
-                        instruction.Offset,
-                        depth + 1) is { } aliasBoundary)
-                {
-                    return aliasBoundary;
-                }
-                continue;
-            }
-            if (!classification.NonThrowingSetupBoundary)
-                return boundary;
-
-            return FindBoundaryAfterSetup(
-                instructions,
-                reaching,
-                calls,
-                boundary,
-                depth + 1);
-        }
-
-        return null;
-    }
+        => FindBoundaryFromLocalUses(
+            instructions,
+            reaching,
+            calls,
+            reaching.Uses.Where(use =>
+                !use.IsArgument
+                && use.Slot == slot
+                && use.Offset > instructions[setupIndex].Offset
+                && use.ReachingDefinitions.IsEmpty),
+            slot,
+            depth);
 
     static bool TryFindInPlaceWrapperLocal(
         ImmutableArray<DecodedInstruction> instructions,

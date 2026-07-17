@@ -254,6 +254,19 @@ public sealed class LeakTriageAnalyzerTests
             boundary.Evidence.Operation.Name == ".ctor"
             && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
 
+        var delayedMemory = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughDelayedMemory)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            delayedMemory.Actionability);
+        Assert.Contains(delayedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(delayedMemory.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
         var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpan)));
@@ -1166,6 +1179,7 @@ internal sealed class ArrayPoolLeakFixtures
 {
     static byte[]? s_field;
     static Memory<byte> s_memory;
+    static int s_counter;
     static readonly string s_tag = "wire";
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1421,6 +1435,23 @@ internal sealed class ArrayPoolLeakFixtures
         var memory = new Memory<byte>(buffer, 0, 16);
         Memory<byte> alias = memory;
         int read = stream.Read(alias);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughDelayedMemory(
+        ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        s_counter++;
+        int read = stream.Read(memory);
         ArrayPool<byte>.Shared.Return(buffer);
         return read;
     }
