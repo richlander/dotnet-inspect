@@ -1,3 +1,5 @@
+using ILInspector.CSharp;
+
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -334,7 +336,7 @@ internal static class ClosureDiagnosticEvidence
         var names = new Stack<string>();
         for (INamedTypeSymbol? current = named.OriginalDefinition; current is not null; current = current.ContainingType)
         {
-            string name = CompileBackCSharpNames.Identifier(current.Name);
+            string name = CSharpIdentifier.Sanitize(current.Name);
             names.Push(includeGenericArity && current.Arity > 0
                 ? $"{name}`{current.Arity}"
                 : name);
@@ -342,7 +344,7 @@ internal static class ClosureDiagnosticEvidence
 
         string typeName = string.Join(".", names);
         string ns = named.ContainingNamespace is { IsGlobalNamespace: false } containingNamespace
-            ? CompileBackCSharpNames.EscapeNamespace(NamespaceName(containingNamespace))
+            ? CSharpFormatter.EscapeNamespace(NamespaceName(containingNamespace))
             : "";
         return ns.Length == 0 ? typeName : $"{ns}.{typeName}";
     }
