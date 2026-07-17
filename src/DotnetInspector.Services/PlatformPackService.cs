@@ -10,6 +10,17 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class PlatformPackService
 {
+    private const string PacksCategory = "packs-v2";
+    private const string PacksCategoryPrefix = "packs-v";
+    private const string CommitMarkerFileName = ".dotnet-inspect.pack.complete";
+
+    static PlatformPackService()
+    {
+        CoreCache.RegisterVersionedCategory(
+            PacksCategoryPrefix,
+            PacksCategory);
+    }
+
     /// <summary>
     /// Gets the app cache packs directory, or null if CoreCache is not initialized.
     /// </summary>
@@ -17,7 +28,7 @@ public static class PlatformPackService
     {
         try
         {
-            return Path.Combine(CoreCache.GetBasePath(), "packs");
+            return Path.Combine(CoreCache.GetBasePath(), PacksCategory);
         }
         catch (InvalidOperationException)
         {
@@ -267,23 +278,27 @@ public static class PlatformPackService
 
         try
         {
-            Directory.CreateDirectory(packDir);
-            MoveContents(result.ExtractPath, packDir);
-
-            log?.Invoke($"Cached pack: {packDir}");
-            return packDir;
+            string committedPath = CommitPack(
+                result.ExtractPath,
+                packDir,
+                packName,
+                version);
+            log?.Invoke($"Cached pack: {committedPath}");
+            return committedPath;
         }
-        catch (Exception)
+        catch (IOException ex)
         {
-            try
-            {
-                if (Directory.Exists(packDir))
-                {
-                    CoreCache.EnsurePathInCacheContext(packDir);
-                    Directory.Delete(packDir, recursive: true);
-                }
-            }
-            catch { }
+            log?.Invoke($"Failed to cache pack '{packName}@{version}': {ex.Message}");
+            return null;
+        }
+        catch (InvalidDataException ex)
+        {
+            log?.Invoke($"Failed to cache pack '{packName}@{version}': {ex.Message}");
+            return null;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            log?.Invoke($"Failed to cache pack '{packName}@{version}': {ex.Message}");
             return null;
         }
         finally
@@ -293,20 +308,113 @@ public static class PlatformPackService
     }
 
     /// <summary>
-    /// Returns true if a cached pack directory is valid (contains ref/ or data/ subdirectory).
+    /// Returns true if a cached pack directory is complete and contains a
+    /// ref/ or data/ subdirectory.
     /// </summary>
     internal static bool IsPackValid(string packDir)
     {
-        return Directory.Exists(packDir)
-            && (Directory.Exists(Path.Combine(packDir, "ref"))
-                || Directory.Exists(Path.Combine(packDir, "data")));
+        try
+        {
+            if (!Directory.Exists(packDir)
+                || (!Directory.Exists(Path.Combine(packDir, "ref"))
+                    && !Directory.Exists(Path.Combine(packDir, "data"))))
+            {
+                return false;
+            }
+
+            return File.Exists(Path.Combine(packDir, CommitMarkerFileName));
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static string CommitPack(
+        string source,
+        string targetPath,
+        string packName,
+        string version)
+    {
+        if (IsPackValid(targetPath))
+            return targetPath;
+        if (Directory.Exists(targetPath))
+        {
+            throw new InvalidDataException(
+                $"Pack cache entry '{targetPath}' is incomplete or corrupt. Clear the cache before retrying.");
+        }
+
+        string? parentDir = Path.GetDirectoryName(targetPath)
+            ?? throw new InvalidOperationException(
+                $"Pack cache path has no parent: {targetPath}");
+        CoreCache.EnsurePathInCacheContext(targetPath);
+        Directory.CreateDirectory(parentDir);
+        string stagingPath = Path.Combine(
+            parentDir,
+            $".{version}.tmp-{Guid.NewGuid():N}");
+        CoreCache.EnsurePathInCacheContext(stagingPath);
+
+        try
+        {
+            CopyContents(source, stagingPath);
+            if (!Directory.Exists(Path.Combine(stagingPath, "ref"))
+                && !Directory.Exists(Path.Combine(stagingPath, "data")))
+            {
+                throw new InvalidDataException(
+                    $"Pack '{packName}@{version}' has no ref or data directory.");
+            }
+
+            using (var marker = new FileStream(
+                Path.Combine(stagingPath, CommitMarkerFileName),
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None))
+            using (var writer = new StreamWriter(marker))
+            {
+                writer.Write($"{PacksCategory}:{packName}@{version}");
+            }
+
+            try
+            {
+                Directory.Move(stagingPath, targetPath);
+            }
+            catch (IOException) when (IsPackValid(targetPath))
+            {
+                return targetPath;
+            }
+
+            return targetPath;
+        }
+        finally
+        {
+            if (Directory.Exists(stagingPath))
+            {
+                try
+                {
+                    Directory.Delete(stagingPath, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // The committed destination is authoritative.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // The committed destination is authoritative.
+                }
+            }
+        }
     }
 
     /// <summary>
-    /// Moves directory contents from source to destination, preserving structure.
+    /// Copies directory contents from source to destination, preserving structure.
+    /// Package extraction paths may be shared cache entries and must remain immutable.
     /// Skips NuGet metadata files (.nuspec, [Content_Types].xml, _rels/, package/).
     /// </summary>
-    private static void MoveContents(string source, string destination)
+    private static void CopyContents(string source, string destination)
     {
         foreach (var dir in Directory.GetDirectories(source))
         {
@@ -322,7 +430,7 @@ public static class PlatformPackService
                 CoreCache.EnsurePathInCacheContext(destDir);
                 Directory.Delete(destDir, recursive: true);
             }
-            Directory.Move(dir, destDir);
+            CopyDirectory(dir, destDir);
         }
 
         foreach (var file in Directory.GetFiles(source))
@@ -331,11 +439,34 @@ public static class PlatformPackService
 
             // Skip NuGet metadata files
             if (fileName.Equals("[Content_Types].xml", StringComparison.OrdinalIgnoreCase)
-                || fileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+                || fileName.Equals(
+                    NuGetCache.CommitMarkerFileName,
+                    StringComparison.Ordinal)
+                || fileName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)
+                || fileName.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var destFile = Path.Combine(destination, fileName);
-            File.Move(file, destFile, overwrite: true);
+            File.Copy(file, destFile, overwrite: true);
+        }
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(
+                file,
+                Path.Combine(destination, Path.GetFileName(file)),
+                overwrite: true);
+        }
+
+        foreach (var directory in Directory.GetDirectories(source))
+        {
+            CopyDirectory(
+                directory,
+                Path.Combine(destination, Path.GetFileName(directory)));
         }
     }
 }

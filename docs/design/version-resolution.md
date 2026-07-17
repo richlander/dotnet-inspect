@@ -152,8 +152,8 @@ each endpoint.
 | Cache | Location | TTL | Written by |
 | --- | --- | --- | --- |
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
-| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/packages/{name}/{version}/` | Permanent | dotnet-inspect |
-| Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs/{pack}/{version}/` | Permanent | dotnet-inspect |
+| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
+| Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
@@ -185,6 +185,20 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | `SourceLink Availability` URL checks | Not cached by this command path. |
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
+
+Exact package acquisition is single-flight within a process. A cache miss is
+downloaded and extracted into temporary storage, copied to a unique sibling
+staging directory, validated, and atomically renamed to its final
+`package-content-v2` path. Concurrent publishers in other processes either win
+that rename or validate and use the committed winner; readers never use staging
+directories. Failed acquisition leaves no final entry and can be retried.
+The flight and durable cache identity follow NuGet's coordinate cache model:
+cache root plus normalized package id and version. Source order selects the
+producer on a miss but is not a separate durable identity.
+
+Platform-pack projection never mutates the committed package. It copies the
+selected pack contents into a unique `packs-v2` staging directory and
+atomically publishes the complete derived pack with its own completion marker.
 
 ## Design rationale
 

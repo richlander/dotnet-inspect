@@ -1,5 +1,6 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
@@ -31,6 +32,7 @@ public class PackageFileListerTests
             "package/services/metadata/core-properties/abc.psmdcp",
             ".signature.p7s",
             ".nupkg.metadata",
+            NuGetCache.CommitMarkerFileName,
             "foo.1.0.0.nupkg",
             "foo.1.0.0.nupkg.sha512");
         try

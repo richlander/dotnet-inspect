@@ -4,6 +4,12 @@ using NuGet.Versioning;
 namespace DotnetInspector.Packages;
 
 /// <summary>
+/// A package directory that became visible only after its complete contents
+/// were validated and atomically published.
+/// </summary>
+public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
+
+/// <summary>
 /// Utilities for working with NuGet package caches.
 /// Uses platform-appropriate cache directories (XDG on Linux, ~/Library/Caches on macOS).
 /// Never writes to ~/.nuget/packages (read-only).
@@ -12,6 +18,9 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public static class NuGetCache
 {
+    private const string PackageContentCategory = "package-content-v2";
+    private const string PackageContentCategoryPrefix = "package-content-v";
+    public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;
     private static bool _skipNuGetCache;
 
@@ -29,6 +38,9 @@ public static class NuGetCache
         _appName = appName;
         _skipNuGetCache = skipNuGetCache;
         CoreCache.Initialize(appName, basePath);
+        CoreCache.RegisterVersionedCategory(
+            PackageContentCategoryPrefix,
+            PackageContentCategory);
     }
 
     private static string AppName => _appName
@@ -75,11 +87,21 @@ public static class NuGetCache
     public static string GetDefaultAppCacheBasePath() => CoreCache.GetDefaultBasePath();
 
     /// <summary>
-    /// Gets the path to the application package cache (read-write).
+    /// Gets the legacy package-artifact root used by symbol caches.
+    /// Extracted package contents use <see cref="GetPackageContentCachePath"/>.
     /// </summary>
     public static string GetAppCachePath()
     {
         return Path.Combine(GetAppCacheBasePath(), "packages");
+    }
+
+    /// <summary>
+    /// Gets the versioned application cache for transactionally published
+    /// package contents.
+    /// </summary>
+    public static string GetPackageContentCachePath()
+    {
+        return CoreCache.GetCategoryPath(PackageContentCategory);
     }
 
     /// <summary>
@@ -122,11 +144,14 @@ public static class NuGetCache
         }
 
         // Check app cache
-        var appCachePath = GetAppCachePath();
+        var appCachePath = GetPackageContentCachePath();
         if (Directory.Exists(appCachePath))
         {
             var appPackageDir = Path.Combine(appCachePath, normalizedName, normalizedVersion);
-            if (Directory.Exists(appPackageDir) && IsCachedPackageValid(appPackageDir, normalizedName))
+            if (IsCommittedPackageValid(
+                appPackageDir,
+                normalizedName,
+                normalizedVersion))
             {
                 InfoTracker.RecordCacheHit();
                 CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
@@ -140,65 +165,147 @@ public static class NuGetCache
     }
 
     /// <summary>
-    /// Gets the path where a package should be cached in the app cache.
-    /// Creates the directory structure if it doesn't exist.
+    /// Gets the final path for a package in the transactional content cache.
     /// </summary>
     public static string GetPackageCachePath(string packageName, string version)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
 
-        var appCachePath = GetAppCachePath();
+        var appCachePath = GetPackageContentCachePath();
         var packageDir = Path.Combine(appCachePath, packageName.ToLowerInvariant(), version.ToLowerInvariant());
         return packageDir;
     }
 
     /// <summary>
-    /// Caches an extracted package to the app cache.
+    /// Validates and atomically publishes an extracted package to the app cache.
+    /// Concurrent publishers either win the final rename or converge on the
+    /// already committed winner.
     /// </summary>
     /// <param name="extractedPath">Path to the extracted package contents</param>
+    /// <param name="nupkgPath">Optional source archive to retain with the committed contents</param>
     /// <param name="packageName">The package name</param>
     /// <param name="version">The package version</param>
-    /// <returns>The path to the cached package, or null if caching failed</returns>
-    public static string? CachePackage(string extractedPath, string packageName, string version)
+    public static CommittedPackage CommitPackage(
+        string extractedPath,
+        string? nupkgPath,
+        string packageName,
+        string version)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
 
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+        string targetPath = GetPackageCachePath(
+            normalizedName,
+            normalizedVersion);
+        string? parentDir = Path.GetDirectoryName(targetPath)
+            ?? throw new InvalidOperationException(
+                $"Package cache path has no parent: {targetPath}");
+
+        CoreCache.EnsurePathInCacheContext(targetPath);
+        Directory.CreateDirectory(parentDir);
+
+        if (IsCommittedPackageValid(
+            targetPath,
+            normalizedName,
+            normalizedVersion))
+        {
+            return OpenCommittedPackage(
+                targetPath,
+                normalizedName,
+                normalizedVersion);
+        }
+
+        if (Directory.Exists(targetPath))
+        {
+            throw new InvalidDataException(
+                $"Package cache entry '{targetPath}' is incomplete or corrupt. Clear the cache before retrying.");
+        }
+
+        string stagingPath = Path.Combine(
+            parentDir,
+            $".{normalizedVersion}.tmp-{Guid.NewGuid():N}");
+        CoreCache.EnsurePathInCacheContext(stagingPath);
+
         try
         {
-            var targetPath = GetPackageCachePath(packageName, version);
+            CopyDirectory(extractedPath, stagingPath);
 
-            // If already exists and valid, return it
-            if (Directory.Exists(targetPath) && IsCachedPackageValid(targetPath))
+            string? committedNupkgPath = null;
+            if (nupkgPath is not null)
             {
-                return targetPath;
+                committedNupkgPath = Path.Combine(
+                    stagingPath,
+                    $"{normalizedName}.{normalizedVersion}.nupkg");
+                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
             }
 
-            // Create parent directories
-            var parentDir = Path.GetDirectoryName(targetPath);
-            if (parentDir != null && !Directory.Exists(parentDir))
+            if (!IsCachedPackageValid(stagingPath))
             {
-                Directory.CreateDirectory(parentDir);
+                throw new InvalidDataException(
+                    $"Package '{packageName}@{version}' has no valid extracted package structure.");
             }
 
-            // Remove incomplete cache if exists
-            if (Directory.Exists(targetPath))
+            using (var marker = new FileStream(
+                Path.Combine(stagingPath, CommitMarkerFileName),
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None))
+            using (var writer = new StreamWriter(marker))
             {
-                CoreCache.EnsurePathInCacheContext(targetPath);
-                Directory.Delete(targetPath, recursive: true);
+                writer.Write(
+                    GetCommitMarkerContent(
+                        normalizedName,
+                        normalizedVersion));
             }
 
-            // Copy to cache
-            CopyDirectory(extractedPath, targetPath);
-            CacheTelemetry.Record("packages", $"{packageName.ToLowerInvariant()}@{version.ToLowerInvariant()}", CacheAccessResult.Store);
+            try
+            {
+                Directory.Move(stagingPath, targetPath);
+            }
+            catch (IOException) when (IsCommittedPackageValid(
+                targetPath,
+                normalizedName,
+                normalizedVersion))
+            {
+                return OpenCommittedPackage(
+                    targetPath,
+                    normalizedName,
+                    normalizedVersion);
+            }
 
-            return targetPath;
+            CacheTelemetry.Record(
+                "packages",
+                $"{normalizedName}@{normalizedVersion}",
+                CacheAccessResult.Store);
+
+            return new CommittedPackage(
+                targetPath,
+                committedNupkgPath is null
+                    ? null
+                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)));
         }
-        catch
+        finally
         {
-            // Caching is best-effort, don't fail the operation
-            return null;
+            if (Directory.Exists(stagingPath))
+            {
+                try
+                {
+                    Directory.Delete(stagingPath, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // The committed destination is authoritative; abandoned
+                    // staging cleanup remains best-effort.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // The committed destination is authoritative; abandoned
+                    // staging cleanup remains best-effort.
+                }
+            }
         }
     }
 
@@ -211,21 +318,31 @@ public static class NuGetCache
         var normalizedName = packageName.ToLowerInvariant();
 
         // Newest non-prerelease, structurally-valid version across both caches.
-        bool IsValid(string dir) => IsCachedPackageValid(dir, normalizedName);
+        bool IsNuGetCacheValid(string dir) =>
+            IsCachedPackageValid(dir, normalizedName);
+        bool IsAppCacheValid(string dir)
+        {
+            string version = Path.GetFileName(dir);
+            return IsCommittedPackageValid(dir, normalizedName, version);
+        }
         VersionDir? best = null;
 
         // Check NuGet global cache — skip in isolated mode
         if (!_skipNuGetCache)
         {
             best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
-                Path.Combine(GetNuGetCachePath(), normalizedName), includePrerelease: false, IsValid));
+                Path.Combine(GetNuGetCachePath(), normalizedName),
+                includePrerelease: false,
+                IsNuGetCacheValid));
         }
 
         // Check app cache
         try
         {
             best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
-                Path.Combine(GetAppCachePath(), normalizedName), includePrerelease: false, IsValid));
+                Path.Combine(GetPackageContentCachePath(), normalizedName),
+                includePrerelease: false,
+                IsAppCacheValid));
         }
         catch (InvalidOperationException)
         {
@@ -258,14 +375,61 @@ public static class NuGetCache
         }
         else
         {
-            // Fallback: scan for any nuspec file
-            hasNuspec = Directory.GetFiles(cachedPath, "*.nuspec").Length > 0;
+            // Extracted archives preserve authored casing for the nuspec name.
+            hasNuspec = Directory.EnumerateFiles(cachedPath)
+                .Any(path => path.EndsWith(
+                    ".nuspec",
+                    StringComparison.OrdinalIgnoreCase));
         }
         var hasLib = Directory.Exists(Path.Combine(cachedPath, "lib"));
         var hasTools = Directory.Exists(Path.Combine(cachedPath, "tools"));
 
         return hasNuspec || hasLib || hasTools;
     }
+
+    private static bool IsCommittedPackageValid(
+        string cachedPath,
+        string packageName,
+        string version)
+    {
+        try
+        {
+            if (!IsCachedPackageValid(cachedPath))
+                return false;
+
+            return File.ReadAllText(
+                Path.Combine(cachedPath, CommitMarkerFileName))
+                .Equals(
+                    GetCommitMarkerContent(packageName, version),
+                    StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static CommittedPackage OpenCommittedPackage(
+        string targetPath,
+        string packageName,
+        string version)
+    {
+        string nupkgPath = Path.Combine(
+            targetPath,
+            $"{packageName}.{version}.nupkg");
+        return new CommittedPackage(
+            targetPath,
+            File.Exists(nupkgPath) ? nupkgPath : null);
+    }
+
+    private static string GetCommitMarkerContent(
+        string packageName,
+        string version)
+        => $"{PackageContentCategory}:{packageName}@{version}";
 
     private static void CopyDirectory(string sourceDir, string targetDir)
     {

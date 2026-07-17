@@ -2586,10 +2586,8 @@ public class PackageCommand
 
         var relativePaths = files
             .Select(f => Path.GetRelativePath(relativeBase, f))
-            .Where(p => !p.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !p.StartsWith("_rels", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !p.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase))
-            .Where(p => !p.EndsWith(".psmdcp", StringComparison.OrdinalIgnoreCase))
+            .Where(p => !PackageFileLister.IsPlumbing(
+                p.Replace('\\', '/')))
             .OrderBy(p => p);
 
         var results = options.Limit.HasValue 
