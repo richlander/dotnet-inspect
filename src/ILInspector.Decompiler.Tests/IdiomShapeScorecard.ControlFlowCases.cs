@@ -26,6 +26,8 @@ internal sealed class ControlFlowScorecardCases : IdiomShapeScorecardTests.ICase
         new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopLeave), SyntaxKind.WhileStatement, [SyntaxKind.ForStatement]),
         new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopLeaveToAnotherTarget), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
         new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopEhCleanupContinue), SyntaxKind.WhileStatement, [SyntaxKind.ForStatement]),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopWithNestedLambdaTargetConflict), SyntaxKind.ForStatement, []),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopWithNestedLambdaTargetConflict), SyntaxKind.WhileStatement, []),
         new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopNestedContinue), SyntaxKind.ForStatement, []),
         new("FixedStatementPass", nameof(CfgSampleClass.SumPinnedArray), SyntaxKind.FixedStatement, []),
     ];

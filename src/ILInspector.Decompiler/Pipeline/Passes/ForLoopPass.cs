@@ -54,10 +54,10 @@ public sealed class ForLoopPass : IIrPass
         }
     }
 
-    static HashSet<int> CollectLiveTargets(IrFunction function)
+    static HashSet<int> CollectLiveTargets(IrNode scope)
     {
         var targets = new HashSet<int>();
-        foreach (var node in function.Descendants)
+        foreach (var node in DescendantsOutsideNestedFunctions(scope))
         {
             switch (node)
             {
@@ -68,6 +68,18 @@ public sealed class ForLoopPass : IIrPass
             }
         }
         return targets;
+    }
+
+    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            yield return child;
+            if (child is Lambda or LocalFunctionStatement)
+                continue;
+            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
+                yield return descendant;
+        }
     }
 
     /// <summary>True when a loop increment store value is a user-defined <c>op_CheckedIncrement</c>/<c>op_CheckedDecrement</c> call — a checked increment that has no for-header spelling.</summary>

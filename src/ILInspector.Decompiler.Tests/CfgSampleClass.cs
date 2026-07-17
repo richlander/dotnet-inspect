@@ -1789,6 +1789,16 @@ public class CfgSampleClass
             System.Console.WriteLine();
         }
     }
+    public static void Issue2830_ForLoopWithNestedLambdaTargetConflict() {
+        for (int i = 0; i < 10; i++) {
+            System.Action a = () => {
+                for (int j = 0; j < 10; j++) {
+                    try { if (j == 5) continue; } catch (System.Exception) { }
+                }
+            };
+            a();
+        }
+    }
     public static void Issue2830_ForLoopNestedContinue() {
         for (int i = 0; i < 10; i++) {
             for (int j = 0; j < 10; j++) {
