@@ -298,7 +298,7 @@ public sealed record CompileBackTypeIdentity(string Namespace, string MetadataNa
     public static CompileBackTypeIdentity FromDefinition(MetadataReader reader, TypeDefinition typeDef)
     {
         string metadataName = reader.GetString(typeDef.Name);
-        string displayName = CompileBackCSharpNames.Identifier(CompileBackCSharpNames.StripArity(metadataName));
+        string displayName = CSharpIdentifier.Sanitize(CompileBackCSharpNames.StripArity(metadataName));
         if (!typeDef.GetDeclaringType().IsNil)
         {
             var declaring = FromDefinition(reader, reader.GetTypeDefinition(typeDef.GetDeclaringType()));
@@ -311,7 +311,7 @@ public sealed record CompileBackTypeIdentity(string Namespace, string MetadataNa
         }
 
         string ns = reader.GetString(typeDef.Namespace);
-        string displayNamespace = CompileBackCSharpNames.EscapeNamespace(ns);
+        string displayNamespace = CSharpFormatter.EscapeNamespace(ns);
         string fullName = displayNamespace.Length == 0 ? displayName : $"{displayNamespace}.{displayName}";
         string metadataFullName = ns.Length == 0 ? metadataName : $"{ns}.{metadataName}";
         return new CompileBackTypeIdentity(ns, metadataName, displayName, fullName, metadataFullName);

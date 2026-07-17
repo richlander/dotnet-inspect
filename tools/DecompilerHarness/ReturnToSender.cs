@@ -1659,8 +1659,8 @@ static class ReturnToSender
                     && reference.ContainingNamespace is { Length: > 0 } containingNamespace)
                 {
                     string metadataFullName = $"{containingNamespace}.{reference.Name}";
-                    string displayNamespace = CompileBackCSharpNames.EscapeNamespace(containingNamespace);
-                    string displayName = CompileBackCSharpNames.Identifier(reference.Name);
+                    string displayNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
+                    string displayName = CSharpIdentifier.Sanitize(reference.Name);
                     string displayFullName = $"{displayNamespace}.{displayName}";
                     grew |= AddRoots(indexes, indexes.FullTypes, displayFullName, diagnostic, metadataFullName, targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
                     grew |= AddRoots(indexes, indexes.Namespaces, metadataFullName, diagnostic, metadataFullName, targetNamespace, preferredRoot, addMemberSurfaceFact: false, closureRoots, closureFacts);
