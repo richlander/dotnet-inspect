@@ -15,10 +15,10 @@ public static class CoreCache
     private static readonly object s_maintenanceLock = new();
     private static readonly List<VersionedCacheCategory> s_versionedCategories = [];
     private static CancellationTokenSource? s_maintenanceCts;
-    private static Task? s_maintenanceTask;
-    private static int s_maintenanceScheduled;
-    private static long s_maintenanceBytesFreed;
-    private static int s_maintenanceDirectoriesDeleted;
+    private static Task<CacheMaintenanceResult>? s_maintenanceTask;
+    private static CacheMaintenanceProgress? s_maintenanceProgress;
+    private static AsyncCache<string, CacheMaintenanceResult> s_maintenanceRequests =
+        new(StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
@@ -32,11 +32,12 @@ public static class CoreCache
         lock (s_maintenanceLock)
         {
             s_maintenanceCts?.Cancel();
+            s_maintenanceCts?.Dispose();
             s_maintenanceCts = null;
             s_maintenanceTask = null;
-            s_maintenanceScheduled = 0;
-            s_maintenanceBytesFreed = 0;
-            s_maintenanceDirectoriesDeleted = 0;
+            s_maintenanceProgress = null;
+            s_maintenanceRequests = new AsyncCache<string, CacheMaintenanceResult>(
+                StringComparer.Ordinal);
         }
     }
 
@@ -363,12 +364,14 @@ public static class CoreCache
     /// </summary>
     public static CacheMaintenanceResult CancelAndWaitForMaintenance(TimeSpan timeout)
     {
-        Task? task;
+        Task<CacheMaintenanceResult>? task;
         CancellationTokenSource? cts;
+        CacheMaintenanceProgress? progress;
         lock (s_maintenanceLock)
         {
             task = s_maintenanceTask;
             cts = s_maintenanceCts;
+            progress = s_maintenanceProgress;
         }
 
         if (task != null)
@@ -387,9 +390,10 @@ public static class CoreCache
             }
         }
 
-        return new CacheMaintenanceResult(
-            Interlocked.Read(ref s_maintenanceBytesFreed),
-            Volatile.Read(ref s_maintenanceDirectoriesDeleted));
+        if (task is { IsCompletedSuccessfully: true })
+            return task.Result;
+
+        return progress?.Snapshot() ?? default;
     }
 
     /// <summary>
@@ -415,51 +419,57 @@ public static class CoreCache
     private static void RecordCacheMiss()
     {
         InfoTracker.RecordCacheMiss();
-        ScheduleMaintenanceOnMiss();
+        _ = RequestVersionedCategoryCleanupAsync();
     }
 
-    private static void ScheduleMaintenanceOnMiss()
+    /// <summary>
+    /// Returns the single versioned-category cleanup task used by cache-miss
+    /// maintenance so callers can observe or drain the real operation.
+    /// </summary>
+    internal static Task<CacheMaintenanceResult> RequestVersionedCategoryCleanupAsync()
     {
-        if (Volatile.Read(ref s_maintenanceScheduled) != 0)
-            return;
-
-        VersionedCacheCategory[] categories;
-        string root;
         lock (s_maintenanceLock)
         {
-            if (s_maintenanceScheduled != 0)
-                return;
             if (s_versionedCategories.Count == 0)
-                return;
+                return Task.FromResult(default(CacheMaintenanceResult));
 
-            try
-            {
-                root = GetBasePath();
-            }
-            catch
-            {
-                return;
-            }
-            s_maintenanceScheduled = 1;
-            categories = [.. s_versionedCategories];
+            string root = GetBasePath();
+
+            if (s_maintenanceTask is { IsFaulted: false, IsCanceled: false })
+                return s_maintenanceTask;
+
+            VersionedCacheCategory[] categories = [.. s_versionedCategories];
+            s_maintenanceCts?.Dispose();
             s_maintenanceCts = new CancellationTokenSource();
+            s_maintenanceProgress = new CacheMaintenanceProgress();
             var token = s_maintenanceCts.Token;
-            s_maintenanceTask = Task.Run(() => CleanupVersionedCategories(root, categories, token), CancellationToken.None);
+            var progress = s_maintenanceProgress;
+            s_maintenanceTask = s_maintenanceRequests.GetOrAddAsync(
+                root,
+                _ => Task.Run(
+                    () => CleanupVersionedCategories(
+                        root,
+                        categories,
+                        token,
+                        progress),
+                    CancellationToken.None));
+            return s_maintenanceTask;
         }
     }
 
-    private static void CleanupVersionedCategories(
+    private static CacheMaintenanceResult CleanupVersionedCategories(
         string root,
         IReadOnlyList<VersionedCacheCategory> categories,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CacheMaintenanceProgress progress)
     {
         if (!Directory.Exists(root))
-            return;
+            return progress.Snapshot();
 
         foreach (var category in categories)
         {
             if (cancellationToken.IsCancellationRequested)
-                return;
+                return progress.Snapshot();
 
             string[] directories;
             try
@@ -474,7 +484,7 @@ public static class CoreCache
             foreach (var directory in directories)
             {
                 if (cancellationToken.IsCancellationRequested)
-                    return;
+                    return progress.Snapshot();
 
                 var name = Path.GetFileName(directory);
                 if (name.Equals(category.Current, StringComparison.OrdinalIgnoreCase))
@@ -488,8 +498,7 @@ public static class CoreCache
                 try
                 {
                     Directory.Delete(directory, recursive: true);
-                    Interlocked.Add(ref s_maintenanceBytesFreed, size);
-                    Interlocked.Increment(ref s_maintenanceDirectoriesDeleted);
+                    progress.RecordDeletion(size);
                 }
                 catch
                 {
@@ -497,6 +506,8 @@ public static class CoreCache
                 }
             }
         }
+
+        return progress.Snapshot();
     }
 
     private static long GetDirectorySizeBestEffort(string path)
@@ -535,6 +546,23 @@ public static class CoreCache
 public readonly record struct CacheMaintenanceResult(long BytesFreed, int DirectoriesDeleted);
 
 internal readonly record struct VersionedCacheCategory(string Prefix, string Current);
+
+internal sealed class CacheMaintenanceProgress
+{
+    private long _bytesFreed;
+    private int _directoriesDeleted;
+
+    public void RecordDeletion(long bytesFreed)
+    {
+        Interlocked.Add(ref _bytesFreed, bytesFreed);
+        Interlocked.Increment(ref _directoriesDeleted);
+    }
+
+    public CacheMaintenanceResult Snapshot()
+        => new(
+            Interlocked.Read(ref _bytesFreed),
+            Volatile.Read(ref _directoriesDeleted));
+}
 
 /// <summary>
 /// Cache statistics for a category or the entire cache.

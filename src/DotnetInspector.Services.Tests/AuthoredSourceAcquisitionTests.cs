@@ -153,6 +153,43 @@ public class AuthoredSourceAcquisitionTests
         }
     }
 
+    [Fact]
+    public async Task FetchSource_ConcurrentRequestsShareNetworkOperation()
+    {
+        string cachePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-source-cache-{Guid.NewGuid():N}");
+        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        var handler = new GatedStringHandler(Source);
+        using var client = new HttpClient(handler);
+        var fetcher = new SourceFetcher(client);
+        const string Url = "https://example.test/Shared.cs";
+
+        try
+        {
+            Task<string?>[] requests = Enumerable.Range(0, 32)
+                .Select(_ => fetcher.FetchSourceAsync(Url))
+                .ToArray();
+
+            Assert.All(requests, request => Assert.Same(requests[0], request));
+            await handler.RequestStarted;
+            Assert.Equal(1, handler.RequestCount);
+
+            handler.Release();
+            string?[] results = await Task.WhenAll(requests);
+
+            Assert.All(results, result => Assert.Equal(Source, result));
+            Assert.Same(requests[0], fetcher.FetchSourceAsync(Url));
+            Assert.Equal(1, handler.RequestCount);
+        }
+        finally
+        {
+            handler.Release();
+            if (Directory.Exists(cachePath))
+                Directory.Delete(cachePath, recursive: true);
+        }
+    }
+
     static MemberSourceObservation Mapping()
         => new(
             new MemberAnchor(
@@ -195,6 +232,34 @@ public class AuthoredSourceAcquisitionTests
             {
                 Content = new ByteArrayContent(_responses.Dequeue()),
             });
+        }
+    }
+
+    sealed class GatedStringHandler(string response) : HttpMessageHandler
+    {
+        readonly TaskCompletionSource<bool> _requestStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int _requestCount;
+
+        public Task RequestStarted => _requestStarted.Task;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        public void Release() => _release.TrySetResult(true);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            _requestStarted.TrySetResult(true);
+            await _release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(response),
+            };
         }
     }
 }
