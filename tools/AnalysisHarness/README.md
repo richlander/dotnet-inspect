@@ -238,7 +238,7 @@ measurement-only candidate/suppression buckets, as a
 [Markout](https://github.com/richlander/markout) card:
 
 ```bash
-eng/prepare-resource-triage-corpus.sh /tmp/resource-triage-assemblies.txt
+dotnet run eng/prepare-resource-triage-corpus.cs -- /tmp/resource-triage-assemblies.txt
 dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --top 5
 dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --tsv
 dotnet "$DLL" --leak-triage /tmp/resource-triage-assemblies.txt --jsonl
@@ -284,9 +284,9 @@ justify promoting any of these three strict shapes into product output; the sepa
 rows as correctness findings.
 
 The shared framework is the false-positive gate, not the profitability corpus. The pinned
-ArrayPool-heavy community corpus prepared above currently contains 25 runtime assemblies from
-nine package roots and their dependencies. It also produced **0 strict findings**, from 114
-measurement rows: 89 `ownership-transfer-suppressed`, 18 `cross-method-suppressed`, 6
+ArrayPool-heavy community corpus prepared above contains the primary library from each of nine
+package roots. It produced **0 strict findings**, from 201 measurement rows: 145
+`ownership-transfer-suppressed`, 36 `cross-method-suppressed`, 19
 `exception-path-leak-candidate`, and 1 `alias-or-field-suppressed`.
 
 The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
@@ -337,13 +337,14 @@ A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classi
 (`MessagePackReader::ReadStringSlow`, `BinaryReader::FillBuffer`),
 1 `trusted-low-actionability`, and 47 `unknown`.
 
-The same-day pinned community run classified 6 lifecycle observations as 1
-`untrusted-actionable` (`MessagePackReader::ReadStringSlow`) and 5 `unknown`. Four of the unknown
+The same-day pinned community run classified 19 lifecycle observations as 1
+`untrusted-actionable` (`MessagePackReader::ReadStringSlow`) and 18 `unknown`. Four of the unknown
 observations are the previously source-verified MimeKit `Rfc2047.DecodePhrase`/`DecodeText`,
-Npgsql `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte` defects. The
-community corpus therefore proves the analysis family is profitable while exposing a current
-producer/classification recall gap; these known cases should not be treated as evidence for
-non-action.
+Npgsql `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte` defects. Thirteen
+more are System.Text.Json's deliberate no-`finally` in-memory-transform idiom, historically
+classified as low actionability. The community corpus therefore proves the analysis family is
+profitable while exposing a current producer/classification recall gap; these known cases should
+not be treated as evidence for non-action.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 

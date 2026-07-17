@@ -23,9 +23,9 @@ re-runnable receipt.
   Bogus, SharpCompress, K4os.LZ4, SixLabors.ImageSharp, prometheus-net, ZLinq, CliWrap.
 
 The leak/MemoryPool lanes were also baselined over the .NET 9.0.14 shared framework (308 asm).
-Resource Triage also has a pinned ArrayPool-heavy community corpus: nine package roots and their
-runtime dependency closure, currently 25 assemblies, prepared by
-`eng/prepare-resource-triage-corpus.sh`.
+Resource Triage also has a pinned ArrayPool-heavy community corpus: the primary library from each
+of nine package roots, acquired through dotnet-inspect's package services by
+`eng/prepare-resource-triage-corpus.cs`.
 
 ## The one-stop-shop funnel (Performance Triage, all 44 assemblies)
 
@@ -89,10 +89,11 @@ the untrusted-actionable candidates.
   observations → 2 untrusted-actionable
   (`MessagePackReader.ReadStringSlow`, `BinaryReader.FillBuffer`), 1 trusted,
   and 47 unknown.
-- Current pinned community contract (25 assemblies): 6 lifecycle observations →
-  1 untrusted-actionable (`MessagePackReader.ReadStringSlow`) and 5 unknown.
+- Current pinned community contract (9 assemblies): 19 lifecycle observations →
+  1 untrusted-actionable (`MessagePackReader.ReadStringSlow`) and 18 unknown.
   Four unknowns are previously confirmed defects in MimeKit, Npgsql, and
-  Pipelines.Sockets, so this is a product recall gap rather than a non-action.
+  Pipelines.Sockets; 13 are System.Text.Json's historically low-actionability
+  in-memory-transform idiom. This is a product recall gap rather than a non-action.
 
 ### 3–4. Delegate & enumerator allocation
 
