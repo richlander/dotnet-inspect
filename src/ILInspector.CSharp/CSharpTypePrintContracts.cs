@@ -215,7 +215,12 @@ public sealed record CSharpTypePrintOptions
     /// <see cref="CSharpTypePrintResult.Source"/>. Escaped, de-duplicated, and
     /// ordinal-ordered at composition time. Ignored when <see cref="IncludeUsings"/>
     /// is false. The per-type <see cref="CSharpTypePrintResult.Units"/> never carry
-    /// usings.
+    /// their own using directives; under <see cref="ShortenTypeNames"/> a unit's
+    /// <see cref="CSharpTypeSourceUnit.Source"/> is therefore file-context-relative —
+    /// its shortened names resolve only against this using block in the composed
+    /// <see cref="CSharpTypePrintResult.Source"/>. A per-unit consumer must compose
+    /// against <see cref="CSharpTypePrintResult.Source"/> or set
+    /// <see cref="ShortenTypeNames"/> to false to get self-contained unit source.
     /// </summary>
     public IReadOnlyList<string> Usings { get; init; } = [];
 
@@ -238,17 +243,64 @@ public sealed record CSharpTypePrintOptions
     public IReadOnlyList<string> ModuleAttributes { get; init; } = [];
 
     /// <summary>
+    /// When true (the default), type references in rendered declarations are
+    /// shortened to their simple names wherever doing so is unambiguous across the
+    /// compilation unit, and the namespaces that makes that possible are emitted as
+    /// <c>using</c> directives in the composed <see cref="CSharpTypePrintResult.Source"/>.
+    /// Set false to keep every reference fully qualified.
+    /// </summary>
+    public bool ShortenTypeNames { get; init; } = true;
+
+    /// <summary>
     /// When true, the composed source begins with <c>#pragma warning disable</c>.
     /// Off by default; compile-back callers opt in.
     /// </summary>
     public bool EmitPragmaWarningDisable { get; init; }
 }
 
+/// <summary>
+/// One rendered type declaration. Under
+/// <see cref="CSharpTypePrintOptions.ShortenTypeNames"/> the <paramref name="Source"/>
+/// is file-context-relative: its shortened type names resolve against the using block
+/// in the composed <see cref="CSharpTypePrintResult.Source"/>, not in isolation.
+/// </summary>
 public sealed record CSharpTypeSourceUnit(string? Namespace, string Source);
 
 public sealed record CSharpTypePrintDiagnostic(string TypeName, string Message);
 
-public sealed record CSharpTypePrintResult(
-    ImmutableArray<CSharpTypeSourceUnit> Units,
-    ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics,
-    string Source);
+public sealed record CSharpTypePrintResult
+{
+    readonly Lazy<string> _source;
+
+    public CSharpTypePrintResult(
+        ImmutableArray<CSharpTypeSourceUnit> units,
+        ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
+        Func<string> sourceFactory)
+    {
+        ArgumentNullException.ThrowIfNull(sourceFactory);
+        Units = units;
+        Diagnostics = diagnostics;
+        _source = new Lazy<string>(sourceFactory);
+    }
+
+    public ImmutableArray<CSharpTypeSourceUnit> Units { get; }
+
+    public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
+
+    /// <summary>
+    /// The composed compilation-unit source. Composed lazily on first access so
+    /// callers that only read <see cref="Units"/> do not pay for it.
+    /// </summary>
+    public string Source => _source.Value;
+
+    // Value equality is defined over the eagerly-known content (Units, Diagnostics)
+    // only. The lazy source field is excluded so equality neither forces composition
+    // nor degrades to reference identity of the Lazy wrapper.
+    public bool Equals(CSharpTypePrintResult? other)
+        => other is not null
+            && Units.SequenceEqual(other.Units)
+            && Diagnostics.SequenceEqual(other.Diagnostics);
+
+    public override int GetHashCode()
+        => HashCode.Combine(Units.Length, Diagnostics.Length);
+}

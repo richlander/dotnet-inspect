@@ -115,6 +115,109 @@ internal static class CSharpDeclarationWriter
         return plan.Apply(RenderTypeDeclarationCore(type, options));
     }
 
+    /// <summary>
+    /// Computes a collision-safe set of namespaces that can be imported as
+    /// <c>using</c> directives for a compilation unit declaring
+    /// <paramref name="types"/> (including any nested types the caller flattens in).
+    /// A namespace is included only when every simple type name it contributes is
+    /// unambiguous across the whole unit: the simple name maps to a single full name
+    /// and does not clash with a type declared in the unit. Importing such a
+    /// namespace and shortening those references therefore cannot introduce an
+    /// ambiguous or shadowed reference. References whose simple name is ambiguous
+    /// stay fully qualified and their namespaces are excluded.
+    /// </summary>
+    public static IReadOnlyList<string> DeriveContextualUsings(IReadOnlyCollection<ApiType> types)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+
+        var typeRefs = types
+            .SelectMany(type => CollectTypeReferences(type)
+                .Concat(type.Members.SelectMany(CollectMemberTypeReferences)))
+            .Select(TypeRef.TryCreate)
+            .Where(r => r is not null)
+            .Select(r => r!)
+            .DistinctBy(r => r.FullName, StringComparer.Ordinal)
+            .ToList();
+
+        var declaredSimpleNames = types
+            .Select(type => CSharpFormatter.StripArity(type.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Generic type/method parameters shadow same-named type references within
+        // their scope: importing a namespace and shortening a reference to a simple
+        // name that matches an in-scope type parameter would rebind it to the
+        // parameter. Exclude those namespaces so such references stay qualified.
+        foreach (var type in types)
+        {
+            foreach (var typeParameter in type.TypeParameters)
+                declaredSimpleNames.Add(typeParameter.Name);
+            foreach (var member in type.Members)
+            {
+                if (member.SignatureModel is { } signature)
+                {
+                    foreach (var typeParameter in signature.TypeParameters)
+                        declaredSimpleNames.Add(typeParameter.Name);
+                }
+
+                // Members whose signature failed structured decoding fall back to the
+                // raw signature string, whose generic method parameters are not in
+                // SignatureModel. Parse them so they still shadow same-named references.
+                foreach (var name in RawSignatureGenericParameterNames(member))
+                    declaredSimpleNames.Add(name);
+            }
+        }
+
+        var usings = new SortedSet<string>(StringComparer.Ordinal);
+        var collidingSimpleNames = typeRefs
+            .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
+            .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // A nested type referenced as a type (e.g. `System.Environment.SpecialFolder`)
+        // arrives here as a flat dotted string, indistinguishable from a
+        // namespace-qualified reference: TypeRef.TryCreate splits at the last dot and
+        // derives namespace `System.Environment`, which is actually a type. Emitting
+        // `using System.Environment;` is illegal (CS0138). When the enclosing type is
+        // itself referenced in the unit we can detect this — its full name appears as a
+        // derived namespace — and exclude that namespace. (The isolated case, where the
+        // enclosing type is never referenced on its own, is not detectable from the
+        // flattened string alone; a full fix needs nested-type identity from the
+        // metadata layer. The failure mode is safe-visible: the reference stays
+        // qualified and, for a spurious using, RTS records a RecompileFail rather than
+        // miscompiling.)
+        var referencedFullNames = typeRefs
+            .Select(r => r.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // A namespace contributes a simple name for every reference it owns. Per-type
+        // shortening keys off namespace membership, so importing a namespace shortens
+        // every reference it owns. If any of those simple names is ambiguous unit-wide
+        // or shadowed by a declared type or type parameter, importing the namespace is
+        // unsafe: the shortened reference would become ambiguous or rebind. Exclude the
+        // whole namespace so every reference it owns stays fully qualified.
+        var unsafeNamespaces = typeRefs
+            .Where(r => collidingSimpleNames.Contains(r.SimpleName) || declaredSimpleNames.Contains(r.SimpleName))
+            .Select(r => r.Namespace)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
+        {
+            if (collidingSimpleNames.Contains(group.Key))
+                continue;
+            if (declaredSimpleNames.Contains(group.Key))
+                continue;
+            var ns = group.First().Namespace;
+            if (unsafeNamespaces.Contains(ns))
+                continue;
+            if (referencedFullNames.Contains(ns))
+                continue;
+            usings.Add(ns);
+        }
+
+        return usings.ToList();
+    }
+
     static string ComposeUnit(IReadOnlyList<string> bodyLines, IReadOnlyList<string> usings, CSharpDeclarationOptions options)
     {
         var sb = new StringBuilder();
@@ -343,7 +446,7 @@ internal static class CSharpDeclarationWriter
                 if (!string.IsNullOrWhiteSpace(parameter.Type))
                     yield return parameter.Type;
                 foreach (var attribute in parameter.Attributes)
-                    yield return attribute;
+                    yield return StripAttributeArguments(attribute);
             }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
@@ -387,6 +490,80 @@ internal static class CSharpDeclarationWriter
         {
             if (TryParameterType(parameter, out var parameterType))
                 yield return parameterType;
+        }
+    }
+
+    static IEnumerable<string> RawSignatureGenericParameterNames(ApiMember member)
+    {
+        var signature = member.Signature;
+        if (string.IsNullOrWhiteSpace(signature))
+            yield break;
+        if (member.Kind is "property" or "field" or "event" or "constructor")
+            yield break;
+
+        // The generic method parameter list is `Name<...>(` — the method name (a whole
+        // token) immediately followed by an angle-bracket group and then the parameter
+        // list. Anchor on that shape rather than on the first '(' in the signature, so a
+        // tuple or generic return type (whose own '(' / '<' come first) does not fool the
+        // parser. Scan every occurrence of the name to skip matches inside the return
+        // type (e.g. `TaskRun Run<T>()` or `Run<U> Run<T>()`).
+        var name = member.Name;
+        if (name.Length == 0)
+            yield break;
+
+        var searchStart = 0;
+        while (searchStart <= signature.Length - name.Length)
+        {
+            var nameIndex = signature.IndexOf(name, searchStart, StringComparison.Ordinal);
+            if (nameIndex < 0)
+                yield break;
+            searchStart = nameIndex + 1;
+
+            if (nameIndex > 0 && (char.IsLetterOrDigit(signature[nameIndex - 1]) || signature[nameIndex - 1] == '_'))
+                continue;
+
+            var j = nameIndex + name.Length;
+            while (j < signature.Length && char.IsWhiteSpace(signature[j]))
+                j++;
+            if (j >= signature.Length || signature[j] != '<')
+                continue;
+
+            var depth = 0;
+            var start = j + 1;
+            var end = -1;
+            for (var i = j; i < signature.Length; i++)
+            {
+                if (signature[i] == '<')
+                    depth++;
+                else if (signature[i] == '>')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+            if (end < 0)
+                continue;
+
+            var afterBracket = end + 1;
+            while (afterBracket < signature.Length && char.IsWhiteSpace(signature[afterBracket]))
+                afterBracket++;
+            if (afterBracket >= signature.Length || signature[afterBracket] != '(')
+                continue;
+
+            foreach (var part in SplitTopLevel(signature[start..end]))
+            {
+                var parameterName = part.Trim();
+                var space = parameterName.IndexOf(' ');
+                if (space >= 0)
+                    parameterName = parameterName[(space + 1)..].Trim();
+                if (parameterName.Length > 0)
+                    yield return parameterName;
+            }
+            yield break;
         }
     }
 
@@ -484,6 +661,18 @@ internal static class CSharpDeclarationWriter
         }
 
         return parameter;
+    }
+
+    // Attribute usages carry a constructor argument list whose contents are value
+    // expressions (enum member accesses like UnmanagedType.I4, consts, typeof), not
+    // type references. Treating those dotted value expressions as type names would
+    // derive bogus namespaces (e.g. `using System.Runtime.InteropServices.UnmanagedType;`)
+    // and mis-shorten the argument, so only the attribute type name (before the
+    // constructor argument list) participates in reference extraction and using derivation.
+    static string StripAttributeArguments(string attribute)
+    {
+        int paren = attribute.IndexOf('(', StringComparison.Ordinal);
+        return paren < 0 ? attribute : attribute[..paren];
     }
 
     static IEnumerable<string> ExtractQualifiedTypeNames(string expression)

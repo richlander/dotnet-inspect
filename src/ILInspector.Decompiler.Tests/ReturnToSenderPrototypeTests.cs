@@ -313,7 +313,7 @@ public class ReturnToSenderPrototypeTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("External", result.Plan.Module.Usings);
-            Assert.Contains("public External.Greeting Method1", result.Source);
+            Assert.Contains("public Greeting Method1", result.Source);
         }
         finally
         {
@@ -2978,7 +2978,7 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("public T Comparable<T>(T value) where T : System.IComparable<T>", result.Source);
+                    Assert.Contains("public T Comparable<T>(T value) where T : IComparable<T>", result.Source);
                 });
         }
         finally
@@ -3120,9 +3120,9 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)", result.Source);
-                    Assert.Contains("System.DateTime when", result.Source);
-                    Assert.DoesNotContain("System.DateTime when =", result.Source);
+                    Assert.Contains("DateTimeConstant(637000000000000000L)", result.Source);
+                    Assert.Contains("DateTime when", result.Source);
+                    Assert.DoesNotContain("DateTime when =", result.Source);
                 });
         }
         finally
@@ -3165,7 +3165,7 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Diagnostics.CodeAnalysis.NotNull", result.Source);
+                    Assert.Contains("[NotNull] string value", result.Source);
                     Assert.Contains("int Length(", result.Source);
                 },
                 result =>
@@ -3250,42 +3250,45 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)", result.Source);
+                    Assert.DoesNotContain("System.Runtime.InteropServices.MarshalAs(", result.Source);
+                    Assert.Contains("using System.Runtime.InteropServices;", result.Source);
+                    Assert.DoesNotContain("using System.Runtime.InteropServices.UnmanagedType;", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeParamIndex = 1)", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, ArraySubType = System.Runtime.InteropServices.UnmanagedType.I4, SizeConst = 4)", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray)", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 4)", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)", result.Source);
+                    Assert.Contains("MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPArray, SizeConst = 0)", result.Source);
                 });
         }
         finally
@@ -3350,7 +3353,7 @@ public class ReturnToSenderPrototypeTests
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
                     Assert.Contains("[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]", result.Source);
-                    Assert.Contains("[System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(637000000000000000L)] System.DateTime when", result.Source);
+                    Assert.Contains("[Optional, DateTimeConstant(637000000000000000L)] DateTime when", result.Source);
                     Assert.DoesNotContain("public [return:", result.Source);
                 });
         }
@@ -3708,7 +3711,7 @@ public class ReturnToSenderPrototypeTests
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, toString.Status);
                     Assert.Contains("protected virtual bool PrintMembers", toString.Source);
-                    Assert.Contains("protected virtual System.Type EqualityContract", toString.Source);
+                    Assert.Contains("protected virtual Type EqualityContract", toString.Source);
                 },
                 equalsObject =>
                 {
@@ -3786,7 +3789,7 @@ public class ReturnToSenderPrototypeTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("PrintMembers<T>", result.Source);
-            Assert.Contains("PrintMembers(System.Text.StringBuilder", result.Source);
+            Assert.Contains("PrintMembers(StringBuilder", result.Source);
         }
         finally
         {

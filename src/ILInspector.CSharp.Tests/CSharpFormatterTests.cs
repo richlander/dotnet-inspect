@@ -384,6 +384,18 @@ public sealed class CSharpFormatterTests
     public void CleanTypeDisplay_NormalizesToCSharpSpelling(string type, string expected)
         => Assert.Equal(expected, CSharpFormatter.CleanTypeDisplay(type));
 
+    [Theory]
+    [InlineData("int modreq(System.Runtime.CompilerServices.IsVolatile)", "int System.Runtime.CompilerServices.IsVolatile")]
+    [InlineData("System.Int32 modopt(Mod)", "int Mod")]
+    public void CleanTypeDisplay_StripsCustomModifierWrappers(string type, string expected)
+        => Assert.Equal(expected, CSharpFormatter.CleanTypeDisplay(type));
+
+    [Theory]
+    [InlineData("(int, string)", "(int, string)")]
+    [InlineData("System.ValueTuple<(int, string), object>", "System.ValueTuple<(int, string), object>")]
+    public void CleanTypeDisplay_PreservesUnrelatedParentheses(string type, string expected)
+        => Assert.Equal(expected, CSharpFormatter.CleanTypeDisplay(type));
+
     [Fact]
     public void CleanTypeDisplay_CollapsesUnspeakableGenericParameterToObject()
         => Assert.Equal("object", CSharpFormatter.CleanTypeDisplay("!0"));
