@@ -1,3 +1,4 @@
+using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp;
@@ -197,6 +198,87 @@ public sealed class CSharpFormatter
     /// </summary>
     public static string AliasPrimitiveTypeNames(string type)
         => CSharpDeclarationWriter.AliasPrimitiveTypeNames(type);
+
+    /// <summary>
+    /// Strips a CLR generic-arity suffix (e.g. <c>List`1</c> becomes <c>List</c>)
+    /// from a metadata type name segment. Returns the input unchanged when no
+    /// backtick is present.
+    /// </summary>
+    public static string StripArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick >= 0 ? name[..tick] : name;
+    }
+
+    /// <summary>
+    /// Normalizes a raw metadata/IL type display string into C# source spelling:
+    /// collapses signatures containing unspeakable generic-parameter markers
+    /// (<c>!</c>) to <c>object</c>, sanitizes compiler-generated <c>&lt;...&gt;</c>
+    /// name segments, strips <c>modreq</c>/<c>modopt</c> wrappers, aliases CLR
+    /// primitives to C# keywords, and escapes reserved type keywords. This is the
+    /// authoritative type-display cleaner for the C# layer; consumers must not
+    /// reimplement it.
+    /// </summary>
+    public static string CleanTypeDisplay(string type)
+    {
+        if (type.Contains('!'))
+            return "object";
+
+        type = SanitizeGeneratedTypeSegments(type);
+
+        type = type.Replace("modreq(", "", StringComparison.Ordinal)
+            .Replace("modopt(", "", StringComparison.Ordinal)
+            .Replace(")", "", StringComparison.Ordinal)
+            .Trim();
+
+        type = AliasPrimitiveTypeNames(type);
+
+        return EscapeTypeKeywords(type);
+    }
+
+    static string SanitizeGeneratedTypeSegments(string type)
+    {
+        var sb = new StringBuilder(type.Length);
+        int i = 0;
+        while (i < type.Length)
+        {
+            if (type[i] == '<' && IsGeneratedSegmentStart(type, i))
+            {
+                int close = i + 1;
+                while (close < type.Length && IsGeneratedTypeSegmentChar(type[close]))
+                    close++;
+                if (close < type.Length && type[close] == '>')
+                {
+                    int end = close + 1;
+                    while (end < type.Length && IsGeneratedTypeSuffixChar(type[end]))
+                        end++;
+                    sb.Append(CSharpIdentifier.Sanitize(type[i..end]));
+                    i = end;
+                    continue;
+                }
+            }
+
+            sb.Append(type[i]);
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    static bool IsGeneratedTypeSegmentChar(char c)
+        => c != '>'
+            && c != '.'
+            && c != ','
+            && c != '['
+            && c != ']'
+            && c != '*'
+            && !char.IsWhiteSpace(c);
+
+    static bool IsGeneratedTypeSuffixChar(char c)
+        => char.IsLetterOrDigit(c) || c is '_' or '{' or '}';
+
+    static bool IsGeneratedSegmentStart(string text, int index)
+        => index == 0 || text[index - 1] is '.' or '+' or '<';
 
     /// <summary>
     /// True when a C# code fragment (typically a member body) requires the
