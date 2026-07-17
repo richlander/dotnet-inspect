@@ -116,6 +116,13 @@ There is no separate 1,024-byte per-blob cap. Both
 compatibility API `GetTypeNameFromSpecification` returns a decoded value or
 throws on rejection; it does not restore a plausible fallback.
 
+Signature structure and TypeSpec re-entry are only two metadata safety
+mechanisms. TypeDef/TypeRef relationship walks and metadata-derived output
+expansion follow the separate
+[bounded metadata traversal](design/bounded-metadata-traversal.md) contract.
+They share explicit rejection and budget principles without being folded into
+signature parsing.
+
 ## The key finding: it's an entangled cluster, used widely
 
 The shareable primitives are not independent functions — `TypeResolver` and
