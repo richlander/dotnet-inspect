@@ -186,81 +186,19 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
-## Concurrency and publication model
+## Package and pack publication
 
-The design follows familiar Git and Docker coordination patterns without
-claiming to implement either tool's architecture exactly.
+Version resolution ends with an exact package coordinate. Package extraction
+then shares one acquisition task per coordinate within a process and publishes
+complete app-cache entries transactionally. Separate processes may duplicate
+immutable work, but readers observe only a marked, atomically published winner.
+Platform-pack projection uses the same model in a separate cache namespace.
 
-| Precedent | Pattern adopted by dotnet-inspect | Important difference |
-| --- | --- | --- |
-| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. |
-| Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
-| Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the NuGet cache root, normalized package id, and version rather than by a content hash. |
-| Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |
-| Git mutable-state locks | Immutable entries do not require a long-lived cross-process lock when publishers can converge on one valid result. | Explicit locking remains appropriate for future mutable state that cannot use winner convergence. |
-
-NuGet.Client is the closest domain comparison. Its global-packages installer
-acquires a file lock for the target package, checks `.nupkg.metadata` to
-recognize a completed installation, repairs an incomplete target while holding
-the lock, and writes the metadata marker last. Processes waiting on that lock
-then observe the marker and skip duplicate installation.
-
-dotnet-inspect keeps NuGet's coordinate identity and marked-completion model but
-chooses a different cross-process tradeoff. Each process may build a complete
-candidate independently; whole-directory atomic rename selects one winner, and
-losers validate and use it. This avoids holding a shared lock across package
-work, but it permits duplicate download and extraction. Without a lock, an
-invalid final entry cannot be deleted safely, so dotnet-inspect preserves it and
-fails visibly instead.
-
-For an exact package cache miss, one process downloads and extracts the archive
-once for all of its waiters. It copies the result to a unique sibling staging
-directory, validates the package structure, writes a completion marker, closes
-all files, and atomically renames the directory to its final
-`package-content-v2` path. Readers accept only the final marked directory and
-never inspect staging paths. A competing process either publishes first or
-validates and uses that committed winner.
-
-Overlapping dependency work does not introduce a lock-ordering problem. The
-in-process registry is keyed to one exact package coordinate, and its factory
-only downloads, extracts, validates, and commits that coordinate. It does not
-acquire dependencies or wait on another registry key. The entry is removed
-before the caller performs follow-on work such as traversing package
-dependencies, following a tool-package redirect, or projecting a platform
-pack. Dependency traversal fetches only dependency nuspecs and uses a
-traversal-local seen set to terminate dependency cycles.
-
-Consequently, two in-process dependency graphs that overlap on a package either
-await the same task for that exact coordinate or perform independent manifest
-reads. Tasks for different coordinates do not wait on one another, so they
-cannot form a wait cycle. Across processes there is no coordination wait:
-publishers use unique staging directories, and the final atomic rename either
-succeeds or reports a conflict without acquiring a cross-process lock. The
-losing process validates the winner rather than waiting for it while holding
-another resource.
-
-This is safe because exact package coordinates are immutable, different
-coordinates have disjoint final paths, and readers accept only complete,
-committed directories. Duplicate cross-process work can cost network and disk
-I/O, but it cannot expose partial content or create a cache-coordination
-deadlock. The single-coordinate factory is a required invariant: future
-acquisition code must not recursively await another package while its own
-in-flight entry is active. A future mutable operation spanning multiple entries
-would instead need an explicit ordering and cycle policy.
-
-Platform-pack projection applies the same transaction separately. It never
-mutates the committed package; it copies selected contents into a unique
-`packs-v2` staging directory and atomically publishes a marked derived pack.
-
-The versioned `package-content-v2` and `packs-v2` namespaces fence these
-transactions from older direct-copy writers. An invalid final entry is not
-silently replaced because deleting it could race a valid publisher. Acquisition
-fails visibly and a later retry can proceed after the cache is cleared.
-
-This model guarantees complete publication, not globally unique work. Separate
-processes can download the same immutable coordinate concurrently, but readers
-observe only one validated final entry. Source order selects the producer on a
-miss and is not a separate durable cache identity.
+Cache identity is the cache root, normalized package id, and version.
+Source order selects the producer on a miss and is not a separate durable cache
+identity. See [cache concurrency and publication](cache-concurrency.md) for the
+single-flight boundary, dependency-overlap safety, filesystem rename semantics,
+failure model, and NuGet, Docker, and Git precedents.
 
 ## Design rationale
 
