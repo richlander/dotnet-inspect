@@ -18,7 +18,15 @@ public static class MetadataReaderExtensions
         /// Gets the fully qualified name (Namespace.Name) of a <see cref="TypeDefinition"/>.
         /// </summary>
         public string GetFullTypeName(TypeDefinition typeDef)
-            => TypeResolver.GetFullName(reader, typeDef);
+            => TypeResolver.ResolveFullName(reader, typeDef).GetValueOrThrow();
+
+        /// <summary>
+        /// Resolves the fully qualified name of a TypeDefinition through a
+        /// bounded declaring-type walk.
+        /// </summary>
+        public RelationshipTraversalResult<string> ResolveFullTypeName(
+            TypeDefinitionHandle handle)
+            => TypeResolver.ResolveTypeNameFromDefinition(reader, handle);
 
         /// <summary>
         /// Gets the fully qualified name of a <see cref="TypeReference"/>,
@@ -26,19 +34,29 @@ public static class MetadataReaderExtensions
         /// match <see cref="GetFullTypeName(TypeDefinition)"/>.
         /// </summary>
         public string GetFullTypeName(TypeReference typeRef)
-            => typeRef.ResolutionScope.Kind == HandleKind.TypeReference
-                ? $"{reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)typeRef.ResolutionScope))}.{reader.GetString(typeRef.Name)}"
-                : TypeResolver.GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+            => TypeResolver.ResolveFullName(reader, typeRef).GetValueOrThrow();
+
+        /// <summary>
+        /// Resolves the fully qualified name of a TypeReference through a
+        /// bounded resolution-scope walk.
+        /// </summary>
+        public RelationshipTraversalResult<string> ResolveFullTypeName(
+            TypeReferenceHandle handle)
+            => TypeResolver.ResolveTypeNameFromReference(reader, handle);
 
         /// <summary>
         /// Gets the fully qualified name (Namespace.Name) of an <see cref="ExportedType"/>.
         /// </summary>
         public string GetFullTypeName(ExportedType exportedType)
-        {
-            string ns = reader.GetString(exportedType.Namespace);
-            string name = reader.GetString(exportedType.Name);
-            return TypeResolver.GetFullName(ns, name);
-        }
+            => TypeResolver.ResolveFullName(reader, exportedType).GetValueOrThrow();
+
+        /// <summary>
+        /// Resolves the fully qualified name of an ExportedType through a
+        /// bounded implementation walk.
+        /// </summary>
+        public RelationshipTraversalResult<string> ResolveFullTypeName(
+            ExportedTypeHandle handle)
+            => TypeResolver.ResolveTypeNameFromExportedType(reader, handle);
 
         /// <summary>
         /// Gets the name of a generic parameter from its handle.

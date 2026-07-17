@@ -309,23 +309,31 @@ separate work; adopting either is not a prerequisite for this safety substrate.
 ## Budget policy
 
 All limits live in one metadata-safety policy rather than in individual
-formatters. The implementation PR must pin a real-artifact census and record the
-observed maxima before activating new limits.
+formatters. An implementation PR must pin a real-artifact census and record the
+observed maxima before activating a new limit.
 
-Candidate starting ceilings are:
+Current and candidate ceilings are:
 
-| Dimension | Candidate ceiling | Rationale |
+| Dimension | Ceiling | Status and rationale |
 | --- | ---: | --- |
-| Relationship nodes | 256 | Matches existing guarded recursion ceilings while remaining far above normal nesting |
-| Projected characters | 8,192 | Bounds repeated long names and argument expansion without constraining ordinary identities |
-| Generic arity expansion | 1,024 | Prevents metadata names such as ``Type`2000000000`` from driving unbounded loops |
-| TypeSpec active bytes | 4,096 | Existing `TypeSpecGuard` policy |
-| Signature structural depth | 512 | Existing `SignatureBlobGuard` policy |
+| Relationship nodes | 256 | Active; matches existing guarded recursion ceilings and is far above the measured maximum |
+| Projected characters | 8,192 | Candidate; bounds repeated long names and argument expansion without constraining ordinary identities |
+| Generic arity expansion | 1,024 | Candidate; prevents metadata names such as ``Type`2000000000`` from driving unbounded loops |
+| TypeSpec active bytes | 4,096 | Active existing `TypeSpecGuard` policy |
+| Signature structural depth | 512 | Active existing `SignatureBlobGuard` policy |
 
-The relationship-node value aligns with existing guarded recursion. The text
-and arity values come from prior hardening experiments but are not active
-policy until the implementation PR records a pinned corpus's maximum observed
-identity length and generic arity, then demonstrates adequate margin.
+The relationship-node ceiling was activated after scanning the .NET 11
+preview 6 runtime and reference packs
+(`11.0.0-preview.6.26359.118`): 623 assemblies, no malformed images or cycles,
+and maximum chain lengths of 5 TypeDefs, 3 TypeRefs, and 3 ExportedTypes. The
+ordered input DLL digest was
+`d6d2fef7d7ccdf240f308cbfddd90fa21fdeb82b55d89d0028ef37ffd87e04af`.
+The 256-node ceiling leaves more than 50 times the observed TypeDef depth while
+aligning with the existing TypeSpec re-entry ceiling.
+
+The text and arity values come from prior hardening experiments but are not
+active policy until an implementation PR records a pinned corpus's maximum
+observed identity length and generic arity, then demonstrates adequate margin.
 
 Once activated, these are security ceilings, not user-tunable output limits. A
 future change must update the policy, census evidence, and adversarial fixtures
