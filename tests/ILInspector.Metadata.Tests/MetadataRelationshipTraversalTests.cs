@@ -37,6 +37,9 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             TypeResolver.ResolveTypeNameFromDefinition(image.Reader, leaf).GetValueOrThrow());
+        Assert.Equal(
+            "N.Outer.Middle.Leaf",
+            image.Reader.GetFullTypeName(image.Reader.GetTypeDefinition(leaf)));
     }
 
     [Fact]
@@ -74,6 +77,9 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             image.Reader.ResolveFullTypeName(leaf).GetValueOrThrow());
+        Assert.Equal(
+            "N.Outer.Middle.Leaf",
+            image.Reader.GetFullTypeName(image.Reader.GetTypeReference(leaf)));
     }
 
     [Fact]
@@ -120,6 +126,9 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             image.Reader.ResolveFullTypeName(leaf).GetValueOrThrow());
+        Assert.Equal(
+            "N.Outer.Middle.Leaf",
+            image.Reader.GetFullTypeName(image.Reader.GetExportedType(leaf)));
     }
 
     [Fact]

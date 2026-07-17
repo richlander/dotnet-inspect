@@ -241,7 +241,25 @@ public static class TypeResolver
     /// nested type through its declaring type (Outer.Inner).
     /// </summary>
     public static string GetFullName(MetadataReader reader, TypeDefinition typeDef)
-        => ResolveFullName(reader, typeDef).GetValueOrThrow();
+    {
+        TypeDefinitionHandle declaringType;
+        try
+        {
+            declaringType = typeDef.GetDeclaringType();
+            if (declaringType.IsNil)
+                return GetFullName(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return ThrowMalformed(ex, default, consumedNodes: 0);
+        }
+
+        return AppendLeaf(
+            reader,
+            ResolveTypeNameFromDefinition(reader, declaringType),
+            typeDef.Name,
+            declaringType).GetValueOrThrow();
+    }
 
     /// <summary>
     /// Resolves the full name of a TypeDefinition value whose handle is not
@@ -286,6 +304,31 @@ public static class TypeResolver
     public static string GetFullName(string? ns, string name)
     {
         return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+    }
+
+    /// <summary>
+    /// Gets the full name of a type reference, qualifying a nested type through
+    /// its resolution-scope chain.
+    /// </summary>
+    public static string GetFullName(MetadataReader reader, TypeReference typeRef)
+    {
+        EntityHandle resolutionScope;
+        try
+        {
+            resolutionScope = typeRef.ResolutionScope;
+            if (resolutionScope.Kind != HandleKind.TypeReference)
+                return GetFullName(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return ThrowMalformed(ex, default, consumedNodes: 0);
+        }
+
+        return AppendLeaf(
+            reader,
+            ResolveTypeNameFromReference(reader, (TypeReferenceHandle)resolutionScope),
+            typeRef.Name,
+            resolutionScope).GetValueOrThrow();
     }
 
     /// <summary>
@@ -360,6 +403,31 @@ public static class TypeResolver
         {
             return Malformed<string>(ex, default, consumedNodes: 0);
         }
+    }
+
+    /// <summary>
+    /// Gets the full name of an exported type, qualifying a nested type through
+    /// its implementation chain.
+    /// </summary>
+    public static string GetFullName(MetadataReader reader, ExportedType exportedType)
+    {
+        EntityHandle implementation;
+        try
+        {
+            implementation = exportedType.Implementation;
+            if (implementation.Kind != HandleKind.ExportedType)
+                return GetFullName(reader.GetString(exportedType.Namespace), reader.GetString(exportedType.Name));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return ThrowMalformed(ex, default, consumedNodes: 0);
+        }
+
+        return AppendLeaf(
+            reader,
+            ResolveTypeNameFromExportedType(reader, (ExportedTypeHandle)implementation),
+            exportedType.Name,
+            implementation).GetValueOrThrow();
     }
 
     /// <summary>
@@ -591,6 +659,7 @@ public static class TypeResolver
 
     static string ThrowMalformed(
         Exception exception,
-        EntityHandle subject)
-        => Malformed<string>(exception, subject, consumedNodes: 1).GetValueOrThrow();
+        EntityHandle subject,
+        int consumedNodes = 1)
+        => Malformed<string>(exception, subject, consumedNodes).GetValueOrThrow();
 }

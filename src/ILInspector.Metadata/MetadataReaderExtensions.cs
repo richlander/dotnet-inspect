@@ -18,7 +18,7 @@ public static class MetadataReaderExtensions
         /// Gets the fully qualified name (Namespace.Name) of a <see cref="TypeDefinition"/>.
         /// </summary>
         public string GetFullTypeName(TypeDefinition typeDef)
-            => TypeResolver.ResolveFullName(reader, typeDef).GetValueOrThrow();
+            => TypeResolver.GetFullName(reader, typeDef);
 
         /// <summary>
         /// Resolves the fully qualified name of a TypeDefinition through a
@@ -34,7 +34,7 @@ public static class MetadataReaderExtensions
         /// match <see cref="GetFullTypeName(TypeDefinition)"/>.
         /// </summary>
         public string GetFullTypeName(TypeReference typeRef)
-            => TypeResolver.ResolveFullName(reader, typeRef).GetValueOrThrow();
+            => TypeResolver.GetFullName(reader, typeRef);
 
         /// <summary>
         /// Resolves the fully qualified name of a TypeReference through a
@@ -48,7 +48,7 @@ public static class MetadataReaderExtensions
         /// Gets the fully qualified name (Namespace.Name) of an <see cref="ExportedType"/>.
         /// </summary>
         public string GetFullTypeName(ExportedType exportedType)
-            => TypeResolver.ResolveFullName(reader, exportedType).GetValueOrThrow();
+            => TypeResolver.GetFullName(reader, exportedType);
 
         /// <summary>
         /// Resolves the fully qualified name of an ExportedType through a
