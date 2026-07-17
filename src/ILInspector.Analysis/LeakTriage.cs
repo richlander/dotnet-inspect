@@ -694,7 +694,7 @@ public static class LeakTriageAnalyzer
         TypeRef? valueType = null)
     {
         if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
-            || !IsLoadLocal(load, slot))
+            || !IsLoadLocalOrAddress(load, slot))
             return UseClassification.OwnershipTransfer("Rented array use could not be classified.");
 
         int extra = 0;
@@ -721,6 +721,24 @@ public static class LeakTriageAnalyzer
             {
                 if (IsArrayPoolReturn(callee) && extra < callee.ParameterTypes.Length)
                     return UseClassification.Release;
+                int consumedArguments =
+                    callee.ParameterTypes.Length
+                    + (instruction.OpCode != ILOpCode.Newobj && callee.HasThis
+                        ? 1
+                        : 0);
+                if (consumedArguments <= extra)
+                {
+                    extra -= consumedArguments;
+                    if (instruction.OpCode == ILOpCode.Newobj
+                        || !FrameworkIdentity.IsCoreLibraryType(
+                            callee.ReturnType,
+                            "System",
+                            "Void"))
+                    {
+                        extra++;
+                    }
+                    continue;
+                }
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
                     IsNonThrowingSetupBoundary(callee, valueType),
@@ -817,9 +835,6 @@ public static class LeakTriageAnalyzer
                 foreach (var use in reaching.UsesOf(definition)
                     .OrderBy(static use => use.Offset))
                 {
-                    if (use.Address)
-                        return null;
-
                     var classification = ClassifyUse(
                         instructions,
                         calls,
@@ -911,7 +926,7 @@ public static class LeakTriageAnalyzer
             {
                 return null;
             }
-            if (!IsLoadLocal(instruction, slot))
+            if (!IsLoadLocalOrAddress(instruction, slot))
                 continue;
 
             var classification = ClassifyUse(
@@ -1014,6 +1029,13 @@ public static class LeakTriageAnalyzer
             ILOpCode.Ldloc_s or ILOpCode.Ldloc => instruction.OperandValue == slot,
             _ => false,
         };
+
+    static bool IsLoadLocalOrAddress(
+        DecodedInstruction instruction,
+        int slot)
+        => IsLoadLocal(instruction, slot)
+            || (TryReadLoadLocalAddress(instruction, out int addressSlot)
+                && addressSlot == slot);
 
     static bool TryReadLoadLocalAddress(
         DecodedInstruction instruction,
@@ -1127,7 +1149,8 @@ public static class LeakTriageAnalyzer
             return true;
         }
 
-        return member.Name == "Clear" && IsSpanType(member.DeclaringType);
+        return member.Name is "Clear" or "Fill"
+            && IsSpanType(member.DeclaringType);
     }
 
     static bool IsTransparentWrapperBoundary(MemberRef member)

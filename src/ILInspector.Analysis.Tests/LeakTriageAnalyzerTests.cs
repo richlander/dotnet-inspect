@@ -229,6 +229,44 @@ public sealed class LeakTriageAnalyzerTests
         Assert.DoesNotContain(throughReadOnlySpan.Boundaries, boundary =>
             boundary.Evidence.Operation.Name == "op_Implicit");
 
+        var throughSpanByRef = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanByRef)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughSpanByRef.Actionability);
+        Assert.Contains(throughSpanByRef.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughSpanByRef.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
+        var nestedArgument = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanLocalWithNestedExternalRead)));
+        Assert.Equal(
+            ResourceTriageActionability.Unknown,
+            nestedArgument.Actionability);
+        Assert.Contains(nestedArgument.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Blend"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+        Assert.DoesNotContain(nestedArgument.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read");
+
+        var spanSlice = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanSliceBeforeReturn)));
+        Assert.Equal(
+            ResourceTriageActionability.TrustedLowActionability,
+            spanSlice.Actionability);
+        Assert.Contains(spanSlice.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Slice"
+            && boundary.Kind == ResourceTriageBoundaryKind.InMemoryTransform);
+
+        Assert.DoesNotContain(assessments, assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.SpanFillBeforeReturn));
+
         var throughStringArgument = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithTag)));
@@ -939,7 +977,12 @@ public sealed class LeakTriageAnalyzerTests
             TokenShared => new MemberRef(arrayPoolOfByte, "get_Shared", [], arrayPoolOfByte, MemberKind.Method),
             TokenRent => new MemberRef(arrayPoolOfByte, "Rent", [TypeRef.CoreLib("System", "Int32")], byteArray, MemberKind.Method) { HasThis = true },
             TokenReturn => new MemberRef(arrayPoolOfByte, "Return", [byteArray], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { HasThis = true },
-            TokenUnknown => new MemberRef(TypeRef.Definition("Fixture", "Fixtures", "Unknown"), "Use", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
+            TokenUnknown => new MemberRef(
+                TypeRef.Definition("Fixture", "Fixtures", "Unknown"),
+                "Use",
+                [byteArray],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
             TokenKeepAlive => new MemberRef(TypeRef.CoreLib("System", "GC"), "KeepAlive", [TypeRef.CoreLib("System", "Object")], TypeRef.CoreLib("System", "Void"), MemberKind.Method),
             TokenArrayCopy => new MemberRef(
                 TypeRef.CoreLib("System", "Array"),
@@ -1293,6 +1336,46 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughSpanByRef()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        int parsed = ExternalInputReader.Parse(ref value);
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int SpanLocalWithNestedExternalRead(
+        ExternalMemoryStream stream)
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        int result = SpanConsumer.Blend(value, stream.Read());
+        ArrayPool<char>.Shared.Return(chars);
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int SpanSliceBeforeReturn()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        int length = value.Slice(0, 8).Length;
+        ArrayPool<char>.Shared.Return(chars);
+        return length;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void SpanFillBeforeReturn()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        Span<char> value = chars;
+        value.Fill('x');
+        ArrayPool<char>.Shared.Return(chars);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int ExternalParseThroughSpanWithTag()
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
@@ -1406,6 +1489,9 @@ internal sealed class ArrayPoolLeakFixtures
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public int Read(ReadOnlyMemory<byte> buffer) => buffer.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Read() => 1;
     }
 
     internal static class ExternalInputReader
@@ -1416,6 +1502,9 @@ internal sealed class ArrayPoolLeakFixtures
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static int Parse(ReadOnlySpan<char> value) => value.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Parse(ref Span<char> value) => value.Length;
     }
 
     internal sealed class SpanConsumer
@@ -1426,6 +1515,10 @@ internal sealed class ArrayPoolLeakFixtures
         }
 
         public int Length { get; }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Blend(Span<char> value, int suffix)
+            => value.Length + suffix;
     }
 
     // Same shape with `catch (Exception)`, which also runs for every managed exception type.

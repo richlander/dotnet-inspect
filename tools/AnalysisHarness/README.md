@@ -285,8 +285,8 @@ rows as correctness findings.
 
 The shared framework is the false-positive gate, not the profitability corpus. The pinned
 ArrayPool-heavy community corpus prepared above contains the primary library from each of nine
-package roots. It produced **0 strict findings**, from 189 measurement rows: 145
-`ownership-transfer-suppressed`, 36 `cross-method-suppressed`, 7
+package roots. It produced **0 strict findings**, from 188 measurement rows: 145
+`ownership-transfer-suppressed`, 35 `cross-method-suppressed`, 7
 `exception-path-leak-candidate`, and 1 `alias-or-field-suppressed`.
 
 The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
@@ -333,20 +333,21 @@ dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
 ```
 
 A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classified
-34 lifecycle observations as 4 `untrusted-actionable`
+57 lifecycle observations as 4 `untrusted-actionable`
 (`MessagePackReader::ReadStringSlow`, `EncodingExtensions::GetString`,
 `TypeMapLazyDictionary::ConvertUtf8ToUtf16`, and `BinaryReader::FillBuffer`),
-4 `trusted-low-actionability`, and 26 `unknown`.
+31 `trusted-low-actionability`, and 22 `unknown`.
 
-The same-day pinned community run classified 8 lifecycle observations as 3
+The same-day pinned community run classified 19 lifecycle observations as 3
 `untrusted-actionable` (`MessagePackReader::ReadStringSlow`, Npgsql
-`TextConverter::GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte`) and 5 `unknown`.
+`TextConverter::GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte`), 11
+`trusted-low-actionability`, and 5 `unknown`.
 Typed propagation through array-to-`Span<T>` conversion and `Memory<T>` construction recovers the
 Npgsql and Pipelines consumers without package-specific policy. MimeKit
 `Rfc2047.DecodePhrase`/`DecodeText` remain unknown because their only unprotected boundary is the
-`TokenDecoder` constructor; the later tokenizer calls are protected by cleanup. Eleven former
-System.Text.Json observations no longer count because their implicit array-to-`Span<T>` conversion
-is nonthrowing and no downstream throwing consumer is attributable.
+`TokenDecoder` constructor; the later tokenizer calls are protected by cleanup. Eleven
+System.Text.Json observations now identify `Span<T>.Slice` rather than the nonthrowing implicit
+conversion and classify as trusted in-memory work.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 

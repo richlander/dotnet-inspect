@@ -85,15 +85,17 @@ the untrusted-actionable candidates.
 - Historical framework sensor (308 asm): 4 untrusted-actionable, all confirmed.
 - **9/9 confirmed exception-path pool-retention defects**, IL-verified. Lowest volume,
   highest precision, clean `try/finally` fix.
-- Current exact product contract (.NET 11 daily, 314 assemblies): 34 lifecycle
+- Current exact product contract (.NET 11 daily, 314 assemblies): 57 lifecycle
   observations → 4 untrusted-actionable (`MessagePackReader.ReadStringSlow`,
   `EncodingExtensions.GetString`, `TypeMapLazyDictionary.ConvertUtf8ToUtf16`,
-  and `BinaryReader.FillBuffer`), 4 trusted, and 26 unknown.
-- Current pinned community contract (9 assemblies): 8 lifecycle observations →
+  and `BinaryReader.FillBuffer`), 31 trusted, and 22 unknown.
+- Current pinned community contract (9 assemblies): 19 lifecycle observations →
   3 untrusted-actionable (`MessagePackReader.ReadStringSlow`, Npgsql
   `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte`)
-  and 5 unknown. The Npgsql and Pipelines consumers are now reached through
-  typed `Span<T>`/`Memory<T>` wrapper propagation. MimeKit's two
+  plus 11 trusted and 5 unknown. The Npgsql and Pipelines consumers are now
+  reached through typed `Span<T>`/`Memory<T>` wrapper propagation. Eleven
+  System.Text.Json rows identify trusted `Span<T>.Slice` work rather than the
+  implicit conversion. MimeKit's two
   `TokenDecoder` constructor boundaries remain unknown because the later
   tokenizer calls are protected by cleanup.
 
