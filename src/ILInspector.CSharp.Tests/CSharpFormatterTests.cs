@@ -368,4 +368,23 @@ public sealed class CSharpFormatterTests
     [InlineData("N.stackalloc", false)]
     public void TypeRequiresUnsafeModifier_MatchesPointersButNotStackallocIdentifiers(string typeDisplayName, bool expected)
         => Assert.Equal(expected, CSharpFormatter.TypeRequiresUnsafeModifier(typeDisplayName));
+
+    [Theory]
+    [InlineData("List`1", "List")]
+    [InlineData("Dictionary`2", "Dictionary")]
+    [InlineData("Widget", "Widget")]
+    [InlineData("", "")]
+    public void StripArity_RemovesGenericAritySuffix(string name, string expected)
+        => Assert.Equal(expected, CSharpFormatter.StripArity(name));
+
+    [Theory]
+    [InlineData("System.Int32", "int")]
+    [InlineData("A.B.delegate*", "A.B.@delegate*")]
+    [InlineData("ref readonly", "ref @readonly")]
+    public void CleanTypeDisplay_NormalizesToCSharpSpelling(string type, string expected)
+        => Assert.Equal(expected, CSharpFormatter.CleanTypeDisplay(type));
+
+    [Fact]
+    public void CleanTypeDisplay_CollapsesUnspeakableGenericParameterToObject()
+        => Assert.Equal("object", CSharpFormatter.CleanTypeDisplay("!0"));
 }

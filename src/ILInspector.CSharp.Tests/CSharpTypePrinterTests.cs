@@ -88,14 +88,15 @@ public sealed class CSharpTypePrinterTests
                 Assert.Equal("Samples", unit.Namespace);
                 Assert.Equal(
                     """
-                    namespace Samples;
-
-                    public class First
+                    namespace Samples
                     {
-                    }
+                        public class First
+                        {
+                        }
 
-                    public class Second
-                    {
+                        public class Second
+                        {
+                        }
                     }
                     """,
                     unit.Source);
@@ -750,7 +751,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void NestedTypesAndPrimaryConstructorsRenderInBlockNamespaceUnits()
+    public void NestedTypesAndPrimaryConstructorsRenderInFileScopedNamespaceUnits()
     {
         var nested = CreateEmptyType("Samples", "Nested");
         var outer = CreateEmptyType("Samples", "Outer`1");
@@ -761,19 +762,16 @@ public sealed class CSharpTypePrinterTests
             primaryConstructorParameters: [new ApiParameter { Type = "T", Name = "value" }],
             nestedTypes: [new CSharpTypePrintRequest(nested)]);
 
-        var result = _printer.Print(
-            request,
-            new CSharpTypePrintOptions { NamespaceStyle = CSharpNamespaceStyle.BlockScoped });
+        var result = _printer.Print(request);
 
         Assert.Equal(
             """
-            namespace Samples
+            namespace Samples;
+
+            public class Outer<T>(T value) where T : class
             {
-                public class Outer<T>(T value) where T : class
+                public class Nested
                 {
-                    public class Nested
-                    {
-                    }
                 }
             }
             """,
@@ -853,9 +851,9 @@ public sealed class CSharpTypePrinterTests
             new CSharpTypePrintRequest(delegateType)
         ]);
 
-        Assert.Contains("public enum Choice\n{\n    One = 1\n}", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.Contains("    public enum Choice\n    {\n        One = 1\n    }", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains(
-            "internal delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
+            "    internal delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
@@ -1078,6 +1076,88 @@ public sealed class CSharpTypePrinterTests
     {
         Assert.Throws<ArgumentNullException>(() => _printer.Print(null!));
         Assert.Throws<ArgumentNullException>(() => _printer.PrintBatch(null!));
+    }
+
+    [Fact]
+    public void SourceDefaultsToUsingsWithoutPragmaOrAssemblyAttributes()
+    {
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
+            new CSharpTypePrintOptions
+            {
+                Usings = ["System.Collections.Generic", "System"]
+            });
+
+        Assert.Equal(
+            "using System;\nusing System.Collections.Generic;\nnamespace Samples;\n\npublic class Widget\n{\n}\n",
+            result.Source);
+        Assert.DoesNotContain("#pragma", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("[assembly:", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceOmitsUsingsWhenIncludeUsingsIsFalse()
+    {
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
+            new CSharpTypePrintOptions
+            {
+                Usings = ["System"],
+                IncludeUsings = false
+            });
+
+        Assert.DoesNotContain("using System;", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceEmitsPragmaAndAssemblyAndModuleAttributesWhenRequested()
+    {
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
+            new CSharpTypePrintOptions
+            {
+                EmitPragmaWarningDisable = true,
+                AssemblyAttributes = ["System.Reflection.AssemblyMetadata(\"k\", \"v\")"],
+                ModuleAttributes = ["System.Security.UnverifiableCode"],
+                Usings = ["System"]
+            });
+
+        Assert.StartsWith(
+            "#pragma warning disable\n"
+            + "[assembly: System.Reflection.AssemblyMetadata(\"k\", \"v\")]\n"
+            + "[module: System.Security.UnverifiableCode]\n"
+            + "using System;\n",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceEscapesAndDeduplicatesUsings()
+    {
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "Widget")),
+            new CSharpTypePrintOptions
+            {
+                Usings = ["System", "System", "Some.namespace.Value"]
+            });
+
+        Assert.Contains("using Some.@namespace.Value;", result.Source, StringComparison.Ordinal);
+        Assert.Single(
+            result.Source.Split('\n'),
+            line => line == "using System;");
+    }
+
+    [Fact]
+    public void SourceUsesBlockScopedNamespaceForMultipleRequests()
+    {
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "First")),
+            new CSharpTypePrintRequest(CreateEmptyType("Other", "Second"))
+        ]);
+
+        Assert.Contains("namespace Samples\n{\n", result.Source, StringComparison.Ordinal);
+        Assert.Contains("namespace Other\n{\n", result.Source, StringComparison.Ordinal);
     }
 
     static ApiType CreateEmptyType(string? @namespace, string name)

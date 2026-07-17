@@ -25,8 +25,7 @@ public static class AttributeDecoder
         if (constructorHandle.Kind == HandleKind.MethodDefinition)
         {
             var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
-            var typeDef = reader.GetTypeDefinition(methodDef.GetDeclaringType());
-            return TypeResolver.GetFullName(reader, typeDef);
+            return TypeResolver.GetTypeNameFromDefinition(reader, methodDef.GetDeclaringType());
         }
         return null;
     }
@@ -74,7 +73,7 @@ public static class AttributeDecoder
         public bool IsSystemType(string type) => type == "System.Type";
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeResolver.GetFullName(r, r.GetTypeDefinition(handle));
+            => TypeResolver.GetTypeNameFromDefinition(r, handle);
         public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
             => TypeResolver.GetTypeName(r, handle) ?? "object";
         public string GetTypeFromSerializedName(string name)
@@ -88,7 +87,7 @@ public static class AttributeDecoder
             foreach (var handle in reader.TypeDefinitions)
             {
                 var def = reader.GetTypeDefinition(handle);
-                if (TypeResolver.GetFullName(reader, def) != type)
+                if (TypeResolver.GetTypeNameFromDefinition(reader, handle) != type)
                     continue;
                 foreach (var fieldHandle in def.GetFields())
                 {

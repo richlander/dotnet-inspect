@@ -43,7 +43,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => TypeResolver.GetFullName(reader, reader.GetTypeDefinition(handle));
+        => TypeResolver.GetTypeNameFromDefinition(reader, handle);
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
         => TypeResolver.GetTypeNameFromReference(reader, handle);
