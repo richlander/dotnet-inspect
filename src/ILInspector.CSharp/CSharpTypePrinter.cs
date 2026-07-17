@@ -46,13 +46,15 @@ public sealed class CSharpTypePrinter
                 nameof(requests)));
         }
 
+        var derivedUsings = ComputeDerivedUsings(preparedTypes, options);
+
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             var source = string.Join(
                 "\n\n",
-                group.Select(type => RenderType(type, indent: 0, options, diagnostics)));
+                group.Select(type => RenderType(type, indent: 0, options, derivedUsings, diagnostics)));
             if (containingNamespace is not null)
             {
                 string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
@@ -68,11 +70,41 @@ public sealed class CSharpTypePrinter
         return new CSharpTypePrintResult(
             unitList,
             diagnostics.ToImmutable(),
-            ComposeSource(unitList, options));
+            () => ComposeSource(unitList, derivedUsings, options));
+    }
+
+    /// <summary>
+    /// Derives the collision-safe namespaces to shorten against, excluding the
+    /// unit's own declaring namespaces (their references are already shortened by
+    /// the same-namespace rule, so importing them would be redundant).
+    /// </summary>
+    static IReadOnlyList<string> ComputeDerivedUsings(
+        IReadOnlyList<PreparedType> preparedTypes,
+        CSharpTypePrintOptions options)
+    {
+        if (!options.ShortenTypeNames)
+            return [];
+
+        var allTypes = new List<ApiType>();
+        var declaringNamespaces = new HashSet<string>(StringComparer.Ordinal);
+        void Flatten(PreparedType prepared)
+        {
+            allTypes.Add(prepared.Type);
+            declaringNamespaces.Add(prepared.Namespace);
+            foreach (var nested in prepared.NestedTypes)
+                Flatten(nested);
+        }
+        foreach (var prepared in preparedTypes)
+            Flatten(prepared);
+
+        return CSharpFormatter.DeriveContextualUsings(allTypes)
+            .Where(ns => !declaringNamespaces.Contains(ns))
+            .ToArray();
     }
 
     static string ComposeSource(
         ImmutableArray<CSharpTypeSourceUnit> units,
+        IReadOnlyList<string> derivedUsings,
         CSharpTypePrintOptions options)
     {
         var sb = new System.Text.StringBuilder();
@@ -84,7 +116,7 @@ public sealed class CSharpTypePrinter
             sb.AppendLine($"[module: {attribute}]");
         if (options.IncludeUsings)
         {
-            foreach (var ns in options.Usings.Select(CSharpFormatter.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            foreach (var ns in options.Usings.Concat(derivedUsings).Select(CSharpFormatter.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
                 sb.AppendLine($"using {ns};");
         }
         foreach (var unit in units)
@@ -216,19 +248,22 @@ public sealed class CSharpTypePrinter
         PreparedType prepared,
         int indent,
         CSharpTypePrintOptions options,
+        IReadOnlyList<string> contextualUsings,
         ImmutableArray<CSharpTypePrintDiagnostic>.Builder diagnostics)
     {
-        var formatter = DeclarationFormatter(prepared.Namespace, options);
+        var formatter = DeclarationFormatter(prepared.Namespace, options, contextualUsings);
         if (prepared.Type.Kind == "delegate")
             return RenderDelegate(prepared, formatter, indent);
 
         var propertyFormatter = DeclarationFormatter(
             prepared.Namespace,
             options,
+            contextualUsings,
             omitPropertyAccessors: true);
         var diagnosticPass = DeclarationFormatter(
             prepared.Namespace,
             options,
+            contextualUsings,
             terminateMemberDeclaration: true)
             .FormatTypeUnit(prepared.Type, prepared.Type.Members);
         diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
@@ -254,7 +289,7 @@ public sealed class CSharpTypePrinter
             foreach (var member in prepared.Members)
                 lines.AddRange(RenderMember(prepared, member, formatter, propertyFormatter, indent + 1));
             foreach (var nested in prepared.NestedTypes)
-                lines.Add(RenderType(nested, indent + 1, options, diagnostics));
+                lines.Add(RenderType(nested, indent + 1, options, contextualUsings, diagnostics));
         }
         lines.Add($"{pad}}}");
         return string.Join('\n', lines);
@@ -404,12 +439,14 @@ public sealed class CSharpTypePrinter
     static CSharpFormatter DeclarationFormatter(
         string containingNamespace,
         CSharpTypePrintOptions options,
+        IReadOnlyList<string> contextualUsings,
         bool omitPropertyAccessors = false,
         bool terminateMemberDeclaration = false)
         => new(new CSharpFormatOptions
         {
             TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
             ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
+            Usings = contextualUsings,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
             OmitPropertyAccessors = omitPropertyAccessors,

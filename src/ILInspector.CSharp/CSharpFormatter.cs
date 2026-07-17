@@ -181,6 +181,16 @@ public sealed class CSharpFormatter
         => CSharpDeclarationWriter.EscapeNamespace(@namespace);
 
     /// <summary>
+    /// Computes a collision-safe set of namespaces importable as <c>using</c>
+    /// directives for a compilation unit declaring <paramref name="types"/>
+    /// (flatten nested types in). See
+    /// <see cref="CSharpDeclarationWriter.DeriveContextualUsings"/> for the
+    /// safety contract.
+    /// </summary>
+    public static IReadOnlyList<string> DeriveContextualUsings(IReadOnlyCollection<ApiType> types)
+        => CSharpDeclarationWriter.DeriveContextualUsings(types);
+
+    /// <summary>
     /// Escapes C# reserved keywords used as identifiers within a type string while
     /// leaving type-syntax keywords (primitive aliases, parameter/type modifiers,
     /// function-pointer syntax) bare. This is the authoritative type-keyword escaper;
@@ -226,15 +236,68 @@ public sealed class CSharpFormatter
 
         type = SanitizeGeneratedTypeSegments(type);
 
-        type = type.Replace("modreq(", "", StringComparison.Ordinal)
-            .Replace("modopt(", "", StringComparison.Ordinal)
-            .Replace(")", "", StringComparison.Ordinal)
-            .Trim();
+        type = StripCustomModifiers(type).Trim();
 
         type = AliasPrimitiveTypeNames(type);
 
         return EscapeTypeKeywords(type);
     }
+
+    /// <summary>
+    /// Removes <c>modreq(…)</c>/<c>modopt(…)</c> custom-modifier wrappers, keeping
+    /// their inner type text. Only the parentheses that belong to a wrapper are
+    /// dropped: paren depth is tracked so unrelated parentheses (for example
+    /// tuple syntax such as <c>(int, string)</c>) are preserved verbatim.
+    /// </summary>
+    static string StripCustomModifiers(string type)
+    {
+        if (type.IndexOf("modreq(", StringComparison.Ordinal) < 0
+            && type.IndexOf("modopt(", StringComparison.Ordinal) < 0)
+            return type;
+
+        const int tokenLength = 7; // "modreq(" and "modopt(" are both 7 chars.
+        var sb = new StringBuilder(type.Length);
+        var modifierCloseDepths = new Stack<int>();
+        int depth = 0;
+        int i = 0;
+        while (i < type.Length)
+        {
+            if (MatchesAt(type, i, "modreq(") || MatchesAt(type, i, "modopt("))
+            {
+                modifierCloseDepths.Push(depth);
+                depth++;
+                i += tokenLength;
+                continue;
+            }
+
+            char c = type[i];
+            if (c == '(')
+            {
+                depth++;
+                sb.Append(c);
+            }
+            else if (c == ')')
+            {
+                depth--;
+                if (modifierCloseDepths.Count > 0 && modifierCloseDepths.Peek() == depth)
+                    modifierCloseDepths.Pop();
+                else
+                    sb.Append(c);
+            }
+            else
+            {
+                sb.Append(c);
+            }
+
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    static bool MatchesAt(string value, int index, string token)
+        => index + token.Length <= value.Length
+            && string.CompareOrdinal(value, index, token, 0, token.Length) == 0;
 
     static string SanitizeGeneratedTypeSegments(string type)
     {

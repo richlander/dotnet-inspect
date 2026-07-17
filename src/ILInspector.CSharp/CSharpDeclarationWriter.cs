@@ -115,6 +115,47 @@ internal static class CSharpDeclarationWriter
         return plan.Apply(RenderTypeDeclarationCore(type, options));
     }
 
+    /// <summary>
+    /// Computes a collision-safe set of namespaces that can be imported as
+    /// <c>using</c> directives for a compilation unit declaring
+    /// <paramref name="types"/> (including any nested types the caller flattens in).
+    /// A namespace is included only when every simple type name it contributes is
+    /// unambiguous across the whole unit: the simple name maps to a single full name
+    /// and does not clash with a type declared in the unit. Importing such a
+    /// namespace and shortening those references therefore cannot introduce an
+    /// ambiguous or shadowed reference. References whose simple name is ambiguous
+    /// stay fully qualified and their namespaces are excluded.
+    /// </summary>
+    public static IReadOnlyList<string> DeriveContextualUsings(IReadOnlyCollection<ApiType> types)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+
+        var typeRefs = types
+            .SelectMany(type => CollectTypeReferences(type)
+                .Concat(type.Members.SelectMany(CollectMemberTypeReferences)))
+            .Select(TypeRef.TryCreate)
+            .Where(r => r is not null)
+            .Select(r => r!)
+            .DistinctBy(r => r.FullName, StringComparer.Ordinal)
+            .ToList();
+
+        var declaredSimpleNames = types
+            .Select(type => CSharpFormatter.StripArity(type.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var usings = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
+        {
+            if (group.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
+                continue;
+            if (declaredSimpleNames.Contains(group.Key))
+                continue;
+            usings.Add(group.First().Namespace);
+        }
+
+        return usings.ToList();
+    }
+
     static string ComposeUnit(IReadOnlyList<string> bodyLines, IReadOnlyList<string> usings, CSharpDeclarationOptions options)
     {
         var sb = new StringBuilder();
@@ -343,7 +384,7 @@ internal static class CSharpDeclarationWriter
                 if (!string.IsNullOrWhiteSpace(parameter.Type))
                     yield return parameter.Type;
                 foreach (var attribute in parameter.Attributes)
-                    yield return attribute;
+                    yield return StripAttributeArguments(attribute);
             }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
@@ -484,6 +525,18 @@ internal static class CSharpDeclarationWriter
         }
 
         return parameter;
+    }
+
+    // Attribute usages carry a constructor argument list whose contents are value
+    // expressions (enum member accesses like UnmanagedType.I4, consts, typeof), not
+    // type references. Treating those dotted value expressions as type names would
+    // derive bogus namespaces (e.g. `using System.Runtime.InteropServices.UnmanagedType;`)
+    // and mis-shorten the argument, so only the attribute type name (before the
+    // constructor argument list) participates in reference extraction and using derivation.
+    static string StripAttributeArguments(string attribute)
+    {
+        int paren = attribute.IndexOf('(', StringComparison.Ordinal);
+        return paren < 0 ? attribute : attribute[..paren];
     }
 
     static IEnumerable<string> ExtractQualifiedTypeNames(string expression)

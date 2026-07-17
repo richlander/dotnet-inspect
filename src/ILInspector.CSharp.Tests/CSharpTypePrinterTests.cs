@@ -388,7 +388,7 @@ public sealed class CSharpTypePrinterTests
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains(
-            "public long GetTicks([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(0)] System.DateTime when);",
+            "public long GetTicks([Optional, DateTimeConstant(0)] DateTime when);",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
@@ -621,15 +621,137 @@ public sealed class CSharpTypePrinterTests
         var skeleton = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains(
-            "public unsafe async System.Threading.Tasks.Task Run()",
+            "public unsafe async Task Run()",
             full.Units[0].Source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public System.Threading.Tasks.Task Run();",
+            "public Task Run();",
             skeleton.Units[0].Source,
             StringComparison.Ordinal);
         Assert.False(member.IsAsync);
         Assert.False(member.IsUnsafe);
+    }
+
+    [Fact]
+    public void DerivedUsingShortensCrossNamespaceReference()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Task Run();", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShortenTypeNamesDisabledKeepsReferencesQualified()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions { ShortenTypeNames = false });
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CollidingSimpleNamesAcrossNamespacesStayQualified()
+    {
+        var type = CreateEmptyType("Samples", "Consumer");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Convert",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Widget",
+                MemberName = "Convert",
+                Parameters = [new ApiParameter { Type = "Beta.Widget", Name = "value" }]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using Alpha;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public Alpha.Widget Convert(Beta.Widget value);",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReferenceCollidingWithDeclaredTypeStaysQualified()
+    {
+        // A type declared as `Task` referencing `System.Threading.Tasks.Task` must not
+        // import the namespace: shortening the reference to `Task` would bind to the
+        // declared type, not the referenced one.
+        var type = CreateEmptyType("Samples", "Task");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public System.Threading.Tasks.Task Run();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AttributeArgumentEnumAccessDoesNotDeriveTypeAsNamespace()
+    {
+        // The attribute argument `UnmanagedType.I4` is a value expression, not a type
+        // reference; deriving `using System.Runtime.InteropServices.UnmanagedType;` from
+        // it would emit an illegal type-as-namespace using and mis-shorten the argument.
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Encode",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Encode",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "int",
+                        Name = "value",
+                        Attributes =
+                        [
+                            "System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)"
+                        ]
+                    }
+                ]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("using System.Runtime.InteropServices;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "using System.Runtime.InteropServices.UnmanagedType;",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
     }
 
     [Theory]
