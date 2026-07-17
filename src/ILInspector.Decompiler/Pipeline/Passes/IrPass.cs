@@ -259,6 +259,12 @@ public static class IrPasses
         // Raise compiler-hidden enumerator using/while/current loops and the
         // indexed array lowering to foreach.
         new ForeachStatementPass(),
+        // After the try/catch-based scaffolds (using, foreach) have consumed the
+        // clauses they need EhStructuringPass to have folded, un-fold any plain
+        // catch clause whose folded variable is a local that lives outside the
+        // clause — restoring a distinct catch variable plus the entry assignment
+        // so the survivor does not shadow the outer local (CS0136, issue #2828).
+        new CatchVariableScopePass(),
         // Raise the csc pin lowering (a pinned managed-ref local + derived
         // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
         // Runs after structuring and the second inlining so the pinned region's

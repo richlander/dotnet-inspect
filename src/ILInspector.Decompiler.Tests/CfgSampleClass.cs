@@ -907,6 +907,46 @@ public class CfgSampleClass
         catch (OverflowException) { return -2; }
     }
 
+    // Positive fold: the caught exception is spilled into a real IL local at
+    // handler entry (the branch inside the handler forces csc to allocate a
+    // local for `e`). That local is handler-local — never read in the try or
+    // after the catch — so EhStructuringPass folds the entry store into the
+    // clause variable and emits `catch (Exception e) { ... }`.
+    public static int CatchFoldsHandlerLocal(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (Exception e)
+        {
+            if (e.InnerException != null)
+                Console.WriteLine(e.Message);
+            Console.WriteLine(e.StackTrace);
+            return -1;
+        }
+    }
+
+    // Near miss / issue #2828 shape: the caught exception is assigned into a
+    // local that is declared before the try and read after the catch. csc emits
+    // the assignment as `stloc captured` at handler entry, but that local is live
+    // outside the handler, so folding it into the clause variable would emit a
+    // duplicate declaration (CS0136) and drop the `captured = ex` assignment.
+    public static string CatchAssignsPredeclaredLocal(string s)
+    {
+        Exception? captured = null;
+        try
+        {
+            return int.Parse(s).ToString();
+        }
+        catch (Exception ex)
+        {
+            captured = ex;
+        }
+
+        return captured?.Message ?? "ok";
+    }
+
     public static int ParseWithCleanup(string s, Action done)
     {
         try { return int.Parse(s); }
