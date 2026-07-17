@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
 
@@ -71,6 +72,65 @@ public sealed class TypeShellProducerTests
         Assert.True(TypeShellProducer.IsStaticType(Type(nameof(StaticFixture))));
         Assert.False(TypeShellProducer.IsStaticType(Type(nameof(InstanceFixture))));
         Assert.False(TypeShellProducer.IsStaticType(Type(nameof(IInterfaceFixture))));
+    }
+
+    [Fact]
+    public void BuildPrintRequest_ComposesApiTypeFromSpecAndMetadata()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(TypeShellProducerTests).Assembly.Location));
+        var reader = pe.GetMetadataReader();
+
+        TypeDefinitionHandle Handle(string name) => reader.TypeDefinitions
+            .Single(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == name);
+
+        var member = new CSharpMemberPolicy(
+            new ApiMember { Name = "Value", Kind = "field", ReturnType = "System.Int32" },
+            CSharpBodyPolicy.Skeleton);
+        var nested = new CSharpTypeShellSpec(
+            Handle(nameof(InstanceFixture)),
+            Namespace: "Samples",
+            MetadataName: "InstanceFixture",
+            Kind: CSharpTypeShellKind.Class,
+            BaseTypeDisplayName: null,
+            InterfaceDisplayNames: [],
+            MemberPolicies: [],
+            PrimaryConstructorParameters: [],
+            NestedTypes: []);
+        var spec = new CSharpTypeShellSpec(
+            Handle(nameof(StaticFixture)),
+            Namespace: "Samples",
+            MetadataName: "StaticFixture",
+            Kind: CSharpTypeShellKind.Struct,
+            BaseTypeDisplayName: "Samples.Widget",
+            InterfaceDisplayNames: ["System.IDisposable"],
+            MemberPolicies: [member],
+            PrimaryConstructorParameters: [],
+            NestedTypes: [nested]);
+
+        var request = TypeShellProducer.BuildPrintRequest(reader, spec);
+
+        // Spec-supplied facts flow straight through.
+        Assert.Equal("Samples", request.Type.Namespace);
+        Assert.Equal("StaticFixture", request.Type.Name);
+        Assert.Equal("StaticFixture", request.Type.MetadataName);
+        Assert.Equal("struct", request.Type.Kind);
+        Assert.Equal("Samples.Widget", request.Type.BaseType);
+        Assert.Equal(["System.IDisposable"], request.Type.Interfaces);
+        Assert.Same(member, Assert.Single(request.MemberPolicyOverrides));
+        Assert.Equal("Value", Assert.Single(request.Type.Members).Name);
+        Assert.Same(member.Member, request.Type.Members[0]);
+
+        // Modifiers are read from the type's own metadata, not the spec kind.
+        Assert.True(request.Type.IsStatic);
+        Assert.True(request.Type.IsAbstract);
+        Assert.True(request.Type.IsSealed);
+
+        // Nested shells recurse through the same builder.
+        var nestedRequest = Assert.Single(request.NestedTypes);
+        Assert.Equal("InstanceFixture", nestedRequest.Type.Name);
+        Assert.Equal("class", nestedRequest.Type.Kind);
+        Assert.True(nestedRequest.Type.IsSealed);
+        Assert.False(nestedRequest.Type.IsStatic);
     }
 
     static async Task RuntimeAsyncFixture()
