@@ -61,4 +61,5 @@ Agents working in this repo should preserve these principles:
 - [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
+- [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

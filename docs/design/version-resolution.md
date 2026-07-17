@@ -186,27 +186,31 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
-Exact package acquisition is single-flight within a process. A cache miss is
-downloaded and extracted into temporary storage, copied to a unique sibling
-staging directory, validated, and atomically renamed to its final
-`package-content-v2` path. Concurrent publishers in other processes either win
-that rename or validate and use the committed winner; readers never use staging
-directories. Failed acquisition leaves no final entry and can be retried.
-The flight and durable cache identity follow NuGet's coordinate cache model:
-cache root plus normalized package id and version. Source order selects the
-producer on a miss but is not a separate durable identity.
+## Package and pack publication
 
-Platform-pack projection never mutates the committed package. It copies the
-selected pack contents into a unique `packs-v2` staging directory and
-atomically publishes the complete derived pack with its own completion marker.
+Version resolution ends with an exact package coordinate. Package extraction
+then shares one acquisition task per coordinate within a process and publishes
+complete app-cache entries transactionally. Separate processes may duplicate
+immutable work, but readers observe only a marked, atomically published winner.
+Platform-pack projection uses the same model in a separate cache namespace.
+
+Cache identity is the cache root, normalized package id, and version.
+Source order selects the producer on a miss and is not a separate durable cache
+identity. See [cache concurrency and publication](cache-concurrency.md) for the
+single-flight boundary, dependency-overlap safety, filesystem rename semantics,
+failure model, and NuGet, Docker, and Git precedents.
 
 ## Design rationale
 
-The Docker analogy:
+The following Docker tag analogy concerns version selection. Docker daemon
+request deduplication is covered separately in
+[cache concurrency and publication](cache-concurrency.md).
 
-- `docker run nginx:1.25` → pinned, reproducible
-- `docker run nginx` → uses local image if present, pulls if not
-- `docker pull nginx` → always checks the registry
+| Docker command | dotnet-inspect command | Version behavior |
+| --- | --- | --- |
+| `docker run nginx:1.25` | `dotnet-inspect package System.Text.Json@10.0.0` | Uses a pinned, reproducible coordinate. |
+| `docker run nginx` | `dotnet-inspect package System.Text.Json` | Uses the newest locally cached stable version, or resolves from NuGet when absent. |
+| `docker pull nginx` | `dotnet-inspect package System.Text.Json@latest` | Always checks NuGet for the current version. |
 
 NuGet packages are immutable once published (a given version string always
 refers to the same content), so pinned versions never go stale. The bare-name

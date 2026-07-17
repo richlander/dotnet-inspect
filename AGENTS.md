@@ -22,7 +22,7 @@ READMEs, and focused skills.
 | Area | Read first |
 | --- | --- |
 | Commands, sections, and output | `docs/design/progressive-disclosure.md`, `docs/design/output-shapes.md`, `docs/design/style-guide.md`, `docs/design/section-model.md` |
-| Metadata, source, and acquisition | `docs/design/assembly-inspection-query.md`, `docs/design/source-finding-producers.md`, `docs/pdb-acquisition.md`, `docs/design/version-resolution.md` |
+| Metadata, source, and acquisition | `docs/design/assembly-inspection-query.md`, `docs/design/source-finding-producers.md`, `docs/pdb-acquisition.md`, `docs/design/version-resolution.md`, `docs/design/cache-concurrency.md` |
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
 | Analysis, Findings, and Research | `docs/design/finding-nomenclature.md`, `docs/design/finding-producers.md`, `docs/design/finding-adoption.md`, `docs/design/finding-coordinates.md`, `docs/design/analysis-ux-scopes.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
