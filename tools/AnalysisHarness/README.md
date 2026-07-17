@@ -275,8 +275,8 @@ lever**. Use the candidate buckets to decide which correctness gate to model nex
 A 2026-07-17 run over the .NET 11 daily shared framework
 (`Microsoft.NETCore.App` + `Microsoft.AspNetCore.App`, 314 assemblies) produced **0 findings**
 across `arraypool-rent-not-returned`, `arraypool-use-after-return`, and
-`arraypool-double-return`. Its 543 measurement rows comprised 364
-`ownership-transfer-suppressed`, 122 `cross-method-suppressed`, 49
+`arraypool-double-return`. Its 519 measurement rows comprised 364
+`ownership-transfer-suppressed`, 122 `cross-method-suppressed`, 25
 `exception-path-leak-candidate`, and 8 `alias-or-field-suppressed` rows. The fixture assembly's
 three known-misuse methods still surface exactly once each. The broad real-code result does not
 justify promoting any of these three strict shapes into product output; the separate
@@ -285,8 +285,8 @@ rows as correctness findings.
 
 The shared framework is the false-positive gate, not the profitability corpus. The pinned
 ArrayPool-heavy community corpus prepared above contains the primary library from each of nine
-package roots. It produced **0 strict findings**, from 201 measurement rows: 145
-`ownership-transfer-suppressed`, 36 `cross-method-suppressed`, 19
+package roots. It produced **0 strict findings**, from 189 measurement rows: 145
+`ownership-transfer-suppressed`, 36 `cross-method-suppressed`, 7
 `exception-path-leak-candidate`, and 1 `alias-or-field-suppressed`.
 
 The assembly API delegates to a leak-only `LibraryBodyIndex` feature rather than reopening and
@@ -333,18 +333,20 @@ dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
 ```
 
 A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classified
-50 lifecycle observations as 2 `untrusted-actionable`
-(`MessagePackReader::ReadStringSlow`, `BinaryReader::FillBuffer`),
-1 `trusted-low-actionability`, and 47 `unknown`.
+34 lifecycle observations as 4 `untrusted-actionable`
+(`MessagePackReader::ReadStringSlow`, `EncodingExtensions::GetString`,
+`TypeMapLazyDictionary::ConvertUtf8ToUtf16`, and `BinaryReader::FillBuffer`),
+4 `trusted-low-actionability`, and 26 `unknown`.
 
-The same-day pinned community run classified 19 lifecycle observations as 1
-`untrusted-actionable` (`MessagePackReader::ReadStringSlow`) and 18 `unknown`. Four of the unknown
-observations are the previously source-verified MimeKit `Rfc2047.DecodePhrase`/`DecodeText`,
-Npgsql `TextConverter.GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte` defects. Thirteen
-more are System.Text.Json's deliberate no-`finally` in-memory-transform idiom, historically
-classified as low actionability. The community corpus therefore proves the analysis family is
-profitable while exposing a current producer/classification recall gap; these known cases should
-not be treated as evidence for non-action.
+The same-day pinned community run classified 8 lifecycle observations as 3
+`untrusted-actionable` (`MessagePackReader::ReadStringSlow`, Npgsql
+`TextConverter::GetChars`, and Pipelines.Sockets `AsyncPipeStream.ReadByte`) and 5 `unknown`.
+Typed propagation through array-to-`Span<T>` conversion and `Memory<T>` construction recovers the
+Npgsql and Pipelines consumers without package-specific policy. MimeKit
+`Rfc2047.DecodePhrase`/`DecodeText` remain unknown because their only unprotected boundary is the
+`TokenDecoder` constructor; the later tokenizer calls are protected by cleanup. Eleven former
+System.Text.Json observations no longer count because their implicit array-to-`Span<T>` conversion
+is nonthrowing and no downstream throwing consumer is attributable.
 
 ## MemoryPool lifecycle corpus sensor (#2439, Slice 3)
 

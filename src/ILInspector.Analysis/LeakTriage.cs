@@ -247,7 +247,10 @@ public static class LeakTriageAnalyzer
                             directThrowingBoundaries.Add(boundary);
                             directUseOffsets.TryAdd(boundary.ILOffset, use.Offset);
                         }
-                        else if (FindBoundaryAfterSetup(
+                        if ((classification.NonThrowingSetupBoundary
+                                || IsTransparentWrapperBoundary(
+                                    boundary.Operation))
+                            && FindBoundaryAfterSetup(
                             instructions,
                             reaching,
                             calls,
@@ -709,7 +712,7 @@ public static class LeakTriageAnalyzer
                     return UseClassification.Release;
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
-                    IsNonThrowingSetupBoundary(instructions, calls, i, callee),
+                    IsNonThrowingSetupBoundary(callee),
                     new ArrayPoolExceptionBoundary(instruction.Offset, callee));
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
@@ -742,19 +745,21 @@ public static class LeakTriageAnalyzer
         if (depth >= 4)
             return null;
 
-        if (FrameworkIdentity.IsCoreLibraryType(
-            setup.Operation.ReturnType,
-            "System",
-            "Void"))
-        {
-            return null;
-        }
-
         if (!TryFindInstruction(
             instructions,
             setup.ILOffset,
             out int setupIndex,
-            out _))
+            out var setupInstruction))
+        {
+            return null;
+        }
+
+        // Constructor signatures return void, but newobj pushes the constructed value.
+        if (setupInstruction.OpCode != ILOpCode.Newobj
+            && FrameworkIdentity.IsCoreLibraryType(
+                setup.Operation.ReturnType,
+                "System",
+                "Void"))
         {
             return null;
         }
@@ -843,11 +848,7 @@ public static class LeakTriageAnalyzer
 
             var boundary =
                 new ArrayPoolExceptionBoundary(instruction.Offset, callee);
-            if (!IsNonThrowingSetupBoundary(
-                instructions,
-                calls,
-                i,
-                callee))
+            if (!IsNonThrowingSetupBoundary(callee))
             {
                 return boundary;
             }
@@ -986,11 +987,7 @@ public static class LeakTriageAnalyzer
         => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
            || FrameworkIdentity.IsCoreLibraryType(type, "System.Buffers", "ArrayPool`1");
 
-    static bool IsNonThrowingSetupBoundary(
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int callIndex,
-        MemberRef member)
+    static bool IsNonThrowingSetupBoundary(MemberRef member)
     {
         if (member.Kind == MemberKind.Unsupported)
             return false;
@@ -1014,56 +1011,43 @@ public static class LeakTriageAnalyzer
             return true;
         }
 
-        if (member.Name == "op_Implicit"
-            && member.ParameterTypes.Length == 1
-            && member.ParameterTypes[0].Kind == TypeRefKind.SzArray
-            && IsSpanType(member.ReturnType)
-            && NextCallIsSpanCopyTo(instructions, calls, callIndex))
+        if (IsArrayToSpanConversion(member))
         {
+            // Shared ArrayPool<T> returns an exact T[], so the Span<T> conversion
+            // cannot encounter a covariant-array type mismatch.
             return true;
         }
 
         return member.Name == "Clear" && IsSpanType(member.DeclaringType);
     }
 
-    static bool NextCallIsSpanCopyTo(
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
-        int callIndex)
-    {
-        for (int i = callIndex + 1, skipped = 0; i < instructions.Length; i++)
-        {
-            var instruction = instructions[i];
-            if (instruction.OpCode == ILOpCode.Nop)
-                continue;
+    static bool IsTransparentWrapperBoundary(MemberRef member)
+        => member.Name == ".ctor"
+            && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }, ..]
+            && (IsFrameworkGenericType(member.DeclaringType, "Memory`1")
+                || IsFrameworkGenericType(
+                    member.DeclaringType,
+                    "ReadOnlyMemory`1"));
 
-            if (calls.TryGetValue(instruction.Offset, out var next))
-                return next.Name == "CopyTo" && IsSpanType(next.DeclaringType);
-
-            if (IsCopyToArgumentSetup(instruction.OpCode) && skipped++ < 6)
-                continue;
-
-            return false;
-        }
-
-        return false;
-    }
-
-    static bool IsCopyToArgumentSetup(ILOpCode opcode)
-        => opcode is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3
-            or ILOpCode.Stloc_s or ILOpCode.Stloc
-            or ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca
-            or ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3
-            or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga;
+    static bool IsArrayToSpanConversion(MemberRef member)
+        => member.Name == "op_Implicit"
+            && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }]
+            && IsSpanType(member.ReturnType);
 
     static bool IsSpanType(TypeRef type)
+        => IsFrameworkGenericType(type, "Span`1");
+
+    static bool IsFrameworkGenericType(TypeRef type, string name)
     {
         if (type.Kind != TypeRefKind.GenericInstance || type.ElementType is not { } definition)
             return false;
 
-        return FrameworkIdentity.IsCoreLibraryType(definition, "System", "Span`1")
-            || FrameworkIdentity.IsKnownFrameworkType(definition, "System.Memory", "System", "Span`1");
+        return FrameworkIdentity.IsCoreLibraryType(definition, "System", name)
+            || FrameworkIdentity.IsKnownFrameworkType(
+                definition,
+                "System.Memory",
+                "System",
+                name);
     }
 
     static int ArgumentSlotCount(MethodIdentity method)
