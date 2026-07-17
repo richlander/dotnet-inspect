@@ -204,6 +204,31 @@ public sealed class LeakTriageAnalyzerTests
             boundary.Evidence.Operation.Name == ".ctor"
             && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
 
+        var throughMemoryLocal = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalReadThroughMemoryLocal)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughMemoryLocal.Actionability);
+        Assert.Contains(throughMemoryLocal.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Read"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.Contains(throughMemoryLocal.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == ".ctor"
+            && boundary.Kind == ResourceTriageBoundaryKind.Unknown);
+
+        var throughReadOnlySpan = Assert.Single(assessments.Where(assessment =>
+            assessment.Source.Payload.Method.Name
+                == nameof(ArrayPoolLeakFixtures.ExternalParseThroughReadOnlySpan)));
+        Assert.Equal(
+            ResourceTriageActionability.UntrustedActionable,
+            throughReadOnlySpan.Actionability);
+        Assert.Contains(throughReadOnlySpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "Parse"
+            && boundary.Kind == ResourceTriageBoundaryKind.ExternalInput);
+        Assert.DoesNotContain(throughReadOnlySpan.Boundaries, boundary =>
+            boundary.Evidence.Operation.Name == "op_Implicit");
+
         var throughStringArgument = Assert.Single(assessments.Where(assessment =>
             assessment.Source.Payload.Method.Name
                 == nameof(ArrayPoolLeakFixtures.ExternalParseThroughSpanWithTag)));
@@ -697,6 +722,30 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void DetailedAnalysis_CovariantArrayToSpan_RemainsThrowingBoundary()
+    {
+        var result = AnalyzeSyntheticDetailed([
+            .. Call(TokenStringShared),
+            0x1F, 0x10,
+            .. Callvirt(TokenStringRent),
+            0x0A,
+            0x06,
+            .. Call(TokenObjectSpanImplicit),
+            0x26,
+            .. Call(TokenStringShared),
+            0x06,
+            0x16,
+            .. Callvirt(TokenStringReturn),
+            0x2A,
+        ], []);
+
+        AssertCandidate(
+            result,
+            nameof(Synthetic),
+            "exception-path-leak-candidate");
+    }
+
+    [Fact]
     public void DetailedAnalysis_ThrowingBoundaryAfterSetup_IsExceptionPathCandidate()
     {
         var result = AnalyzeSyntheticDetailed([
@@ -842,6 +891,10 @@ public sealed class LeakTriageAnalyzerTests
     const int TokenArrayClear = 0x0A00000A;
     const int TokenSpanCopyTo = 0x0A00000B;
     const int TokenSpanImplicit = 0x0A00000C;
+    const int TokenStringShared = 0x0A00000D;
+    const int TokenStringRent = 0x0A00000E;
+    const int TokenStringReturn = 0x0A00000F;
+    const int TokenObjectSpanImplicit = 0x0A000010;
 
     static ImmutableArray<LeakTriageFinding> AnalyzeSynthetic(byte[] il, IReadOnlyCollection<ExceptionRegion> exceptionRegions)
         => AnalyzeSyntheticDetailed(il, exceptionRegions).Findings;
@@ -872,6 +925,14 @@ public sealed class LeakTriageAnalyzerTests
         var coreLibSpanOfByte = TypeRef.GenericInstance(
             TypeRef.CoreLib("System", "Span`1"),
             [TypeRef.CoreLib("System", "Byte")]);
+        var arrayPoolOfString = TypeRef.GenericInstance(
+            TypeRef.Definition("System.Buffers", "System.Buffers", "ArrayPool`1"),
+            [TypeRef.CoreLib("System", "String")]);
+        var stringArray = TypeRef.SzArray(TypeRef.CoreLib("System", "String"));
+        var objectArray = TypeRef.SzArray(TypeRef.CoreLib("System", "Object"));
+        var coreLibSpanOfObject = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Span`1"),
+            [TypeRef.CoreLib("System", "Object")]);
 
         return token switch
         {
@@ -917,6 +978,32 @@ public sealed class LeakTriageAnalyzerTests
                 "op_Implicit",
                 [byteArray],
                 coreLibSpanOfByte,
+                MemberKind.Method),
+            TokenStringShared => new MemberRef(
+                arrayPoolOfString,
+                "get_Shared",
+                [],
+                arrayPoolOfString,
+                MemberKind.Method),
+            TokenStringRent => new MemberRef(
+                arrayPoolOfString,
+                "Rent",
+                [TypeRef.CoreLib("System", "Int32")],
+                stringArray,
+                MemberKind.Method)
+            { HasThis = true },
+            TokenStringReturn => new MemberRef(
+                arrayPoolOfString,
+                "Return",
+                [stringArray],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            { HasThis = true },
+            TokenObjectSpanImplicit => new MemberRef(
+                coreLibSpanOfObject,
+                "op_Implicit",
+                [objectArray],
+                coreLibSpanOfObject,
                 MemberKind.Method),
             _ => MemberRef.Unsupported($"unknown token 0x{token:X8}"),
         };
@@ -1186,6 +1273,26 @@ internal sealed class ArrayPoolLeakFixtures
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalReadThroughMemoryLocal(ExternalMemoryStream stream)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(16);
+        var memory = new Memory<byte>(buffer, 0, 16);
+        int read = stream.Read(memory);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int ExternalParseThroughReadOnlySpan()
+    {
+        var chars = ArrayPool<char>.Shared.Rent(16);
+        ReadOnlySpan<char> value = chars;
+        int parsed = ExternalInputReader.Parse(value);
+        ArrayPool<char>.Shared.Return(chars);
+        return parsed;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public static int ExternalParseThroughSpanWithTag()
     {
         var chars = ArrayPool<char>.Shared.Rent(16);
@@ -1306,6 +1413,9 @@ internal sealed class ArrayPoolLeakFixtures
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static int Parse(Span<char> destination, string tag)
             => destination.Length + tag.Length;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Parse(ReadOnlySpan<char> value) => value.Length;
     }
 
     internal sealed class SpanConsumer

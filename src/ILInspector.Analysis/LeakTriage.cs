@@ -223,7 +223,12 @@ public static class LeakTriageAnalyzer
                 continue;
             }
 
-            var classification = ClassifyUse(instructions, calls, use.Offset, rent.Slot);
+            var classification = ClassifyUse(
+                instructions,
+                calls,
+                use.Offset,
+                rent.Slot,
+                rent.Type);
             switch (classification.Kind)
             {
                 case UseKind.Release:
@@ -645,7 +650,12 @@ public static class LeakTriageAnalyzer
                 continue;
             }
 
-            yield return new RentedLocal(instruction.Offset, store.Offset, slot, definition);
+            yield return new RentedLocal(
+                instruction.Offset,
+                store.Offset,
+                slot,
+                definition,
+                callee.ReturnType);
         }
     }
 
@@ -680,7 +690,8 @@ public static class LeakTriageAnalyzer
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyDictionary<int, MemberRef> calls,
         int loadOffset,
-        int slot)
+        int slot,
+        TypeRef? valueType = null)
     {
         if (!TryFindInstruction(instructions, loadOffset, out int index, out var load)
             || !IsLoadLocal(load, slot))
@@ -712,7 +723,7 @@ public static class LeakTriageAnalyzer
                     return UseClassification.Release;
                 return UseClassification.CrossMethod(
                     $"Rented array is passed to {callee.DeclaringType.Name}::{callee.Name}.",
-                    IsNonThrowingSetupBoundary(callee),
+                    IsNonThrowingSetupBoundary(callee, valueType),
                     new ArrayPoolExceptionBoundary(instruction.Offset, callee));
             }
             return UseClassification.OwnershipTransfer($"Rented array reaches unsupported opcode {opcode}.");
@@ -761,6 +772,21 @@ public static class LeakTriageAnalyzer
                 "System",
                 "Void"))
         {
+            // Roslyn can initialize a value-type wrapper local through
+            // ldloca + call .ctor instead of newobj + stloc.
+            if (TryFindInPlaceWrapperLocal(
+                    instructions,
+                    setupIndex,
+                    setup.Operation,
+                    out int slot))
+            {
+                return FindBoundaryAfterInPlaceSetup(
+                    instructions,
+                    calls,
+                    setupIndex,
+                    slot);
+            }
+
             return null;
         }
 
@@ -867,6 +893,75 @@ public static class LeakTriageAnalyzer
         return null;
     }
 
+    static ArrayPoolExceptionBoundary? FindBoundaryAfterInPlaceSetup(
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int setupIndex,
+        int slot)
+    {
+        for (int i = setupIndex + 1;
+            i < instructions.Length && i <= setupIndex + 16;
+            i++)
+        {
+            var instruction = instructions[i];
+            if (instruction.OpCode == ILOpCode.Nop)
+                continue;
+            if (TryReadStoreLocal(instruction, out int storedSlot)
+                && storedSlot == slot)
+            {
+                return null;
+            }
+            if (!IsLoadLocal(instruction, slot))
+                continue;
+
+            var classification = ClassifyUse(
+                instructions,
+                calls,
+                instruction.Offset,
+                slot);
+            return classification.CandidateShape == "cross-method-suppressed"
+                ? classification.Boundary
+                : null;
+        }
+
+        return null;
+    }
+
+    static bool TryFindInPlaceWrapperLocal(
+        ImmutableArray<DecodedInstruction> instructions,
+        int setupIndex,
+        MemberRef member,
+        out int slot)
+    {
+        slot = -1;
+        if (instructions[setupIndex].OpCode != ILOpCode.Call
+            || !member.HasThis
+            || !IsTransparentWrapperBoundary(member))
+        {
+            return false;
+        }
+
+        int index = setupIndex - 1;
+        for (int remaining = member.ParameterTypes.Length;
+            remaining > 0;
+            remaining--)
+        {
+            while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
+                index--;
+            if (index < 0
+                || !IsSetupArgumentPush(instructions[index].OpCode))
+            {
+                return false;
+            }
+            index--;
+        }
+
+        while (index >= 0 && instructions[index].OpCode == ILOpCode.Nop)
+            index--;
+        return index >= 0
+            && TryReadLoadLocalAddress(instructions[index], out slot);
+    }
+
     static bool TryFindNextNonNop(ImmutableArray<DecodedInstruction> instructions, int offset, out DecodedInstruction instruction)
     {
         foreach (var candidate in instructions)
@@ -919,6 +1014,19 @@ public static class LeakTriageAnalyzer
             ILOpCode.Ldloc_s or ILOpCode.Ldloc => instruction.OperandValue == slot,
             _ => false,
         };
+
+    static bool TryReadLoadLocalAddress(
+        DecodedInstruction instruction,
+        out int slot)
+    {
+        slot = instruction.OpCode switch
+        {
+            ILOpCode.Ldloca_s or ILOpCode.Ldloca =>
+                checked((int)instruction.OperandValue),
+            _ => -1,
+        };
+        return slot >= 0;
+    }
 
     static bool IsSimpleArgumentPush(ILOpCode opcode)
         => opcode is ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
@@ -987,7 +1095,9 @@ public static class LeakTriageAnalyzer
         => FrameworkIdentity.IsKnownFrameworkType(type, "System.Buffers", "System.Buffers", "ArrayPool`1")
            || FrameworkIdentity.IsCoreLibraryType(type, "System.Buffers", "ArrayPool`1");
 
-    static bool IsNonThrowingSetupBoundary(MemberRef member)
+    static bool IsNonThrowingSetupBoundary(
+        MemberRef member,
+        TypeRef? valueType = null)
     {
         if (member.Kind == MemberKind.Unsupported)
             return false;
@@ -1011,10 +1121,9 @@ public static class LeakTriageAnalyzer
             return true;
         }
 
-        if (IsArrayToSpanConversion(member))
+        if (IsArrayToSpanConversion(member)
+            && valueType?.Equals(member.ParameterTypes[0]) == true)
         {
-            // Shared ArrayPool<T> returns an exact T[], so the Span<T> conversion
-            // cannot encounter a covariant-array type mismatch.
             return true;
         }
 
@@ -1032,10 +1141,14 @@ public static class LeakTriageAnalyzer
     static bool IsArrayToSpanConversion(MemberRef member)
         => member.Name == "op_Implicit"
             && member.ParameterTypes is [{ Kind: TypeRefKind.SzArray }]
-            && IsSpanType(member.ReturnType);
+            && (IsSpanType(member.ReturnType)
+                || IsReadOnlySpanType(member.ReturnType));
 
     static bool IsSpanType(TypeRef type)
         => IsFrameworkGenericType(type, "Span`1");
+
+    static bool IsReadOnlySpanType(TypeRef type)
+        => IsFrameworkGenericType(type, "ReadOnlySpan`1");
 
     static bool IsFrameworkGenericType(TypeRef type, string name)
     {
@@ -1056,7 +1169,12 @@ public static class LeakTriageAnalyzer
     internal static bool IsRecoverable(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException;
 
-    sealed record RentedLocal(int RentOffset, int StoreOffset, int Slot, LocalDefinition Definition);
+    sealed record RentedLocal(
+        int RentOffset,
+        int StoreOffset,
+        int Slot,
+        LocalDefinition Definition,
+        TypeRef Type);
 
     sealed record AmbiguousUse(int Offset, string Shape);
 
