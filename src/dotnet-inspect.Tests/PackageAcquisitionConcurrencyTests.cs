@@ -240,7 +240,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public async Task EnsurePackAsync_DoesNotMutateCommittedPackage()
+    public async Task EnsurePackAsync_ConcurrentRequestsPublishOneImmutablePack()
     {
         const string PackageName = "Microsoft.NETCore.App.Ref";
         const string Version = "10.0.1";
@@ -262,12 +262,17 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             Version);
         using var client = new HttpClient(new FailingHandler());
 
-        string? packPath = await PlatformPackService.EnsurePackAsync(
-            PackageName,
-            Version,
-            client);
+        Task<string?>[] requests = Enumerable.Range(0, 16)
+            .Select(_ => PlatformPackService.EnsurePackAsync(
+                PackageName,
+                Version,
+                client))
+            .ToArray();
+        string?[] packPaths = await Task.WhenAll(requests);
+        string? packPath = packPaths[0];
 
         Assert.NotNull(packPath);
+        Assert.All(packPaths, path => Assert.Equal(packPath, path));
         Assert.True(
             File.Exists(
                 Path.Combine(
@@ -285,6 +290,41 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(
             committed.ExtractPath,
             NuGetCache.TryGetCachedPackage(PackageName, Version));
+        AssertNoPackStagingDirectories(PackageName);
+    }
+
+    [Fact]
+    public async Task EnsurePackAsync_PreservesExistingInvalidPackEntry()
+    {
+        const string PackageName = "Microsoft.WindowsDesktop.App.Ref";
+        const string Version = "10.0.2";
+        string source = Path.Combine(_testRoot, "windowsdesktop-pack");
+        Directory.CreateDirectory(Path.Combine(source, "ref", "net10.0"));
+        File.WriteAllText(
+            Path.Combine(source, $"{PackageName}.nuspec"),
+            "<package />");
+        NuGetCache.CommitPackage(
+            source,
+            nupkgPath: null,
+            PackageName,
+            Version);
+        string packPath = Path.Combine(
+            PlatformPackService.GetPacksCachePath()!,
+            PackageName,
+            Version);
+        Directory.CreateDirectory(packPath);
+        string existingFile = Path.Combine(packPath, "existing.txt");
+        File.WriteAllText(existingFile, "preserve");
+        using var client = new HttpClient(new FailingHandler());
+
+        string? result = await PlatformPackService.EnsurePackAsync(
+            PackageName,
+            Version,
+            client);
+
+        Assert.Null(result);
+        Assert.Equal("preserve", File.ReadAllText(existingFile));
+        AssertNoPackStagingDirectories(PackageName);
     }
 
     [Fact]
@@ -413,6 +453,17 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             packageName,
             "unused");
         string parent = Path.GetDirectoryName(packagePath)!;
+        if (!Directory.Exists(parent))
+            return;
+
+        Assert.Empty(Directory.GetDirectories(parent, ".*.tmp-*"));
+    }
+
+    private static void AssertNoPackStagingDirectories(string packageName)
+    {
+        string parent = Path.Combine(
+            PlatformPackService.GetPacksCachePath()!,
+            packageName);
         if (!Directory.Exists(parent))
             return;
 

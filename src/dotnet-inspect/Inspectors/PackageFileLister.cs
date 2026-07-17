@@ -1,5 +1,6 @@
 using System.IO.Enumeration;
 using DotnetInspector.Models;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Inspectors;
 
@@ -121,7 +122,7 @@ public static class PackageFileLister
         return path.IndexOf('/', dir.Length + 1) < 0;
     }
 
-    private static bool IsPlumbing(string rel)
+    internal static bool IsPlumbing(string rel)
         // Zip plumbing (OPC packaging artifacts inside the .nupkg).
         => rel.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)
             || rel.StartsWith("_rels/", StringComparison.OrdinalIgnoreCase)
@@ -130,6 +131,9 @@ public static class PackageFileLister
             || rel.Equals(".signature.p7s", StringComparison.OrdinalIgnoreCase)
             // Restore-folder artifacts added by the NuGet client (not zip content).
             || rel.Equals(".nupkg.metadata", StringComparison.OrdinalIgnoreCase)
+            || rel.Equals(
+                NuGetCache.CommitMarkerFileName,
+                StringComparison.Ordinal)
             || rel.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
             || rel.EndsWith(".nupkg.sha512", StringComparison.OrdinalIgnoreCase);
 

@@ -20,7 +20,7 @@ public static class NuGetCache
 {
     private const string PackageContentCategory = "package-content-v2";
     private const string PackageContentCategoryPrefix = "package-content-v";
-    private const string CommitMarkerName = ".dotnet-inspect.complete";
+    public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;
     private static bool _skipNuGetCache;
 
@@ -249,7 +249,7 @@ public static class NuGetCache
             }
 
             using (var marker = new FileStream(
-                Path.Combine(stagingPath, CommitMarkerName),
+                Path.Combine(stagingPath, CommitMarkerFileName),
                 FileMode.CreateNew,
                 FileAccess.Write,
                 FileShare.None))
@@ -397,7 +397,8 @@ public static class NuGetCache
             if (!IsCachedPackageValid(cachedPath))
                 return false;
 
-            return File.ReadAllText(Path.Combine(cachedPath, CommitMarkerName))
+            return File.ReadAllText(
+                Path.Combine(cachedPath, CommitMarkerFileName))
                 .Equals(
                     GetCommitMarkerContent(packageName, version),
                     StringComparison.Ordinal);

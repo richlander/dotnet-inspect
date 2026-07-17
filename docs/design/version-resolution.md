@@ -153,7 +153,7 @@ each endpoint.
 | --- | --- | --- | --- |
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
 | App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
-| Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs/{pack}/{version}/` | Permanent | dotnet-inspect |
+| Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
@@ -195,6 +195,10 @@ directories. Failed acquisition leaves no final entry and can be retried.
 The flight and durable cache identity follow NuGet's coordinate cache model:
 cache root plus normalized package id and version. Source order selects the
 producer on a miss but is not a separate durable identity.
+
+Platform-pack projection never mutates the committed package. It copies the
+selected pack contents into a unique `packs-v2` staging directory and
+atomically publishes the complete derived pack with its own completion marker.
 
 ## Design rationale
 
