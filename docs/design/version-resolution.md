@@ -193,10 +193,25 @@ claiming to implement either tool's architecture exactly.
 
 | Precedent | Pattern adopted by dotnet-inspect | Important difference |
 | --- | --- | --- |
+| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. |
 | Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
 | Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the NuGet cache root, normalized package id, and version rather than by a content hash. |
 | Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |
 | Git mutable-state locks | Immutable entries do not require a long-lived cross-process lock when publishers can converge on one valid result. | Explicit locking remains appropriate for future mutable state that cannot use winner convergence. |
+
+NuGet.Client is the closest domain comparison. Its global-packages installer
+acquires a file lock for the target package, checks `.nupkg.metadata` to
+recognize a completed installation, repairs an incomplete target while holding
+the lock, and writes the metadata marker last. Processes waiting on that lock
+then observe the marker and skip duplicate installation.
+
+dotnet-inspect keeps NuGet's coordinate identity and marked-completion model but
+chooses a different cross-process tradeoff. Each process may build a complete
+candidate independently; whole-directory atomic rename selects one winner, and
+losers validate and use it. This avoids holding a shared lock across package
+work, but it permits duplicate download and extraction. Without a lock, an
+invalid final entry cannot be deleted safely, so dotnet-inspect preserves it and
+fails visibly instead.
 
 For an exact package cache miss, one process downloads and extracts the archive
 once for all of its waiters. It copies the result to a unique sibling staging
