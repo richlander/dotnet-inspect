@@ -779,7 +779,6 @@ public static class CompileBackSourceComposer
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
-                .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -956,7 +955,6 @@ public static class CompileBackSourceComposer
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
-                .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -1159,7 +1157,6 @@ public static class CompileBackSourceComposer
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
-                .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -1186,66 +1183,6 @@ public static class CompileBackSourceComposer
                 Usings = plan.Module.Usings,
             }).Source;
 
-    static IEnumerable<string> DeclarationNamespaces(IEnumerable<CSharpTypePrintRequest> requests)
-    {
-        var declaredTypes = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var request in requests)
-            AddDeclaredTypeNames(request, declaredTypes);
-
-        foreach (var request in requests)
-        {
-            foreach (var ns in DeclarationNamespaces(request, declaredTypes))
-                yield return ns;
-        }
-    }
-
-    static void AddDeclaredTypeNames(CSharpTypePrintRequest request, HashSet<string> declaredTypes)
-    {
-        string name = CSharpFormatter.StripArity(request.Type.Name);
-        string fullName = string.IsNullOrEmpty(request.Type.Namespace)
-            ? name
-            : $"{request.Type.Namespace}.{name}";
-        declaredTypes.Add(fullName);
-        foreach (var nested in request.NestedTypes)
-            AddDeclaredTypeNames(nested, declaredTypes);
-    }
-
-    static IEnumerable<string> DeclarationNamespaces(CSharpTypePrintRequest request, IReadOnlySet<string> declaredTypes)
-    {
-        if (!string.IsNullOrWhiteSpace(request.Type.Namespace))
-            yield return request.Type.Namespace;
-
-        foreach (var iface in request.Type.Interfaces)
-            foreach (var ns in TypeNamespaces(iface, declaredTypes))
-                yield return ns;
-        if (request.Type.BaseType is { } baseType)
-            foreach (var ns in TypeNamespaces(baseType, declaredTypes))
-                yield return ns;
-        foreach (var member in request.Members)
-        {
-            if (member.ReturnType is { } returnType)
-                foreach (var ns in TypeNamespaces(returnType, declaredTypes))
-                    yield return ns;
-            if (member.SignatureModel is not { } signature)
-                continue;
-            foreach (var parameter in signature.Parameters)
-                foreach (var ns in TypeNamespaces(parameter.Type, declaredTypes))
-                    yield return ns;
-        }
-        foreach (var nested in request.NestedTypes)
-            foreach (var ns in DeclarationNamespaces(nested, declaredTypes))
-                yield return ns;
-    }
-
-    static IEnumerable<string> TypeNamespaces(string type, IReadOnlySet<string> declaredTypes)
-    {
-        foreach (var token in type.Split([',', '<', '>', '[', ']', '*', '&', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            int dot = token.LastIndexOf('.');
-            if (dot > 0 && !declaredTypes.Contains(token[..dot]))
-                yield return token[..dot];
-        }
-    }
     static ApiMember ToApiMember(CompileBackMemberRequirement member)
     {
         string? returnType = member.ReturnType?.DisplayName;
