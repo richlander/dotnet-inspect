@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
+using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -713,8 +714,8 @@ static class ValidityCheck
 
     static string ParameterText(Parameter parameter)
         => parameter.Type.Kind == TypeRefKind.ByRef
-            ? $"ref {TypeText(parameter.Type.ElementType!)} {CSharpNaming.EscapeIdentifier(parameter.Name)}"
-            : $"{TypeText(parameter.Type)} {CSharpNaming.EscapeIdentifier(parameter.Name)}";
+            ? $"ref {TypeText(parameter.Type.ElementType!)} {CSharpIdentifier.Escape(parameter.Name)}"
+            : $"{TypeText(parameter.Type)} {CSharpIdentifier.Escape(parameter.Name)}";
 
     static string TypeText(TypeRef type)
     {

@@ -1,17 +1,21 @@
+using ILInspector.CSharp;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Pure C# identifier and name spelling utilities used by <see cref="CSharpPrinter"/>:
-/// reserved-keyword recognition, usable-identifier validation, and the decoding of
+/// C# name spelling utilities used by <see cref="CSharpPrinter"/>: the decoding of
 /// compiler-generated metadata names (auto-property backing fields, local-function
-/// mangled names) back to their source spelling. These are stateless functions of
-/// their string inputs — they hold no per-function printer state.
+/// mangled names) back to their source spelling, and thin re-exports of the seam's
+/// identifier producer (<see cref="CSharpIdentifier"/>) so printer call sites keep a
+/// single spelling entry point. The identifier escaping/sanitization policy itself
+/// lives in <c>ILInspector.CSharp</c>; these are stateless functions of their string
+/// inputs.
 /// </summary>
 internal static class CSharpNaming
 {
     /// <summary>A name safe to emit bare as a C# identifier: letters/digits/underscore, no leading digit, and not a reserved keyword (which would need an <c>@</c> escape).</summary>
     public static bool IsUsableIdentifier(string name)
-        => IsEscapableIdentifier(name) && !RequiresEscape(name);
+        => CSharpIdentifier.IsUsable(name);
 
     /// <summary>
     /// A name C# can emit as an identifier, possibly via an <c>@</c> escape: valid
@@ -21,16 +25,7 @@ internal static class CSharpNaming
     /// fundamentally unspellable metadata name like <c>bad-name</c>.
     /// </summary>
     public static bool IsEscapableIdentifier(string name)
-    {
-        if (string.IsNullOrEmpty(name) || !(char.IsLetter(name[0]) || name[0] == '_'))
-            return false;
-        foreach (char c in name)
-        {
-            if (!(char.IsLetterOrDigit(c) || c == '_'))
-                return false;
-        }
-        return true;
-    }
+        => CSharpIdentifier.IsEscapable(name);
 
     /// <summary>An identifier safe to emit in C# source: a reserved keyword is
     /// <c>@</c>-escaped (a parameter named <c>delegate</c> becomes
@@ -38,10 +33,10 @@ internal static class CSharpNaming
     /// is illegal as a bare identifier inside async methods, which is where
     /// recovered local functions and parameter references can appear.</summary>
     public static string EscapeIdentifier(string name)
-        => RequiresEscape(name) ? "@" + name : name;
+        => CSharpIdentifier.Escape(name);
 
     public static string SafeIdentifier(string name)
-        => IsIdentifierLike(name) ? EscapeIdentifier(name) : SanitizeUnspellableIdentifier(name);
+        => CSharpIdentifier.Sanitize(name);
 
     public static string SourceMethodName(string metadataName)
     {
@@ -51,22 +46,6 @@ internal static class CSharpNaming
 
     public static string TypeNameSegment(string metadataName)
         => SafeIdentifier(StripArity(metadataName));
-
-    static bool RequiresEscape(string name)
-        => ReservedKeywords.Contains(name) || name == "await";
-
-    static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
-    };
 
     /// <summary>The property name an auto-property backing field <c>&lt;Prop&gt;k__BackingField</c> backs, or null for an ordinary field.</summary>
     public static string? BackingFieldProperty(string fieldName)
@@ -90,55 +69,10 @@ internal static class CSharpNaming
         return fieldName.Length > suffix.Length + 1
             && fieldName[0] == '<'
             && fieldName.EndsWith(suffix, StringComparison.Ordinal)
-            && IsIdentifierLike(fieldName[1..^suffix.Length])
+            && CSharpIdentifier.IsIdentifierLike(fieldName[1..^suffix.Length])
             ? fieldName[1..^suffix.Length]
             : null;
     }
-
-    /// <summary>
-    /// A Unicode-aware C# identifier shape, evaluated per Rune so astral-plane
-    /// (surrogate-pair) characters classify correctly. Looser than
-    /// <see cref="IsEscapableIdentifier"/> (which is ASCII-ish): the start is a
-    /// letter, letter-number, or <c>_</c>, and each part adds digits, combining
-    /// marks, connectors, and format characters — the C# identifier rule. So a
-    /// recovered metadata name whose source identifier uses a valid Unicode
-    /// character is recognized rather than leaking the raw unspeakable name.
-    /// </summary>
-    static bool IsIdentifierLike(string name)
-    {
-        if (name.Length == 0)
-            return false;
-        bool first = true;
-        foreach (var rune in name.EnumerateRunes())
-        {
-            if (first)
-            {
-                if (!IsIdentifierStartRune(rune))
-                    return false;
-                first = false;
-            }
-            else if (!IsIdentifierPartRune(rune))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    static bool IsIdentifierStartRune(System.Text.Rune rune)
-        => rune.Value == '_'
-            || System.Text.Rune.IsLetter(rune)
-            || System.Text.Rune.GetUnicodeCategory(rune) == System.Globalization.UnicodeCategory.LetterNumber;
-
-    static bool IsIdentifierPartRune(System.Text.Rune rune)
-        => rune.Value == '_'
-            || System.Text.Rune.IsLetterOrDigit(rune)
-            || System.Text.Rune.GetUnicodeCategory(rune) is
-                System.Globalization.UnicodeCategory.LetterNumber
-                or System.Globalization.UnicodeCategory.NonSpacingMark
-                or System.Globalization.UnicodeCategory.SpacingCombiningMark
-                or System.Globalization.UnicodeCategory.ConnectorPunctuation
-                or System.Globalization.UnicodeCategory.Format;
 
     /// <summary>
     /// The source name of a call target. A compiler-generated local function
@@ -162,15 +96,5 @@ internal static class CSharpNaming
     {
         int tick = name.IndexOf('`');
         return tick < 0 ? name : name[..tick];
-    }
-
-    static string SanitizeUnspellableIdentifier(string name)
-    {
-        var sb = new System.Text.StringBuilder(name.Length + 1);
-        if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_'))
-            sb.Append('_');
-        foreach (char c in name)
-            sb.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
-        return RequiresEscape(sb.ToString()) ? "@" + sb : sb.ToString();
     }
 }
