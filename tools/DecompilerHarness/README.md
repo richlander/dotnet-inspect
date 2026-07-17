@@ -278,7 +278,7 @@ mechanically (never hand-edit it) after a deliberate population change:
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --compile-cap 0 \
-  --corpus-fidelity-cap 3 \
+  --corpus-fidelity-cap 50 \
   --corpus-fidelity-oracle rts-parity \
   --emit-rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json
 ```
