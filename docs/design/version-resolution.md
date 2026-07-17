@@ -221,6 +221,33 @@ all files, and atomically renames the directory to its final
 never inspect staging paths. A competing process either publishes first or
 validates and uses that committed winner.
 
+Overlapping dependency work does not introduce a lock-ordering problem. The
+in-process registry is keyed to one exact package coordinate, and its factory
+only downloads, extracts, validates, and commits that coordinate. It does not
+acquire dependencies or wait on another registry key. The entry is removed
+before the caller performs follow-on work such as traversing package
+dependencies, following a tool-package redirect, or projecting a platform
+pack. Dependency traversal fetches only dependency nuspecs and uses a
+traversal-local seen set to terminate dependency cycles.
+
+Consequently, two in-process dependency graphs that overlap on a package either
+await the same task for that exact coordinate or perform independent manifest
+reads. Tasks for different coordinates do not wait on one another, so they
+cannot form a wait cycle. Across processes there is no coordination wait:
+publishers use unique staging directories, and the final atomic rename either
+succeeds or reports a conflict without acquiring a cross-process lock. The
+losing process validates the winner rather than waiting for it while holding
+another resource.
+
+This is safe because exact package coordinates are immutable, different
+coordinates have disjoint final paths, and readers accept only complete,
+committed directories. Duplicate cross-process work can cost network and disk
+I/O, but it cannot expose partial content or create a cache-coordination
+deadlock. The single-coordinate factory is a required invariant: future
+acquisition code must not recursively await another package while its own
+in-flight entry is active. A future mutable operation spanning multiple entries
+would instead need an explicit ordering and cycle policy.
+
 Platform-pack projection applies the same transaction separately. It never
 mutates the committed package; it copies selected contents into a unique
 `packs-v2` staging directory and atomically publishes a marked derived pack.
