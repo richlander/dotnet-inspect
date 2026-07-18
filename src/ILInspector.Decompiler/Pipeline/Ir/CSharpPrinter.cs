@@ -1863,7 +1863,7 @@ public sealed partial class CSharpPrinter
         // A stackalloc-backed Span (raised to `stackalloc T[n]` by
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
         // under [SkipLocalsInit], where the stack space is uninitialized.
-        StackAllocArray => _skipLocalsInit,
+        StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
         Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         Binary b => IsPointerArithmetic(b),
