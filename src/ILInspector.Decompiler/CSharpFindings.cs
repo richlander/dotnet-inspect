@@ -78,22 +78,7 @@ public static class CSharpFindings
         return CompareInspections(oldInspection, newInspection, acceptanceThreshold);
     }
 
-    public static ImmutableArray<CSharpMemberFindingComparison> CompareAssemblies(
-        IReadOnlyList<string> oldPaths,
-        IReadOnlyList<string> newPaths,
-        bool includeNonPublic = false,
-        IReadOnlySet<string>? typeFilters = null,
-        IReadOnlySet<string>? memberTargetIdentities = null,
-        int acceptanceThreshold = 100)
-        => CompareAssembliesWithFailures(
-            oldPaths,
-            newPaths,
-            includeNonPublic,
-            typeFilters,
-            memberTargetIdentities,
-            acceptanceThreshold).Comparisons;
-
-    public static CSharpAssemblyFindingComparisonResult CompareAssembliesWithFailures(
+    public static CSharpAssemblyFindingComparisonResult CompareAssemblies(
         IReadOnlyList<string> oldPaths,
         IReadOnlyList<string> newPaths,
         bool includeNonPublic = false,

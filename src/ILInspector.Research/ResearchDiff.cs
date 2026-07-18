@@ -1131,7 +1131,7 @@ public static class ResearchDiff
         if (!retainedComparisonDescriptorIds.Contains(CSharpFindings.LineDescriptor.Id))
             return;
 
-        var findingComparisons = CSharpFindings.CompareAssembliesWithFailures(
+        var findingComparisons = CSharpFindings.CompareAssemblies(
             oldInput.AssemblyPaths,
             newInput.AssemblyPaths,
             typeFilters: typeFilters,

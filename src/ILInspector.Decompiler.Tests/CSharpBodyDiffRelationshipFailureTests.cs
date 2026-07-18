@@ -47,7 +47,7 @@ public class CSharpBodyDiffRelationshipFailureTests
                     && row.NewValue == "2");
             Assert.False(diff.IsExact);
 
-            var findings = CSharpFindings.CompareAssembliesWithFailures(
+            var findings = CSharpFindings.CompareAssemblies(
                 [oldPath],
                 [newPath],
                 includeNonPublic: true);

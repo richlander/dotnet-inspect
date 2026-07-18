@@ -1298,37 +1298,44 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            if (!IsEnum(reader, typeDef))
-                continue;
-
-            if (TypeResolver.ResolveTypeName(reader, typeHandle)
-                is not MetadataTypeNameResult.Resolved resolvedEnumType)
+            try
             {
-                continue;
-            }
-
-            var enumTypeName = resolvedEnumType.Value;
-            if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
-                continue;
-
-            foreach (var fieldHandle in typeDef.GetFields())
-            {
-                var field = reader.GetFieldDefinition(fieldHandle);
-                if ((field.Attributes & FieldAttributes.Literal) == 0)
+                var typeDef = reader.GetTypeDefinition(typeHandle);
+                if (!IsEnum(reader, typeDef))
                     continue;
-                var constantHandle = field.GetDefaultValue();
-                if (constantHandle.IsNil)
-                    continue;
-                var constant = reader.GetConstant(constantHandle);
-                if (TryReadEnumConstant(reader, constant, out var memberValue)
-                    && memberValue == defaultValue)
+
+                if (TypeResolver.ResolveTypeName(reader, typeHandle)
+                    is not MetadataTypeNameResult.Resolved resolvedEnumType)
                 {
-                    return $"{typeName}.{reader.GetString(field.Name)}";
+                    continue;
                 }
-            }
 
-            return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+                var enumTypeName = resolvedEnumType.Value;
+                if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
+                    continue;
+
+                foreach (var fieldHandle in typeDef.GetFields())
+                {
+                    var field = reader.GetFieldDefinition(fieldHandle);
+                    if ((field.Attributes & FieldAttributes.Literal) == 0)
+                        continue;
+                    var constantHandle = field.GetDefaultValue();
+                    if (constantHandle.IsNil)
+                        continue;
+                    var constant = reader.GetConstant(constantHandle);
+                    if (TryReadEnumConstant(reader, constant, out var memberValue)
+                        && memberValue == defaultValue)
+                    {
+                        return $"{typeName}.{reader.GetString(field.Name)}";
+                    }
+                }
+
+                return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                continue;
+            }
         }
 
         return null;
