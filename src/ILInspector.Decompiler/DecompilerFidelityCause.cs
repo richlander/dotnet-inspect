@@ -102,8 +102,19 @@ public sealed record DecompilerFidelityCause
         string nodeKind,
         string node,
         string reason,
-        string? discriminator = null,
-        string? inventoryBucket = null)
+        string? discriminator = null)
+        : this(code, location, nodeKind, node, reason, discriminator, null)
+    {
+    }
+
+    public DecompilerFidelityCause(
+        string code,
+        DecompilerFidelityLocation location,
+        string nodeKind,
+        string node,
+        string reason,
+        string? discriminator,
+        string? inventoryBucket)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeKind);

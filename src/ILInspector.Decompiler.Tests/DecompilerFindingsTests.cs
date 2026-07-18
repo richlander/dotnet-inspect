@@ -11,6 +11,24 @@ public class DecompilerFindingsTests
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
 
     [Fact]
+    public void CauseConstructors_PreserveSixParameterBinarySignature()
+    {
+        Type[] legacyParameterTypes =
+        [
+            typeof(string),
+            typeof(DecompilerFidelityLocation),
+            typeof(string),
+            typeof(string),
+            typeof(string),
+            typeof(string),
+        ];
+        Type[] inventoryParameterTypes = [.. legacyParameterTypes, typeof(string)];
+
+        Assert.NotNull(typeof(DecompilerFidelityCause).GetConstructor(legacyParameterTypes));
+        Assert.NotNull(typeof(DecompilerFidelityCause).GetConstructor(inventoryParameterTypes));
+    }
+
+    [Fact]
     public void Inspect_FullFunction_IsCompleteEmptyCensus()
     {
         var inspection = CompleteInspection(
