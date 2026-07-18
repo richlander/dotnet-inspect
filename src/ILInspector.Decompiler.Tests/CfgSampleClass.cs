@@ -4882,6 +4882,16 @@ public static class NamespaceRefSample
         _ = hpack.ToString();
         _ = headers.ToString();
     }
+
+    // References FunctionPointerNamespaceFixtures only through a function pointer
+    // parameter's return type and argument type (delegate*<...>'s element/type
+    // arguments), never as an ordinary local, field, or parameter/return type. See
+    // FunctionPointerNamespaceFixtures.cs.
+    public static unsafe void ReferencesNamespacesOnlyThroughFunctionPointer(
+        delegate*<FunctionPointerNamespaceFixtures.ParameterMarker, FunctionPointerNamespaceFixtures.ReturnMarker> callback)
+    {
+        _ = callback;
+    }
 }
 
 // Fixtures for MemberBodyFactsTests backing-field cases. Auto-property accessors
