@@ -62,8 +62,11 @@ public sealed class TupleSwitchExpressionPass : IIrPass
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
-            if (TryFold(container, context.Stepper))
-                return;
+        {
+            if (container.Parent is null)
+                continue;  // detached by an earlier rewrite in this walk
+            TryFold(container, context.Stepper);
+        }
     }
 
     sealed record Leaf(Dictionary<int, ComparisonKind> Constraints, IrExpression Value);

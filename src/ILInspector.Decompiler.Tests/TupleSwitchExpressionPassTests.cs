@@ -74,6 +74,39 @@ public class TupleSwitchExpressionPassTests
         return MakeFunction(root, [new Parameter("x", Int32), new Parameter("y", Int32)]);
     }
 
+    /// <summary>
+    /// Same shape as <see cref="BuildQuadrantShapedTree"/>'s root
+    /// <see cref="IfStatement"/> alone (not wrapped in a function), reading
+    /// argument indices <paramref name="xArg"/>/<paramref name="yArg"/> and
+    /// tagging every leaf value with <paramref name="suffix"/> so two
+    /// instances built with disjoint argument indices can coexist in one
+    /// function without colliding on either place or value.
+    /// </summary>
+    static IfStatement BuildQuadrantIfStatement(int xArg, int yArg, string suffix)
+    {
+        var xPositive = Wrap(new IfStatement(GT(yArg, "y", 0), Leaf("I" + suffix), Wrap(new IfStatement(LT(yArg, "y", 0), Leaf("IV" + suffix), Leaf("axis" + suffix)))));
+        var xNegativeInner = Wrap(new IfStatement(GT(yArg, "y", 0), Leaf("II" + suffix), Wrap(new IfStatement(LT(yArg, "y", 0), Leaf("III" + suffix), Leaf("axis" + suffix)))));
+        var xNegative = Wrap(new IfStatement(LT(xArg, "x", 0), xNegativeInner, Leaf("axis" + suffix)));
+
+        return new IfStatement(GT(xArg, "x", 0), xPositive, xNegative);
+    }
+
+    static BlockContainer WrapInContainer(IfStatement root)
+    {
+        var container = new BlockContainer();
+        var block = new Block();
+        block.Add(root);
+        container.Add(block);
+        return container;
+    }
+
+    static BlockContainer EmptyContainer()
+    {
+        var container = new BlockContainer();
+        container.Add(new Block());
+        return container;
+    }
+
     [Fact]
     public void Octant_FoldsToThreeComponentTupleSwitch()
     {
@@ -118,6 +151,110 @@ public class TupleSwitchExpressionPassTests
         Assert.Contains("=> \"III\",", output);
         Assert.Contains("=> \"IV\",", output);
         Assert.Contains("_ => \"axis\",", output);
+    }
+
+    [Fact]
+    public void TwoLocalFunctionQuadrants_BothFoldIndependently()
+    {
+        // Compiler-backed coverage for the completeness bug found in Gemini's
+        // adversarial review of 23c34bae: TupleSwitchExpressionPass.Run()
+        // returned right after its first successful container fold. Each
+        // static local function here is raised through its own independent
+        // recursive LocalFunctionRaisingPass pipeline run (a fresh Run() call
+        // per local function, not a shared container list), so this proves
+        // the fold generalizes across the whole method — both quadrants fold
+        // to their own TupleSwitchExpression, and no eligible nested if/goto
+        // tree survives in either local function or the host body.
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+
+        var switches = function!.Descendants.OfType<TupleSwitchExpression>().ToList();
+        Assert.Equal(2, switches.Count);
+        Assert.All(switches, s => Assert.Equal(2, s.ComponentCount));
+        Assert.All(switches, s => Assert.Equal(5, s.Arms.Count));
+        // No eligible nested if/return (or lowered if/goto) comparison tree
+        // is left behind in either local function or the host body.
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.Equal(2, function.Descendants.OfType<LocalFunctionStatement>().Count());
+
+        string output = result.Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("static string QuadrantA(int x, int y) => (x, y) switch", output);
+        Assert.Contains("static string QuadrantB(int x, int y) => (x, y) switch", output);
+        Assert.Contains("\"IA\"", output);
+        Assert.Contains("\"IIA\"", output);
+        Assert.Contains("\"IIIA\"", output);
+        Assert.Contains("\"IVA\"", output);
+        Assert.Contains("_ => \"axisA\"", output);
+        Assert.Contains("\"IB\"", output);
+        Assert.Contains("\"IIB\"", output);
+        Assert.Contains("\"IIIB\"", output);
+        Assert.Contains("\"IVB\"", output);
+        Assert.Contains("_ => \"axisB\"", output);
+        Assert.Contains("QuadrantA(x1, y1)", output);
+        Assert.Contains("QuadrantB(x2, y2)", output);
+    }
+
+    [Fact]
+    public void TwoIndependentDispatchContainers_BothFoldInOneRun()
+    {
+        // Regression for the completeness bug found in Gemini's adversarial
+        // review of 23c34bae: TupleSwitchExpressionPass.Run() returned right
+        // after its FIRST successful container fold, so a function with two
+        // independently-eligible dispatch containers only ever raised one
+        // tuple switch.
+        //
+        // Exhaustive investigation found no natural, compiler-emitted C#
+        // shape that leaves two ReturnDispatchPass-eligible siblings
+        // standing for a single TupleSwitchExpressionPass.Run() call to see:
+        // an if-guarded try/finally's outer container is correctly declined
+        // (the guard's true-target is the try/finally construct itself, not
+        // a return); two sequential try/finally blocks where the first
+        // always returns leave Roslyn to eliminate the second as dead code;
+        // and any return of a value out of a protected region (try/finally
+        // or try/catch) is always routed through a shared temp local rather
+        // than a direct Return, which breaks the single-block/single-return
+        // leaf shape ReturnDispatchPass and this pass both require. Loop
+        // bodies fare no better: DoWhileLoopPass only carves out a loop
+        // that actually has a back edge, and any block that isn't a pure
+        // guard or a terminal return arm (an increment, or the loop's own
+        // "keep iterating" fallthrough) makes ReturnDispatchPass decline the
+        // whole container. So two hand-built, TryFinally-wrapped containers
+        // — each in exactly the shape ReturnDispatchPass itself produces,
+        // without needing ReturnDispatchPass to run — is the direct, precise
+        // way to prove Run()'s own iteration completeness in isolation,
+        // matching this file's established convention of driving the pass
+        // directly off a hand-built tree for the other narrow declines below.
+        var containerA = WrapInContainer(BuildQuadrantIfStatement(xArg: 0, yArg: 1, suffix: "A"));
+        var containerB = WrapInContainer(BuildQuadrantIfStatement(xArg: 2, yArg: 3, suffix: "B"));
+
+        var body = new BlockContainer();
+        var block0 = new Block(0);
+        block0.Add(new TryFinally(containerA, EmptyContainer()));
+        body.Add(block0);
+        var block1 = new Block(1);
+        block1.Add(new TryFinally(containerB, EmptyContainer()));
+        body.Add(block1);
+
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(String, [new Parameter("x1", Int32), new Parameter("y1", Int32), new Parameter("x2", Int32), new Parameter("y2", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new TupleSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var switches = function.Descendants.OfType<TupleSwitchExpression>().ToList();
+        Assert.Equal(2, switches.Count);
+        Assert.All(switches, s => Assert.Equal(2, s.ComponentCount));
+        Assert.All(switches, s => Assert.Equal(5, s.Arms.Count));
+        // No eligible nested if tree remains in either container once fixed.
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
     }
 
     [Fact]
