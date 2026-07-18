@@ -14,9 +14,41 @@ public sealed class StackAllocInitializerPass : IIrPass
 
         foreach (var copyBlock in function.Descendants.OfType<CopyBlock>().ToList())
         {
+            if (copyBlock.Parent is not Block parentBlock) continue;
+            
             if (copyBlock.Destination is not LoadStackSlot loadDest || !stackSlots.TryGetValue(loadDest.Slot, out var storeDests) || storeDests.Count != 1 || storeDests[0].Value is not StackAllocate stackAlloc)
             {
                 continue;
+            }
+
+            var storeDest = storeDests[0];
+            if (storeDest.Parent != parentBlock) continue;
+            
+            int allocIndex = storeDest.ChildIndex;
+            int copyIndex = copyBlock.ChildIndex;
+            if (allocIndex >= copyIndex) continue;
+            
+            // Check for side effects in intervening statements
+            bool hasInterveningEffects = false;
+            for (int i = allocIndex + 1; i < copyIndex; i++)
+            {
+                if (HasSideEffect(parentBlock.Children[i]))
+                {
+                    hasInterveningEffects = true;
+                    break;
+                }
+            }
+            if (hasInterveningEffects) continue;
+
+            // Prove destination alias/use ownership
+            var usages = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot).ToList();
+            if (usages.Count != 2) continue; // One is the CopyBlock, the other is the actual usage.
+            
+            var finalUsage = usages.First(u => u != loadDest);
+            var finalUsageStatement = GetStatement(finalUsage);
+            if (finalUsageStatement == null || finalUsageStatement.Parent != parentBlock || finalUsageStatement.ChildIndex <= copyIndex)
+            {
+                continue; // Escaped or reordered destination
             }
 
             if (copyBlock.Size is not Constant { Value: int copySize } || stackAlloc.Size is not Constant { Value: int allocSize } || copySize != allocSize)
@@ -24,30 +56,37 @@ public sealed class StackAllocInitializerPass : IIrPass
                 continue;
             }
 
-            var storeDest = storeDests[0];
-
             List<IrExpression>? elements = null;
             TypeRef? elementType = null;
 
-            if (copyBlock.Source is LoadProperty loadProp)
+            if (copyBlock.Source is Call callItem)
             {
-                if (loadProp.Accessor.Name == "get_Item")
+                if ((callItem.Callee.Name == "get_Item" || callItem.Callee.Name == "GetPinnableReference") && 
+                    callItem.Callee.DeclaringType.Namespace == "System" &&
+                    callItem.Callee.DeclaringType.Name is "ReadOnlySpan`1" or "Span`1" &&
+                    callItem.Arguments.Count > 0)
                 {
-                    var instance = loadProp.Instance;
+                    var instance = callItem.Arguments[0];
                     if (instance is LoadLocalAddress lla && localStores.TryGetValue(lla.Index, out var stores) && stores.Count == 1)
                     {
                         var store = stores[0];
                         if (store.Value is SpanLiteral spanLit)
                         {
-                            elements = spanLit.Children.Cast<IrExpression>().ToList();
-                            foreach (var el in elements)
-                                el.Detach();
-                            elementType = spanLit.ElementType;
-
-                            var usages = function.Descendants.OfType<LoadLocalAddress>().Where(l => l.Index == lla.Index).ToList();
-                            if (usages.Count == 1) // Only used by this CopyBlock's get_Item call
+                            var sourceUsages = function.Descendants.OfType<LoadLocalAddress>().Where(l => l.Index == lla.Index).ToList();
+                            if (sourceUsages.Count == 1) // Exclusive source ownership
                             {
-                                store.Detach();
+                                elementType = spanLit.ElementType;
+                                int? elementSize = GetSizeOf(elementType);
+                                if (elementSize != null && copySize % elementSize.Value == 0)
+                                {
+                                    int requiredElementCount = copySize / elementSize.Value;
+                                    if (spanLit.Children.Count == requiredElementCount)
+                                    {
+                                        elements = spanLit.Children.Cast<IrExpression>().ToList();
+                                        foreach (var el in elements) el.Detach();
+                                        store.Detach();
+                                    }
+                                }
                             }
                         }
                     }
@@ -55,29 +94,31 @@ public sealed class StackAllocInitializerPass : IIrPass
             }
             else if (copyBlock.Source is LoadFieldAddress loadField && loadField.FieldRvaData is { } rvaData)
             {
-                var usages = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot && l != loadDest).ToList();
-                foreach (var usage in usages)
+                if (finalUsage.Parent is StoreLocal sl && sl.Type.Kind == TypeRefKind.Pointer)
                 {
-                    if (usage.Parent is StoreLocal sl && sl.Type.Kind == TypeRefKind.Pointer)
-                    {
-                        elementType = sl.Type.ElementType;
-                        break;
-                    }
-                    else if (usage.Parent is Convert { Parent: StoreLocal slc } && slc.Type.Kind == TypeRefKind.Pointer)
-                    {
-                        elementType = slc.Type.ElementType;
-                        break;
-                    }
-                    else if (usage.Parent is NewObject no && no.Constructor.DeclaringType.Name is "Span`1" or "ReadOnlySpan`1")
-                    {
-                        elementType = no.Constructor.DeclaringType.TypeArguments[0];
-                        break;
-                    }
+                    elementType = sl.Type.ElementType;
+                }
+                else if (finalUsage.Parent is Convert { Parent: StoreLocal slc } && slc.Type.Kind == TypeRefKind.Pointer)
+                {
+                    elementType = slc.Type.ElementType;
+                }
+                else if (finalUsage.Parent is NewObject no && no.Constructor.DeclaringType.Namespace == "System" && no.Constructor.DeclaringType.Name is "Span`1" or "ReadOnlySpan`1")
+                {
+                    elementType = no.Constructor.DeclaringType.TypeArguments[0];
                 }
 
                 if (elementType != null)
                 {
-                    elements = RvaSpanPass.DecodeElements(function, elementType, rvaData);
+                    int? elementSize = GetSizeOf(elementType);
+                    if (elementSize != null && copySize % elementSize.Value == 0 && rvaData.Length >= copySize)
+                    {
+                        int requiredElementCount = copySize / elementSize.Value;
+                        elements = RvaSpanPass.DecodeElements(function, elementType, rvaData, requiredElementCount);
+                        if (elements != null && elements.Count != requiredElementCount)
+                        {
+                            elements = null; // Mismatched size
+                        }
+                    }
                 }
             }
 
@@ -88,20 +129,48 @@ public sealed class StackAllocInitializerPass : IIrPass
 
                 context.Stepper.StepOver("raise cpblk over localloc to stackalloc initializer", copyBlock);
 
-                // We want to remove the CopyBlock and fold the stack slot.
-                var remainingUsages = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot && l != loadDest).ToList();
-                if (remainingUsages.Count == 1)
-                {
-                    remainingUsages[0].ReplaceWith(stackAllocArray);
-                    storeDest.Detach();
-                }
-                else
-                {
-                    storeDest.Value.ReplaceWith(stackAllocArray);
-                }
-
+                storeDest.Value.ReplaceWith(stackAllocArray);
                 copyBlock.Detach();
             }
         }
+    }
+
+    static IrNode? GetStatement(IrNode node)
+    {
+        while (node.Parent != null && node.Parent is not Block)
+            node = node.Parent;
+        return node.Parent is Block ? node : null;
+    }
+
+    static bool HasSideEffect(IrNode node)
+    {
+        if (node is StoreIndirect or StoreElement or StoreField or StoreProperty or InitObject or CopyBlock) return true;
+        if (node is Call or CallIndirect or NewObject) 
+        {
+            if (node is Call c && c.Callee.Name == "GetReference" && c.Callee.DeclaringType.Name == "MemoryMarshal") return false;
+            return true;
+        }
+        if (node is Branch or ConditionalBranch or SwitchBranch or Return or YieldReturn or Throw or CatchClause or Leave or NullCoalescingAssignment) return true;
+        
+        foreach (var child in node.Children)
+            if (HasSideEffect(child)) return true;
+            
+        return false;
+    }
+
+    static int? GetSizeOf(TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.Definition && type.Namespace == "System")
+        {
+            return type.Name switch
+            {
+                "Byte" or "SByte" or "Boolean" => 1,
+                "Int16" or "UInt16" or "Char" => 2,
+                "Int32" or "UInt32" or "Single" => 4,
+                "Int64" or "UInt64" or "Double" => 8,
+                _ => null
+            };
+        }
+        return null;
     }
 }
