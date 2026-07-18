@@ -75,6 +75,9 @@ public class CfgSampleClass
 
     public static string? ReadKeywordFieldNullConditional(CfgSampleClass? value) => value?.@else;
 
+    public static CfgSampleClass InitializeKeywordField(string? value)
+        => new() { @else = value };
+
     public static int @return(int value) => value + 1;
 
     public static int CallsKeywordStaticMethod(int value) => @return(value);

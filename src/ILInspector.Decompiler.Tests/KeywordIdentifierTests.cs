@@ -95,6 +95,81 @@ public class KeywordIdentifierTests
     }
 
     [Fact]
+    public void KeywordObjectInitializerMember_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.InitializeKeywordField));
+
+        Assert.Contains("@else = value", output);
+        Assert.DoesNotContain("{ else = value", output);
+    }
+
+    [Fact]
+    public void RaisedWithExpressionKeywordMember_IsEscaped()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var expression = new WithExpression(
+            new LoadArgument(0, "value", holder),
+            [new InitializerEntry("else", [new Constant(null, stringType)])]);
+
+        var (function, output) = RenderExpression(holder, expression);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("value with { @else = null }", output);
+    }
+
+    [Fact]
+    public void RaisedAnonymousObjectKeywordProperty_IsEscaped()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var expression = new AnonymousObject(
+            holder,
+            ["else"],
+            [new Constant(1, TypeRef.CoreLib("System", "Int32"))]);
+
+        var (function, output) = RenderExpression(holder, expression);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("new { @else = 1 }", output);
+    }
+
+    [Fact]
+    public void RaisedNullConditionalUnspellableBackingProperty_PreservesIdentity()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var value = new LoadArgument(0, "value", holder);
+        var field = new FieldRef(holder, "<bad-name>k__BackingField", stringType)
+        {
+            BackingPropertyName = "bad-name",
+        };
+
+        var (function, output) = RenderExpression(
+            stringType,
+            new NullConditional(new LoadField(field, value)));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("value?.bad-name", output);
+        Assert.DoesNotContain("value?._bad_name", output);
+    }
+
+    [Fact]
+    public void RaisedNullConditionalKeywordPrimaryConstructorCapture_IsEscaped()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var value = new LoadArgument(0, "value", holder);
+        var field = new FieldRef(holder, "<else>P", stringType);
+
+        var (_, output) = RenderExpression(
+            stringType,
+            new NullConditional(new LoadField(field, value)));
+
+        Assert.Contains("value?.@else", output);
+        Assert.DoesNotContain("value?.else", output);
+    }
+
+    [Fact]
     public void KeywordStaticMethodName_IsEscaped()
     {
         var output = Render(nameof(CfgSampleClass.CallsKeywordStaticMethod));
@@ -149,5 +224,27 @@ public class KeywordIdentifierTests
 
         Assert.Contains("V_0", output);
         Assert.DoesNotContain(" await", output);
+    }
+
+    static (IrFunction Function, string Output) RenderExpression(
+        TypeRef returnType,
+        IrExpression expression)
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var body = new BlockContainer();
+        var block = new Block();
+        body.Add(block);
+        block.Add(new Return(expression));
+        var function = new IrFunction(
+            "M",
+            holder,
+            new MethodSignature(
+                returnType,
+                [new Parameter("value", holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+        return (function, CSharpPrinter.Print(function).Output!);
     }
 }

@@ -162,11 +162,7 @@ internal static class CSharpSpellability
             if (!CSharpNaming.IsUsableIdentifier(member))
             {
                 if (CSharpNaming.IsEscapableIdentifier(member))
-                {
-                    return Issue(
-                        DecompilerFidelityDiscriminators.EscapableInitializerMemberName,
-                        $"initializer member name '{member}' requires C# @ escaping");
-                }
+                    continue;
                 return Issue(
                     IsGeneratedNameShape(member)
                         ? DecompilerFidelityDiscriminators.GeneratedInitializerMemberName

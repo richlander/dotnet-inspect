@@ -25,7 +25,7 @@ public sealed partial class CSharpPrinter
         => $"{Operand(node.Receiver)} with {{ {string.Join(", ", node.Entries.Select(WithExpressionEntryText))} }}";
 
     string WithExpressionEntryText(InitializerEntry entry)
-        => $"{entry.Member} = {Expression(entry.Arguments[0])}";
+        => $"{CSharpNaming.EscapeIdentifier(entry.Member!)} = {Expression(entry.Arguments[0])}";
 
     /// <summary>Renders the brace body shared by a top-level initializer and a nested <see cref="InitializerBlock"/>.</summary>
     string InitializerBodyText(bool isCollection, IReadOnlyList<InitializerEntry> entries)
@@ -51,7 +51,7 @@ public sealed partial class CSharpPrinter
             : Expression(value);
 
         if (entry.Member is { } member)
-            return $"{member} = {valueText}";
+            return $"{CSharpNaming.EscapeIdentifier(member)} = {valueText}";
 
         // An indexer member: the trailing argument is the value, the rest are keys.
         var keys = entry.Arguments.Take(entry.Arguments.Count - 1).Select(Expression);
@@ -75,11 +75,12 @@ public sealed partial class CSharpPrinter
         {
             var value = anonymous.Values[i];
             string name = anonymous.PropertyNames[i];
+            string escapedName = CSharpNaming.EscapeIdentifier(name);
             string text = Expression(value);
-            bool shorthand = text == name
-                || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + name, StringComparison.Ordinal))
-                || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + name, StringComparison.Ordinal));
-            parts.Add(shorthand ? text : $"{name} = {text}");
+            bool shorthand = text == escapedName
+                || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + escapedName, StringComparison.Ordinal))
+                || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + escapedName, StringComparison.Ordinal));
+            parts.Add(shorthand ? text : $"{escapedName} = {text}");
         }
         return $"new {{ {string.Join(", ", parts)} }}";
     }
@@ -326,10 +327,11 @@ public sealed partial class CSharpPrinter
 
     static string NullConditionalFieldSuffix(FieldRef field)
     {
-        string name = field.BackingPropertyName
-            ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
-            ?? field.Name;
-        return $".{CSharpNaming.SafeIdentifier(name)}";
+        if (field.BackingPropertyName is { } property)
+            return $".{CSharpNaming.EscapeIdentifier(property)}";
+        if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
+            return $".{CSharpNaming.EscapeIdentifier(capture)}";
+        return $".{CSharpNaming.SafeIdentifier(field.Name)}";
     }
 
     string NullConditionalCallSuffix(Call call)

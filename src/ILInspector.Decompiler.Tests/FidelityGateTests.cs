@@ -288,6 +288,7 @@ public class FidelityGateTests
         "ReadKeywordField",
         "WriteKeywordField",
         "ReadKeywordFieldNullConditional",
+        "InitializeKeywordField",
         "IsNotNullReference",
         "LineSeparatorLiteral",
         "InterpolationWithBackslashFormat",
