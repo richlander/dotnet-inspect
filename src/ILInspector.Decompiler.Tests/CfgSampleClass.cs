@@ -4724,3 +4724,16 @@ public static class NamespaceRefSample
     // References only System (Int32).
     public static int ReferencesOnlySystem(int x) => x + 1;
 }
+
+// Fixtures for MemberBodyFactsTests backing-field cases. Auto-property accessors
+// touch the compiler-generated backing field directly, so importing get_/set_
+// exercises the LoadField/StoreField walk with a resolvable BackingPropertyName.
+public class BackingFieldSample
+{
+    public int Number { get; set; }
+
+    public static string Label { get; set; } = "";
+
+    // Reads no field, so the walk reports nothing.
+    public int NoFieldAccess(int x) => x + 1;
+}

@@ -22,6 +22,14 @@ public class MemberBodyFactsTests
         return MemberBodyFacts.Constructor(function);
     }
 
+    static IReadOnlyList<BackingFieldReference> BackingFieldsFor(string typeFullName, string methodName, int overloadIndex = 0)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeFullName, methodName, overloadIndex);
+        Assert.NotNull(function);
+        return MemberBodyFacts.BackingFieldReferences(function);
+    }
+
     [Fact]
     public void ReferencedNamespaces_ReportsEveryDistinctReferencedNamespace()
     {
@@ -101,5 +109,53 @@ public class MemberBodyFactsTests
 
         Assert.Null(facts.ChainParameterTypes);
         Assert.Null(facts.PrimaryConstructorPrologue);
+    }
+
+    [Fact]
+    public void BackingFields_InstanceGetter_ReportsBackingFieldRead()
+    {
+        // An instance auto-property getter loads its backing field, so the walk
+        // reports one Read carrying the field's declaring type and property name.
+        var references = BackingFieldsFor(typeof(BackingFieldSample).FullName!, "get_Number");
+
+        var reference = Assert.Single(references);
+        Assert.Equal(BackingFieldAccess.Read, reference.Access);
+        Assert.Equal("ILInspector.Decompiler.Tests", reference.DeclaringNamespace);
+        Assert.Equal(nameof(BackingFieldSample), reference.DeclaringName);
+        Assert.Equal("Number", reference.BackingPropertyName);
+        Assert.Contains("Number", reference.FieldName);
+    }
+
+    [Fact]
+    public void BackingFields_InstanceSetter_ReportsInstanceWrite()
+    {
+        // An instance auto-property setter stores through `this`, so the walk
+        // reports one InstanceWrite.
+        var references = BackingFieldsFor(typeof(BackingFieldSample).FullName!, "set_Number");
+
+        var reference = Assert.Single(references);
+        Assert.Equal(BackingFieldAccess.InstanceWrite, reference.Access);
+        Assert.Equal("Number", reference.BackingPropertyName);
+    }
+
+    [Fact]
+    public void BackingFields_StaticSetter_ReportsStaticWrite()
+    {
+        // A static auto-property setter stores a static field, so the walk reports
+        // one StaticWrite.
+        var references = BackingFieldsFor(typeof(BackingFieldSample).FullName!, "set_Label");
+
+        var reference = Assert.Single(references);
+        Assert.Equal(BackingFieldAccess.StaticWrite, reference.Access);
+        Assert.Equal("Label", reference.BackingPropertyName);
+    }
+
+    [Fact]
+    public void BackingFields_NoFieldAccess_ReportsNothing()
+    {
+        // A method that touches no field yields no backing-field references.
+        var references = BackingFieldsFor(typeof(BackingFieldSample).FullName!, nameof(BackingFieldSample.NoFieldAccess));
+
+        Assert.Empty(references);
     }
 }

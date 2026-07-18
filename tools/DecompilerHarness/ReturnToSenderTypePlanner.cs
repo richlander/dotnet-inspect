@@ -1729,6 +1729,13 @@ public static class CompileBackSourceComposer
         return definition.Name == IdentityTypeRefName(identity);
     }
 
+    // The product already unwrapped the declaring type to a definition and captured its
+    // namespace/name, so the self-type check is a plain identity string compare here.
+    // Named distinctly from IsSelfType(TypeRef, ...) so reflection-by-name stays unambiguous.
+    static bool DeclaredBySelfType(BackingFieldReference reference, CompileBackTypeIdentity identity)
+        => reference.DeclaringNamespace == identity.Namespace
+            && reference.DeclaringName == IdentityTypeRefName(identity);
+
     static string IdentityTypeRefName(CompileBackTypeIdentity identity)
     {
         string localPath = identity.Namespace.Length > 0
@@ -1990,13 +1997,14 @@ public static class CompileBackSourceComposer
         var members = new List<CompileBackMemberRequirement>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var fieldRef in TargetBackingFieldRefs(function))
+        foreach (var reference in MemberBodyFacts.BackingFieldReferences(function)
+            .Where(reference => reference.Access == BackingFieldAccess.Read))
         {
-            if (fieldRef.BackingPropertyName is not { Length: > 0 } propertyName)
+            if (reference.BackingPropertyName is not { Length: > 0 } propertyName)
                 continue;
-            if (!IsSelfType(fieldRef.DeclaringType, targetIdentity))
+            if (!DeclaredBySelfType(reference, targetIdentity))
                 continue;
-            if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
+            if (FindField(reader, typeDef, reference.FieldName) is not { } fieldHandle)
                 continue;
 
             var field = reader.GetFieldDefinition(fieldHandle);
@@ -2026,18 +2034,10 @@ public static class CompileBackSourceComposer
                 TypeParameters: [],
                 CompileBackStubBodyKind.None,
                 TargetBody: null,
-                [new CompileBackFact("metadata", "target-backing-field-read", fieldRef.Name)]));
+                [new CompileBackFact("metadata", "target-backing-field-read", reference.FieldName)]));
         }
 
         return members;
-    }
-
-    static IEnumerable<FieldRef> TargetBackingFieldRefs(IrFunction function)
-    {
-        foreach (var load in function.Descendants.OfType<LoadField>())
-            yield return load.Field;
-        foreach (var address in function.Descendants.OfType<LoadFieldAddress>())
-            yield return address.Field;
     }
 
     static IReadOnlyList<CompileBackMemberRequirement> TargetBackingFieldWriteMembers(
@@ -2050,19 +2050,15 @@ public static class CompileBackSourceComposer
         var members = new List<CompileBackMemberRequirement>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var store in function.Descendants.OfType<StoreField>())
+        foreach (var reference in MemberBodyFacts.BackingFieldReferences(function)
+            .Where(reference => reference.Access == BackingFieldAccess.InstanceWrite
+                || (allowStaticStores && reference.Access == BackingFieldAccess.StaticWrite)))
         {
-            if (store is not { HasInstance: true, Instance: LoadArgument { Index: 0 } }
-                && !(allowStaticStores && store is { HasInstance: false }))
-            {
+            if (reference.BackingPropertyName is not { Length: > 0 } propertyName)
                 continue;
-            }
-            var fieldRef = store.Field;
-            if (fieldRef.BackingPropertyName is not { Length: > 0 } propertyName)
+            if (!DeclaredBySelfType(reference, targetIdentity))
                 continue;
-            if (!IsSelfType(fieldRef.DeclaringType, targetIdentity))
-                continue;
-            if (FindField(reader, typeDef, fieldRef.Name) is not { } fieldHandle)
+            if (FindField(reader, typeDef, reference.FieldName) is not { } fieldHandle)
                 continue;
 
             var field = reader.GetFieldDefinition(fieldHandle);
@@ -2092,7 +2088,7 @@ public static class CompileBackSourceComposer
                 TypeParameters: [],
                 CompileBackStubBodyKind.AutoProperty,
                 TargetBody: null,
-                [new CompileBackFact("metadata", "target-backing-field-write", fieldRef.Name)]));
+                [new CompileBackFact("metadata", "target-backing-field-write", reference.FieldName)]));
         }
 
         return members;
