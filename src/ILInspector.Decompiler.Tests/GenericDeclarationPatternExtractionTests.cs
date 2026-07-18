@@ -605,6 +605,40 @@ public class GenericDeclarationPatternExtractionTests
         Assert.Matches(@"\bV_\d+ = V_\d+;", output);
     }
 
+    // Synthetic (#2872 gate, Issue 1): the cache local's managed address is
+    // captured into a ref local (`ref T p = ref c;`) that outlives the guarded
+    // arm. The address load sits inside the arm, so confinement alone is
+    // satisfied, but re-pointing the binding narrows `c` to the pattern's scope
+    // and leaves the escaped reference dangling. The copy must survive.
+    [Fact]
+    public void CacheAddressCapturedToRefLocal_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var byRef = TypeRef.ByRef(generic);
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(2, byRef, new LoadLocalAddress(0, generic)));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic, byRef],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+
     static string RunPipelineAndPrint(IrFunction function)
     {
         IrPasses.Run(function);

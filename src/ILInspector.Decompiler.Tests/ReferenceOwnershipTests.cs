@@ -81,6 +81,50 @@ public class ReferenceOwnershipTests
         Assert.False(ReferenceOwnership.SubtreeStoresLocal(returnLoad, 0));
     }
 
+    // A local can be bound or written through a designation that carries the
+    // index directly (a null-coalescing target, a pattern binding, a foreach
+    // header) rather than an explicit Load/Store. ReferencesLocal only knows the
+    // Load/Store atoms, so a confinement proof built on it alone is blind to
+    // these; BindsLocal / ReferencesOrBindsLocal close that gap.
+    [Fact]
+    public void BindsLocal_CountsIndexBearingDesignationsMissedByReferencesLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var nullCoalescing = new NullCoalescingAssignment(0, Int, new Constant(1, Int));
+        var pattern = new IsPattern(new LoadArgument(0, "x", objectType), generic, 0);
+
+        Assert.False(ReferenceOwnership.ReferencesLocal(nullCoalescing, 0));
+        Assert.False(ReferenceOwnership.ReferencesLocal(pattern, 0));
+
+        Assert.True(ReferenceOwnership.BindsLocal(nullCoalescing, 0));
+        Assert.True(ReferenceOwnership.BindsLocal(pattern, 0));
+        Assert.True(ReferenceOwnership.ReferencesOrBindsLocal(nullCoalescing, 0));
+        Assert.True(ReferenceOwnership.ReferencesOrBindsLocal(pattern, 0));
+
+        Assert.False(ReferenceOwnership.BindsLocal(nullCoalescing, 1));
+        Assert.False(ReferenceOwnership.BindsLocal(pattern, 1));
+    }
+
+    // The legacy Load/Store-only confinement check passes even when an external
+    // binding writes the local through an index-bearing designation, because it
+    // never sees that node kind. The completeness-aware variant rejects it, so a
+    // rewrite that narrows the local's scope cannot leave the external binding
+    // referencing an out-of-scope local.
+    [Fact]
+    public void LocalReferencedOrBoundOnlyWithin_RejectsExternalBindingLoadStoreMisses()
+    {
+        var allowed = new Block();
+        allowed.Add(new StoreLocal(0, Int, new Constant(1, Int)));
+        var external = new Block();
+        external.Add(new NullCoalescingAssignment(0, Int, new Constant(2, Int)));
+
+        var function = Function(allowed, external);
+
+        Assert.True(ReferenceOwnership.LocalReferencesOnlyWithin(function, 0, [allowed]));
+        Assert.False(ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, 0, [allowed]));
+    }
+
     static IrFunction Function(params Block[] blocks)
     {
         var container = new BlockContainer();

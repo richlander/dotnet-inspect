@@ -225,16 +225,31 @@ public sealed class IsPatternPass : IIrPass
             if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, pattern.LocalIndex, [copy]))
                 continue;
 
-            // The cache local must be a single-assignment temp whose every use is
-            // inside this guarded arm, so binding it in the pattern covers all
-            // reads with the exact value the copy provided. A managed-address use
-            // (e.g. a constrained `t.CompareTo(...)` call) is safe: the pattern
-            // binding is an ordinary addressable local, and single assignment
-            // means the bound value equals the copied value, so any ref-use is
-            // preserved identically. The pattern's tested value must not read it.
+            // The cache local must be a single-assignment temp whose every use
+            // is inside this guarded arm, so binding it in the pattern covers
+            // all reads with the exact value the copy provided. The pattern's
+            // tested value must not read it. Reference/binding checks count
+            // every designation that carries a local index (pattern bindings,
+            // foreach/using/fixed headers, deconstruction targets, catch
+            // variables, null-coalescing targets), not just explicit
+            // Load/Store, so an out-of-arm use expressed through one of those
+            // node kinds cannot slip past and reference an undeclared local.
             if (function.Descendants.OfType<StoreLocal>().Count(s => s.Index == cacheIndex) != 1
-                || ReferenceOwnership.SubtreeReferencesLocal(pattern.Value, cacheIndex)
-                || !ReferenceOwnership.LocalReferencesOnlyWithin(function, cacheIndex, [ifStatement.Then]))
+                || ReferenceOwnership.SubtreeReferencesOrBindsLocal(pattern.Value, cacheIndex)
+                || !ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, cacheIndex, [ifStatement.Then]))
+            {
+                continue;
+            }
+
+            // The cache local's managed address must not escape the guarded
+            // arm. An in-place consumer (a constrained call receiver such as
+            // `c.CompareTo(x)`) is safe, but capturing the address into storage
+            // that outlives the arm — a ref local `p = ref c`, a ref return, or
+            // a ref field / indirect store — would dangle once the binding
+            // narrows to the pattern's scope, so reject those.
+            if (function.Descendants.OfType<LoadLocalAddress>()
+                .Where(address => address.Index == cacheIndex)
+                .Any(address => address.Parent is StoreLocal or StoreStackSlot or StoreField or StoreIndirect or Return))
             {
                 continue;
             }
