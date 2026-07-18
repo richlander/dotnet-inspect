@@ -47,12 +47,6 @@ Before dispatching a release:
 2. Confirm that the commit contains the intended `VersionPrefix` and release
    notes.
 3. Confirm that the version has not already been published.
-4. Confirm that the `nuget` GitHub environment and NuGet Trusted Publishing
-   policy are configured, and that the `NUGET_USER` identity input expected by
-   the workflow is available.
-
-NuGet Trusted Publishing uses GitHub OIDC through `NuGet/login`; it does not
-use a long-lived NuGet API key stored in repository secrets.
 
 ## Dispatching
 
@@ -70,9 +64,8 @@ The workflow then:
 3. Builds the pointer and managed fallback packages.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
-5. Authenticates to NuGet with OIDC.
-6. Publishes Native AOT packages, then the managed fallback, then the pointer.
-7. Creates a GitHub release from the package version and attaches all packages.
+5. Publishes Native AOT packages, then the managed fallback, then the pointer.
+6. Creates a GitHub release from the package version and attaches all packages.
 
 The pointer is deliberately published last because it references the
 runtime-specific packages.
@@ -86,8 +79,6 @@ runtime-specific packages.
   successful CI run, and dispatch again with that run ID.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
-- **NuGet authentication fails:** check the `nuget` environment,
-  `NUGET_USER` identity input, and Trusted Publishing configuration.
 - **A package version already exists:** advance `VersionPrefix`; published
   package versions are immutable.
 - **A partially published release is retried:** the workflow uses
