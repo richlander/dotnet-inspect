@@ -1,5 +1,7 @@
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -21,6 +23,90 @@ public class IteratorReconstructionPassTests
     }
 
     static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
+
+    static int CountOccurrences(string text, string value)
+        => (text.Length - text.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
+
+    static (IrFunction Function, string Output) RaisedFrom(MetadataSource source, string typeName, string methodName)
+    {
+        var function = IrImporter.Import(source, typeName, methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, $"{methodName}: {string.Join(", ", result.Diagnostics.Select(d => d.Message))}");
+        function!.CheckInvariant();
+        return (function!, result.Output ?? "");
+    }
+
+    static CompiledFixture CompileComplexIteratorFixture(OptimizationLevel optimization)
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            namespace Issue2868;
+
+            public static class Iterators
+            {
+                public static IEnumerable<int> SwitchYield(int k)
+                {
+                    switch (k)
+                    {
+                        case 0:
+                            yield return 10;
+                            break;
+                        case 1:
+                            yield return 20;
+                            yield return 21;
+                            break;
+                        default:
+                            yield return 99;
+                            break;
+                    }
+
+                    yield return 100;
+                }
+
+                public static IEnumerable<int> WhileTrueYieldBreak(int n)
+                {
+                    int i = 0;
+                    while (true)
+                    {
+                        if (i >= n)
+                            yield break;
+
+                        yield return i;
+                        i++;
+                    }
+                }
+            }
+            """;
+
+        var directory = Path.Combine(AppContext.BaseDirectory, "Issue2868GeneratedFixtures");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"Issue2868.{optimization}.{Guid.NewGuid():N}.dll");
+        var syntax = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            Path.GetFileNameWithoutExtension(path),
+            [syntax],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: optimization,
+                allowUnsafe: true));
+        var emit = compilation.Emit(path);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return new CompiledFixture(path);
+    }
+
+    sealed class CompiledFixture(string path) : IDisposable
+    {
+        public string Path { get; } = path;
+
+        public void Dispose()
+        {
+            try { File.Delete(Path); }
+            catch { }
+        }
+    }
 
     [Fact]
     public void LinearConstantIterator_ReconstructsYieldSequence()
@@ -382,25 +468,87 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void SwitchIterator_DeclinesToHonestAcknowledgment()
+    public void SwitchIterator_ReconstructsSwitchAndSharedContinuation()
     {
         var function = Raised(nameof(CfgSampleClass.SwitchYield));
 
-        Assert.Empty(function.Descendants.OfType<YieldReturn>());
-        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Equal("iterator", marker.Opcode);
-        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<Switch>());
+        var values = function.Descendants.OfType<YieldReturn>()
+            .Select(y => Assert.IsType<Constant>(y.Value).Value)
+            .ToArray();
+        Assert.Equal(new object?[] { 10, 20, 21, 99, 100 }, values);
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 
     [Fact]
-    public void WhileTrueYieldBreakIterator_DeclinesToHonestAcknowledgment()
+    public void SwitchIterator_RendersSwitchWithoutFalseRaiseOrdering()
+    {
+        var output = Print(nameof(CfgSampleClass.SwitchYield));
+
+        Assert.Contains("switch (k)", output);
+        Assert.Contains("case 0:", output);
+        Assert.Contains("yield return 10;", output);
+        Assert.Contains("case 1:", output);
+        Assert.Contains("yield return 20;", output);
+        Assert.Contains("yield return 21;", output);
+        Assert.Contains("default:", output);
+        Assert.Contains("yield return 99;", output);
+        Assert.Contains("yield return 100;", output);
+        Assert.Equal(1, CountOccurrences(output, "yield return 100;"));
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Fact]
+    public void WhileTrueYieldBreakIterator_ReconstructsExplicitYieldBreakLoop()
     {
         var function = Raised(nameof(CfgSampleClass.WhileTrueYieldBreak));
 
-        Assert.Empty(function.Descendants.OfType<YieldReturn>());
-        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>());
-        Assert.Equal("iterator", marker.Opcode);
-        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Equal(true, Assert.IsType<Constant>(loop.Condition).Value);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<YieldBreak>());
+        Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void WhileTrueYieldBreakIterator_RendersExplicitYieldBreak()
+    {
+        var output = Print(nameof(CfgSampleClass.WhileTrueYieldBreak));
+
+        Assert.Contains("int i = 0;", output);
+        Assert.Contains("while (true)", output);
+        Assert.Contains("if (i >= n)", output);
+        Assert.Contains("yield break;", output);
+        Assert.Contains("yield return i;", output);
+        Assert.Contains("i++;", output);
+        Assert.DoesNotContain("not reconstructed", output);
+    }
+
+    [Theory]
+    [InlineData(OptimizationLevel.Debug)]
+    [InlineData(OptimizationLevel.Release)]
+    public void ComplexIteratorFixtures_ReconstructAcrossDebugAndRelease(OptimizationLevel optimization)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var switchResult = RaisedFrom(source, "Issue2868.Iterators", "SwitchYield");
+        Assert.Equal(DecompilationFidelity.Full, switchResult.Function.Fidelity);
+        Assert.Single(switchResult.Function.Descendants.OfType<Switch>());
+        Assert.Equal(5, switchResult.Function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Contains("switch (k)", switchResult.Output);
+        Assert.Contains("yield return 100;", switchResult.Output);
+        Assert.DoesNotContain("not reconstructed", switchResult.Output);
+
+        var yieldBreakResult = RaisedFrom(source, "Issue2868.Iterators", "WhileTrueYieldBreak");
+        Assert.Equal(DecompilationFidelity.Full, yieldBreakResult.Function.Fidelity);
+        Assert.Single(yieldBreakResult.Function.Descendants.OfType<YieldReturn>());
+        Assert.Single(yieldBreakResult.Function.Descendants.OfType<YieldBreak>());
+        Assert.Contains("while (true)", yieldBreakResult.Output);
+        Assert.Contains("yield break;", yieldBreakResult.Output);
+        Assert.DoesNotContain("not reconstructed", yieldBreakResult.Output);
     }
 
     [Fact]

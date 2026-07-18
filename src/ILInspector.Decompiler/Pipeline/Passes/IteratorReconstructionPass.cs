@@ -78,6 +78,37 @@ public sealed class IteratorReconstructionPass : IIrPass
             if (raw is null)
                 return;  // leave for IteratorAcknowledgmentPass
 
+            statements.Clear();
+            if (SwitchIteratorReconstruction.TryReconstruct(raw, function, handoff, out var switchBody))
+            {
+                statements.AddRange(switchBody);
+                var switchStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+                context.Stepper.StepOver($"reconstruct switch iterator '{switchStateMachine}' as {statements.Count} statement(s)", handoff);
+
+                function.Body.DetachChildren();
+                var switchBlock = new Block(0);
+                foreach (var statement in statements)
+                    switchBlock.Add(statement);
+                function.Body.Add(switchBlock);
+                return;
+            }
+
+            var rawYieldBreakLoop = context.ImportMethodBody(moveNextMethod);
+            if (rawYieldBreakLoop is not null
+                && YieldBreakLoopIteratorReconstruction.TryReconstruct(rawYieldBreakLoop, function, handoff, out var yieldBreakLoopBody))
+            {
+                statements.AddRange(yieldBreakLoopBody);
+                var loopStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+                context.Stepper.StepOver($"reconstruct yield-break loop iterator '{loopStateMachine}' as {statements.Count} statement(s)", handoff);
+
+                function.Body.DetachChildren();
+                var loopBlock = new Block(0);
+                foreach (var statement in statements)
+                    loopBlock.Add(statement);
+                function.Body.Add(loopBlock);
+                return;
+            }
+
             if (ReducibleIteratorReconstruction.TryReconstruct(raw, function, handoff, context, out var reducibleBody))
             {
                 Transplant(function, raw, reducibleBody, handoff, context,
