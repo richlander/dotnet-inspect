@@ -412,6 +412,11 @@ public class ProjectCommand
         var builder = new StringBuilder();
         builder.AppendLine("## Skills");
         builder.AppendLine();
+        if (rows.Count == 0)
+        {
+            builder.AppendLine("No skills found in the restored direct package dependencies.");
+            return builder.ToString();
+        }
         builder.AppendLine("| Package | Version | Path | Size | Name | Description |");
         builder.AppendLine("| ------- | ------- | ---- | ---: | ---- | ----------- |");
         foreach (var row in rows)

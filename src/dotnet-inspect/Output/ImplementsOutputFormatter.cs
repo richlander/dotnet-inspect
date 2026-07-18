@@ -18,7 +18,7 @@ public static class ImplementsOutputFormatter
             Rows = results.Count == 0 ? null : results
                 .OrderBy(r => r.TypeName)
                 .Select(r => new ImplementerRow(
-                    r.TypeName, r.Kind, r.Relationship,
+                    MarkoutInline.Code(r.TypeName), r.Kind, r.Relationship,
                     r.Assembly ?? "", SourceColumn.Format(r.Source, r.SourceVersion)))
                 .ToList()
         };

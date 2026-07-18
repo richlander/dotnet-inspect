@@ -10,6 +10,16 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class DiffOutputFormatter
 {
+    /// <summary>
+    /// Renders a type's simple name with generic arity expanded to a C#-friendly
+    /// form (<c>JsonConverter`1</c> → <c>JsonConverter&lt;T&gt;</c>) for the human
+    /// Markdown diff view only. Machine-facing tabular views (<c>--table</c>/<c>--tsv</c>/
+    /// <c>--jsonl</c>) keep the canonical metadata name (arity backtick) so the Type
+    /// field stays a stable, script-parseable identifier.
+    /// </summary>
+    private static string FormatTypeDisplayName(string typeFullName)
+        => MetadataTypeNameFormatter.FormatGenericTypeName(TypeMatcher.GetSimpleName(typeFullName));
+
     public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
         foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
@@ -240,7 +250,7 @@ public static class DiffOutputFormatter
         var view = new DiffFullView
         {
             Title = $"API Diff: {name}",
-            Versions = $"**{fromVersion}** -> **{toVersion}**",
+            Versions = $"**{fromVersion}** → **{toVersion}**",
         };
 
         if (typeDiffs.Count == 0)
@@ -445,7 +455,7 @@ public static class DiffOutputFormatter
 
         foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
         {
-            var typeName = TypeMatcher.GetSimpleName(td.TypeFullName);
+            var typeName = FormatTypeDisplayName(td.TypeFullName);
             foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
                 var message = change.Message;

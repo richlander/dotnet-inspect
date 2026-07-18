@@ -245,12 +245,15 @@ public static class MemberOptionsParser
 
         var showMemberIndex = parseResult.GetValue(args.SelectOption);
         var select = opts.ParseSelect(parseResult);
+        bool hasExplicitSelect = select is { Length: > 0 };
         if (showMemberIndex)
             select = [.. select ?? [], SectionNames.MemberIndex];
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
-        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
+        // Only surface Performance Triage from row filters when the user did not select sections
+        // with -S; an explicit selection must not silently gain a second section.
+        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
 
         var options = new MemberOptions

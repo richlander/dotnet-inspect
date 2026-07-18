@@ -131,6 +131,67 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void RenderFullMarkdown_GenericType_UsesCSharpFriendlyHeading()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'Write' signature changed",
+            "void Write(T value)",
+            "void Write(T? value)");
+
+        var markdown = DiffOutputFormatter.RenderFullMarkdown(
+            "Sample",
+            [new TypeDiff("Sample.Box`1", [change])],
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Contains("Box&lt;T&gt;", markdown);
+        Assert.DoesNotContain("Box`1", markdown);
+        Assert.DoesNotContain("&#96;", markdown);
+    }
+
+    [Fact]
+    public void RenderFullMarkdown_Versions_UsesArrowNotAsciiHyphen()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'M' signature changed",
+            "void M()",
+            "void M(int x)");
+
+        var markdown = DiffOutputFormatter.RenderFullMarkdown(
+            "Sample",
+            [new TypeDiff("Sample.Widget", [change])],
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Contains("**1.0.0** → **2.0.0**", markdown);
+        Assert.DoesNotContain("**1.0.0** -> **2.0.0**", markdown);
+    }
+
+    [Fact]
+    public void BuildTableView_And_DetailedChanges_KeepCanonicalArityForMachineOutput()
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            "Member 'Write' signature changed",
+            "void Write(T value)",
+            "void Write(T? value)");
+        var typeDiffs = new[] { new TypeDiff("Sample.Box`1", [change]) };
+
+        // The tabular views back --table/--tsv/--jsonl; the Type field must stay the
+        // canonical metadata name (arity backtick), not the C#-friendly display form.
+        var tableRow = Assert.Single(DiffOutputFormatter.BuildTableView("Sample", typeDiffs, "1.0.0", "2.0.0").Rows!);
+        Assert.Equal("Box`1", tableRow.Type);
+
+        var detailedRow = Assert.Single(DiffOutputFormatter.BuildDetailedChangesView("Sample", typeDiffs, "old.dll", "new.dll").Rows!);
+        Assert.Equal("Box`1", detailedRow.Type);
+    }
+
+    [Fact]
     public void BuildFindingTransitions_TypeIntroduction_IsNativeAddedPair()
     {
         var oldSurface = new ApiSurface();

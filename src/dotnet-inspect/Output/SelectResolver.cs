@@ -7,7 +7,12 @@ using DotnetInspector.Sections;
 /// <summary>
 /// An unresolved -S/--select value with suggestions for what the user may have meant.
 /// </summary>
-public record SelectMiss(string Value, IReadOnlyList<string> Suggestions, bool IsGlob = false);
+/// <param name="ListsAllSections">
+/// When true, <see cref="Suggestions"/> is the full list of available sections (a dead-end
+/// value with no close fuzzy match), so callers print it under "Available sections:" rather
+/// than "Did you mean:".
+/// </param>
+public record SelectMiss(string Value, IReadOnlyList<string> Suggestions, bool IsGlob = false, bool ListsAllSections = false);
 
 /// <summary>
 /// Result of resolving -S/--select values against known section names.
@@ -90,8 +95,15 @@ public static class SelectResolver
             return ([], new SelectMiss(name, knownSections.ToList(), IsGlob: true));
         }
 
-        // No match
-        return ([], new SelectMiss(name, GetSuggestions(name, knownSections)));
+        // No match. Offer close fuzzy matches, or the full section list when none is close
+        // so the user is never left at a dead-end error.
+        var suggestions = GetSuggestions(name, knownSections);
+        if (suggestions.Count == 0)
+            return ([], new SelectMiss(
+                name,
+                [.. knownSections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)],
+                ListsAllSections: true));
+        return ([], new SelectMiss(name, suggestions));
     }
 
     /// <summary>
