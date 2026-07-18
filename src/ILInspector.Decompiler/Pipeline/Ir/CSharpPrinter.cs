@@ -2060,6 +2060,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
+        CopyBlock cb => $"System.Runtime.CompilerServices.Unsafe.CopyBlock({Expression(cb.Destination)}, {Expression(cb.Source)}, {Expression(cb.Size)});",
         Return { Value: { } value } => ReturnText(value),
         Return => "return;",
         YieldReturn y => $"yield return {Expression(y.Value)};",
@@ -2206,7 +2207,9 @@ public sealed partial class CSharpPrinter
         CollectionSpreadElement s => $"..{Expression(s.Source)}",
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
-        StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
+        StackAllocArray s => s.HasInitializer
+            ? $"stackalloc {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.ToArray().Select(e => Expression((IrExpression)e)))} }}"
+            : $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => CoerceText(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",

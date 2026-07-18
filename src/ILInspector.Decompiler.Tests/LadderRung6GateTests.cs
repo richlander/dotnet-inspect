@@ -830,7 +830,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
-    public void Rung6StackallocInitializerResiduals_DegradeHonestly()
+    public void Rung6StackallocInitializerResiduals_RecoverFully()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
         AssertStackallocInitializerResiduals(LegacyUnsafePath, LegacyStackallocInitializerType);
@@ -842,18 +842,28 @@ public class LadderRung6GateTests
         foreach (var name in new[] { "StackallocPointerInitializer", "StackallocSpanInitializer" })
         {
             var member = members.Single(m => m.Name == name);
-            Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-            var findings = DecompilerFindings.InspectFidelityCauses(
-                member.Function,
-                new FindingSubject($"{typeName}::{name}", name)) switch
-            {
-                FindingInspection<DecompilerFidelityCause>.Complete complete => complete.Findings,
-                _ => throw new InvalidOperationException("Expected a complete fidelity-cause inspection."),
-            };
-            Assert.Contains(findings, finding =>
-                finding.Payload.Code == DiagnosticIds.UnsupportedConstruct);
-            Assert.Contains("cpblk", member.Body);
-            Assert.Contains("return default;", member.Body);
+            Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            Assert.Contains("stackalloc int[] { 1, 2, 3 }", member.Body);
+            Assert.DoesNotContain("CopyBlock", member.Body);
+        }
+    }
+
+    [Fact]
+    public void Rung6StackallocInitializerNegatives_DegradeHonestly()
+    {
+        AssertStackallocInitializerNegatives(NewUnsafePath, "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives");
+        AssertStackallocInitializerNegatives(LegacyUnsafePath, "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives");
+    }
+
+    static void AssertStackallocInitializerNegatives(string assemblyPath, string typeName)
+    {
+        var members = LoadRaisedMembers(assemblyPath, typeName);
+        foreach (var name in new[] { "PartialCopy", "EscapedDestination", "NonConstantSize" })
+        {
+            var member = members.Single(m => m.Name == name);
+            // They should not be recovered as stackalloc array initializers!
+            Assert.Contains("Unsafe.CopyBlock", member.Body);
+            Assert.DoesNotContain("stackalloc byte[] {", member.Body);
         }
     }
 

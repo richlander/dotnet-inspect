@@ -53,6 +53,36 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public static class StackallocInitializerNegatives
+{
+    public static void PartialCopy()
+    {
+        unsafe {
+            byte* dest = stackalloc byte[12];
+            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 10);
+        }
+    }
+
+    public static void EscapedDestination(byte* escaped)
+    {
+        unsafe {
+            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3 };
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *escaped, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 3);
+        }
+    }
+
+    public static void NonConstantSize()
+    {
+        unsafe {
+            int size = 12;
+            byte* dest = stackalloc byte[size];
+            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), (uint)size);
+        }
+    }
+}
+
 public static class PointerArithmeticFixtures
 {
     public static int PointerIncrement(int* p)

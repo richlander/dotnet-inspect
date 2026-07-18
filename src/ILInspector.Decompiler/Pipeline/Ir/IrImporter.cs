@@ -1257,6 +1257,17 @@ public static class IrImporter
                     break;
                 }
 
+                case ILOpCode.Cpblk:
+                {
+                    var size = Pop(stack);
+                    var src = Pop(stack);
+                    var dest = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new CopyBlock(dest, src, size) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+
                 case >= ILOpCode.Ldind_i1 and <= ILOpCode.Ldind_ref:
                 {
                     stack.Push(new LoadIndirect(IndirectTypeOf(opcode), Pop(stack)) { IsVolatile = volatilePrefix });
