@@ -61,6 +61,8 @@ public sealed class CatchVariableScopePass : IIrPass
         {
             if (inside.Contains(node))
                 continue;
+            if (BoundByAnotherCatch(node, clause, local))
+                continue;
             switch (node)
             {
                 case LoadLocal load when load.Index == local:
@@ -68,6 +70,18 @@ public sealed class CatchVariableScopePass : IIrPass
                 case LoadLocalAddress address when address.Index == local:
                     return true;
             }
+        }
+        return false;
+    }
+
+    static bool BoundByAnotherCatch(IrNode node, CatchClause clause, int local)
+    {
+        for (IrNode? ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ReferenceEquals(ancestor, clause))
+                return false;
+            if (ancestor is CatchClause { VariableIndex: var binding } && binding == local)
+                return true;
         }
         return false;
     }

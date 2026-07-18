@@ -101,8 +101,18 @@ public class CatchEntryFoldingTests
     [Fact]
     public void SiblingCatchesSharingFoldedLocal_KeepTheirBindings()
     {
-        var specific = Catch(TypeRef.CoreLib("System", "InvalidOperationException"), 0);
-        var general = Catch(Exception, 0);
+        var specific = new CatchClause(
+            TypeRef.CoreLib("System", "InvalidOperationException"),
+            Body(new ExpressionStatement(new LoadLocal(0, Exception))))
+        {
+            VariableIndex = 0
+        };
+        var general = new CatchClause(
+            Exception,
+            Body(new ExpressionStatement(new LoadLocal(0, Exception))))
+        {
+            VariableIndex = 0
+        };
         var function = Function(new TryCatch(Body(), [specific, general]), Exception);
 
         new CatchVariableScopePass().Run(function, PassContext.None);
