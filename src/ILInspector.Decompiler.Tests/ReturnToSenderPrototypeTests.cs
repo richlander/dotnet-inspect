@@ -371,6 +371,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_DeduplicatesSystemUsing_WhenBodyAlreadyReferencesSystem()
+    {
+        // Issue #2848: the module Usings list unconditionally prepended "System" to
+        // MemberBodyFacts.ReferencedNamespaces(function). A body that already
+        // references a System-namespace type (Guid, here) produced two "System"
+        // entries in the generated using list.
+        var assemblyPath = CompileFixture("""
+            namespace Fixtures;
+
+            public class Class1
+            {
+                public string Method1 => System.Guid.NewGuid().ToString();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Equal(1, result.Plan.Module.Usings.Count(name => name == "System"));
+            Assert.DoesNotContain("using System;\r\nusing System;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("using System;\nusing System;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
     {
         // Issue #2527: base-class reconstruction restores same-assembly base classes,
