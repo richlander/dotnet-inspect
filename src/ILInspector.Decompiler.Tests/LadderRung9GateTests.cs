@@ -100,11 +100,20 @@ public class LadderRung9GateTests
     public void Rung9Fixture_DeclinesLookalikeDynamicCache()
     {
         var members = LoadRaisedMembers();
-        var member = members.Single(m => m.Name == "ManualCache");
-        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
-        Assert.Contains("Binder.GetMember", member.Body);
-        Assert.Contains("CallSite<Func<CallSite, object, object>>", member.Body);
-        Assert.DoesNotContain("dynamic", member.Body);
+        void AssertDeclined(string name)
+        {
+            var member = members.Single(m => m.Name == name);
+            Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            Assert.Contains("Binder.GetMember", member.Body);
+            Assert.Contains("CallSite<Func<CallSite, object, object>>", member.Body);
+            Assert.DoesNotContain("dynamic", member.Body);
+        }
+
+        AssertDeclined("ManualCache");
+        AssertDeclined("ExtraSideEffect");
+        AssertDeclined("WrongName");
+        AssertDeclined("WrongContext");
+        AssertDeclined("WrongFlags");
     }
 
     [Fact]

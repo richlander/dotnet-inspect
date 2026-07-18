@@ -130,6 +130,9 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundInterpolatedString</c> (an <c>$"..."</c> interpolated string).</summary>
     RoslynBoundInterpolatedString,
+
+    /// <summary>Roslyn's <c>BoundDynamicMemberAccess</c> (a dynamic <c>receiver.Member</c> read).</summary>
+    RoslynBoundDynamicMemberAccess,
 }
 
 /// <summary>

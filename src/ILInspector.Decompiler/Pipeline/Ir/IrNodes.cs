@@ -3677,7 +3677,13 @@ public sealed class UnsupportedNode : IrExpression
     public override string Describe() => $"Unsupported IL_{ILOffset:X4} {Opcode}: {Reason}";
 }
 
-[Inverse.NotInverted("Dynamic node: raises compiler-generated caching infrastructure for dynamic invocation. Cannot be represented backwards.")]
+/// <summary>The raised dynamic call site: `((dynamic)receiver).Member`.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundDynamicMemberAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "((dynamic)receiver).Member (BoundDynamicMemberAccess)",
+    precondition: "the compiler-emitted dynamic call site cache block is canonical",
+    witness: "corpus compile-back")]
 public sealed class DynamicGetMember : IrExpression
 {
     public DynamicGetMember(IrExpression receiver, string propertyName)
