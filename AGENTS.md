@@ -30,7 +30,7 @@ READMEs, and focused skills.
 | Skills | `taste/skill-guidance.md`, `skills/dotnet-inspect/SKILL.md`, and the relevant `skills/<scenario>/SKILL.md` |
 | Release and publishing | `docs/release-workflow.md` |
 
-Decompiler PR templates:
+PR templates:
 
 | Change | Template |
 | --- | --- |
