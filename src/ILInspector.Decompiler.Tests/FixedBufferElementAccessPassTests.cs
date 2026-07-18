@@ -25,6 +25,7 @@ public class FixedBufferElementAccessPassTests
     static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
     static readonly TypeRef UInt32 = TypeRef.CoreLib("System", "UInt32");
     static readonly TypeRef NInt = TypeRef.CoreLib("System", "IntPtr");
+    static readonly TypeRef NUInt = TypeRef.CoreLib("System", "UIntPtr");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "Samples", "FixedBufferOwner");
     static readonly TypeRef Backing = TypeRef.Definition("Synthetic", "Samples", "<Data>e__FixedBuffer");
@@ -409,6 +410,86 @@ public class FixedBufferElementAccessPassTests
                 isChecked: false,
                 isUnsigned: false,
                 new Constant(260, Int32)));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData(8L, 2)]
+    [InlineData(-4L, -1)]
+    public void PortableIntPtrConvertedConstantOffset_IsRaised(long offset, int expectedIndex)
+    {
+        var function = SyntheticReadWithOffset(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            new Convert(
+                NInt,
+                isChecked: false,
+                isUnsigned: false,
+                new Constant(offset, Int64)));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        var address = Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        var constant = Assert.IsType<Constant>(address.Index);
+        Assert.Equal(expectedIndex, constant.Value);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PortableUIntPtrConvertedConstantOffset_IsRaised()
+    {
+        var function = SyntheticReadWithOffset(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            new Convert(
+                NUInt,
+                isChecked: false,
+                isUnsigned: true,
+                new Constant(12L, Int64)));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        var address = Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        var constant = Assert.IsType<Constant>(address.Index);
+        Assert.Equal(3, constant.Value);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void IntPtrConvertedConstantOutsidePortableRange_IsNotRaised()
+    {
+        var function = SyntheticReadWithOffset(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            new Convert(
+                NInt,
+                isChecked: false,
+                isUnsigned: false,
+                new Constant((long)int.MaxValue + 1, Int64)));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void UIntPtrConvertedConstantOutsidePortableRange_IsNotRaised()
+    {
+        var function = SyntheticReadWithOffset(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            new Convert(
+                NUInt,
+                isChecked: false,
+                isUnsigned: true,
+                new Constant((long)uint.MaxValue + 1, Int64)));
 
         new FixedBufferElementAccessPass().Run(function, PassContext.None);
 

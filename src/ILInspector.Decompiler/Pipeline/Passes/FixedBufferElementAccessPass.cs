@@ -226,8 +226,10 @@ public sealed class FixedBufferElementAccessPass : IIrPass
                 "UInt16" => value is >= ushort.MinValue and <= ushort.MaxValue,
                 "Int32" => value is >= int.MinValue and <= int.MaxValue,
                 "UInt32" => value is >= uint.MinValue and <= uint.MaxValue,
-                "Int64" or "IntPtr" => true,
-                "UInt64" or "UIntPtr" => value >= 0,
+                "Int64" => true,
+                "IntPtr" => value is >= int.MinValue and <= int.MaxValue,
+                "UInt64" => value >= 0,
+                "UIntPtr" => value is >= uint.MinValue and <= uint.MaxValue,
                 _ => false,
             };
 
