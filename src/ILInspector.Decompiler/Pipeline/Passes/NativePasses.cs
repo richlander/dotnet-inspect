@@ -83,6 +83,8 @@ internal static class NativePasses
     public static RuntimeAsyncAwaiterPass RuntimeAsyncAwaiter => new();
     [Native(NativeCategory.EmitArtifact, "record with-expression clone/member-set scaffold reconstructed to receiver with { ... }")]
     public static WithExpressionPass WithExpression => new();
+    [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
+    public static CatchVariableScopePass CatchVariableScope => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]
