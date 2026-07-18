@@ -2577,9 +2577,7 @@ public sealed partial class CSharpPrinter
             if (!ReferenceOwnership.IsInside(site, ifStatement.Then))
                 return false;
 
-            var guardedStatement = TopLevelStatementWithin(site, ifStatement.Then);
-            return guardedStatement is not null
-                && !HasInterveningWrite(ifStatement.Then, guardedStatement.ChildIndex, test.Operand);
+            return !HasInterveningWriteAlongPath(ifStatement.Then, site, test.Operand);
         }
         return IsProvenByFlatGuard(site, test);
     }
@@ -2715,8 +2713,25 @@ public sealed partial class CSharpPrinter
         return null;
     }
 
-    /// <summary>Whether any statement in <paramref name="scope"/> before index <paramref name="beforeChildIndex"/> could have reassigned a local/argument the read-only <paramref name="value"/> depends on.</summary>
-    static bool HasInterveningWrite(Block scope, int beforeChildIndex, IrExpression value)
+    /// <summary>
+    /// Whether any preceding sibling subtree on the path from
+    /// <paramref name="guardedBlock"/> to <paramref name="site"/> could have
+    /// reassigned a local or argument the tested value reads.
+    /// </summary>
+    static bool HasInterveningWriteAlongPath(Block guardedBlock, IrNode site, IrExpression value)
+    {
+        for (IrNode current = site; current.Parent is { } parent; current = parent)
+        {
+            if (HasInterveningWrite(parent, current.ChildIndex, value))
+                return true;
+            if (ReferenceEquals(parent, guardedBlock))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Whether any child subtree in <paramref name="scope"/> before index <paramref name="beforeChildIndex"/> could have reassigned a local/argument the read-only <paramref name="value"/> depends on.</summary>
+    static bool HasInterveningWrite(IrNode scope, int beforeChildIndex, IrExpression value)
     {
         var locals = new List<int>();
         var arguments = new List<int>();

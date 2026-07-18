@@ -261,6 +261,83 @@ public class GenericDeclarationPatternExtractionTests
         Assert.DoesNotContain("(object)", output);
     }
 
+    [Fact]
+    public void UnboxOfIsInstance_WithNestedInterveningWrite_DoesNotBridge()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var innerThen = new Block();
+        innerThen.Add(new StoreLocal(
+            0,
+            objectType,
+            new Constant(null, objectType)));
+        innerThen.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+        var outerThen = new Block();
+        outerThen.Add(new IfStatement(
+            new Constant(true, boolType),
+            innerThen,
+            null));
+        var outer = new Block();
+        outer.Add(new IfStatement(
+            new IsInstance(generic, ReadLocal()),
+            outerThen,
+            null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
+    public void UnboxOfIsInstance_WithinNestedStructuredBlock_Bridges()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+        var outerThen = new Block();
+        outerThen.Add(new IfStatement(
+            new Constant(true, boolType),
+            innerThen,
+            null));
+        var outer = new Block();
+        outer.Add(new IfStatement(
+            new IsInstance(generic, ReadLocal()),
+            outerThen,
+            null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("(T)(object)V_0", output);
+        Assert.DoesNotContain("as T", output);
+    }
+
     // Synthetic (#2831 proof-boundary, flat-guard positive): the
     // "jump-target-is-the-success-path" polarity — `if (x is T) goto Success;`
     // — that IsProvenByFlatGuard's non-negated case handles, exercised directly
