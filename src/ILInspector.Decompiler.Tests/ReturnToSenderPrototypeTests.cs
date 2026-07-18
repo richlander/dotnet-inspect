@@ -198,6 +198,50 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Consumer
+            {
+                public int Read => ((IBase)new ImplicitPropertyFixture()).Value;
+            }
+
+            public sealed class ImplicitPropertyFixture : IDerived
+            {
+                public int Value => 42;
+
+                public void Touch()
+                {
+                }
+            }
+
+            public interface IDerived : IBase
+            {
+            }
+
+            public interface IBase
+            {
+                int Value { get; }
+
+                void Touch();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("public int Value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public void Touch", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_ExposesTypedModuleAndTypeShellPlan()
     {
         var assemblyPath = CompileFixture("""
