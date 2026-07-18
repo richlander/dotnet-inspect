@@ -9,12 +9,13 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// The rung 9 guard for the decompiler product quality ladder (#1599): dynamic
-/// and expression-tree honesty. It does not claim dynamic or expression-tree
-/// source-syntax recovery. It locks the current safe boundary: dynamic call-site
-/// scaffolding degrades honestly across the Roslyn binder families this row owns,
-/// expression-tree builders render as explicit <c>Expression.*</c> calls where
-/// supported, and prohibited expression-tree forms stay documented as the row's
-/// honesty frontier.
+/// and expression-tree honesty. Beyond the fully-owned homogeneous-<c>Int32</c>
+/// arithmetic slice (#2864), which recovers to its source lambda, it does not
+/// claim dynamic or expression-tree source-syntax recovery. It locks the current
+/// safe boundary: dynamic call-site scaffolding degrades honestly across the
+/// Roslyn binder families this row owns, unproven expression-tree builders render
+/// as explicit <c>Expression.*</c> calls where supported, and prohibited
+/// expression-tree forms stay documented as the row's honesty frontier.
 /// </summary>
 public class LadderRung9GateTests
 {
@@ -128,17 +129,19 @@ public class LadderRung9GateTests
     }
 
     [Fact]
-    public void Rung9Fixture_RendersExpressionTreesWithoutFakeSourceLambdas()
+    public void Rung9Fixture_RaisesSimpleExpressionTree_AndKeepsUnprovenFormsFactory()
     {
         var members = LoadRaisedMembers();
 
+        // The fully-owned Int32 arithmetic slice recovers to its source lambda.
         var simple = members.Single(m => m.Name == "SimpleExpressionTree");
         Assert.Equal(DecompilationFidelity.Full, simple.Function.Fidelity);
-        Assert.Contains("Expression.Parameter(typeof(int), \"x\")", simple.Body);
-        Assert.Contains("Expression.Add(", simple.Body);
-        Assert.Contains("Expression.Lambda<Func<int, int>>", simple.Body);
-        Assert.DoesNotContain("=>", simple.Body);
+        Assert.Contains("=> x + 1", simple.Body);
+        Assert.DoesNotContain("Expression.Lambda", simple.Body);
+        Assert.DoesNotContain("Expression.Parameter", simple.Body);
+        Assert.DoesNotContain("Expression.Add", simple.Body);
 
+        // Captured member-token graph stays in its honest factory-call form.
         var captured = members.Single(m => m.Name == "CapturedExpressionTree");
         Assert.Equal(DecompilationFidelity.Partial, captured.Function.Fidelity);
         Assert.Contains("Expression.GreaterThan(", captured.Body);
