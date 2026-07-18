@@ -291,6 +291,40 @@ public class CfgSampleClass
             x);
     }
 
+    // Near-miss: one ParameterExpression object backs both entries of the Lambda
+    // parameter array. A source lambda cannot declare `(x, x)`, so recovering one
+    // would fabricate invalid C# — the distinct-owning-local guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int, int>> ManualReusedParameterFactory()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int, int>>(
+            System.Linq.Expressions.Expression.Add(p, p),
+            p, p);
+    }
+
+    // Near-miss: two distinct ParameterExpression objects share the name "x".
+    // Recovering would emit duplicate `(x, x)` declarations, so the distinct-name
+    // guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int, int>> ManualDuplicateNameFactory()
+    {
+        var a = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        var b = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int, int>>(
+            System.Linq.Expressions.Expression.Add(a, b),
+            a, b);
+    }
+
+    // Near-miss: the ParameterExpression name "bad-name" is not a C#-spellable
+    // identifier. Sanitizing it would silently change ParameterExpression.Name and
+    // break the identical-tree semantics, so the escapable-name guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualUnspellableNameFactory()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "bad-name");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.

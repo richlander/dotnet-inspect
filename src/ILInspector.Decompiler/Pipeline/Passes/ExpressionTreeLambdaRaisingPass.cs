@@ -187,14 +187,29 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
         // typed int, with a literal name. This is the identity guard: the aliased
         // near miss stores the parameter object into a stack slot and copies it into
         // the local, so the local's value is a LoadStackSlot, not Expression.Parameter.
+        //
+        // The recovered lambda declares one C# parameter per array entry, spelled by
+        // its ParameterExpression.Name, so the entries must be independently
+        // recoverable: distinct owning locals (a reused ParameterExpression would
+        // yield duplicate `(x, x)` parameters), names C# can spell as identifiers
+        // (an unspellable metadata name like "bad-name" would be sanitized, silently
+        // changing ParameterExpression.Name and breaking the identical-tree claim),
+        // and distinct names (two ParameterExpressions both named "x" would produce
+        // duplicate declarations). Any of these bails to the honest factory form.
         var parameters = new Parameter[arity];
         var paramStores = new StoreLocal[arity];
+        var seenLocals = new HashSet<int>();
+        var seenNames = new HashSet<string>(StringComparer.Ordinal);
         for (int i = 0; i < arity; i++)
         {
+            if (!seenLocals.Add(parameterLocals[i]))
+                return null;  // the same ParameterExpression local backs two entries
             if (SingleLocalStore(function, parameterLocals[i]) is not { Value: { } value } paramStore
                 || !IsExpressionFactory(value, "Parameter", out var parameterCall)
                 || parameterCall.Arguments is not [TypeOf { Type: { } paramType }, Constant { Value: string name }]
-                || !IsInt(paramType))
+                || !IsInt(paramType)
+                || !CSharpNaming.IsEscapableIdentifier(name)
+                || !seenNames.Add(name))
                 return null;
             parameters[i] = new Parameter(name, paramType);
             paramStores[i] = paramStore;

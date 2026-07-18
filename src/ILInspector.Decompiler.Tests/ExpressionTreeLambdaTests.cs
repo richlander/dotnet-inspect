@@ -45,4 +45,46 @@ public class ExpressionTreeLambdaTests
         Assert.Contains("Expression.Parameter(typeof(int), \"x\")", output);
         Assert.DoesNotContain("=>", output);
     }
+
+    [Fact]
+    public void ManualReusedParameterFactory_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualReusedParameterFactory));
+
+        // One ParameterExpression backs both array entries; recovering `(x, x)`
+        // would be invalid C#. The distinct-owning-local guard declines it.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<int, int, int>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Fact]
+    public void ManualDuplicateNameFactory_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualDuplicateNameFactory));
+
+        // Two distinct ParameterExpressions share the name "x"; recovering would
+        // emit duplicate declarations. The distinct-name guard declines it.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<int, int, int>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Fact]
+    public void ManualUnspellableNameFactory_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualUnspellableNameFactory));
+
+        // The name "bad-name" is not a C#-spellable identifier; sanitizing it would
+        // change ParameterExpression.Name. The escapable-name guard declines it.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<int, int>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
 }
