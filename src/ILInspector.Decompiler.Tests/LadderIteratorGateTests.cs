@@ -56,8 +56,10 @@ public class LadderIteratorGateTests
         "IteratorSamples::NonGenericEnumerator",
         "IteratorSamples::ReferenceCleanup",
         "IteratorSamples::SideEffectThenBreak",
+        "IteratorSamples::SwitchYield",
         "IteratorSamples::UserFinally",
         "IteratorSamples::UsingStatement",
+        "IteratorSamples::WhileTrueYieldBreak",
         "IteratorSamples::get_Accessor",
     ];
 
@@ -77,6 +79,8 @@ public class LadderIteratorGateTests
         "IteratorSamples::NonGenericEnumerator",
         "IteratorSamples::ReferenceCleanup",
         "IteratorSamples::SideEffectThenBreak",
+        "IteratorSamples::SwitchYield",
+        "IteratorSamples::WhileTrueYieldBreak",
     ];
 
     static readonly string[] HonestResidualMembers =
@@ -159,6 +163,23 @@ public class LadderIteratorGateTests
         Assert.Contains("while (i < n)", multi);
         Assert.Contains("yield return i;", multi);
         Assert.Contains("yield return -i;", multi);
+
+        var switchYield = Body("IteratorSamples::SwitchYield");
+        Assert.Contains("switch (k)", switchYield);
+        Assert.Contains("case 0:", switchYield);
+        Assert.Contains("yield return 10;", switchYield);
+        Assert.Contains("case 1:", switchYield);
+        Assert.Contains("yield return 20;", switchYield);
+        Assert.Contains("yield return 21;", switchYield);
+        Assert.Contains("default:", switchYield);
+        Assert.Contains("yield return 99;", switchYield);
+        Assert.Contains("yield return 100;", switchYield);
+
+        var whileTrueYieldBreak = Body("IteratorSamples::WhileTrueYieldBreak");
+        Assert.Contains("while (true)", whileTrueYieldBreak);
+        Assert.Contains("if (i >= n)", whileTrueYieldBreak);
+        Assert.Contains("yield break;", whileTrueYieldBreak);
+        Assert.Contains("yield return i;", whileTrueYieldBreak);
 
         var nested = Body("IteratorSamples::NestedLoops");
         Assert.Contains("for (int i = 0; i < 2; i++)", nested);
