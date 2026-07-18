@@ -86,6 +86,13 @@ public class LoweredFidelityGateTests
         // lowered gate is Speed=Slow and only runs in Deep Inspect / publish, not PR CI. Verified
         // pre-existing (fails with MixedShortCircuitChainPass off as well).
         "SwitchStoreThenUse",
+        // Issue2830_* deliberately retain while-loop fallback output because
+        // their increment blocks remain protected leave targets. As in the
+        // sugared view, the explicit default declaration before initialization
+        // adds an opcode pair on compile-back: valid, but not opcode-exact.
+        "Issue2830_ForLoopEhCleanupContinue",
+        "Issue2830_ForLoopLeave",
+        "Issue2830_ForLoopNestedContinue",
         // CharConditionalElementStore (#1784) and WhileNestedContinueKeepsArmExclusive:
         // pre-existing slow-docket gaps from recent main merges (a char ternary
         // element store that spills to temps; a nested-continue loop structuring),
