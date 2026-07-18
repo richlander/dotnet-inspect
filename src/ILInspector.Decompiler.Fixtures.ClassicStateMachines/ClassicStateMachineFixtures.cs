@@ -1,5 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ILInspector.Decompiler.Fixtures.ClassicStateMachines;
@@ -22,11 +25,10 @@ namespace ILInspector.Decompiler.Fixtures.ClassicStateMachines;
 /// <c>Iterator_</c> (classic <c>yield</c> iterator), <c>AsyncIterator_</c>
 /// (classic async iterator — <c>IAsyncEnumerable&lt;T&gt;</c> combining both
 /// state-machine shapes), and <c>Switch_</c> (a plain, non-pattern switch
-/// statement — the old jump-table lowering, TFM/LangVersion-agnostic like the
-/// rest of this fixture, so it is measured here rather than requiring a
-/// downlevel TFM/LangVersion axis).
+/// statement used as a control). This is a representative current-compiler
+/// matrix, not an exhaustive cross-compiler or downlevel-TFM corpus.
 /// </summary>
-public static class ClassicStateMachineFixtures
+public class ClassicStateMachineFixtures
 {
     public static async Task<int> Async_AwaitValue(Task<int> a, int b) => await a + b;
 
@@ -57,6 +59,37 @@ public static class ClassicStateMachineFixtures
             sum += await task;
         }
         return sum;
+    }
+
+    public static async void Async_VoidBuilder(Action completed)
+    {
+        await Task.Yield();
+        completed();
+    }
+
+    public static async ValueTask<int> Async_ValueTaskBuilder(ValueTask<int> value)
+        => await value;
+
+    public async Task<T> Async_InstanceGeneric<T>(Task<T> value)
+    {
+        await Task.Yield();
+        return await value;
+    }
+
+    public static async Task<int> Async_AwaitInCatchAndFinally(Task<int> value)
+    {
+        try
+        {
+            throw new InvalidOperationException();
+        }
+        catch (InvalidOperationException)
+        {
+            return await value;
+        }
+        finally
+        {
+            await Task.Yield();
+        }
     }
 
     public static IEnumerable<int> Iterator_YieldSequence(int count)
@@ -96,6 +129,24 @@ public static class ClassicStateMachineFixtures
         }
     }
 
+    public static IEnumerable Iterator_NonGeneric()
+    {
+        yield return "classic";
+        yield return 42;
+    }
+
+    public static IEnumerable<T> Iterator_Generic<T>(T first, T second)
+    {
+        yield return first;
+        yield return second;
+    }
+
+    public IEnumerable<int> Iterator_Instance(int value)
+    {
+        yield return value;
+        yield return value + 1;
+    }
+
     public static async IAsyncEnumerable<int> AsyncIterator_AwaitThenYield(Task<int>[] tasks)
     {
         foreach (var task in tasks)
@@ -116,6 +167,33 @@ public static class ClassicStateMachineFixtures
             }
             yield return await task;
             i++;
+        }
+    }
+
+    public static async IAsyncEnumerable<int> AsyncIterator_WithCancellation(
+        int count,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Yield();
+            yield return i;
+        }
+    }
+
+    public static async IAsyncEnumerable<int> AsyncIterator_TryFinallyAndDisposal(
+        IAsyncEnumerable<int> source)
+    {
+        await using var resource = new AsyncResource();
+        try
+        {
+            await foreach (int item in source)
+                yield return item;
+        }
+        finally
+        {
+            await resource.TouchAsync();
         }
     }
 
@@ -153,5 +231,12 @@ public static class ClassicStateMachineFixtures
             default:
                 return "many";
         }
+    }
+
+    sealed class AsyncResource : IAsyncDisposable
+    {
+        public ValueTask TouchAsync() => ValueTask.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

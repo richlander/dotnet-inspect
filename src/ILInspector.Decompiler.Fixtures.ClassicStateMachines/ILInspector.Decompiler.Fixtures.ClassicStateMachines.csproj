@@ -3,15 +3,12 @@
   <!--
     Issue #2818 (classic async/iterator state-machine corpus lane, child of #2814).
     Extends the classic-async axis (RuntimeAsync=off, see
-    ILInspector.Decompiler.Fixtures.ClassicAsync) to also pin classic iterators and
-    classic async iterators in the same lowering mode. No CI corpus contained a
-    single classic async state machine before #2818; iterators and async iterators
-    were entirely absent. A plain switch statement is included so the old
-    jump-table switch lowering — cascading alongside classic async/iterator state
-    dispatch — is measured in the same pinned lane (the harness README's
-    "downlevel TFM/LangVersion" candidate axis; this reaches the same classic
-    lowering set without a downlevel runtime pack by reusing the proven
-    RuntimeAsync=off axis).
+    ILInspector.Decompiler.Fixtures.ClassicAsync) to pin a representative matrix
+    of classic async builders, iterators, and async iterators in the same lowering
+    mode. No CI corpus contained a single classic async state machine before
+    #2818; iterators and async iterators were entirely absent. A plain switch
+    statement is included as a control. This current-compiler lane does not claim
+    exhaustive compiler-version or downlevel-TFM coverage.
 
     Built by the normal solution graph and addressable through FixtureCatalog.
     Point the harness at the built DLL with the classic-state-machines corpus
