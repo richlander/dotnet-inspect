@@ -190,6 +190,7 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress a => $"{LocalName(a.Index)}",
         LoadArgumentAddress a => a.Name,
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
+        FixedBufferElementAddress f => Deref(f),
         // A value-type array element accessed by address (ldelema; the receiver
         // of a field/property/method on the element) spells the element place
         // itself — C# auto-takes the address. The bare `ref pairs[0]` spelling

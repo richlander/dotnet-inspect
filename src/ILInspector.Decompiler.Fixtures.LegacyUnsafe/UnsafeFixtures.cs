@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 public unsafe struct FixedBufferResiduals
 {
     public fixed int Data[4];
+    public fixed int Values[4];
 
     public int Sum()
     {
@@ -92,6 +93,10 @@ public unsafe struct FixedBufferResiduals
         FixedBufferResiduals value = default;
         ConsumePointer(&value.Data[0]);
     }
+
+    public string FormatValue(int index) => Values[index].ToString();
+
+    public int FirstValueHashCode() => Values[0].GetHashCode();
 
     static void Increment(ref int value) => value++;
 

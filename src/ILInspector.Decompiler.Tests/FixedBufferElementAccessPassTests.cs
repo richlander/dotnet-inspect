@@ -23,6 +23,7 @@ public class FixedBufferElementAccessPassTests
     static readonly TypeRef SByte = TypeRef.CoreLib("System", "SByte");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
     static readonly TypeRef UInt32 = TypeRef.CoreLib("System", "UInt32");
     static readonly TypeRef NInt = TypeRef.CoreLib("System", "IntPtr");
     static readonly TypeRef NUInt = TypeRef.CoreLib("System", "UIntPtr");
@@ -253,6 +254,34 @@ public class FixedBufferElementAccessPassTests
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
         Assert.Contains(expected, output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferInstanceReceiver_RendersSourceIndexingAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "FormatValue");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("return Values[index].ToString();", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferIndexZeroInstanceReceiver_RendersSourceIndexingAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "FirstValueHashCode");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("return Values[0].GetHashCode();", output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -496,6 +525,46 @@ public class FixedBufferElementAccessPassTests
 
         Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
         Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InstanceReceiverDeclaringTypeMismatch_IsNotRaised()
+    {
+        var function = SyntheticInstanceCall(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            declaringType: Int64);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticCallArgumentShape_IsNotRaisedAsReceiver()
+    {
+        var function = SyntheticStaticCallArgumentShape(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ZeroArgumentInstanceCall_DoesNotRaiseOrThrow()
+    {
+        var function = SyntheticZeroArgumentInstanceCall();
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
         function.CheckInvariant();
     }
 
@@ -947,6 +1016,75 @@ public class FixedBufferElementAccessPassTests
             "M",
             Owner,
             new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticInstanceCall(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef declaringType)
+    {
+        var callee = new MethodRef(
+            declaringType,
+            "ToString",
+            String,
+            [],
+            HasThis: true);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            callee,
+            isVirtual: false,
+            [FixedElementAddress(bufferField, elementField, FixedElementOffset(4))])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticStaticCallArgumentShape(FieldRef bufferField, FieldRef elementField)
+    {
+        var callee = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Consumer"),
+            "Static",
+            Void,
+            [],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            callee,
+            isVirtual: false,
+            [FixedElementAddress(bufferField, elementField, FixedElementOffset(4))])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticZeroArgumentInstanceCall()
+    {
+        var callee = new MethodRef(
+            Int32,
+            "ToString",
+            String,
+            [],
+            HasThis: true);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(callee, isVirtual: false, [])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], HasThis: true, GenericParameterCount: 0),
             [],
             body);
     }

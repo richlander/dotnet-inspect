@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 public struct FixedBufferResiduals
 {
     public fixed int Data[4];
+    public fixed int Values[4];
 
     public int Sum()
     {
@@ -172,6 +173,22 @@ public struct FixedBufferResiduals
         {
             FixedBufferResiduals value = default;
             ConsumePointer(&value.Data[0]);
+        }
+    }
+
+    public string FormatValue(int index)
+    {
+        unsafe
+        {
+            return Values[index].ToString();
+        }
+    }
+
+    public int FirstValueHashCode()
+    {
+        unsafe
+        {
+            return Values[0].GetHashCode();
         }
     }
 

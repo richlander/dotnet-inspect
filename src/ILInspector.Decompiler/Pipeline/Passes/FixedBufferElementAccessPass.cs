@@ -84,6 +84,17 @@ public sealed class FixedBufferElementAccessPass : IIrPass
     static void RaiseCallArguments(Call call, PassContext context)
     {
         var arguments = call.Arguments;
+        if (call.Callee.HasThis)
+        {
+            if (arguments.Count == 0)
+                return;
+            if (TryCreate(arguments[0], call.Callee.DeclaringType, AccessKind.Address, out var receiverAddress))
+            {
+                context.Stepper.StepOver("raise fixed-buffer instance receiver source", arguments[0]);
+                arguments[0].ReplaceWith(receiverAddress);
+            }
+        }
+
         int firstParameterArgument = call.Callee.HasThis ? 1 : 0;
         for (int argumentIndex = firstParameterArgument; argumentIndex < arguments.Count; argumentIndex++)
         {

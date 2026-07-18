@@ -643,6 +643,14 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "FormatValue",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "FirstValueHashCode",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
                         "RefAt",
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
@@ -707,6 +715,14 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "FormatValue",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "FirstValueHashCode",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
                         "RefAt",
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
@@ -736,9 +752,14 @@ public class ReturnToSenderFixtureCatalogTests
         {
             Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
             Assert.DoesNotContain("CS1525", result.Detail, StringComparison.Ordinal);
-            Assert.Contains("Data[", result.ActualBody, StringComparison.Ordinal);
-            Assert.DoesNotContain("Unsafe.Add", result.ActualBody, StringComparison.Ordinal);
-            Assert.DoesNotContain("FixedElementField", result.ActualBody, StringComparison.Ordinal);
+            var actualBody = result.ActualBody;
+            Assert.NotNull(actualBody);
+            Assert.True(
+                actualBody.Contains("Data[", StringComparison.Ordinal)
+                    || actualBody.Contains("Values[", StringComparison.Ordinal),
+                actualBody);
+            Assert.DoesNotContain("Unsafe.Add", actualBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("FixedElementField", actualBody, StringComparison.Ordinal);
         });
     }
 
