@@ -140,8 +140,10 @@ public class LoweredFidelityGateTests
     /// explicit Monitor.Enter/Exit form the fidelity check shell cannot bind — it lands in the
     /// recompile-fail bucket the gate excludes by design, same as the sugared rail's
     /// shell-attribution failures). DayNumber moved to the V1 difference docket
-    /// because its opcode names match while its branch targets differ. The remaining
-    /// pins guard that de-sugaring loops, ++/--, and
+    /// because its opcode names match while its branch targets differ. AnonNamed
+    /// and AnonSingle are below Full and their compiler-generated anonymous-type
+    /// ordinals now differ, which remains observable in V1. The remaining pins
+    /// guard that de-sugaring loops, ++/--, and
     /// locks does not disturb fixes proven on unrelated constructs (overflow checks, redundant
     /// mask removal, shadowed-field qualification, ctor field-init lifting, stale-field-read
     /// pinning, volatile re-declaration, and EH/return-accumulator sinking).
@@ -193,8 +195,6 @@ public class LoweredFidelityGateTests
         "ClassifyMode",
         "ClassifyWide",
         "AnonShorthand",
-        "AnonNamed",
-        "AnonSingle",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
@@ -243,18 +243,34 @@ public class LoweredFidelityGateTests
     public void PinnedFixesStayExact()
     {
         var results = EvaluateFixtures();
+        var failures = new List<string>();
 
         foreach (var method in PinnedExact)
         {
             var matches = results.Where(r => r.Method == method).ToList();
-            Assert.True(matches.Count > 0,
-                $"Expected lowered fidelity check to evaluate {method}, but it was not rendered.");
+            if (matches.Count == 0)
+            {
+                failures.Add($"Expected lowered fidelity check to evaluate {method}, but it was not rendered.");
+                continue;
+            }
+
             foreach (var result in matches)
-                Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+            {
+                if (result.Status == FidelityCheck.CompileBackStatus.Exact)
+                    continue;
+
+                string fidelityRows = result.FidelityDiff is { Rows.Length: > 0 } diff
+                    ? "\n  fidelity:\n"
+                        + string.Join('\n', diff.Rows.Take(6).Select(row => $"    {row.Message}"))
+                    : "";
+                failures.Add(
                     $"{method} regressed to {result.Status} in the lowered view: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n" +
-                    $"  detail: {result.Detail}");
+                    $"  detail: {result.Detail}{fidelityRows}");
+            }
         }
+
+        Assert.True(failures.Count == 0, string.Join("\n\n", failures));
     }
 
     [Fact]

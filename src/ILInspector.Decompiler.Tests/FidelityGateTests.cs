@@ -243,7 +243,11 @@ public class FidelityGateTests
     /// local assignment so the printer does not emit a dead `= default` store the
     /// original IL never carried.
     /// SharedCaptureLambdas is below Full and now reports `NotFull` because its
-    /// opcode names match but its V1 body comparison differs. DayNumber and
+    /// opcode names match but its V1 body comparison differs. CapturingLocalFunction
+    /// is also below Full; fixture additions changed its compiler-generated display
+    /// class and local-function ordinals, which remain observable in V1.
+    /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
+    /// Full with changed anonymous-type ordinals. DayNumber and
     /// DoubleViaLocalFunction moved to the V1 difference docket above.
     /// </summary>
     static readonly string[] PinnedExact =
@@ -263,7 +267,6 @@ public class FidelityGateTests
         "AwaitValueTask",
         "AwaitVoid",
         "NestedAwaitUsingResources",
-        "CapturingLocalFunction",
         // MixedOrAndArms (#1175): the mixed ||/&& fold raises and recompiles
         // opcode-exact; pinned so a regression to flat/RecompileFail is caught
         // on every fidelity-gate run, not left to the sampled corpus.
@@ -300,10 +303,6 @@ public class FidelityGateTests
         "ClassifyMode",
         "ClassifyWide",
         "AnonShorthand",
-        "AnonNamed",
-        "AnonSingle",
-        "AnonNested",
-        "AnonDeepNested",
         "TupleRest",
         "TupleLiteralEquals4",
         "TupleNestedLiteralEquals",
@@ -384,18 +383,34 @@ public class FidelityGateTests
     public void PinnedFixesStayExact()
     {
         var results = EvaluateFixtures();
+        var failures = new List<string>();
 
         foreach (var method in PinnedExact)
         {
             var matches = results.Where(r => r.Method == method).ToList();
-            Assert.True(matches.Count > 0,
-                $"Expected fidelity check to evaluate {method}, but it was not rendered.");
+            if (matches.Count == 0)
+            {
+                failures.Add($"Expected fidelity check to evaluate {method}, but it was not rendered.");
+                continue;
+            }
+
             foreach (var result in matches)
-                Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+            {
+                if (result.Status == FidelityCheck.CompileBackStatus.Exact)
+                    continue;
+
+                string fidelityRows = result.FidelityDiff is { Rows.Length: > 0 } diff
+                    ? "\n  fidelity:\n"
+                        + string.Join('\n', diff.Rows.Take(6).Select(row => $"    {row.Message}"))
+                    : "";
+                failures.Add(
                     $"{method} regressed to {result.Status}: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n" +
-                    $"  detail: {result.Detail}");
+                    $"  detail: {result.Detail}{fidelityRows}");
+            }
         }
+
+        Assert.True(failures.Count == 0, string.Join("\n\n", failures));
     }
 
     /// <summary>
