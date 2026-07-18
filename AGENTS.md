@@ -30,6 +30,14 @@ READMEs, and focused skills.
 | Skills | `taste/skill-guidance.md`, `skills/dotnet-inspect/SKILL.md`, and the relevant `skills/<scenario>/SKILL.md` |
 | Release and publishing | `docs/release-workflow.md` |
 
+PR templates:
+
+| Change | Template |
+| --- | --- |
+| Raising, structuring, validity, fidelity, or corpus behavior | `docs/templates/decompiler-pr.md` |
+| Focused invalid-`Full` or burndown row fix | `docs/templates/decompiler-burndown-fix-pr.md` |
+| Compile-back harness, fidelity skeleton, or ReturnToSender coverage | `docs/templates/decompiler-compile-back-harness-pr.md` |
+
 Some files under `docs/design/` record proposals or design history. Prefer
 current behavior in `README.md`, `docs/overview.md`, `docs/architecture.md`,
 focused current docs, and tests when sources disagree.
