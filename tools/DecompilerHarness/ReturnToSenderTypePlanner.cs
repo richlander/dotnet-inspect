@@ -713,7 +713,7 @@ public static class CompileBackSourceComposer
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var accessors = property.GetAccessors();
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
-        string propertyName = PropertyMemberName(reader.GetString(property.Name));
+        string propertyName = PropertyMemberName(reader.GetString(property.Name), signature.ParameterTypes.Length > 0);
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
         bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
@@ -891,7 +891,7 @@ public static class CompileBackSourceComposer
         var propertySignature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, targetTypeDef));
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
-        string propertyName = PropertyMemberName(reader.GetString(property.Name));
+        string propertyName = PropertyMemberName(reader.GetString(property.Name), propertySignature.ParameterTypes.Length > 0);
         var returnType = CompileBackTypeSignature.Display(propertySignature.ReturnType);
         bool targetIsAutoProperty = IsAutoPropertySetter(reader, targetTypeDef, property, targetSetter, returnType.DisplayName);
 
@@ -2325,9 +2325,13 @@ public static class CompileBackSourceComposer
     // (Namespace.Interface.Member); ordinary members never contain '.'. Preserve the
     // dotted name so the seam can render it as a real explicit interface implementation
     // instead of sanitizing the dots into a bogus underscore identifier (which would not
-    // satisfy the declared interface -> CS0535).
-    static string PropertyMemberName(string rawName)
-        => rawName.Contains('.', StringComparison.Ordinal) ? rawName : Identifier(rawName);
+    // satisfy the declared interface -> CS0535). Indexers are excluded: ToApiMember maps
+    // an indexer's member name to "this[]" (dropping the interface prefix), so preserving
+    // the dotted name would only desync member.Name from SignatureModel.MemberName and
+    // produce a malformed declaration. Explicit-interface indexers stay sanitized as
+    // before (still unsupported, but no regression).
+    static string PropertyMemberName(string rawName, bool isIndexer)
+        => !isIndexer && rawName.Contains('.', StringComparison.Ordinal) ? rawName : Identifier(rawName);
 
     sealed class TypeProducer
     {

@@ -294,15 +294,18 @@ internal static class CSharpDeclarationWriter
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
-        // A property/event whose member name is dotted is an explicit interface
+        // A property whose member name is dotted is an explicit interface
         // implementation (ordinary member names never contain '.'). When only the
         // structured model is present (no compatibility Signature string), render it as a
         // real explicit interface implementation: dotted Interface.Member name preserved
         // and no access modifier, exactly like an explicit-interface-implementation method.
         // When a compatibility Signature is supplied (the product's --all display surface),
-        // that authoritative display form is honored instead.
+        // that authoritative display form is honored instead. Only properties are handled
+        // here because that is the shape RTS reconstructs and TryRenderSignatureModel
+        // structurally renders; explicit-interface events have no structural branch, so
+        // suppressing their modifier would drop the member name.
         bool isExplicitInterfaceMember = member.Kind == "explicit-interface-implementation"
-            || (member.Kind is "property" or "event"
+            || (member.Kind == "property"
                 && string.IsNullOrEmpty(member.Signature)
                 && IsExplicitInterfaceMemberName(member.SignatureModel?.MemberName ?? member.Name));
 
@@ -849,7 +852,7 @@ internal static class CSharpDeclarationWriter
         if (member.Kind == "property"
             && model.ReturnType is { Length: > 0 } propertyType
             && model.Accessors.Count > 0
-            && IsOrdinaryPropertyName(member.Name)
+            && (model.MemberName == "this[]" || IsOrdinaryPropertyName(member.Name))
             && IsOrdinaryPropertyName(model.MemberName))
         {
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;

@@ -552,6 +552,38 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void IndexerDeclaration_WithDottedName_IsNotTreatedAsExplicitInterfaceProperty()
+    {
+        // Explicit-interface indexers carry SignatureModel.MemberName "this[]" (the interface
+        // prefix is dropped by the reconstruction). Even if a stray dotted member.Name leaks
+        // in, the "this[]" model name must win: render an ordinary indexer, never route it
+        // through the dotted explicit-impl property branch (which would drop the parameters).
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.Text.IList.Item",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int", Name = "index" }
+                ],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("public string this[int index] { get; }", declaration);
+    }
+
+    [Fact]
     public void ExplicitPropertyDeclaration_KeepsCompatibilitySignature()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
