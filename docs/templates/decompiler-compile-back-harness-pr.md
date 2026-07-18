@@ -3,8 +3,8 @@
 <!--
 Use this for DecompilerHarness / fidelity skeleton / ReturnToSender (RTS) /
 compile-back coverage PRs. The center of gravity is the checkable population:
-what was uncheckable before, what became Exact or OpcodeDiff after, and which
-frontier remains. Delete sections that do not apply.
+what was uncheckable before, what became Exact or a classified fidelity
+difference after, and which frontier remains. Delete sections that do not apply.
 -->
 
 - Advances #{issue-or-track}
@@ -27,7 +27,7 @@ Before:
 After:
 
 ```text
-{same method or bucket now Exact / OpcodeDiff / explicitly frontiered}
+{same method or bucket now Exact / OpcodeDiff / OperandDiff / explicitly frontiered}
 ```
 
 ## Scope and safety
@@ -37,7 +37,7 @@ After:
 - **Product impact:** {none, or explain any product-output behavior change}.
 - **Scope boundary:** {nearby failure intentionally left as a frontier or future issue}.
 - **RTS boundary:** {not applicable / RTS only orchestrates closure + Roslyn +
-  opcode compare; product/shared code owns C# source generation}.
+  contract V1 body comparison; product/shared code owns C# source generation}.
 
 ## Evidence
 
@@ -69,6 +69,8 @@ Run: `{assembly or delta artifact}`, `{method count}` current changed methods.
 | Attempted (+) | {N} | {N} |
 | Exact (+) | {count} | {count} |
 | OpcodeDiff Full (-) | {count} | {count} |
+| OperandDiff Full (-) | {count} | {count} |
+| FidelityUnavailable (-) | {count} | {count} |
 | Not Full (-) | {count} | {count} |
 | RecompileFail (-) | {count} | {count} |
 | ContextFail (-) | {count} | {count} |
@@ -77,6 +79,8 @@ Run: `{assembly or delta artifact}`, `{method count}` current changed methods.
 | --- | ---: | ---: | ---: | --- |
 | Exact (+) | {count} | {count} | {+/-} | `{Type::Method}` |
 | OpcodeDiff (-) | {count} | {count} | {+/-} | `{Type::Method}` |
+| OperandDiff (-) | {count} | {count} | {+/-} | `{Type::Method}` |
+| FidelityUnavailable (-) | {count} | {count} | {+/-} | `{Type::Method}` |
 | RecompileFail `{CSxxxx}` (-) | {count} | {count} | {+/-} | `{Type::Method}` |
 | ContextFail `{bucket}` (-) | {count} | {count} | {+/-} | `{Type::Method}` |
 
@@ -87,10 +91,12 @@ Run: `{assembly}`, `{compile cap}`, `{timing options}`.
 ```text
 COMPILE-BACK over {cap} rendered methods ({Full} Full)
 
-  exact opcode match : {count} ({rate})
-  opcode diff (Full) : {count}
-  context-build fail : {count}
-  recompile fail     : {count}
+  exact contract match    : {count} ({rate})
+  opcode diff (Full)      : {count}
+  operand diff (Full)     : {count}
+  fidelity unavailable   : {count}
+  context-build fail     : {count}
+  recompile fail         : {count}
 ```
 
 **Broad verdict:** **PASS/ADVISORY/BLOCKED** — {one-line context; explain if

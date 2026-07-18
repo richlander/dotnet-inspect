@@ -21,7 +21,7 @@ report that result in reviewer-sized form.
 The correctness system should have these properties:
 
 1. **Named proof levels.** Every check has a role: entry, shape, validity,
-   annotation, artifact, structure, opcode, corpus, changed-method, final.
+   annotation, artifact, structure, fidelity, corpus, changed-method, final.
 2. **One claim per level.** A check should say exactly what it proves and what it
    is blind to. No stage gets to imply more than it measured.
 3. **Machine-readable artifacts.** Corpus and changed-method stages produce JSON
@@ -43,11 +43,11 @@ The correctness system should have these properties:
 | 2 | Method validity boss | `--validity-check`, `Full malformed`, semantic validity diagnostics | Claimed-Full method C# parses, is statement-legal, and binds outside known shell noise. | That valid C# means the same thing. |
 | 3 | Annotation boss | `--annotation-check`, annotation gates | Allocation/unsafety/lifetime annotations agree with raw IL witnesses. | Whether the C# body itself is right. |
 | 4 | Type artifact boss | `--type-check`, whole-type/source checks | Type/file-level artifacts are coherent: type kind, modifiers, members, usings, surface. | Method-body semantic fidelity or binding. |
-| 5 | Type binding boss | `--bind-check`, type-bind gates | Whole-type/source artifacts bind without ambiguous/missing-reference errors outside known noise. | Method-body opcode equivalence. |
+| 5 | Type binding boss | `--bind-check`, type-bind gates | Whole-type/source artifacts bind without ambiguous/missing-reference errors outside known noise. | Method-body compile-back fidelity. |
 | 6 | Altitude boss | idiom scorecard, `LoweringCoverage`, sidecar rows | The output reached the intended C# idiom. | Soundness around near misses. |
 | 7 | Structure boss | `--gaps`, `--structuring-stops`, `--by-shape` | Which control-flow or fidelity shapes remain unraised. | That raised shapes are semantically faithful. |
-| 8 | Opcode boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to the same canonical opcode stream. | Methods the check cannot recompile. |
-| 9 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, Deep Inspect corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were opcode-checked. |
+| 8 | Fidelity boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to an exact contract V1 body. | Methods the check cannot recompile or compare. |
+| 9 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, Deep Inspect corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were fidelity-checked. |
 | 10 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
 | 11 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
 
@@ -284,7 +284,7 @@ Keep the axes separate:
 ### Annotation classifier changes
 
 Hidden-fact annotation changes fight the **annotation boss**, not the method-body
-validity or opcode bosses. Use this band when a PR changes annotation import,
+validity or fidelity bosses. Use this band when a PR changes annotation import,
 classification, hidden-fact emission, `AnnotationCheck`, or the annotation gate:
 
 1. name the annotation family affected (`alloc.box`, `alloc.newarr`, `unsafe`,
@@ -350,7 +350,7 @@ the output reached the intended C# idiom — not a soundness proof. Report:
    `Partial` row);
 2. shape proof for the raise: positive fixture plus near-miss decline (altitude
    without a decline is just an unproven positive);
-3. for any behavior change, the opcode / changed-method fidelity evidence the
+3. for any behavior change, the contract V1 / changed-method fidelity evidence the
    raise needs — altitude says nothing about near-miss soundness.
 
 Do not inflate the scorecard with positive-only rows just to move a number. Keep
@@ -376,7 +376,7 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
   Current CoreLib frontier: `--type-check --cap 2000` is clean over the .NET 11
   preview sample (0 deltas over 1,098 composed types), so a new bucket is a
   type-artifact regression to route to composer/signature/surface work, not to
-  method-body validity or opcode fidelity.
+  method-body validity or compile-back fidelity.
 - **Type binding boss** (`--bind-check`) — binds each composed type and reports
   the `CS0104` ambiguous-reference collisions a binder sees but the SRM-only
   product path cannot (the competing type lives outside the composed assembly, so
@@ -403,7 +403,8 @@ rows that need a named uncheckability reason.
 Report changed-method runs in three bands:
 
 1. **Attempted population** — total changed methods attempted, plus exact,
-   opcode-diff, `NotFull`, recompile-fail, and context-fail counts.
+   opcode-diff, operand-diff, fidelity-unavailable, `NotFull`, recompile-fail,
+   and context-fail counts.
 2. **Checkable population** — `Exact` rows that pin a green set and
    `OpcodeDiff` / `OperandDiff` rows that become the semantic docket. These are
    the rows a PR may cite as
@@ -442,7 +443,7 @@ library-shaped, not universal — see
 for the framing and the extension/inherited-member follow-ups.
 
 For #1175-class retained-label work, a go/no-go comment should name the
-checkable changed-method rows, the opcode-diff docket, and the remaining
+checkable changed-method rows, the fidelity-diff docket, and the remaining
 uncheckable buckets. A green global corpus card is still not a substitute.
 
 ### Final boss go/no-go
