@@ -53,7 +53,12 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
     {
         if (node is Call { Callee: { HasThis: false } callee } c
             && callee.Name == name
-            && callee.DeclaringType is { Kind: TypeRefKind.Definition, Namespace: "System.Linq.Expressions", Name: "Expression" })
+            && callee.DeclaringType is { Kind: TypeRefKind.Definition, Namespace: "System.Linq.Expressions", Name: "Expression" }
+            // Identity rests on the framework public-key token (recorded at import),
+            // never the forgeable simple name: an unsigned assembly literally named
+            // System.Linq.Expressions could otherwise plant a lookalike Expression
+            // whose factory calls would be raised to real expression-tree semantics.
+            && callee.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes)
         {
             call = c;
             return true;
@@ -124,7 +129,14 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
             localNames: [],
             usesUpdatedMemorySafetyRules: function.UsesUpdatedMemorySafetyRules,
             skipLocalsInit: function.SkipLocalsInit,
-            lambdaBody);
+            lambdaBody)
+        {
+            // Recovered from the unchecked Expression.Add/Subtract/Multiply
+            // factories, so the printer must spell overflow-prone arithmetic in an
+            // explicit unchecked(...) to keep the tree unchecked under a checked
+            // consuming project.
+            IsExpressionTree = true,
+        };
         lambda.InheritSourceOffset(ret);
 
         context.Stepper.StepOver("raise expression-tree lambda", ret);
@@ -395,6 +407,11 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
         arity = 0;
         if (delegateType is not { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: var name }, TypeArguments: { Length: >= 2 } args }
             || !name.StartsWith("Func`", StringComparison.Ordinal)
+            // The delegate family must be the real corelib System.Func: identity is
+            // the (name-canonicalized) core-library assembly, not the simple name, so
+            // a lookalike System.Func in a user assembly is not raised to framework
+            // lambda semantics. Every type argument is int (checked below).
+            || !MemberIdentity.IsKnownCoreLibraryDelegateType(delegateType)
             || !args.All(IsInt))
             return false;
         arity = args.Length - 1;

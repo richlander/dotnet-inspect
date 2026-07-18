@@ -136,7 +136,7 @@ public class LadderRung9GateTests
         // The fully-owned Int32 arithmetic slice recovers to its source lambda.
         var simple = members.Single(m => m.Name == "SimpleExpressionTree");
         Assert.Equal(DecompilationFidelity.Full, simple.Function.Fidelity);
-        Assert.Contains("=> x + 1", simple.Body);
+        Assert.Contains("=> unchecked(x + 1)", simple.Body);
         Assert.DoesNotContain("Expression.Lambda", simple.Body);
         Assert.DoesNotContain("Expression.Parameter", simple.Body);
         Assert.DoesNotContain("Expression.Add", simple.Body);

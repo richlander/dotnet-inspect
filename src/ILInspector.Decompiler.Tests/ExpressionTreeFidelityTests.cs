@@ -48,8 +48,11 @@ public class ExpressionTreeFidelityTests
 
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
-        // Recovered source lambda, not the factory-call scaffolding.
-        Assert.Contains("return x => x + 1;", output);
+        // Recovered source lambda, not the factory-call scaffolding. The
+        // overflow-prone add is spelled unchecked so a checked consuming project
+        // still rebuilds the unchecked Expression.Add node (blocker: checkedness
+        // identity).
+        Assert.Contains("return x => unchecked(x + 1);", output);
         Assert.DoesNotContain("Expression.Lambda", output);
         Assert.DoesNotContain("Expression.Add", output);
         Assert.DoesNotContain("Expression.Parameter", output);
@@ -65,7 +68,7 @@ public class ExpressionTreeFidelityTests
 
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
-        Assert.Contains("return (a, b) => a * b - 1;", output);
+        Assert.Contains("return (a, b) => unchecked(a * b - 1);", output);
         Assert.DoesNotContain("Expression.Lambda", output);
         Assert.DoesNotContain("Expression.Multiply", output);
     }
@@ -81,6 +84,22 @@ public class ExpressionTreeFidelityTests
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
         Assert.Contains("Expression.Lambda<Func<double, double>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Fact]
+    public void CheckedArithmeticLambda_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.CheckedArithmetic));
+
+        // A checked body lowers to Expression.AddChecked, outside the unchecked
+        // arithmetic subset the pass matches: no recovered lambda, honest factory
+        // calls, and no plain `x + 1` that would rebuild as unchecked Add.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("Expression.AddChecked", output);
         Assert.DoesNotContain("=>", output);
     }
 
@@ -114,6 +133,12 @@ public static class ExpressionTreeSamples
     // promotion and literal-suffix subtleties are owed), so this stays in honest
     // factory-call form rather than an unproven recovery.
     public static Expression<Func<double, double>> NonIntArithmetic() => x => x + 1.0;
+
+    // Near-miss: a checked-context body lowers to the checked Expression.AddChecked
+    // factory, which the pass never matches (only the unchecked Add/Subtract/Multiply
+    // names). A checked tree must not be recovered as plain `x => x + 1` (that would
+    // rebuild as unchecked Add), so it stays in honest factory-call form.
+    public static Expression<Func<int, int>> CheckedArithmetic() => x => checked(x + 1);
 
     public static Expression<Func<ExpressionTreeNode, bool>> Member()
         => n => n.Name != null && n.Count > 0;

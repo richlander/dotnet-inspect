@@ -2097,8 +2097,9 @@ public static class IrImporter
                 string memberName = reader.GetString(member.Name);
                 var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
                 var memberFacts = MemberReferenceDefinitionFacts(reader, member, memberName, signature.Header.IsInstance, parameterTypes);
+                bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
-                if (accessorKind == AccessorKind.Unknown && IsTrustedPlatformMemberReference(reader, member.Parent))
+                if (accessorKind == AccessorKind.Unknown && trustedPlatform)
                     accessorKind = AccessorKindFromName(memberName);
                 bool inferredSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
                     || memberName.StartsWith("set_", StringComparison.Ordinal)
@@ -2119,6 +2120,9 @@ public static class IrImporter
                     IsSpecialName = inferredSpecialName,
                     IsSpecialNameInferred = inferredSpecialName,
                     AccessorKind = accessorKind,
+                    DeclaringTypeIsTrustedPlatform = trustedPlatform
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.Unknown,
                     DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
                         ? MetadataFactState.Yes
                         : MetadataFactState.Unknown,
