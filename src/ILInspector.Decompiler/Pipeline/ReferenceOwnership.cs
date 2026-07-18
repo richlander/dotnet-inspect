@@ -53,14 +53,47 @@ public static class ReferenceOwnership
         _ => false,
     };
 
+    /// <summary>
+    /// Whether the node binds the local <paramref name="index"/> through a
+    /// designation that carries the index directly — a pattern binding, a
+    /// foreach / using / fixed header, a deconstruction target, a catch
+    /// variable, or a null-coalescing-assignment target — rather than an
+    /// explicit <see cref="LoadLocal"/>/<see cref="StoreLocal"/>/<see
+    /// cref="LoadLocalAddress"/>. Mirrors the designation set the C# printer
+    /// treats as owning or declaring a local, so a confinement proof cannot be
+    /// blinded by a reference expressed through one of these node kinds.
+    /// </summary>
+    public static bool BindsLocal(IrNode node, int index) => node switch
+    {
+        NullCoalescingAssignment n => n.LocalIndex == index,
+        ForeachStatement f => f.LocalIndex == index,
+        UsingStatement u => u.LocalIndex == index,
+        Fixed fx => fx.LocalIndex == index,
+        IsPattern p => p.LocalIndex == index,
+        RecursivePropertyDeclarationPattern r => r.LocalIndex == index,
+        UnionSwitchExpressionArm a => a.LocalIndex == index,
+        CatchClause c => c.VariableIndex == index,
+        DeconstructionAssignment d => d.LocalIndices.Contains(index),
+        _ => false,
+    };
+
+    public static bool ReferencesOrBindsLocal(IrNode node, int index)
+        => ReferencesLocal(node, index) || BindsLocal(node, index);
+
     public static bool SubtreeReferencesLocal(IrNode root, int index)
         => root.Descendants.Prepend(root).Any(node => ReferencesLocal(node, index));
+
+    public static bool SubtreeReferencesOrBindsLocal(IrNode root, int index)
+        => root.Descendants.Prepend(root).Any(node => ReferencesOrBindsLocal(node, index));
 
     public static bool SubtreeStoresLocal(IrNode root, int index)
         => root.Descendants.Prepend(root).Any(node => node is StoreLocal store && store.Index == index);
 
     public static bool LocalReferencesOnlyWithin(IrFunction function, int index, IReadOnlyCollection<IrNode> allowed)
         => ReferencesOnlyWithin(function, node => ReferencesLocal(node, index), allowed);
+
+    public static bool LocalReferencedOrBoundOnlyWithin(IrFunction function, int index, IReadOnlyCollection<IrNode> allowed)
+        => ReferencesOnlyWithin(function, node => ReferencesOrBindsLocal(node, index), allowed);
 
     public static bool StackSlotReferencesOnlyWithin(IrFunction function, int slot, IReadOnlyCollection<IrNode> allowed)
         => ReferencesOnlyWithin(function, node => ReferencesStackSlot(node, slot), allowed);

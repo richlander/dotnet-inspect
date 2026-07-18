@@ -74,7 +74,7 @@ metadata, not from the erased stack.
 
 This is what "confident" in *confident inverse* means: the decompiler's body-derived
 facts are a subset of what RyuJIT soundly recovers. RyuJIT's rules are therefore
-load-bearing spec, not analogy. The clearest example: RyuJIT normalizes
+the governing specification, not an analogy. The clearest example: RyuJIT normalizes
 `bool`/`byte`/`short` to `int32` on the evaluation stack and re-narrows on store (the
 ECMA-335 stack model). Any decompiler stage that forgets this — that treats a stack
 `bool` as distinguishable from a stack `int32` at a sink — is unsound against the
@@ -222,7 +222,7 @@ Two design rules keep this sound and cheap:
   *assumption checks* are debug-only: a `Debug.Assert(InverseAssumptions.…(…))` in the
   hot path (compiled out of release), backed by a release-capable `Check()` for the
   corpus gate — the same return-not-throw shape the coercion invariant already uses.
-- **The annotation is load-bearing, not decorative.** A coverage test requires every
+- **The annotation is enforced, not decorative.** A coverage test requires every
   in-domain node to carry `[InverseOf(...)]` or an explicit `[NotInverted(reason)]`,
   and CI diffs the generated ledger against the committed copy. If nothing goes red
   when an annotation is wrong or missing, it is just a fancy comment.
@@ -281,7 +281,7 @@ typed → structured → IR after each pass → C#).
 
 An opt-in assertion lane annotates each IR node in that staged view with its
 `[InverseOf]` forward construct and `assumes:` predicate, evaluates the predicate in
-place (the release-capable `Check()` the load-bearing rule requires), and marks each
+place (the release-capable `Check()` required by that contract), and marks each
 undischarged assertion by *where* it is observed — an informational `OBLIGATION` at
 any non-final stage (a downstream pass is contracted to discharge it), and an error
 `UNSOUND` only for a survivor at the final stage. Three properties make this more than

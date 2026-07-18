@@ -1,4 +1,4 @@
-# IR and Importer Design
+# IR and importer design
 
 The foundational design for the pipeline from [decompiler.md](decompiler.md). Everything else — passes, statement tree, printers — builds on the two contracts defined here: the importer's input model and the typed IR. Both are designed for the dotnet-org audience: a Roslyn or RyuJIT engineer should recognize every choice.
 
@@ -17,7 +17,7 @@ Strings end at the printers. Inside the pipeline, a type is a `TypeRef`: a struc
 - **Equality is semantic**, not textual: `List<int>` from two different facades that forward to the same definition compare equal; `int*` and `int[]` never collide because one renderer happened to print them alike.
 - **Rendering is a printer concern**: short names, using-directive elision, language keywords (`int` vs `Int32`) are decided where text is produced, with full information still in hand.
 
-Structured type identity is load-bearing: the moment a type degrades to a string, every downstream consumer inherits the loss, so `TypeRef` flows intact from importer to printer.
+Structured type identity must survive the pipeline: the moment a type degrades to a string, every downstream consumer inherits the loss, so `TypeRef` flows intact from importer to printer.
 
 ## The IR
 

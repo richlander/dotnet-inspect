@@ -1,4 +1,4 @@
-# Output Shapes
+# Output shapes
 
 dotnet-inspect output narrows through a small ladder of **shapes**. Markout
 defines the shapes and produces them; dotnet-inspect flags choose which rung you

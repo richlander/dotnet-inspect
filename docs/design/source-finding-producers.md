@@ -1,4 +1,4 @@
-# Source Finding Producers
+# Source Finding producers
 
 Metadata owns the local, SRM-only observations available from PE and portable
 PDB data. Network source acquisition, checksum verdicts, decompiler source

@@ -217,6 +217,9 @@ public static class TypeShellProducer
                 && (typeDef.Attributes & TypeAttributes.Interface) == 0,
             IsSealed = (typeDef.Attributes & TypeAttributes.Sealed) != 0,
             IsStatic = IsStaticType(typeDef),
+            EnumUnderlyingType = spec.Kind == CSharpTypeShellKind.Enum
+                ? EnumUnderlyingType(reader, typeDef)
+                : null,
         };
 
         return new CSharpTypePrintRequest(
@@ -240,4 +243,20 @@ public static class TypeShellProducer
             CSharpTypeShellKind.Delegate => "delegate",
             _ => throw new NotSupportedException($"Unsupported C# type-shell kind '{kind}'."),
         };
+
+    // An enum's underlying type is carried by its special `value__` instance field.
+    // A reconstructed enum that omits a non-int base (e.g. `: long`) defaults to int
+    // and fails to bind members whose constant values do not fit int (CS0266), so the
+    // shell must reproduce it. The declaration writer suppresses the redundant `: int`.
+    static string? EnumUnderlyingType(MetadataReader reader, TypeDefinition typeDef)
+    {
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (reader.GetString(field.Name) == "value__")
+                return MetadataDeclarationQuery.GetField(reader, typeDef, field).ReturnType;
+        }
+
+        return null;
+    }
 }

@@ -3225,7 +3225,39 @@ public static class CompileBackSourceComposer
             bool allowUnsafeSurface = false)
         {
             if (requirement.RequiredKind == CompileBackTypeKind.Enum)
+            {
+                // An enum reconstructed as a closure supporting type must carry its
+                // named members: the target body can reference any of them by name, and
+                // a member-less `enum { }` shell fails to bind those references (CS0117).
+                // Emit each literal member with its constant value so references resolve
+                // and keep their numeric identity. The special `value__` storage field
+                // (not a literal) and any name-mangled fields are not enum members.
+                foreach (var enumFieldHandle in typeDef.GetFields())
+                {
+                    var enumField = reader.GetFieldDefinition(enumFieldHandle);
+                    if (!enumField.Attributes.HasFlag(FieldAttributes.Literal))
+                        continue;
+                    string enumMemberName = reader.GetString(enumField.Name);
+                    if (enumMemberName.Contains('.', StringComparison.Ordinal))
+                        continue;
+                    if (!TryFormatConstantField(reader, enumField, out var enumConstant))
+                        continue;
+                    if (members.Any(member => member.Kind == CompileBackMemberKind.Field
+                            && member.Identity.Method == Identifier(enumMemberName)))
+                        continue;
+                    members.Add(new CompileBackMemberRequirement(
+                        new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(enumMemberName), 0, "enum-member"),
+                        CompileBackMemberKind.Field,
+                        IsStatic: true,
+                        Parameters: [],
+                        ReturnType: CompileBackTypeSignature.Display(requirement.Type.FullName),
+                        TypeParameters: [],
+                        StubBody: CompileBackStubBodyKind.TargetBody,
+                        TargetBody: enumConstant,
+                        [new CompileBackFact("metadata", "enum-member", enumMemberName)]));
+                }
                 return;
+            }
 
             allowUnsafeSurface = allowUnsafeSurface
                 || requirement.RequiredMembers.Count != 0
