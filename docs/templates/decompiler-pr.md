@@ -40,7 +40,7 @@ For focused invalid-Full / burndown row fixes, prefer
 
 <!--
 Required when authoritative original source is available. Delete this section
-only after checking with dotnet-inspect, including SourceLink.
+only after checking with dotnet-inspect (relying on SourceLink).
 -->
 
 ```csharp
