@@ -250,7 +250,7 @@ public class StackAllocInitializerPassTests
             var activeBlock = block0;
 
             activeBlock.Add(storeSlot);
-            
+
             if (DestinationAliasBefore)
             {
                 activeBlock.Add(new StoreLocal(5, BytePointer, new LoadStackSlot(0, BytePointer)));
@@ -282,7 +282,7 @@ public class StackAllocInitializerPassTests
             {
                 activeBlock.Add(setup);
             }
-            
+
             activeBlock.Add(copyBlock);
 
             IrNode finalUsage;
