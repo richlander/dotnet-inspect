@@ -198,6 +198,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitIndexerFixture : IValues
+            {
+                int IValues.this[int index] => index;
+            }
+
+            public interface IValues
+            {
+                int this[int index] { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitIndexerFixture",
+                    "IValues.get_Item",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int IValues.this[int index]", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public int IValues.this", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
     {
         var assemblyPath = CompileFixture("""

@@ -344,7 +344,10 @@ internal static class CSharpDeclarationWriter
             signature = EscapeMemberNameInSignature(signature, member.Name);
         }
 
-        signature = EscapeQualifiedKeywordSegments(signature);
+        signature = EscapeQualifiedKeywordSegments(
+            signature,
+            preserveQualifiedIndexerKeyword: IsExplicitInterfaceProperty(member)
+                && member.SignatureModel?.MemberName == "this[]");
         if (!options.AbbreviateSignature)
             signature = EscapeParameterLists(signature);
 
@@ -824,7 +827,9 @@ internal static class CSharpDeclarationWriter
         {
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;
             var propertyMemberName = model.MemberName == "this[]"
-                ? $"this[{parameters}]"
+                ? IsExplicitInterfaceProperty(member)
+                    ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this[{parameters}]"
+                    : $"this[{parameters}]"
                 : string.IsNullOrWhiteSpace(model.MemberName)
                     ? member.Name
                     : model.MemberName!;
@@ -1186,7 +1191,9 @@ internal static class CSharpDeclarationWriter
             : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
     }
 
-    internal static string EscapeQualifiedKeywordSegments(string signature)
+    internal static string EscapeQualifiedKeywordSegments(
+        string signature,
+        bool preserveQualifiedIndexerKeyword = false)
     {
         var sb = new StringBuilder(signature.Length);
         bool inString = false;
@@ -1233,6 +1240,13 @@ internal static class CSharpDeclarationWriter
                 end++;
 
             string segment = signature[start..end];
+            if (preserveQualifiedIndexerKeyword
+                && segment == "this"
+                && end < signature.Length
+                && signature[end] == '[')
+            {
+                continue;
+            }
             string escaped = EscapeIdentifier(segment);
             if (escaped != segment)
             {
