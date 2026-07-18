@@ -1903,6 +1903,61 @@ public class CfgSampleClass
             }
         }
     }
+
+    public static void Issue2861_ForLoopTryAndCatchContinues()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 2)
+                    continue;
+                if (i == 5)
+                    throw new System.InvalidOperationException();
+                System.Console.WriteLine();
+            }
+            catch (System.InvalidOperationException)
+            {
+                if (i == 5)
+                    continue;
+                System.Console.WriteLine();
+            }
+            System.Console.WriteLine();
+        }
+    }
+
+    public static void Issue2861_NestedProtectedLeaveToOuterIncrement()
+    {
+        int i = 0;
+        while (i < 10)
+        {
+            try
+            {
+                if (i == 2)
+                    goto Increment;
+                System.Console.WriteLine();
+            }
+            catch (System.Exception)
+            {
+            }
+            for (int j = 0; j < 3; j++)
+            {
+                try
+                {
+                    if (i == j)
+                        goto Increment;
+                    System.Console.WriteLine();
+                }
+                catch (System.Exception)
+                {
+                }
+            }
+            System.Console.WriteLine();
+        Increment:
+            i++;
+        }
+    }
+
     public static int LoopWithBreak(int[] values, int limit)
     {
         int sum = 0;

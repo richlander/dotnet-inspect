@@ -742,26 +742,7 @@ public sealed class StructuringPass : IIrPass
         => container.Blocks.Count == 0 || MayFallThroughAfterRetryReplacement(container.Blocks[^1], retryTargetOffset);
 
     static bool CanRaiseRetryLeave(Leave leave)
-        => (HasAncestor<TryFinally>(leave) || HasAncestor<TryCatch>(leave))
-            && !IsInsideFinallyBody(leave);
-
-    static bool HasAncestor<T>(IrNode node) where T : IrNode
-    {
-        for (var current = node.Parent; current is not null; current = current.Parent)
-            if (current is T)
-                return true;
-        return false;
-    }
-
-    static bool IsInsideFinallyBody(Leave leave)
-    {
-        for (var current = leave.Parent; current is not null; current = current.Parent)
-        {
-            if (current.Parent is TryFinally tryFinally && ReferenceEquals(current, tryFinally.FinallyBody))
-                return true;
-        }
-        return false;
-    }
+        => ProtectedRegionControlFlow.CanRaiseLeave(leave);
 
     /// <summary>The <c>true</c> condition of a raised <c>while (true)</c> loop.</summary>
     static Constant TrueLiteral() => new(true, TypeRef.CoreLib("System", "Boolean"));
