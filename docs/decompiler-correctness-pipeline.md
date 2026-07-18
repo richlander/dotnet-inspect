@@ -150,6 +150,13 @@ both:
 - **Compile-back fidelity result**: `Exact`, `OpcodeDiff`, `RecompileFail`,
   `ContextFail`, `NotFull`, `not-sampled`.
 
+Compile-back also records the additive `OperandFidelityV1` result for legacy
+`Exact` rows. It compares immediate values, symbolic member/type/string
+operands, and branch topology while tolerating local/argument macro and slot
+layout changes. It is explicitly EH-blind and is not a semantic-equivalence
+claim. The legacy result remains the gate until a measured corpus split justifies
+changing a lane.
+
 When reporting deltas, spell out `currentValidity`, `currentDecompilerFidelity`,
 and `currentFidelityCheck` rather than mixing axes.
 

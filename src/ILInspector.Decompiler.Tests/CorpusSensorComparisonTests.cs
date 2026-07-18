@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -503,6 +505,85 @@ public class CorpusSensorComparisonTests
             [result],
             FidelityCheck.CompileBackStatus.ContextFail);
         Assert.Equal(1, buckets["return-to-sender target unavailable"].Count);
+    }
+
+    [Fact]
+    public void AlignReturnToSenderResults_PreservesOperandFidelityEvidence()
+    {
+        var target = CompileBackResult("Method", FidelityCheck.CompileBackStatus.Exact);
+        var operandDiff = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []);
+        var rts = new ReturnToSender.Result(
+            MinimalReturnToSenderPlan("Method"),
+            Source: "",
+            FidelityCheck.CompileBackStatus.Exact,
+            OriginalOpcodes: "ldc.i4 ret",
+            RecompiledOpcodes: "ldc.i4 ret",
+            Detail: null,
+            OperandFidelityDiff: operandDiff);
+
+        var aligned = Assert.Single(
+            CorpusSensor.AlignReturnToSenderResultsForTesting([target], [rts]));
+
+        Assert.Same(operandDiff, aligned.OperandDiff);
+        Assert.Equal(FidelityCheck.OperandFidelityStatus.Exact, aligned.OperandFidelity);
+    }
+
+    [Fact]
+    public void SummarizeOperandFidelity_CountsOnlyLegacyExactRows()
+    {
+        var exact = CompileBackResult("Exact", FidelityCheck.CompileBackStatus.Exact) with
+        {
+            OperandDiff = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []),
+        };
+        var divergent = CompileBackResult("Divergent", FidelityCheck.CompileBackStatus.Exact) with
+        {
+            OperandDiff = new IlBodyDiffResult(
+                IsExact: false,
+                Failure: null,
+                Rows:
+                [
+                    new IlDiffRow(
+                        0,
+                        IlDiffKind.Remove,
+                        new CanonicalIlOperation(0, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "5")),
+                        "Removed IL operation 'ldc.i4 5'"),
+                ]),
+        };
+        var unavailable = CompileBackResult("Unavailable", FidelityCheck.CompileBackStatus.Exact);
+        var legacyDiff = CompileBackResult("LegacyDiff", FidelityCheck.CompileBackStatus.OpcodeDiff) with
+        {
+            OperandDiff = divergent.OperandDiff,
+        };
+
+        var metrics = CorpusSensor.SummarizeOperandFidelityForTesting(
+            [exact, divergent, unavailable, legacyDiff]);
+
+        Assert.Equal(nameof(IlBodyDiffProfile.OperandFidelityV1), metrics.Profile);
+        Assert.Equal(3, metrics.EligibleMethods);
+        Assert.Equal(1, metrics.ExactMethods);
+        Assert.Equal(1, metrics.DivergentMethods);
+        Assert.Equal(1, metrics.UnavailableMethods);
+    }
+
+    [Fact]
+    public void CorpusSchemaV3_DeserializesWithoutOperandFidelity()
+    {
+        var v3 = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null) with
+        {
+            SchemaVersion = 3,
+        };
+
+        string json = JsonSerializer.Serialize(v3);
+        var restored = JsonSerializer.Deserialize<CorpusSensorSnapshot>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(3, restored.SchemaVersion);
+        Assert.Null(restored.Metrics.Fidelity.OperandFidelity);
+        Assert.Equal(4, CorpusSensor.CurrentSchemaVersion);
     }
 
     [Fact]
@@ -1048,6 +1129,19 @@ public class CorpusSensorComparisonTests
             "ldc.i4.0 ret",
             "ldc.i4.0 ret",
             Detail: null);
+
+    static CompileBackReconstructionPlan MinimalReturnToSenderPlan(string method)
+        => new(
+            AssemblyPath: "",
+            TargetMethod: new CompileBackMethodIdentity(
+                Type: "Fixture",
+                Method: method,
+                Overload: 0,
+                Signature: "() -> corelib:System.Int32"),
+            Module: new CompileBackModuleRequirement([], [], []),
+            Types: [],
+            PrintRequests: [],
+            Diagnostics: []);
 
     static IReadOnlyList<CorpusMethodSnapshot> PinnedMethods(int fullyRaised, int conditional)
     {

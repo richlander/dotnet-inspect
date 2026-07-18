@@ -21,6 +21,18 @@ resolved exact `MethodDefinitionHandle` values. It returns old/new
 so RTS, Research, and diagnostics can attach IL diff evidence to their own
 member identity without running an assembly-wide card.
 
+`IlBodyDiffProfile.OperandFidelityV1` is the versioned compile-back comparison
+contract. It preserves value, symbolic-token, and branch-topology comparison
+while folding `ldarg*`, `ldarga*`, `starg*`, `ldloc*`, `ldloca*`, and `stloc*`
+encoding macros into their operation families and omitting their raw slot
+numbers. Types defined by either compared module use a shared `<current>`
+scope because compile-back intentionally changes the output assembly name.
+Platform assembly scopes (`System.*`, `mscorlib`, `netstandard`,
+`Microsoft.CSharp`, and `Microsoft.VisualBasic*`) use a shared `<platform>`
+scope so framework version and type-forwarding changes do not masquerade as
+member-target changes. Non-platform assembly identities remain observable.
+The default profile remains unchanged.
+
 The boundary is intentionally narrow: the diff answers "which decoded IL
 operations changed?" It does not claim source equivalence, semantic equivalence,
 or durable identity for every operand category.
@@ -104,7 +116,9 @@ slot noise.
 
 Some local macros currently surface as opcode-family changes (`ldloc.0`,
 `stloc.1`) rather than as `Slot` operands. That is part of the current boundary,
-not a stronger local identity contract.
+not a stronger local identity contract. The opt-in
+`IlBodyDiffProfile.OperandFidelityV1` profile deliberately normalizes these
+families and ignores their slot operands for decompile/recompile evidence.
 
 ### Exception-region shape
 
@@ -112,7 +126,8 @@ The body decoder is EH-aware, and malformed EH regions fail closed through
 `MethodInstructions`. `IlBodyDiff` does not currently emit producer-owned EH
 region rows. Catch/finally availability or protected-range changes surface only
 through operation-level rows unless a future substrate layer adds explicit EH
-row kinds.
+row kinds. `OperandFidelityV1` has the same boundary: an exact result is
+EH-blind and is not a semantic-equivalence claim.
 
 ### Offset identity
 

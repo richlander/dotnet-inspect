@@ -23,7 +23,9 @@ internal sealed record CorpusMethodSnapshot(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? FidelityCapture = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? FidelityReference = null)
+    string? FidelityReference = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? OperandFidelity = null)
 {
     public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
 }

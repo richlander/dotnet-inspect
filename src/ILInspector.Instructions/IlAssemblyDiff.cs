@@ -205,7 +205,8 @@ public static class IlAssemblyDiff
         MetadataReader newReader,
         MethodDefinitionHandle newMethod,
         string? oldLabel = null,
-        string? newLabel = null)
+        string? newLabel = null,
+        IlBodyDiffProfile profile = IlBodyDiffProfile.Default)
     {
         ArgumentNullException.ThrowIfNull(oldPe);
         ArgumentNullException.ThrowIfNull(oldReader);
@@ -225,7 +226,8 @@ public static class IlAssemblyDiff
 
         var oldBody = TryGetBody(oldPe, oldDefinition, "old");
         var newBody = TryGetBody(newPe, newDefinition, "new");
-        var diff = oldBody.Result ?? newBody.Result ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!);
+        var diff = oldBody.Result ?? newBody.Result
+            ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!, profile);
         return new IlMemberDiffResult(oldSubject, newSubject, diff);
     }
 

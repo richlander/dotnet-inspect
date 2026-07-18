@@ -48,7 +48,8 @@ static class ReturnToSender
         MemberAnchor? MemberAnchor = null,
         IReadOnlyList<DecompilerDecision>? Decisions = null,
         FidelityCheck.CompileBackResult? CompileBackFloor = null,
-        FaultIsolationResult? FaultIsolation = null)
+        FaultIsolationResult? FaultIsolation = null,
+        IlBodyDiffResult? OperandFidelityDiff = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
         internal ArtifactRequest? FinalRequest { get; init; }
@@ -616,6 +617,7 @@ static class ReturnToSender
             RecompiledOpcodes = floor.RecompiledOpcodes,
             Detail = floorDetail,
             CompileBackFloor = floor,
+            OperandFidelityDiff = floor.OperandDiff,
         };
     }
 
@@ -837,6 +839,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             getterHandle,
@@ -890,6 +893,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             methodHandle,
@@ -943,6 +947,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             setterHandle,
@@ -972,6 +977,7 @@ static class ReturnToSender
 
     static Result CompileBackTarget(
         string assemblyPath,
+        PEReader originalPe,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
@@ -1046,6 +1052,15 @@ static class ReturnToSender
                 var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
                 var ilDiff = implementationDiff?.IlDiff;
                 var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
+                var operandFidelityDiff = BuildIlDiff(
+                    originalPe,
+                    reader,
+                    methodHandle,
+                    recompiled,
+                    fullType,
+                    methodName,
+                    overload: 0,
+                    IlBodyDiffProfile.OperandFidelityV1)?.Diff;
 
                 if (recompiledOps is null)
                 {
@@ -1077,7 +1092,8 @@ static class ReturnToSender
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions)
+                    Decisions: targetBody.Decisions,
+                    OperandFidelityDiff: operandFidelityDiff)
                 {
                     FinalRequest = sourceResult.Request,
                 };
@@ -1367,7 +1383,8 @@ static class ReturnToSender
         PEReader recompiledPe,
         string fullType,
         string methodName,
-        int overload)
+        int overload,
+        IlBodyDiffProfile profile = IlBodyDiffProfile.Default)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
@@ -1384,7 +1401,8 @@ static class ReturnToSender
             recompiled.Reader,
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
-            newLabel: $"{fullType}::{methodName}");
+            newLabel: $"{fullType}::{methodName}",
+            profile: profile);
     }
 
     internal static ImplementationMemberDiffResult? BuildImplementationDiff(

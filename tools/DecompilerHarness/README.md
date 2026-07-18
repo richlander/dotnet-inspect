@@ -218,7 +218,7 @@ The generated fixture ladder is intentionally staged:
 | Materialization | Build the selected source snippets into one temporary class library; `--keep-generated-fixtures` preserves it. |
 | Projection | Decompile each target through the shipped raised product path and record the decompiler fidelity grade. |
 | Shape verdict | Parse the rendered body with Roslyn and compare the optional expected `SyntaxKind`. |
-| Compile-back verdict | Recompile the rendered body and compare canonical opcode streams with `FidelityCheck`. |
+| Compile-back verdict | Recompile the rendered body, preserve the legacy opcode-name verdict, and additionally compare product-owned `OperandFidelityV1` operations through `IlBodyDiff`. |
 | Frontier ledger | Keep non-exact compiler-lowering observations opt-in; keep source-shape frontiers explicit even when they are compile-back exact. |
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR

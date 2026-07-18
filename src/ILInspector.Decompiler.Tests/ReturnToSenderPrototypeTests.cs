@@ -149,6 +149,14 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("public class Class1", result.Source);
             Assert.Contains("public string Method1", result.Source);
             Assert.Contains("return \"Hello World\";", result.Source);
+            Assert.NotNull(result.OperandFidelityDiff);
+            Assert.True(result.OperandFidelityDiff.IsExact);
+
+            var compileBack = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                row => row.Type == "Class1" && row.Method == "get_Method1");
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, compileBack.Status);
+            Assert.Equal(FidelityCheck.OperandFidelityStatus.Exact, compileBack.OperandFidelity);
         }
         finally
         {

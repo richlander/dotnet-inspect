@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 4,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
   "generatedUtc": "2026-06-26T17:46:46.936286+00:00",
   "validityCompileCap": 0,

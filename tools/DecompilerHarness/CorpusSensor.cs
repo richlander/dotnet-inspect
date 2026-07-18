@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
@@ -33,6 +34,7 @@ internal enum CorpusProfile
 
 internal static class CorpusSensor
 {
+    internal const int CurrentSchemaVersion = 4;
     const string ConditionalBranchBucket = "structuring: conditional-branch";
     const int RiskyValidityCoverageFloorBasisPoints = 100; // 1.00%
     const int RiskyFidelityCoverageFloorBasisPoints = 10;  // 0.10%
@@ -303,7 +305,7 @@ internal static class CorpusSensor
             selectedFidelity);
 
         var snapshot = new CorpusSensorSnapshot(
-            SchemaVersion: 3,
+            SchemaVersion: CurrentSchemaVersion,
             Description: DescriptionForProfile(profile),
             GeneratedUtc: DateTimeOffset.UtcNow,
             ValidityCompileCap: validityCompileCap,
@@ -685,6 +687,7 @@ internal static class CorpusSensor
                                     ? result.CaptureDetail ?? result.Capture.ToString()
                                     : methodSnapshot.FidelityCapture,
                                 FidelityReference = ReferenceStatus(evaluation, result),
+                                OperandFidelity = result.OperandFidelity.ToString(),
                             };
                         }
                     }
@@ -700,7 +703,8 @@ internal static class CorpusSensor
                 usefulResults.Count(result => result.Status == FidelityCheck.CompileBackStatus.NotFull),
                 fidelityOracle == CorpusFidelityOracle.ReturnToSender
                     ? new ReturnToSenderParityMetrics(parityRescued, paritySame, parityWorse)
-                    : null);
+                    : null,
+                SummarizeOperandFidelity(usefulResults));
             var contextBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.ContextFail);
             var recompileBuckets = FidelityCheck.SummarizeFailures(allResults, FidelityCheck.CompileBackStatus.RecompileFail);
             reports.Add(new FidelityCapReport(cap, metrics, contextBuckets, recompileBuckets));
@@ -863,7 +867,8 @@ internal static class CorpusSensor
                 result.CompileBackFloor?.Capture ?? FidelityCheck.CaptureMode.WholeModule,
                 result.UsedCompileBackFloor
                     ? "return-to-sender; compile-back-floor"
-                    : "return-to-sender");
+                    : "return-to-sender",
+                result.OperandFidelityDiff);
         }
         return results;
     }
@@ -1496,6 +1501,7 @@ internal static class CorpusSensor
         Add("fidelityCheck", before.FidelityCheck, after.FidelityCheck);
         Add("fidelityCapture", before.FidelityCapture, after.FidelityCapture);
         Add("fidelityReference", before.FidelityReference, after.FidelityReference);
+        Add("operandFidelity", before.OperandFidelity, after.OperandFidelity);
         Add("passBug", before.PassBug, after.PassBug);
         return deltas.ToImmutable();
 
@@ -1558,6 +1564,7 @@ internal static class CorpusSensor
         {
             var report = fidelityReports[0];
             Console.WriteLine($"Fidelity ({fidelityOracle}, cap {report.Cap}): {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+            PrintOperandFidelity(report.Metrics, "");
             PrintReturnToSenderParity(report.Metrics, "");
             PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "  ");
         }
@@ -1567,6 +1574,7 @@ internal static class CorpusSensor
             foreach (var report in fidelityReports)
             {
                 Console.WriteLine($"  cap {report.Cap}: {report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, {report.Metrics.RecompileFailMethods} recompile failures, {report.Metrics.ContextFailMethods} context failures over {report.Metrics.CheckedMethods} checked");
+                PrintOperandFidelity(report.Metrics, "  ");
                 PrintReturnToSenderParity(report.Metrics, "  ");
                 PrintFailureBuckets(report.ContextFailureBuckets, report.RecompileFailureBuckets, "    ");
             }
@@ -1588,6 +1596,17 @@ internal static class CorpusSensor
         Console.WriteLine(
             $"{indent}RTS parity: {parity.RescuedMethods} rescued, {parity.SameMethods} same, "
             + $"{parity.WorseMethods} worse over {parity.ComparedMethods} compile-back targets");
+    }
+
+    static void PrintOperandFidelity(FidelitySensorMetrics metrics, string indent)
+    {
+        if (metrics.OperandFidelity is not { } operand)
+            return;
+
+        Console.WriteLine(
+            $"{indent}Operand fidelity v1 (legacy Exact rows; EH-blind): "
+            + $"{operand.ExactMethods} exact, {operand.DivergentMethods} divergent, "
+            + $"{operand.UnavailableMethods} unavailable over {operand.EligibleMethods} eligible");
     }
 
     static void PrintFailureBuckets(
@@ -1713,6 +1732,18 @@ internal static class CorpusSensor
                     $"{Counted(fidelity.ContextFailMethods, "fidelity context failure", "fidelity context failures")} "
                     + $"among {Number(fidelity.CheckedMethods)} checked");
             }
+            if (fidelity.OperandFidelity is { DivergentMethods: > 0 } operand)
+            {
+                debt.Add(
+                    $"{Counted(operand.DivergentMethods, "operand-fidelity divergence", "operand-fidelity divergences")} "
+                    + $"among {Number(operand.EligibleMethods)} legacy Exact rows");
+            }
+            if (fidelity.OperandFidelity is { UnavailableMethods: > 0 } unavailable)
+            {
+                debt.Add(
+                    $"{Counted(unavailable.UnavailableMethods, "operand-fidelity unavailable row", "operand-fidelity unavailable rows")} "
+                    + $"among {Number(unavailable.EligibleMethods)} legacy Exact rows");
+            }
         }
 
         if (snapshot.Metrics.PassBugs > 0)
@@ -1733,6 +1764,26 @@ internal static class CorpusSensor
 
     internal static string RegressionVerdictForTesting(int regressionCount)
         => RegressionVerdict(regressionCount);
+
+    internal static OperandFidelityMetrics SummarizeOperandFidelityForTesting(
+        IReadOnlyList<FidelityCheck.CompileBackResult> results)
+        => SummarizeOperandFidelity(results);
+
+    static OperandFidelityMetrics SummarizeOperandFidelity(
+        IReadOnlyList<FidelityCheck.CompileBackResult> results)
+    {
+        var eligible = results
+            .Where(result => result.Status == FidelityCheck.CompileBackStatus.Exact)
+            .ToArray();
+        return new OperandFidelityMetrics(
+            nameof(IlBodyDiffProfile.OperandFidelityV1),
+            eligible.Length,
+            eligible.Count(result => result.OperandFidelity == FidelityCheck.OperandFidelityStatus.Exact),
+            eligible.Count(result => result.OperandFidelity == FidelityCheck.OperandFidelityStatus.Divergent),
+            eligible.Count(result => result.OperandFidelity is
+                FidelityCheck.OperandFidelityStatus.Unavailable
+                or FidelityCheck.OperandFidelityStatus.NotCompared));
+    }
 
     static void PrintFeatureCoverage(CorpusSensorSnapshot snapshot)
     {
@@ -2046,6 +2097,22 @@ internal static class CorpusSensor
                 current.Metrics.Fidelity.CheckedMethods,
                 comparableFidelitySamples ? Goal.Higher : Goal.Context,
                 countDeltaKnown: comparableFidelitySamples);
+            if (baseline.Metrics.Fidelity.OperandFidelity is { } baselineOperand
+                && current.Metrics.Fidelity.OperandFidelity is { } currentOperand)
+            {
+                bool comparableOperandSamples = comparableFidelitySamples
+                    && baselineOperand.Profile == currentOperand.Profile;
+                rows.Add(ShareChangeRow(
+                    comparableOperandSamples
+                        ? "Operand fidelity divergences (EH-blind)"
+                        : "Operand fidelity divergences (sampling differs)",
+                    baselineOperand.DivergentMethods,
+                    baselineOperand.EligibleMethods,
+                    currentOperand.DivergentMethods,
+                    currentOperand.EligibleMethods,
+                    comparableOperandSamples ? Goal.Lower : Goal.Context,
+                    countDeltaKnown: comparableOperandSamples));
+            }
             rows.Add(ShareChangeRow(
                 comparableFidelitySamples
                     ? "Fidelity recompile failures"
@@ -2399,7 +2466,16 @@ internal sealed record FidelitySensorMetrics(
     int ContextFailMethods,
     int NotFullMethods,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    ReturnToSenderParityMetrics? ReturnToSenderParity = null);
+    ReturnToSenderParityMetrics? ReturnToSenderParity = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    OperandFidelityMetrics? OperandFidelity = null);
+
+internal sealed record OperandFidelityMetrics(
+    string Profile,
+    int EligibleMethods,
+    int ExactMethods,
+    int DivergentMethods,
+    int UnavailableMethods);
 
 readonly record struct VerifiedFullyRaisedMetrics(
     int RaisedMethods,
