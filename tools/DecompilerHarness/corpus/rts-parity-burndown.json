@@ -15,15 +15,7 @@
       "status": "RecompileFail"
     },
     {
-      "method": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::get_PropertyNameTable#0",
-      "status": "RecompileFail"
-    },
-    {
       "method": "Newtonsoft.Json!Newtonsoft.Json.Utilities.Base64Encoder::WriteCharsAsync#0",
-      "status": "RecompileFail"
-    },
-    {
-      "method": "System.CommandLine!System.CommandLine.EnvironmentVariablesDirective.EnvironmentVariablesDirectiveAction::SetEnvVars#0",
       "status": "RecompileFail"
     },
     {

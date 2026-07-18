@@ -3318,7 +3318,6 @@ public class CommandExecutionTests
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("| Facts | section (opt-in) |", output);
         Assert.DoesNotContain("IR (Stages)", output);
-        Assert.Contains("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
 
@@ -3355,7 +3354,6 @@ public class CommandExecutionTests
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("| Facts | section (opt-in) |", output);
         Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
-        Assert.Contains("Use -S @All to select all sections.", output);
     }
 
     [Fact]
@@ -8089,28 +8087,9 @@ public class CommandExecutionTests
             Assert.Contains("Source Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
-            Assert.DoesNotContain("Tip:", error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_DiscoverSchema_WritesAllSelectorHint()
-    {
-        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--schema");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Signals", output);
-            Assert.Contains("section (opt-in)", output);
-            Assert.Contains("@Default", output);
             Assert.Contains("@All", output);
-            Assert.Contains("Use -S @All to select all sections.", output);
+            Assert.Contains("@Default", output);
+            Assert.Contains("section (opt-in)", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -9533,6 +9512,75 @@ public class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Project_SkillsSection_EmptyRendersNoSkillsNote()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Skills");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.Contains("No skills found", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Library_TopLeverageSection_WithTopFilter_RendersSingleSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Top Leverage", "--top", "1", "--tsv", "--tips", "q");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        Assert.Empty(error);
+        Assert.Contains("member\tcallers\troot_reach", output);
+        Assert.DoesNotContain("candidate", output);
+    }
+
+    [Fact]
+    public async Task Type_UnknownSelectValue_ListsAvailableSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "-S", "ZzzNoSuchSection", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("not found", error);
+        Assert.Contains("Available sections:", error);
+        Assert.Contains("Run with -D to discover sections", error);
+    }
+
+    [Fact]
+    public async Task Type_MemberIndexSection_OmitsEmptyDecodeColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.StringBuilder", "-S", "Member Index", "--tips", "q");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        Assert.Empty(error);
+        Assert.Contains("| Selector | Stable | Canonical Signature |", output);
+        Assert.DoesNotContain("Decode", output);
+    }
+
+    [Fact]
+    public async Task Implements_TypeColumn_RendersGenericNameAsCodeSpan()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "implements", "System.Text.Json.Serialization.JsonConverter",
+            "--platform", "System.Text.Json", "--tips", "q");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        Assert.Contains("`System.Text.Json.Serialization.JsonConverter<T>`", output);
+        Assert.DoesNotContain("JsonConverter&#96;1", output);
     }
 
     [Fact]

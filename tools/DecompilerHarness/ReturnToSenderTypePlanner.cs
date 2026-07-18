@@ -779,11 +779,7 @@ public static class CompileBackSourceComposer
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
-                .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CSharpFormatter.EscapeNamespace)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
                 .ToArray(),
             AssemblyAttributes: [],
             ModuleAttributes: []);
@@ -959,11 +955,7 @@ public static class CompileBackSourceComposer
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
-                .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CSharpFormatter.EscapeNamespace)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
                 .ToArray(),
             AssemblyAttributes: [],
             ModuleAttributes: []);
@@ -1165,11 +1157,7 @@ public static class CompileBackSourceComposer
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: RequiredNamespaces(function)
-                .Concat(DeclarationNamespaces(declarations))
                 .Prepend("System")
-                .Select(CSharpFormatter.EscapeNamespace)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
                 .ToArray(),
             AssemblyAttributes: [],
             ModuleAttributes: []);
@@ -1195,66 +1183,6 @@ public static class CompileBackSourceComposer
                 Usings = plan.Module.Usings,
             }).Source;
 
-    static IEnumerable<string> DeclarationNamespaces(IEnumerable<CSharpTypePrintRequest> requests)
-    {
-        var declaredTypes = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var request in requests)
-            AddDeclaredTypeNames(request, declaredTypes);
-
-        foreach (var request in requests)
-        {
-            foreach (var ns in DeclarationNamespaces(request, declaredTypes))
-                yield return ns;
-        }
-    }
-
-    static void AddDeclaredTypeNames(CSharpTypePrintRequest request, HashSet<string> declaredTypes)
-    {
-        string name = CSharpFormatter.StripArity(request.Type.Name);
-        string fullName = string.IsNullOrEmpty(request.Type.Namespace)
-            ? name
-            : $"{request.Type.Namespace}.{name}";
-        declaredTypes.Add(fullName);
-        foreach (var nested in request.NestedTypes)
-            AddDeclaredTypeNames(nested, declaredTypes);
-    }
-
-    static IEnumerable<string> DeclarationNamespaces(CSharpTypePrintRequest request, IReadOnlySet<string> declaredTypes)
-    {
-        if (!string.IsNullOrWhiteSpace(request.Type.Namespace))
-            yield return request.Type.Namespace;
-
-        foreach (var iface in request.Type.Interfaces)
-            foreach (var ns in TypeNamespaces(iface, declaredTypes))
-                yield return ns;
-        if (request.Type.BaseType is { } baseType)
-            foreach (var ns in TypeNamespaces(baseType, declaredTypes))
-                yield return ns;
-        foreach (var member in request.Members)
-        {
-            if (member.ReturnType is { } returnType)
-                foreach (var ns in TypeNamespaces(returnType, declaredTypes))
-                    yield return ns;
-            if (member.SignatureModel is not { } signature)
-                continue;
-            foreach (var parameter in signature.Parameters)
-                foreach (var ns in TypeNamespaces(parameter.Type, declaredTypes))
-                    yield return ns;
-        }
-        foreach (var nested in request.NestedTypes)
-            foreach (var ns in DeclarationNamespaces(nested, declaredTypes))
-                yield return ns;
-    }
-
-    static IEnumerable<string> TypeNamespaces(string type, IReadOnlySet<string> declaredTypes)
-    {
-        foreach (var token in type.Split([',', '<', '>', '[', ']', '*', '&', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            int dot = token.LastIndexOf('.');
-            if (dot > 0 && !declaredTypes.Contains(token[..dot]))
-                yield return token[..dot];
-        }
-    }
     static ApiMember ToApiMember(CompileBackMemberRequirement member)
     {
         string? returnType = member.ReturnType?.DisplayName;
@@ -2805,7 +2733,6 @@ public static class CompileBackSourceComposer
                 Namespace: requirement.Type.Namespace,
                 MetadataName: requirement.Type.MetadataName,
                 Kind: ToShellKind(kind),
-                BaseTypeDisplayName: BaseTypeSignature(reader, typeDef, kind)?.DisplayName,
                 InterfaceDisplayNames: InterfaceSignatures(reader, typeDef)
                     .Select(signature => signature.DisplayName)
                     .ToList(),
@@ -2953,22 +2880,6 @@ public static class CompileBackSourceComposer
             }
         }
 
-        static CompileBackTypeSignature? BaseTypeSignature(MetadataReader reader, TypeDefinition typeDef, CompileBackTypeKind kind)
-        {
-            // The product skeleton (TypeShellProducer) owns the metadata-level
-            // gates that decide which base is reconstructable (interface/nil/same-
-            // assembly/non-generic/object-family). The harness applies its own C#
-            // surface-representability gate on the display form here, where the Clean
-            // normalization lives: Clean strips generated <> segments (so a <>-named
-            // base is kept) but not { or delegate*, matching origin/main exactly.
-            var baseType = TypeShellProducer.ReconstructedBaseTypeName(reader, typeDef, kind == CompileBackTypeKind.Class);
-            if (baseType is null)
-                return null;
-            if (IsUnsupportedSurfaceSignature(baseType))
-                return null;
-            return CompileBackTypeSignature.Display(baseType);
-        }
-
         // True when some other reconstructed shell type — top-level or nested —
         // derives from this class via a reconstructed (same-assembly) base
         // declaration, so its implicit `: base()` depends on this class exposing an
@@ -3018,7 +2929,7 @@ public static class CompileBackSourceComposer
             var typeDef = reader.GetTypeDefinition(handle);
             if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
                 return null;
-            if (BaseTypeSignature(reader, typeDef, kind) is null)
+            if (TypeShellProducer.ReconstructedBaseTypeDisplay(reader, typeDef, kind == CompileBackTypeKind.Class) is null)
                 return null;
             var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
             return CompileBackTypeIdentity.FromDefinition(reader, baseDef).MetadataFullName;

@@ -143,7 +143,12 @@ public static class TypeOptionsParser
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
         var select = opts.ParseSelect(parseResult);
-        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
+        bool hasExplicitSelect = select is { Length: > 0 };
+        // Performance Triage row filters (--top/--loop/--min-confidence/--triage-shape/--where/
+        // --order-by) surface the Performance Triage section only when the user did not already
+        // pick sections with -S. Otherwise an explicit selection like -S "Top Leverage" would
+        // silently gain a second section and break single-section formats (--table/--tsv/--jsonl).
+        if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
 
         var options = routePolicy.ApplyTo(new TypeOptions

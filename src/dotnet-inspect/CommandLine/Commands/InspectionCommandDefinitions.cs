@@ -377,6 +377,7 @@ public static class InspectionCommandDefinitions
 
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
+            bool hasExplicitSelect = select is { Length: > 0 };
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
@@ -385,7 +386,10 @@ public static class InspectionCommandDefinitions
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
-            if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult))
+            // Only surface Performance Triage from row filters when the user did not select sections
+            // with -S; an explicit selection like -S "Top Leverage" must not silently gain a second
+            // section and break single-section formats (--table/--tsv/--jsonl).
+            if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
                 select = [.. select ?? [], SectionNames.PerformanceTriage];
 
             var options = new LibraryOptions

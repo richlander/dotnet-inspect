@@ -177,6 +177,7 @@ public class TypeView
 
     // Index mode sections (--index path)
     [MarkoutSection(Name = "Signature")]
+    [MarkoutIgnoreColumnWhen(nameof(SignatureDecodeIsEmpty), nameof(MemberSignatureRow.Decode))]
     [JsonIgnore]
     public List<MemberSignatureRow>? SignatureRows { get; set; }
 
@@ -228,6 +229,10 @@ public class TypeView
     public static bool TopLeverageSelectorEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Selector));
     public static bool TypeExceptionRegionFilterRangeIsEmpty(List<TypeExceptionRegionRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.FilterRange));
     public static bool TypeExceptionRegionCaughtTypeIsEmpty(List<TypeExceptionRegionRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.CaughtType));
+
+    // The Decode column carries a signature-decode degradation marker that is null for
+    // well-formed metadata (the common case). Drop the column when no member is degraded.
+    public static bool SignatureDecodeIsEmpty(List<MemberSignatureRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
@@ -324,10 +329,14 @@ public class MethodsView
 public class MemberIndexView
 {
     [MarkoutSection(Name = SectionNames.MemberIndex)]
+    [MarkoutIgnoreColumnWhen(nameof(DecodeIsEmpty), nameof(MemberIndexRow.Decode))]
     public List<MemberIndexRow>? Rows { get; set; }
 
     [MarkoutIgnore]
     public bool HasRows => Rows is { Count: > 0 };
+
+    // Drop the Decode degradation-marker column when no member is degraded (the common case).
+    public static bool DecodeIsEmpty(List<MemberIndexRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 }
 
 [MarkoutSerializable(AutoFields = false)]

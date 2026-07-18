@@ -64,22 +64,8 @@ public static class DiscoverOutput
                     OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
         }
 
-        if (ShouldWriteAllSelectorHint(discover, json, tsv, jsonl, rows))
-        {
-            Console.WriteLine();
-            Console.WriteLine($"Note: Use -S {SelectResolver.AllSelector} to select all sections.");
-        }
-
         return 0;
     }
-
-    private static bool ShouldWriteAllSelectorHint(string[]? discover, bool json, bool tsv, bool jsonl,
-        IReadOnlyList<DiscoveryRow> rows)
-        => !json
-           && !tsv
-           && !jsonl
-           && discover is null or { Length: 0 }
-           && rows.Any(row => row.Kind.Contains(SectionAnnotations.OptIn, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Runs discovery with effective filtering (only sections with data).
