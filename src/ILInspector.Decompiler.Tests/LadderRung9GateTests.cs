@@ -54,7 +54,7 @@ public class LadderRung9GateTests
 
         Assert.Equal(
             ExpectedMembers,
-            members.Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
+            members.Where(m => !m.Name.Contains("ManualCache") && m.Function.DeclaringType.Name == "DynamicAndExpressionTrees").Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
@@ -97,12 +97,23 @@ public class LadderRung9GateTests
     }
 
     [Fact]
+    public void Rung9Fixture_DeclinesLookalikeDynamicCache()
+    {
+        var members = LoadRaisedMembers();
+        var member = members.Single(m => m.Name == "ManualCache");
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Contains("Binder.GetMember", member.Body);
+        Assert.Contains("CallSite<Func<CallSite, object, object>>", member.Body);
+        Assert.DoesNotContain("dynamic", member.Body);
+    }
+
+    [Fact]
     public void Rung9Fixture_DegradesDynamicCallSitesHonestly()
     {
         var members = LoadRaisedMembers();
 
         AssertDynamicPartial(members, "DynamicAdd", "Binder.BinaryOperation", "CallSite<Func<CallSite, object, object, object>>");
-        
+
         AssertDynamicPartial(members, "DynamicInvoke", "Binder.Invoke", "CallSite<Func<CallSite, object, int, object>>");
         AssertDynamicPartial(members, "DynamicInvokeMember", "Binder.InvokeMember", "CallSite<Func<CallSite, object, int, int, object>>");
         AssertDynamicPartial(members, "DynamicConvert", "Binder.Convert", "CallSite<Func<CallSite, object, int>>");
@@ -213,7 +224,7 @@ public class LadderRung9GateTests
         using var source = MetadataSource.Open(FixturePath);
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
-            if (typeName != FixtureType)
+            if (typeName != FixtureType && typeName != "LadderRung9.DynamicLookalikes")
                 continue;
 
             var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));

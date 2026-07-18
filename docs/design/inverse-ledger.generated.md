@@ -79,4 +79,5 @@ edit by hand. See [inverse-architecture.md](inverse-architecture.md) for the fra
 
 | Node | Reason |
 | --- | --- |
+| `DynamicGetMember` | Dynamic node: raises compiler-generated caching infrastructure for dynamic invocation. Cannot be represented backwards. |
 | `UnsupportedNode` | unrepresented IL kept explicit and rendered honestly — outside the inverse's checkable domain by construction; any occurrence caps fidelity at Partial |

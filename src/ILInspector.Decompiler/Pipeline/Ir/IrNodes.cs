@@ -176,6 +176,7 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     /// has a corresponding property. Null means no proof, not proof of absence.
     /// </summary>
     public string? BackingPropertyName { get; init; }
+    public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 }
 
 /// <summary>The C# method kind decoded from a reserved metadata method name: an ordinary method, an instance constructor (<c>.ctor</c>), or a static constructor (<c>.cctor</c>).</summary>
@@ -3676,6 +3677,7 @@ public sealed class UnsupportedNode : IrExpression
     public override string Describe() => $"Unsupported IL_{ILOffset:X4} {Opcode}: {Reason}";
 }
 
+[Inverse.NotInverted("Dynamic node: raises compiler-generated caching infrastructure for dynamic invocation. Cannot be represented backwards.")]
 public sealed class DynamicGetMember : IrExpression
 {
     public DynamicGetMember(IrExpression receiver, string propertyName)

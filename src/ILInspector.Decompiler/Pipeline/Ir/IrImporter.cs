@@ -2496,6 +2496,7 @@ public static class IrImporter
                 return new FieldRef(declaring, name, GuardedDecode.FieldType(reader, field, typeScope))
                 {
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
+                    DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
                 };
             }
             case HandleKind.MemberReference:
@@ -2509,6 +2510,7 @@ public static class IrImporter
                 return new FieldRef(declaring, name, fieldType)
                 {
                     BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
+                    DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(reader, member, name, false, []).DeclaringTypeCompilerGenerated,
                 };
             }
             default:

@@ -31,9 +31,11 @@ public sealed class DynamicCallSitePass : IIrPass
                 {
                     if (ifStmt.Condition is LogicalNot ln && ln.Operand is LoadField cacheField && cacheField.Instance == null)
                     {
-                        var declaringTypeName = cacheField.Field.DeclaringType.Name;
-                        if (!declaringTypeName.Contains("<>o__", StringComparison.Ordinal))
+                        if (cacheField.Field.DeclaringTypeCompilerGenerated != MetadataFactState.Yes
+                            || !GeneratedCodeIdentity.IsDynamicCallSiteContainerType(cacheField.Field.DeclaringType))
+                        {
                             continue; // cache ownership proof
+                        }
 
                         var storeField = FindStoreField(ifStmt.Then);
                         if (storeField != null && storeField.Value is Call createCall)
@@ -56,10 +58,10 @@ public sealed class DynamicCallSitePass : IIrPass
                                             {
                                                 var valueArg = invokeCall.Arguments[2];
                                                 valueArg.Detach();
-                                                
+
                                                 var dynamicGet = new DynamicGetMember(valueArg, propertyName);
                                                 var newReturn = new Return(dynamicGet);
-                                                
+
                                                 next.ReplaceWith(newReturn);
                                                 ifStmt.Detach();
                                                 stepper.StepOver("raise dynamic get", newReturn);
