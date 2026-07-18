@@ -4,17 +4,22 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Coverage for #2831: csc's unconstrained/struct-constrained generic
+/// Coverage for #2831/#2862: csc's unconstrained/struct-constrained generic
 /// declaration-pattern extraction (<c>if (Subject is T t)</c>) cannot store the
 /// <c>isinst</c> result through an <c>as T</c> local, so it re-tests the value
 /// inline — <c>UnboxAny T(IsInstance T(...))</c> — instead of the usual
 /// <c>StoreLocal(IsInstance) + null-test</c> shape <c>IsPatternPass</c>
-/// already recovers. <c>CSharpPrinter.UnboxAnyOperand</c> must recognize
-/// the exact same-target test/extract relationship and bridge it through the
-/// same <c>(object)</c> intermediary the box+unbox.any generic-math idiom uses,
+/// already recovers.
+///
+/// <para>#2862 raises the structured, provable shape back to a declaration-pattern
+/// binding: <c>IsPatternPass</c> mints the pattern local and inlines the
+/// lowering-only subject temp, recovering <c>if (Subject is T t)</c>. When the
+/// guard is negated/flat (e.g. <c>is not T</c> feeding a <c>goto</c>), no legal
+/// binding exists, so <c>CSharpPrinter.UnboxAnyOperand</c>'s <c>(object)</c>
+/// bridge (the box+unbox.any generic-math intermediary) remains the fallback,
 /// rather than routing the nested test through the general <c>is</c>/<c>as</c>
 /// expression rule (invalid for a non-class-constrained <c>T</c> either way —
-/// CS0030 for <c>is</c>, CS0413 for <c>as</c>).
+/// CS0030 for <c>is</c>, CS0413 for <c>as</c>).</para>
 /// </summary>
 public class GenericDeclarationPatternExtractionTests
 {
@@ -28,25 +33,65 @@ public class GenericDeclarationPatternExtractionTests
         return CSharpPrinter.Print(function!).Output!;
     }
 
+    // #2862 slice 1+2: a structured `if (Subject is T t)` whose extractions are
+    // all proven by #2856's boundary is raised back to a declaration-pattern
+    // binding, and the lowering-only subject temp is inlined, recovering the
+    // original source rather than exposing csc's re-test/unbox lowering.
     [Fact]
-    public void UnconstrainedDeclarationPattern_BridgesExtractionThroughObject()
+    public void UnconstrainedDeclarationPattern_RaisesToDeclarationBinding()
     {
         var output = Print(
             typeof(GenericDeclarationPatternSpecimens<,>),
             nameof(GenericDeclarationPatternSpecimens<object, object>.Unconstrained));
 
-        AssertBridgedLocal(output, negatedGuard: false);
-        Assert.DoesNotContain("as T", output);
+        AssertRaisedBinding(output);
     }
 
     [Fact]
-    public void StructConstrainedDeclarationPattern_BridgesExtractionThroughObject()
+    public void StructConstrainedDeclarationPattern_RaisesToDeclarationBinding()
     {
         var output = Print(
             typeof(GenericDeclarationPatternSpecimensStruct<,>),
             nameof(GenericDeclarationPatternSpecimensStruct<int, object>.StructConstrained));
 
-        AssertBridgedLocal(output, negatedGuard: false);
+        AssertRaisedBinding(output);
+    }
+
+    // #2862 robustness: when the binding is read more than once csc caches the
+    // single extraction in a real local; the guard still raises to a pattern
+    // binding that feeds the cache, with no `(object)` bridge left behind.
+    [Fact]
+    public void MultipleUsesDeclarationPattern_RaisesBinding()
+    {
+        var output = Print(
+            typeof(GenericDeclarationPatternSpecimens<,>),
+            nameof(GenericDeclarationPatternSpecimens<object, object>.MultipleUses));
+
+        Assert.Matches(@"if \(Subject is T V_\d+\)", output);
+        Assert.Equal(2, Regex.Matches(output, @"Console\.WriteLine\(").Count);
+        Assert.DoesNotContain("(object)", output);
+        Assert.DoesNotContain("as T", output);
+    }
+
+    // #2862 slice-2 boundary: the subject cache is reused after the guard, so the
+    // binding is raised but the lowering-only subject temp must be retained (not
+    // inlined into the pattern).
+    [Fact]
+    public void ReusedSubjectDeclarationPattern_RaisesBindingButRetainsTemp()
+    {
+        var output = Print(
+            typeof(SubjectReusedDeclarationPatternSpecimens<,>),
+            nameof(SubjectReusedDeclarationPatternSpecimens<object, object>.ReusedSubject));
+
+        var match = Regex.Match(output, @"if \((\w+) is T (V_\d+)\)");
+        Assert.True(match.Success, output);
+        var subject = match.Groups[1].Value;
+        // The subject temp survives (assigned once, read by the pattern and the
+        // trailing use) rather than being inlined.
+        Assert.Contains($"{subject} = Subject;", output);
+        Assert.Contains($"Console.WriteLine({subject})", output);
+        Assert.Contains($"Console.WriteLine({match.Groups[2].Value})", output);
+        Assert.DoesNotContain("(object)", output);
         Assert.DoesNotContain("as T", output);
     }
 
@@ -338,7 +383,79 @@ public class GenericDeclarationPatternExtractionTests
         Assert.DoesNotContain("as T", output);
     }
 
-    // Synthetic (#2831 proof-boundary, flat-guard positive): the
+    // Synthetic (#2862 pass-level positive): a provable single-guard extraction,
+    // run through the full pipeline, is raised by IsPatternPass to a
+    // declaration-pattern binding rather than left on the printer's bridge.
+    [Fact]
+    public void ProvenGuard_RaisesThroughPipeline()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var then = new Block();
+        then.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+        var outer = new Block();
+        outer.Add(new IfStatement(new IsInstance(generic, ReadLocal()), then, null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"V_0 is T V_\d+", output);
+        Assert.DoesNotContain("(object)", output);
+        Assert.DoesNotContain("as T", output);
+    }
+
+    // Synthetic (#2862 pass-level negative): a write to the tested local between
+    // the guard and the extraction breaks the "same unmutated value" invariant,
+    // so IsPatternPass must not raise a binding (one bound value cannot faithfully
+    // stand in for a re-read that may have changed); the bridge is retained.
+    [Fact]
+    public void InterveningWrite_DoesNotRaiseThroughPipeline()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, objectType, new Constant(null, objectType)));
+        then.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+        var outer = new Block();
+        outer.Add(new IfStatement(new IsInstance(generic, ReadLocal()), then, null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        // The guard is left as a bare type test with no binding: the pass must
+        // not mint a pattern local when the tested value may have changed.
+        Assert.Contains("if (V_0 is T)", output);
+        Assert.DoesNotMatch(@"is T V_\d+", output);
+    }
+
+    static string RunPipelineAndPrint(IrFunction function)
+    {
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        return CSharpPrinter.Print(function).Output!;
+    }
     // "jump-target-is-the-success-path" polarity — `if (x is T) goto Success;`
     // — that IsProvenByFlatGuard's non-negated case handles, exercised directly
     // since it does not arise in any compiled fixture in this file. A single
@@ -691,6 +808,19 @@ public class GenericDeclarationPatternExtractionTests
         Assert.True(guardedLocal.Success, output);
         Assert.Contains($"(T)(object)({guardedLocal.Groups[1].Value})", output);
     }
+
+    // #2862: a raised generic declaration pattern binds a local in the guard and
+    // uses only that binding in the guarded body, with the subject inlined (no
+    // `(object)` bridge, no `as T`, no lowering-only subject temp store).
+    static void AssertRaisedBinding(string output)
+    {
+        var match = Regex.Match(output, @"if \(Subject is T (V_\d+)\)");
+        Assert.True(match.Success, output);
+        Assert.Contains($"Console.WriteLine({match.Groups[1].Value})", output);
+        Assert.DoesNotContain("(object)", output);
+        Assert.DoesNotContain("as T", output);
+        Assert.DoesNotContain("= Subject;", output);
+    }
 }
 
 public class GenericDeclarationPatternSpecimens<T, TSubject>
@@ -705,6 +835,38 @@ public class GenericDeclarationPatternSpecimens<T, TSubject>
         {
             System.Console.WriteLine(t);
         }
+    }
+
+    // #2862 robustness: the binding is read at two dominated sites; csc re-tests
+    // and unboxes at each, so both extractions must collapse onto one raised
+    // pattern local.
+    public void MultipleUses()
+    {
+        if (Subject is T t)
+        {
+            System.Console.WriteLine(t);
+            System.Console.WriteLine(t);
+        }
+    }
+}
+
+// #2862 slice-2 boundary: the subject cache is read again after the guard, so
+// the lowering-only temp cannot be inlined into the pattern (it is not
+// single-use). The binding is still raised, but the `TSubject V = Subject;`
+// store must survive.
+public class SubjectReusedDeclarationPatternSpecimens<T, TSubject>
+{
+    public TSubject Subject { get; set; } = default!;
+
+    public void ReusedSubject()
+    {
+        TSubject subject = Subject;
+        if (subject is T t)
+        {
+            System.Console.WriteLine(t);
+        }
+
+        System.Console.WriteLine(subject);
     }
 }
 

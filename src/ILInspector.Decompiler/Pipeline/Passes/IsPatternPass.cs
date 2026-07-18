@@ -64,10 +64,128 @@ public sealed class IsPatternPass : IIrPass
             || FoldClassUnionNullConditionalReturnOne(function, context.Stepper)
             || TransformRecursivePropertyDeclaration(function, context.Stepper)
             || FoldPositionalPatternReturnOne(function, context.Stepper)
-            || FoldUnionValueReceiverCopy(function, context.Stepper))
+            || FoldUnionValueReceiverCopy(function, context.Stepper)
+            || RaiseGenericDeclarationPattern(function, context.Stepper)
+            || InlineGenericPatternSubject(function, context.Stepper))
         {
         }
     }
+
+    // #2862: raise csc's generic (unconstrained/struct-constrained) declaration-
+    // pattern extraction to a real binding. The lowering caches the subject in a
+    // read-only temp, tests it with `isinst`, and — because `T t = subject as T` is
+    // illegal for a non-class-constrained T — re-tests and unboxes the value inline
+    // at each use (`UnboxAny T(IsInstance T(x))`), the shape #2856 renders through an
+    // `(object)` bridge. When the guarding `if (x is T)` structurally dominates every
+    // such extraction (the #2856 proof boundaries) and the tested value is stable
+    // (single-assignment, no managed address), introduce `if (x is T t)` and rewrite
+    // the dominated extractions to load the bound `t`. Only the positive, structured
+    // shape is raised: `x is not T t` is illegal C# (CS8780), so negated/flat-CFG
+    // guards stay on the #2856 object-bridge fallback.
+    static bool RaiseGenericDeclarationPattern(IrFunction function, Stepper stepper)
+    {
+        foreach (var ifStatement in function.Descendants.OfType<IfStatement>().ToList())
+        {
+            if (ifStatement.Condition is not IsInstance guard
+                || !GenericDeclarationPatternProof.IsReadOnlyOperand(guard.Operand))
+            {
+                continue;
+            }
+
+            var sites = ifStatement.Then.Descendants
+                .OfType<UnboxAny>()
+                .Where(unbox => unbox.Type.Equals(guard.Type)
+                    && unbox.Operand is IsInstance inner
+                    && inner.Type.Equals(guard.Type)
+                    && GenericDeclarationPatternProof.SameTestedValue(inner.Operand, guard.Operand))
+                .ToList();
+            if (sites.Count == 0)
+                continue;
+
+            // Reuse #2856's dominance/aliasing proof for every extraction, and require
+            // the tested value to be single-assignment so one bound `t` faithfully
+            // stands in for every dominated re-extraction. If any dominated extraction
+            // is not provable, retain the lowered shape rather than binding a subset
+            // (which would strand the unprovable extraction with no visible `t`).
+            if (!IsStableTestedValue(function, guard.Operand)
+                || !sites.All(site => GenericDeclarationPatternProof.IsProvenSuccessfulTypeTest(site, (IsInstance)site.Operand)))
+            {
+                continue;
+            }
+
+            int patternLocal = function.AddLocal(guard.Type);
+            // The tested value is boxed to `object` for the IL `isinst`; the C# pattern
+            // tests the unboxed value directly, so drop an outer box when present.
+            var testedValue = guard.Operand is Box outerBox ? outerBox.Operand : guard.Operand;
+            var pattern = new IsPattern((IrExpression)testedValue.Clone(), guard.Type, patternLocal);
+            stepper.StepOver("raise generic declaration pattern", ifStatement);
+            ifStatement.Condition.ReplaceWith(pattern);
+            foreach (var site in sites)
+                site.ReplaceWith(new LoadLocal(patternLocal, guard.Type));
+            return true;
+        }
+        return false;
+    }
+
+    // #2862 slice 2: fold the lowering-only subject temp into the pattern. After the
+    // binding is raised, csc's `TSubject V = subject; if (V is T t)` still names the
+    // cache; when V feeds only the pattern's value and the pattern is the guard's
+    // whole condition (so the subject stays first-evaluated and evaluated exactly
+    // once), inline it to `if (subject is T t)`. Retain the temp on any other use of
+    // V, a self-reference, or a compound condition (an evaluation-order risk).
+    static bool InlineGenericPatternSubject(IrFunction function, Stepper stepper)
+    {
+        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        {
+            var children = block.Children;
+            for (int i = 0; i + 1 < children.Count; i++)
+            {
+                // The generic type test boxes the tested value, so the pattern's value
+                // is `Box(LoadLocal V)`; peel the box to reach the local reference and
+                // inline into it, leaving the box (printed as `(subject) is T t`).
+                if (children[i] is not StoreLocal store
+                    || children[i + 1] is not IfStatement { Condition: IsPattern pattern })
+                {
+                    continue;
+                }
+
+                var load = pattern.Value switch
+                {
+                    Box { Operand: LoadLocal boxed } => boxed,
+                    LoadLocal bare => bare,
+                    _ => null,
+                };
+                if (load is null || load.Index != store.Index)
+                    continue;
+
+                if (ReferenceOwnership.SubtreeReferencesLocal(store.Value, store.Index)
+                    || !ReferenceOwnership.LocalReferencesOnlyWithin(function, store.Index, [store, load]))
+                {
+                    continue;
+                }
+
+                var value = (IrExpression)store.DetachChildren()[0];
+                stepper.StepOver("inline generic declaration-pattern subject", children[i + 1]);
+                load.ReplaceWith(value);
+                store.Detach();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Whether the tested value cannot change between its definition and any dominated
+    // extraction: a local written at most once, an argument never reassigned, or a
+    // box/constant over such a value. Combined with #2856's no-managed-address proof
+    // this makes one bound pattern local a faithful stand-in for every re-extraction.
+    static bool IsStableTestedValue(IrFunction function, IrExpression value) => value switch
+    {
+        LoadLocal load => function.Descendants.Count(node => node is StoreLocal store && store.Index == load.Index) <= 1,
+        LoadArgument argument => !function.Descendants.Any(node => node is StoreArgument store && store.Index == argument.Index),
+        Box box => IsStableTestedValue(function, box.Operand),
+        Constant => true,
+        _ => false,
+    };
 
     static bool TransformOne(IrFunction function, Stepper stepper)
     {
