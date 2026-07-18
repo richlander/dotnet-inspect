@@ -61,14 +61,39 @@ public class MemberBodyFactsTests
     public void ReferencedNamespaces_ResultIsOrdinalSorted()
     {
         // The usings the harness builds from this set depend on a stable ordinal
-        // ordering, so the query must return its namespaces sorted.
+        // ordering, so the query must return its namespaces sorted. HPack and
+        // Headers are chosen because their ordinal order (HPack, then Headers)
+        // differs from their culture-aware and case-insensitive order (Headers,
+        // then HPack): a regression to a culture-aware or case-insensitive
+        // comparer would fail this assertion even though it would pass for
+        // System/System.Text/System.Collections.Generic, whose relative order is
+        // the same under every comparer.
         var namespaces = NamespacesFor(
             typeof(NamespaceRefSample).FullName!,
-            nameof(NamespaceRefSample.ReferencesTextAndGenerics));
+            nameof(NamespaceRefSample.ReferencesCaseOrderFlippedNamespaces));
 
         Assert.Equal(
             namespaces.OrderBy(ns => ns, StringComparer.Ordinal).ToArray(),
             namespaces.ToArray());
+        Assert.NotEqual(
+            namespaces.OrderBy(ns => ns, StringComparer.OrdinalIgnoreCase).ToArray(),
+            namespaces.ToArray());
+    }
+
+    [Fact]
+    public void ReferencedNamespaces_ReportsFunctionPointerComponentNamespaces()
+    {
+        // FunctionPointerNamespaceFixtures is referenced only through the
+        // function pointer parameter's return type and argument type
+        // (delegate*<ParameterMarker, ReturnMarker>), never as an ordinary
+        // local, field, or parameter/return type. Close-negative coverage for
+        // issue #2847: before TypeRefKind.FunctionPointer was added to the
+        // Add() switch, this namespace was silently omitted.
+        var namespaces = NamespacesFor(
+            typeof(NamespaceRefSample).FullName!,
+            nameof(NamespaceRefSample.ReferencesNamespacesOnlyThroughFunctionPointer));
+
+        Assert.Contains("FunctionPointerNamespaceFixtures", namespaces);
     }
 
     [Fact]

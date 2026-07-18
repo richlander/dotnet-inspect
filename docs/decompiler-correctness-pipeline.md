@@ -1,4 +1,4 @@
-# Decompiler Correctness Pipeline
+# Decompiler correctness pipeline
 
 This document designs the decompiler test and harness stack as an intentionally
 staged correctness gauntlet. It is **not** just a catalog of today's harness
@@ -9,6 +9,11 @@ first-class correctness system we want agents and maintainers to use.
 output. [decompiler-quality.md](decompiler-quality.md) explains the quality
 strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
+
+For raising, typing, structuring, fidelity, or printer changes, continue to
+[raise-work discipline](decompiler-raise-discipline.md) and use the
+[decompiler PR template](templates/decompiler-pr.md). The harness command
+reference lives in [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
 
 The core idea is to stop treating the harness modes as a bag of independent
 tools. They should behave like a staged pipeline. Early stages are cheap, local,
@@ -56,7 +61,7 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
-## Entry gate checklist (Stage 0)
+## Entry gate checklist (stage 0)
 
 The entry gate is the one stage that must be green for **every** decompiler PR
 before any higher boss is claimed. It proves only that the code builds and the

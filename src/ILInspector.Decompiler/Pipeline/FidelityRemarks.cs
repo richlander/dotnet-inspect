@@ -94,7 +94,7 @@ public static class FidelityRemarks
                         node,
                         "residual exception filter boundary (endfilter) with no standalone C# spelling");
                     break;
-                case Continue:
+                case Continue { Origin: ContinueOrigin.Unverified }:
                     yield return Cause(
                         DiagnosticIds.UnverifiedContinue,
                         LocationOf(node),

@@ -9618,6 +9618,40 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PInvokeMethods_DeclaringTypeAndSignature_RenderAsCodeSpansWithFunctionPointerPunctuation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Diagnostics.Process",
+            "--section", "P/Invoke Methods", "-v:d", "--tips", "q");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        Assert.Contains("`Interop.User32`", output);
+        // Function-pointer signature renders as a code span with literal punctuation (no escaped angle brackets).
+        Assert.Contains(
+            "`Interop.BOOL EnumWindows(delegate* unmanaged<nint, nint, Interop.BOOL> callback, nint extraData)`",
+            output);
+        Assert.DoesNotContain("&#96;", output);
+        Assert.DoesNotContain("&lt;", output);
+        Assert.DoesNotContain("&gt;", output);
+    }
+
+    [Fact]
+    public async Task PInvokeMethods_MachineOutput_KeepsRawValuesWithoutCodeMarkup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Diagnostics.Process",
+            "--section", "P/Invoke Methods", "--jsonl");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        Assert.Contains("\"declaring_type\":\"Interop.User32\"", output);
+        Assert.Contains(
+            "\"signature\":\"Interop.BOOL EnumWindows(delegate* unmanaged<nint, nint, Interop.BOOL> callback, nint extraData)\"",
+            output);
+        Assert.DoesNotContain("<code>", output);
+        Assert.DoesNotContain("`", output);
+    }
+
+    [Fact]
     public async Task Project_SkillsPrint_JsonlIsSingleCompactRecord()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(

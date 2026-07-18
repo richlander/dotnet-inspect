@@ -3,15 +3,7 @@
   "command": "decompiler-harness [corpus] --compile-cap 0 --corpus-fidelity-cap 3 --corpus-fidelity-oracle rts-parity --emit-rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json",
   "rows": [
     {
-      "method": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader::CheckPdbHeader#0",
-      "status": "RecompileFail"
-    },
-    {
       "method": "ILInspector.Analysis!ILInspector.Analysis.LibraryBodyIndex::HollowUnsafeMethods#0",
-      "status": "RecompileFail"
-    },
-    {
-      "method": "ILInspector.MetadataPrimitives!ILInspector.Metadata.TypeResolver::GetTypeNameFromReference#0",
       "status": "RecompileFail"
     },
     {
