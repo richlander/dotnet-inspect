@@ -106,14 +106,8 @@ internal static class CSharpSpellability
     static NameIssue? FieldIssue(FieldRef field)
     {
         string name = field.BackingPropertyName ?? field.Name;
-        if (CSharpNaming.IsUsableIdentifier(name))
-            return null;
         if (CSharpNaming.IsEscapableIdentifier(name))
-        {
-            return Issue(
-                DecompilerFidelityDiscriminators.EscapableFieldName,
-                $"field name '{field.Name}' requires C# @ escaping");
-        }
+            return null;
         return Issue(
             GeneratedCodeIdentity.IsGeneratedFieldName(name)
                 ? DecompilerFidelityDiscriminators.GeneratedFieldName

@@ -65,6 +65,16 @@ public class CfgSampleClass
 
     public static int ContextualKeywordParam(int @await) => @await + 1;
 
+    // Field metadata stores the bare keyword; reads, writes, and raised member
+    // suffixes must all restore the source escape.
+    public string? @else;
+
+    public static string? ReadKeywordField(CfgSampleClass value) => value.@else;
+
+    public static void WriteKeywordField(CfgSampleClass value, string? input) => value.@else = input;
+
+    public static string? ReadKeywordFieldNullConditional(CfgSampleClass? value) => value?.@else;
+
     public static int @return(int value) => value + 1;
 
     public static int CallsKeywordStaticMethod(int value) => @return(value);

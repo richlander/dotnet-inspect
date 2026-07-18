@@ -317,12 +317,20 @@ public sealed partial class CSharpPrinter
 
     string NullConditionalSuffix(IrExpression member) => member switch
     {
-        LoadField field => $".{field.Field.Name}",
+        LoadField field => NullConditionalFieldSuffix(field.Field),
         LoadProperty property when property.IndexArguments.Count > 0 => $"[{Arguments(property.IndexArguments)}]",
         LoadProperty property => $".{property.PropertyName}",
         Call call => NullConditionalCallSuffix(call),
         _ => $".{member.Describe()}",
     };
+
+    static string NullConditionalFieldSuffix(FieldRef field)
+    {
+        string name = field.BackingPropertyName
+            ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
+            ?? field.Name;
+        return $".{CSharpNaming.SafeIdentifier(name)}";
+    }
 
     string NullConditionalCallSuffix(Call call)
     {

@@ -3,10 +3,8 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
-// A parameter (or any metadata identifier) whose name is a C# reserved keyword
-// must be @-escaped in the rendered body — a bare `delegate` is CS1001
-// "Identifier expected". Locals are already synthetic (V_0/S_0) or keyword-
-// filtered, so the live case is parameter names.
+// A metadata identifier whose name is a C# reserved keyword must be @-escaped
+// in the rendered body — a bare `delegate` is CS1001 "Identifier expected".
 public class KeywordIdentifierTests
 {
     static readonly TypeRef AwaitType = TypeRef.Definition("Synthetic", "", "Await");
@@ -38,6 +36,62 @@ public class KeywordIdentifierTests
 
         Assert.Contains("@await + 1", output);
         Assert.DoesNotContain(" await", output);
+    }
+
+    [Fact]
+    public void KeywordFieldRead_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.ReadKeywordField));
+
+        Assert.Contains("value.@else", output);
+        Assert.DoesNotContain("value.else", output);
+    }
+
+    [Fact]
+    public void KeywordFieldWrite_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.WriteKeywordField));
+
+        Assert.Contains("value.@else = input", output);
+        Assert.DoesNotContain("value.else", output);
+    }
+
+    [Fact]
+    public void LoweredNullConditionalKeywordFieldRead_IsEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.ReadKeywordFieldNullConditional));
+
+        Assert.Contains("value.@else", output);
+        Assert.DoesNotContain("value.else", output);
+    }
+
+    [Fact]
+    public void RaisedNullConditionalKeywordFieldRead_IsEscaped()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var value = new LoadArgument(0, "value", holder);
+        var field = new FieldRef(holder, "else", stringType);
+        var body = new BlockContainer();
+        var block = new Block();
+        body.Add(block);
+        block.Add(new Return(new NullConditional(new LoadField(field, value))));
+        var function = new IrFunction(
+            "M",
+            holder,
+            new MethodSignature(
+                stringType,
+                [new Parameter("value", holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("value?.@else", output);
+        Assert.DoesNotContain("value?.else", output);
     }
 
     [Fact]
