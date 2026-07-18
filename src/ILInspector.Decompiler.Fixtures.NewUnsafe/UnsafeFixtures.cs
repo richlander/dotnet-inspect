@@ -73,7 +73,39 @@ public struct FixedBufferResiduals
         }
     }
 
+    public static int PointerLocalValue(int index)
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            int* p = null;
+            p = &value.Data[index];
+            *p = 42;
+            return *p;
+        }
+    }
+
+    public static int* PointerReturn(int index)
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            return &value.Data[index];
+        }
+    }
+
+    public static void PointerArgument(int index)
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            ConsumePointer(&value.Data[index]);
+        }
+    }
+
     static void Increment(ref int value) => value++;
+
+    static unsafe void ConsumePointer(int* value) => _ = value;
 }
 
 public struct FixedBufferPrimitiveResiduals

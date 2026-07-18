@@ -172,6 +172,49 @@ public class FixedBufferElementAccessPassTests
     }
 
     [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferPointerLocal_RendersSourceAddressAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "PointerLocalValue");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("&value.Data[index]", output);
+        Assert.Contains("*p = 42;", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferPointerReturn_RendersSourceAddressAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "PointerReturn");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("return &value.Data[index];", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferPointerArgument_RendersSourceAddressAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "PointerArgument");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("ConsumePointer(&value.Data[index]);", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
     [MemberData(nameof(PrimitiveFixedBufferFixtures))]
     public void CompilerFixedBufferPrimitiveRead_RendersSourceIndexingAndReachesFull(
         string assemblyPath,
@@ -419,6 +462,51 @@ public class FixedBufferElementAccessPassTests
         var function = SyntheticNativeAddressCast(
             BufferField(FixedBuffer(Int32)),
             ElementField(Backing, Int32));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PointerLocalElementMismatch_IsNotRaised()
+    {
+        var function = SyntheticPointerLocal(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            pointerElement: Int64);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PointerReturnVoidPointer_IsNotRaised()
+    {
+        var function = SyntheticPointerReturn(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            pointerElement: Void);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PointerArgumentElementMismatch_IsNotRaised()
+    {
+        var function = SyntheticPointerCall(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            pointerElement: Int64);
 
         new FixedBufferElementAccessPass().Run(function, PassContext.None);
 
@@ -782,12 +870,84 @@ public class FixedBufferElementAccessPassTests
             body);
     }
 
+    static IrFunction SyntheticPointerLocal(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef pointerElement)
+    {
+        var pointerType = TypeRef.Pointer(pointerElement);
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            pointerType,
+            FixedElementPointerAddress(bufferField, elementField)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [pointerType],
+            body);
+    }
+
+    static IrFunction SyntheticPointerReturn(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef pointerElement)
+    {
+        var pointerType = TypeRef.Pointer(pointerElement);
+        var block = new Block();
+        block.Add(new Return(FixedElementPointerAddress(bufferField, elementField)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(pointerType, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticPointerCall(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef pointerElement)
+    {
+        var callee = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Consumer"),
+            "ConsumePointer",
+            Void,
+            [TypeRef.Pointer(pointerElement)],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            callee,
+            isVirtual: false,
+            [FixedElementPointerAddress(bufferField, elementField)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static Binary FixedElementAddress(FieldRef bufferField, FieldRef elementField, IrExpression offset)
     {
         var sourceFieldAddress = new LoadFieldAddress(bufferField, new LoadArgument(0, "this", Owner));
         var elementFieldAddress = new LoadFieldAddress(elementField, sourceFieldAddress);
         return new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, elementFieldAddress, offset);
     }
+
+    static Convert FixedElementPointerAddress(FieldRef bufferField, FieldRef elementField)
+        => new(
+            NUInt,
+            isChecked: false,
+            isUnsigned: true,
+            FixedElementAddress(bufferField, elementField, FixedElementOffset(4)));
 
     static Binary FixedElementOffset(int scale)
         => new(

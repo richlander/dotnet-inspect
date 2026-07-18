@@ -621,6 +621,18 @@ public class ReturnToSenderFixtureCatalogTests
                         "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
                         "RefLocalIncrement",
                         Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PointerLocalValue",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PointerReturn",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PointerArgument",
+                        Overload: 0),
                 ]),
             ReturnToSenderSourceProbe.EvaluateTargets(
                 FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
@@ -640,6 +652,18 @@ public class ReturnToSenderFixtureCatalogTests
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
                         "RefLocalIncrement",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PointerLocalValue",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PointerReturn",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PointerArgument",
                         Overload: 0),
                 ]),
         }.SelectMany(static result => result).ToArray();

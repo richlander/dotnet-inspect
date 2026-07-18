@@ -51,12 +51,27 @@ public sealed class FixedBufferElementAccessPass : IIrPass
                     store.Value.ReplaceWith(localAddress);
                     break;
 
+                case StoreLocal store
+                    when store.Type is { Kind: TypeRefKind.Pointer }
+                        && TryCreatePointerAddress(store.Value, store.Type, out var pointerLocalAddress):
+                    context.Stepper.StepOver("raise fixed-buffer pointer local source", store.Value);
+                    ((Convert)store.Value).Operand.ReplaceWith(pointerLocalAddress);
+                    break;
+
                 case Return ret
                     when function.Signature.ReturnType is { Kind: TypeRefKind.ByRef, ElementType: { } element }
                         && ret.Value is { } value
                         && TryCreate(value, element, AccessKind.Address, out var returnAddress):
                     context.Stepper.StepOver("raise fixed-buffer ref return source", value);
                     value.ReplaceWith(returnAddress);
+                    break;
+
+                case Return ret
+                    when function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } pointerType
+                        && ret.Value is { } value
+                        && TryCreatePointerAddress(value, pointerType, out var pointerReturnAddress):
+                    context.Stepper.StepOver("raise fixed-buffer pointer return source", value);
+                    ((Convert)value).Operand.ReplaceWith(pointerReturnAddress);
                     break;
 
                 case Call call:
@@ -70,6 +85,20 @@ public sealed class FixedBufferElementAccessPass : IIrPass
     {
         var arguments = call.Arguments;
         int firstParameterArgument = call.Callee.HasThis ? 1 : 0;
+        for (int argumentIndex = firstParameterArgument; argumentIndex < arguments.Count; argumentIndex++)
+        {
+            int parameterIndex = argumentIndex - firstParameterArgument;
+            if (parameterIndex >= call.Callee.ParameterTypes.Length
+                || call.Callee.ParameterTypes[parameterIndex] is not { Kind: TypeRefKind.Pointer } pointerType
+                || !TryCreatePointerAddress(arguments[argumentIndex], pointerType, out var argumentAddress))
+            {
+                continue;
+            }
+
+            context.Stepper.StepOver("raise fixed-buffer pointer argument source", arguments[argumentIndex]);
+            ((Convert)arguments[argumentIndex]).Operand.ReplaceWith(argumentAddress);
+        }
+
         if (call.Callee.ParameterRefKindsFacts != ParameterRefKindFacts.Known
             || call.Callee.ParameterRefKinds.Length < call.Callee.ParameterTypes.Length)
         {
@@ -90,6 +119,22 @@ public sealed class FixedBufferElementAccessPass : IIrPass
             context.Stepper.StepOver("raise fixed-buffer ref argument source", arguments[argumentIndex]);
             arguments[argumentIndex].ReplaceWith(argumentAddress);
         }
+    }
+
+    static bool TryCreatePointerAddress(IrExpression value, TypeRef expectedPointer, out FixedBufferElementAddress access)
+    {
+        access = null!;
+        if (expectedPointer is not { Kind: TypeRefKind.Pointer, ElementType: { } expectedElement }
+            || value is not Convert
+            {
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+                Operand: { } address,
+            })
+        {
+            return false;
+        }
+
+        return TryCreate(address, expectedElement, AccessKind.Address, out access);
     }
 
     static bool TryCreate(IrExpression address, TypeRef expectedElement, AccessKind accessKind, out FixedBufferElementAddress access)
