@@ -83,15 +83,34 @@ public class OperandFidelityProfileTests
         Assert.False(diff.OperandFidelity.IsExact);
     }
 
+    [Fact]
+    public void OperandFidelityV1_PreservesPlatformLikeStringLiterals()
+    {
+        var diff = CompareImages(
+            BuildStringImage("Old", "[System.Runtime]"),
+            BuildStringImage("New", "[System.Private.CoreLib]"));
+
+        Assert.False(diff.OperandFidelity.IsExact);
+        Assert.Contains(diff.OperandFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Runtime", StringComparison.Ordinal) == true);
+        Assert.Contains(diff.OperandFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Private.CoreLib", StringComparison.Ordinal) == true);
+    }
+
     static MethodInstructions Decode(byte[] il)
         => MethodInstructions.Decode(il, il.Length, exceptionRegions: []);
 
     static (IlBodyDiffResult Default, IlBodyDiffResult OperandFidelity) CompareCallImages(
         string oldReference,
         string newReference)
+        => CompareImages(
+            BuildCallImage("Old", oldReference),
+            BuildCallImage("New", newReference));
+
+    static (IlBodyDiffResult Default, IlBodyDiffResult OperandFidelity) CompareImages(
+        byte[] oldImage,
+        byte[] newImage)
     {
-        using var oldPe = new PEReader(new MemoryStream(BuildCallImage("Old", oldReference)));
-        using var newPe = new PEReader(new MemoryStream(BuildCallImage("New", newReference)));
+        using var oldPe = new PEReader(new MemoryStream(oldImage));
+        using var newPe = new PEReader(new MemoryStream(newImage));
         var oldReader = oldPe.GetMetadataReader();
         var newReader = newPe.GetMetadataReader();
         var oldMethod = MetadataTokens.MethodDefinitionHandle(1);
@@ -159,6 +178,62 @@ public class OperandFidelityProfileTests
         var il = new BlobBuilder();
         var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
         encoder.Call(target);
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(encoder);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildStringImage(string assemblyName, string value)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var il = new BlobBuilder();
+        var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
+        encoder.LoadString(metadata.GetOrAddUserString(value));
+        encoder.OpCode(ILOpCode.Pop);
         encoder.OpCode(ILOpCode.Ret);
         var methodBodies = new BlobBuilder();
         int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(encoder);

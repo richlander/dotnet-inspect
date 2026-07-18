@@ -579,7 +579,9 @@ public static class IlBodyDiff
                     OperandKind.InlineSig => ResolveSignature((int)instruction.OperandValue),
                     _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
                 };
-                if (profile == IlBodyDiffProfile.OperandFidelityV1 && reader.IsAssembly)
+                if (profile == IlBodyDiffProfile.OperandFidelityV1
+                    && reader.IsAssembly
+                    && instruction.Operand != OperandKind.InlineString)
                 {
                     string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
                     value = value.Replace($"[{assembly}]", "[<current>]", StringComparison.Ordinal);

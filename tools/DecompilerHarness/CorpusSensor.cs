@@ -255,6 +255,10 @@ internal static class CorpusSensor
     internal static string ReadBaselineTextForTesting(string path, string? gitRef)
         => ReadBaselineText(path, gitRef);
 
+    internal static CorpusSensorSnapshot ReadBaselineForTesting(string path)
+        => JsonSerializer.Deserialize<CorpusSensorSnapshot>(File.ReadAllText(path), JsonOptions())
+            ?? throw new InvalidOperationException($"Could not read corpus baseline '{path}'.");
+
     static (CorpusSensorSnapshot Snapshot, ImmutableArray<FidelityCapReport> Reports) Capture(
         IReadOnlyList<string> assemblies,
         int validityCompileCap,

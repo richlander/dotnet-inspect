@@ -31,6 +31,29 @@ public class CorpusSensorComparisonTests
         Assert.Contains("\"description\"", baseline);
     }
 
+    [Theory]
+    [InlineData("pr-quick-baseline.json")]
+    [InlineData("real-world-baseline.json")]
+    [InlineData("opt-in-net11-baseline.json")]
+    public void CommittedCorpusBaseline_Deserializes(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus",
+            fileName);
+
+        var baseline = CorpusSensor.ReadBaselineForTesting(path);
+
+        Assert.True(baseline.SchemaVersion > 0);
+    }
+
     [Fact]
     public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
     {
