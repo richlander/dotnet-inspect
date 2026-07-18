@@ -5,8 +5,9 @@ Use this for decompiler PRs that affect raising, structuring, validity,
 fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
 tables generated; do not re-key metric rows by hand.
 
-For raise PRs, keep Before, After, and Fully Raised. After records this PR's
-output; Fully Raised records the intended endpoint.
+Every raise PR must keep Before, After, and Fully Raised. Before and After must
+each show a concrete C# example. After records this PR's output; Fully Raised
+records the intended endpoint.
 
 For focused invalid-Full / burndown row fixes, prefer
 `docs/templates/decompiler-burndown-fix-pr.md`.
@@ -37,19 +38,24 @@ For focused invalid-Full / burndown row fixes, prefer
 ### Fully Raised
 
 <!--
-If After is fully raised, write exactly:
+Required for every raise PR. Choose one:
 
-The After decompilation is in the fully raised state.
+1. If After is fully raised, write exactly:
 
-Otherwise, show the intended fully raised C# below and link one or more
-tracking issues that name the slices required to reach it.
+   The After decompilation is in the fully raised state.
+
+   Then delete the code block and tracking-issue item below.
+
+2. Otherwise, show the intended fully raised C# below. At least one tracking
+   issue is required, and each linked issue must name the remaining slice or
+   slices needed to reach that state.
 -->
 
 ```csharp
 // intended fully raised output; delete when After is fully raised
 ```
 
-- #{issue}: {required slice; delete when After is fully raised}
+- Required tracking issue: #{issue} — {remaining slice or slices}
 
 ## Evidence
 
