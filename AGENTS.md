@@ -226,7 +226,7 @@ follow-up so readiness remains unambiguous.
 
 Any PR with non-trivial behavior changes, new heuristics or shapes, or subtle
 correctness, security, or compatibility risk requires adversarial review from
-two different models chosen from:
+two different models (latest versions) chosen from:
 
 - Claude Opus
 - Gemini Pro
