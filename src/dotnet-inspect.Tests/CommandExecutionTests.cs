@@ -8087,6 +8087,9 @@ public class CommandExecutionTests
             Assert.Contains("Source Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
+            Assert.Contains("@All", output);
+            Assert.Contains("@Default", output);
+            Assert.Contains("section (opt-in)", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
