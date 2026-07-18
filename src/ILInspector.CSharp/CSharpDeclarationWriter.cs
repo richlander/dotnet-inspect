@@ -283,12 +283,29 @@ internal static class CSharpDeclarationWriter
     static bool NeedsTerminator(string declaration)
         => !declaration.EndsWith(';') && !declaration.EndsWith('}');
 
+    static bool IsExplicitInterfaceMemberName(string? name)
+        => !string.IsNullOrWhiteSpace(name)
+           && name != "this[]"
+           && name.Contains('.', StringComparison.Ordinal);
+
     static string RenderMemberDeclarationCore(
         ApiType type,
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
+        // A property/event whose member name is dotted is an explicit interface
+        // implementation (ordinary member names never contain '.'). When only the
+        // structured model is present (no compatibility Signature string), render it as a
+        // real explicit interface implementation: dotted Interface.Member name preserved
+        // and no access modifier, exactly like an explicit-interface-implementation method.
+        // When a compatibility Signature is supplied (the product's --all display surface),
+        // that authoritative display form is honored instead.
+        bool isExplicitInterfaceMember = member.Kind == "explicit-interface-implementation"
+            || (member.Kind is "property" or "event"
+                && string.IsNullOrEmpty(member.Signature)
+                && IsExplicitInterfaceMemberName(member.SignatureModel?.MemberName ?? member.Name));
+
         string signature;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
@@ -366,7 +383,7 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.Kind != "explicit-interface-implementation")
+        else if (!isExplicitInterfaceMember)
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
@@ -813,6 +830,20 @@ internal static class CSharpDeclarationWriter
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
             signature = AppendTypeParameterConstraints($"{returnType} {memberName}({parameters})", model.TypeParameters);
+            return true;
+        }
+        if (member.Kind == "property"
+            && string.IsNullOrEmpty(member.Signature)
+            && model.ReturnType is { Length: > 0 } explicitPropertyType
+            && model.Accessors.Count > 0
+            && IsExplicitInterfaceMemberName(model.MemberName ?? member.Name))
+        {
+            var explicitMemberName = string.IsNullOrWhiteSpace(model.MemberName)
+                ? member.Name
+                : model.MemberName!;
+            signature = options.OmitPropertyAccessors
+                ? $"{explicitPropertyType} {explicitMemberName}"
+                : $"{explicitPropertyType} {explicitMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
             return true;
         }
         if (member.Kind == "property"

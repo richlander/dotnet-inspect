@@ -713,7 +713,7 @@ public static class CompileBackSourceComposer
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var accessors = property.GetAccessors();
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
-        string propertyName = Identifier(reader.GetString(property.Name));
+        string propertyName = PropertyMemberName(reader.GetString(property.Name));
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
         bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
@@ -891,7 +891,7 @@ public static class CompileBackSourceComposer
         var propertySignature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, targetTypeDef));
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
-        string propertyName = Identifier(reader.GetString(property.Name));
+        string propertyName = PropertyMemberName(reader.GetString(property.Name));
         var returnType = CompileBackTypeSignature.Display(propertySignature.ReturnType);
         bool targetIsAutoProperty = IsAutoPropertySetter(reader, targetTypeDef, property, targetSetter, returnType.DisplayName);
 
@@ -2320,6 +2320,14 @@ public static class CompileBackSourceComposer
     static string StripArity(string name) => CSharpFormatter.StripArity(name);
 
     static string Identifier(string name) => CSharpIdentifier.Sanitize(name);
+
+    // Explicit interface implementations carry a dotted metadata name
+    // (Namespace.Interface.Member); ordinary members never contain '.'. Preserve the
+    // dotted name so the seam can render it as a real explicit interface implementation
+    // instead of sanitizing the dots into a bogus underscore identifier (which would not
+    // satisfy the declared interface -> CS0535).
+    static string PropertyMemberName(string rawName)
+        => rawName.Contains('.', StringComparison.Ordinal) ? rawName : Identifier(rawName);
 
     sealed class TypeProducer
     {

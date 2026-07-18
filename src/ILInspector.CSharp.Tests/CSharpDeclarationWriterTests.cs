@@ -418,6 +418,79 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void PropertyDeclaration_WithDottedName_RendersAsExplicitInterfaceImplementation()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Reader", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.Text.ILineInfo.LineNumber",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Some.Text.ILineInfo.LineNumber",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("int Some.Text.ILineInfo.LineNumber { get; }", declaration);
+    }
+
+    [Fact]
+    public void PropertyDeclaration_WithDottedName_RendersGetterAndSetterWithoutModifier()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Reader", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.Text.IValue.Payload",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "Some.Text.IValue.Payload",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                    new ApiAccessor { Kind = "set" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("string Some.Text.IValue.Payload { get; set; }", declaration);
+    }
+
+    [Fact]
+    public void PropertyDeclaration_WithDottedName_EscapesKeywordSegments()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Reader", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "event.class.Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "event.class.Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("int @event.@class.Value { get; }", declaration);
+    }
+
+    [Fact]
     public void IndexerDeclaration_EscapesStructuredKeywordParameterName()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
