@@ -26,6 +26,54 @@ public unsafe struct FixedBufferResiduals
     }
 }
 
+public unsafe struct FixedBufferPrimitiveResiduals
+{
+    public fixed bool Bools[4];
+    public fixed byte Bytes[4];
+    public fixed sbyte SBytes[4];
+    public fixed char Chars[4];
+    public fixed short Shorts[4];
+    public fixed ushort UShorts[4];
+    public fixed int Ints[4];
+    public fixed uint UInts[4];
+    public fixed long Longs[4];
+    public fixed ulong ULongs[4];
+    public fixed float Floats[4];
+    public fixed double Doubles[4];
+
+    public bool ReadBool(int index) => Bools[index];
+    public void WriteBool(int index, bool value) => Bools[index] = value;
+    public byte ReadByte(int index) => Bytes[index];
+    public void WriteByte(int index, byte value) => Bytes[index] = value;
+    public sbyte ReadSByte(int index) => SBytes[index];
+    public void WriteSByte(int index, sbyte value) => SBytes[index] = value;
+    public char ReadChar(int index) => Chars[index];
+    public void WriteChar(int index, char value) => Chars[index] = value;
+    public short ReadShort(int index) => Shorts[index];
+    public void WriteShort(int index, short value) => Shorts[index] = value;
+    public ushort ReadUShort(int index) => UShorts[index];
+    public void WriteUShort(int index, ushort value) => UShorts[index] = value;
+    public int ReadInt(int index) => Ints[index];
+    public void WriteInt(int index, int value) => Ints[index] = value;
+    public uint ReadUInt(int index) => UInts[index];
+    public void WriteUInt(int index, uint value) => UInts[index] = value;
+    public long ReadLong(int index) => Longs[index];
+    public void WriteLong(int index, long value) => Longs[index] = value;
+    public ulong ReadULong(int index) => ULongs[index];
+    public void WriteULong(int index, ulong value) => ULongs[index] = value;
+    public float ReadFloat(int index) => Floats[index];
+    public void WriteFloat(int index, float value) => Floats[index] = value;
+    public double ReadDouble(int index) => Doubles[index];
+    public void WriteDouble(int index, double value) => Doubles[index] = value;
+
+    public int ReadIntAtLong(long index) => Ints[index];
+    public int ReadIntAtUInt(uint index) => Ints[index];
+    public int ReadIntAtULong(ulong index) => Ints[index];
+    public void WriteIntAtLong(long index, int value) => Ints[index] = value;
+    public void WriteIntAtUInt(uint index, int value) => Ints[index] = value;
+    public void WriteIntAtULong(ulong index, int value) => Ints[index] = value;
+}
+
 public static class StringPinningResiduals
 {
     public static unsafe int FixedStringFirstChar(string value)

@@ -9,6 +9,13 @@ public sealed class FixedBufferElementAccessPass : IIrPass
 {
     public string Name => "fixed-buffer-element-access";
 
+    enum AccessKind
+    {
+        Read,
+        Write,
+        PinnedSource,
+    }
+
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var node in function.Descendants.ToList())
@@ -17,21 +24,21 @@ public sealed class FixedBufferElementAccessPass : IIrPass
             {
                 case LoadIndirect load
                     when load.Type is { } loadType
-                        && TryCreate(load.Address, loadType, out var loadAddress):
+                        && TryCreate(load.Address, loadType, AccessKind.Read, out var loadAddress):
                     context.Stepper.StepOver("raise fixed-buffer read address", load.Address);
                     load.Address.ReplaceWith(loadAddress);
                     break;
 
                 case StoreIndirect store
                     when store.Type is { } storeType
-                        && TryCreate(store.Address, storeType, out var storeAddress):
+                        && TryCreate(store.Address, storeType, AccessKind.Write, out var storeAddress):
                     context.Stepper.StepOver("raise fixed-buffer write address", store.Address);
                     store.Address.ReplaceWith(storeAddress);
                     break;
 
                 case StoreLocal store
                     when store.Type is { Kind: TypeRefKind.Pinned, ElementType: { Kind: TypeRefKind.ByRef, ElementType: { } element } }
-                        && TryCreate(store.Value, element, out var pinSource):
+                        && TryCreate(store.Value, element, AccessKind.PinnedSource, out var pinSource):
                     context.Stepper.StepOver("raise fixed-buffer pinned source", store.Value);
                     store.Value.ReplaceWith(pinSource);
                     break;
@@ -39,7 +46,7 @@ public sealed class FixedBufferElementAccessPass : IIrPass
         }
     }
 
-    static bool TryCreate(IrExpression address, TypeRef expectedElement, out FixedBufferElementAddress access)
+    static bool TryCreate(IrExpression address, TypeRef expectedElement, AccessKind accessKind, out FixedBufferElementAddress access)
     {
         access = null!;
         if (address is not Binary { Kind: BinaryKind.Add } add
@@ -47,7 +54,7 @@ public sealed class FixedBufferElementAccessPass : IIrPass
             || elementFieldAddress.Instance is not LoadFieldAddress bufferFieldAddress
             || bufferFieldAddress.Instance is null
             || bufferFieldAddress.Field.FixedBuffer is not { } fixedBuffer
-            || !ElementAccessTypeMatches(expectedElement, fixedBuffer.ElementType)
+            || !ElementAccessTypeMatches(expectedElement, fixedBuffer.ElementType, accessKind)
             || !elementFieldAddress.Field.Type.Equals(fixedBuffer.ElementType)
             || !elementFieldAddress.Field.DeclaringType.Equals(bufferFieldAddress.Field.Type)
             || !TryScaledPointerIndex(offset, fixedBuffer.ElementType, out var index))
@@ -88,16 +95,37 @@ public sealed class FixedBufferElementAccessPass : IIrPass
     static bool IsFixedElementField(LoadFieldAddress address)
         => address.Field.Name == "FixedElementField";
 
-    static bool ElementAccessTypeMatches(TypeRef observed, TypeRef element)
+    static bool ElementAccessTypeMatches(TypeRef observed, TypeRef element, AccessKind accessKind)
     {
         if (observed.Equals(element))
             return true;
 
-        return element is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Boolean" }
-                && observed is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Byte" }
-            || element is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" }
-                && observed is { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt16" };
+        if (accessKind == AccessKind.PinnedSource)
+            return false;
+
+        return accessKind == AccessKind.Read
+            ? ReadStorageTypeMatches(observed, element)
+            : WriteStorageTypeMatches(observed, element);
     }
+
+    static bool ReadStorageTypeMatches(TypeRef observed, TypeRef element)
+        => element is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && observed is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && (element.Name, observed.Name) is
+                ("Boolean", "Byte") or
+                ("Char", "UInt16") or
+                ("UInt64", "Int64");
+
+    static bool WriteStorageTypeMatches(TypeRef observed, TypeRef element)
+        => element is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && observed is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && (element.Name, observed.Name) is
+                ("Boolean", "SByte") or
+                ("Byte", "SByte") or
+                ("Char", "Int16") or
+                ("UInt16", "Int16") or
+                ("UInt32", "Int32") or
+                ("UInt64", "Int64");
 
     static bool TryScaledPointerIndex(IrExpression offset, TypeRef elementType, out IrExpression index)
     {
@@ -106,6 +134,8 @@ public sealed class FixedBufferElementAccessPass : IIrPass
             index = offset;
             return false;
         }
+
+        offset = NativeIntegerOperand(offset);
 
         if (TryConstantMultiple(offset, elementSize, out var multiple))
         {
@@ -146,18 +176,11 @@ public sealed class FixedBufferElementAccessPass : IIrPass
             : expression;
 
     static bool IsConstant(IrExpression expression, int value)
-        => expression is Constant { Value: int i } && i == value
-            || expression is Constant { Value: long l } && l == value;
+        => TryConstantInteger(expression, out var actual) && actual == value;
 
     static bool TryConstantMultiple(IrExpression expression, int divisor, out long multiple)
     {
-        long value = expression switch
-        {
-            Constant { Value: int i } => i,
-            Constant { Value: long l } => l,
-            _ => 0,
-        };
-        if (expression is not Constant { Value: int or long } || divisor == 0 || value % divisor != 0)
+        if (!TryConstantInteger(expression, out var value) || divisor == 0 || value % divisor != 0)
         {
             multiple = 0;
             return false;
@@ -165,6 +188,25 @@ public sealed class FixedBufferElementAccessPass : IIrPass
 
         multiple = value / divisor;
         return true;
+    }
+
+    static bool TryConstantInteger(IrExpression expression, out long value)
+    {
+        if (expression is Convert { Operand: { } operand })
+            expression = operand;
+
+        switch (expression)
+        {
+            case Constant { Value: int i }:
+                value = i;
+                return true;
+            case Constant { Value: long l }:
+                value = l;
+                return true;
+            default:
+                value = 0;
+                return false;
+        }
     }
 
     static int? ByteSize(TypeRef type)
