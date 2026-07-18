@@ -102,6 +102,14 @@ public class FidelityGateTests
         // is compile-back-checked on every fidelity-gate run rather than left to
         // the sampled corpus.
         "SwitchStoreThenUse",
+        // Issue2830_* are the protected-continue fallback fixtures. ForLoopPass
+        // deliberately leaves these as while loops because their increment
+        // blocks remain live leave targets; the printer's explicit default
+        // declaration before the initializer adds an opcode pair on
+        // compile-back. Valid fallback C#, but not opcode-exact.
+        "Issue2830_ForLoopEhCleanupContinue",
+        "Issue2830_ForLoopLeave",
+        "Issue2830_ForLoopNestedContinue",
         // CharConditionalElementStore (#1784): the char ternary element store
         // spills to temps and recompiles to a different (valid) stream. Honest
         // over-render. Pre-existing slow-docket gap surfaced by running the gate
