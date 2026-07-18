@@ -11,6 +11,22 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class SwitchIteratorReconstruction
 {
+    public static bool IsCandidate(IrFunction work)
+    {
+        if (!work.Regions.IsEmpty
+            || work.Body.Blocks.Count == 0
+            || work.Body.Blocks[0].Children is not [
+                StoreLocal { Value: LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" } },
+                SwitchBranch branch]
+            || branch.TargetOffsets.Length != 6)
+        {
+            return false;
+        }
+
+        return work.Descendants.OfType<StoreField>()
+            .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" }) == 5;
+    }
+
     public static bool TryReconstruct(IrFunction work, IrFunction kickoff, NewObject handoff, out List<IrNode> statements)
     {
         statements = [];
@@ -29,6 +45,12 @@ internal static class SwitchIteratorReconstruction
         }
 
         var graph = new BlockGraph(blocks);
+        if (!TryReadSwitchFallthrough(blocks[0], graph, out var fallthroughTerminal)
+            || !IsReturnFalse(fallthroughTerminal))
+        {
+            return false;
+        }
+
         var stateBlocks = new Dictionary<int, Block>();
         for (var state = 0; state < dispatch.TargetOffsets.Length; state++)
         {
@@ -38,7 +60,7 @@ internal static class SwitchIteratorReconstruction
         }
 
         var entry = stateBlocks[0];
-        if (!TryReadSwitchEntry(entry, graph, kickoff, out var switchValue, out var switchLocal, out var case0Offset, out var case1Offset, out var defaultOffset))
+        if (!TryReadSwitchEntry(entry, graph, kickoff, out var switchValue, out var switchLocal, out var secondDispatch, out var case0Offset, out var case1Offset, out var defaultOffset))
             return false;
         if (!graph.TryResolve(case0Offset, out var case0Block)
             || !graph.TryResolve(case1Offset, out var case1Block)
@@ -76,6 +98,27 @@ internal static class SwitchIteratorReconstruction
             || !TryReadYield(postBlock, kickoff, out var postValue, out var finalState)
             || finalState != 5
             || !IsTerminalState(stateBlocks[5]))
+        {
+            return false;
+        }
+
+        if (!AllDiscardedBlocksAreOwned(
+            blocks,
+            [
+                blocks[0],
+                fallthroughTerminal,
+                entry,
+                secondDispatch,
+                case0Block,
+                stateBlocks[1],
+                case1Block,
+                stateBlocks[2],
+                stateBlocks[3],
+                defaultBlock,
+                stateBlocks[4],
+                postBlock,
+                stateBlocks[5],
+            ]))
         {
             return false;
         }
@@ -120,10 +163,49 @@ internal static class SwitchIteratorReconstruction
         }
     }
 
-    static bool TryReadSwitchEntry(Block block, BlockGraph graph, IrFunction kickoff, out IrExpression switchValue, out int switchLocal, out int case0Offset, out int case1Offset, out int defaultOffset)
+    static bool TryReadSwitchFallthrough(Block dispatchBlock, BlockGraph graph, out Block terminal)
+    {
+        terminal = null!;
+        var current = graph.NextBlock(dispatchBlock);
+        var seen = new HashSet<Block>();
+        while (current is not null)
+        {
+            if (!seen.Add(current))
+                return false;
+            if (current.Children is [Branch branch])
+            {
+                if (!graph.TryResolve(branch.TargetOffset, out current))
+                    return false;
+                continue;
+            }
+
+            terminal = current;
+            return true;
+        }
+        return false;
+    }
+
+    static bool AllDiscardedBlocksAreOwned(IReadOnlyList<Block> blocks, IEnumerable<Block> owned)
+    {
+        var ownedSet = owned.ToHashSet();
+        foreach (var block in blocks)
+        {
+            if (ownedSet.Contains(block))
+                continue;
+            if (block.Children is [Branch])
+                continue;
+            if (IsReturnFalse(block))
+                continue;
+            return false;
+        }
+        return true;
+    }
+
+    static bool TryReadSwitchEntry(Block block, BlockGraph graph, IrFunction kickoff, out IrExpression switchValue, out int switchLocal, out Block secondDispatch, out int case0Offset, out int case1Offset, out int defaultOffset)
     {
         switchValue = null!;
         switchLocal = -1;
+        secondDispatch = null!;
         case0Offset = case1Offset = defaultOffset = -1;
 
         var children = block.Children;
@@ -169,6 +251,7 @@ internal static class SwitchIteratorReconstruction
             return false;
         }
         case1Offset = second.TargetOffset;
+        secondDispatch = secondBlock;
 
         if (graph.NextBlock(secondBlock) is not { Children: [Branch defaultBranch] })
             return false;
@@ -235,6 +318,9 @@ internal static class SwitchIteratorReconstruction
     static bool IsTerminalState(Block block)
         => block.Children is [var stateStore, Return { Value: Constant { Value: false or 0 } }]
             && IsStateStore(stateStore, -1);
+
+    static bool IsReturnFalse(Block block)
+        => block.Children is [Return { Value: Constant { Value: false or 0 } }];
 
     static bool IsStateStore(IrNode node, int value)
         => node is StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state", Value: Constant { Value: int state } }

@@ -9,6 +9,35 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class YieldBreakLoopIteratorReconstruction
 {
+    public static bool IsCandidate(IrFunction work)
+    {
+        if (!work.Regions.IsEmpty
+            || work.Body.Blocks.Count < 7
+            || work.Body.Blocks[0].Children is not [
+                StoreLocal { Value: LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" } } stateStore,
+                ConditionalBranch first]
+            || !IsState(first.Condition, stateStore.Index, state: 0)
+            || work.Descendants.OfType<StoreField>()
+                .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" }) != 1)
+        {
+            return false;
+        }
+
+        var graph = new BlockGraph(work.Body.Blocks);
+        if (!graph.TryResolve(first.TargetOffset, out var initBlock)
+            || !TryReadInit(initBlock, graph, out var loopField, out _, out var conditionBlock)
+            || !TryReadCondition(conditionBlock, graph, loopField.Name, out _, out var yieldBlock, out var terminalBlock, [])
+            || !IsReturnFalse(terminalBlock)
+            || !TryReadYield(yieldBlock, work, loopField.Name, out _, out _))
+        {
+            return false;
+        }
+
+        return work.Body.Blocks.SelectMany(block => block.Children)
+            .OfType<ConditionalBranch>()
+            .Any(branch => IsState(branch.Condition, stateStore.Index, state: 1));
+    }
+
     public static bool TryReconstruct(IrFunction work, IrFunction kickoff, NewObject handoff, out List<IrNode> statements)
     {
         statements = [];
@@ -17,22 +46,22 @@ internal static class YieldBreakLoopIteratorReconstruction
 
         var blocks = work.Body.Blocks;
         if (blocks.Count < 7
-            || blocks[0].Children.Count < 2
+            || blocks[0].Children.Count != 2
             || blocks[0].Children[0] is not StoreLocal { Value: LoadField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" } } stateStore)
         {
             return false;
         }
 
         var graph = new BlockGraph(blocks);
-        if (!TryResolveStateTarget(blocks[0].Children[1], stateStore.Index, state: 0, graph, out var initBlock)
-            || !TryFindStateDispatch(blocks, stateStore.Index, state: 1, graph, out var resumeBlock))
+        if (!TryReadDispatch(blocks[0], stateStore.Index, graph, out var initBlock, out var resumeBlock, out var dispatchTerminal, out var ownedBlocks))
         {
             return false;
         }
 
         if (!TryReadInit(initBlock, graph, out var loopField, out var initValue, out var conditionBlock))
             return false;
-        if (!TryReadCondition(conditionBlock, graph, loopField.Name, out var continueCondition, out var yieldBlock, out var terminalBlock))
+        ownedBlocks.Add(initBlock);
+        if (!TryReadCondition(conditionBlock, graph, loopField.Name, out var continueCondition, out var yieldBlock, out var terminalBlock, ownedBlocks))
             return false;
         if (!IsReturnFalse(terminalBlock))
             return false;
@@ -43,6 +72,15 @@ internal static class YieldBreakLoopIteratorReconstruction
         }
         if (!TryReadResume(resumeBlock, graph, loopField.Name, conditionBlock.StartOffset, out var increment))
             return false;
+        ownedBlocks.Add(yieldBlock);
+        ownedBlocks.Add(terminalBlock);
+        ownedBlocks.Add(resumeBlock);
+
+        if (!IsReturnFalse(dispatchTerminal)
+            || !AllDiscardedBlocksAreOwned(blocks, ownedBlocks))
+        {
+            return false;
+        }
 
         var expectedYieldCount = work.Descendants.OfType<StoreField>()
             .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" });
@@ -78,25 +116,58 @@ internal static class YieldBreakLoopIteratorReconstruction
         return true;
     }
 
-    static bool TryResolveStateTarget(IrNode node, int stateLocal, int state, BlockGraph graph, out Block target)
+    static bool TryReadDispatch(Block dispatch, int stateLocal, BlockGraph graph, out Block initBlock, out Block resumeBlock, out Block terminalBlock, out HashSet<Block> ownedBlocks)
     {
-        target = null!;
-        if (node is ConditionalBranch branch && IsState(branch.Condition, stateLocal, state))
-            return graph.TryResolve(branch.TargetOffset, out target);
-        return false;
-    }
+        initBlock = null!;
+        resumeBlock = null!;
+        terminalBlock = null!;
+        ownedBlocks = [dispatch];
 
-    static bool TryFindStateDispatch(IReadOnlyList<Block> blocks, int stateLocal, int state, BlockGraph graph, out Block target)
-    {
-        target = null!;
-        foreach (var block in blocks)
-            foreach (var node in block.Children)
-                if (node is ConditionalBranch branch
-                    && IsState(branch.Condition, stateLocal, state)
-                    && graph.TryResolve(branch.TargetOffset, out target))
+        if (dispatch.Children is not [_, ConditionalBranch first]
+            || !IsState(first.Condition, stateLocal, state: 0)
+            || !graph.TryResolve(first.TargetOffset, out initBlock))
+        {
+            return false;
+        }
+
+        var current = graph.NextBlock(dispatch);
+        var seen = new HashSet<Block>();
+        while (current is not null)
+        {
+            if (!seen.Add(current))
+                return false;
+
+            ownedBlocks.Add(current);
+            if (current.Children is [Branch branch])
+            {
+                if (!graph.TryResolve(branch.TargetOffset, out current))
+                    return false;
+                continue;
+            }
+
+            if (current.Children is [ConditionalBranch second]
+                && IsState(second.Condition, stateLocal, state: 1)
+                && graph.TryResolve(second.TargetOffset, out resumeBlock))
+            {
+                current = graph.NextBlock(current);
+                while (current is { Children: [Branch branchToTerminal] })
                 {
-                    return true;
+                    if (!seen.Add(current))
+                        return false;
+                    ownedBlocks.Add(current);
+                    if (!graph.TryResolve(branchToTerminal.TargetOffset, out current))
+                        return false;
                 }
+
+                if (current is null)
+                    return false;
+                ownedBlocks.Add(current);
+                terminalBlock = current;
+                return true;
+            }
+
+            return false;
+        }
         return false;
     }
 
@@ -127,7 +198,7 @@ internal static class YieldBreakLoopIteratorReconstruction
     }
 
     static bool TryReadCondition(Block start, BlockGraph graph, string loopFieldName,
-        out IrExpression continueCondition, out Block yieldBlock, out Block terminalBlock)
+        out IrExpression continueCondition, out Block yieldBlock, out Block terminalBlock, HashSet<Block> ownedBlocks)
     {
         continueCondition = null!;
         yieldBlock = null!;
@@ -139,6 +210,7 @@ internal static class YieldBreakLoopIteratorReconstruction
         {
             if (!seen.Add(block.StartOffset))
                 return false;
+            ownedBlocks.Add(block);
 
             if (TryReadConditionBranch(block, loopFieldName, out continueCondition, out var yieldOffset))
             {
@@ -365,6 +437,19 @@ internal static class YieldBreakLoopIteratorReconstruction
 
     static bool IsReturnFalse(Block block)
         => block.Children is [Return { Value: Constant { Value: false or 0 } }];
+
+    static bool AllDiscardedBlocksAreOwned(IReadOnlyList<Block> blocks, HashSet<Block> ownedBlocks)
+    {
+        foreach (var block in blocks)
+        {
+            if (ownedBlocks.Contains(block))
+                continue;
+            if (block.Children is [Branch])
+                continue;
+            return false;
+        }
+        return true;
+    }
 
     static bool TryGetParameter(IrFunction kickoff, string name, out int index, out Parameter parameter)
     {

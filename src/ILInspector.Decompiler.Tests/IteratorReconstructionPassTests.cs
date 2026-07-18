@@ -604,6 +604,38 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void YieldBreakLoopIterator_WithDispatchSideEffect_DeclinesHonestly()
+    {
+        var (function, _, moveNext) = CountingLoopFixture(dispatchMiddle: ResumeSideEffectStatement());
+
+        Assert.True(YieldBreakLoopIteratorReconstruction.IsCandidate(moveNext));
+        Assert.False(YieldBreakLoopIteratorReconstruction.TryReconstruct(moveNext, function,
+            Assert.IsType<NewObject>(Assert.IsType<Return>(Assert.Single(function.Body.Blocks).Children.Single()).Value),
+            out _));
+        var (runFunction, _, _) = CountingLoopFixture(dispatchMiddle: ResumeSideEffectStatement());
+        RunIteratorReconstructionAndAcknowledgment(runFunction,
+            () => CountingLoopFixture(dispatchMiddle: ResumeSideEffectStatement()).MoveNext);
+
+        AssertHonestIteratorPartial(runFunction);
+    }
+
+    [Fact]
+    public void SwitchIterator_WithFallthroughDefaultSideEffect_DeclinesHonestly()
+    {
+        var (function, _, moveNext) = SwitchIteratorFixture(fallthroughStatement: ResumeSideEffectStatement());
+
+        Assert.True(SwitchIteratorReconstruction.IsCandidate(moveNext));
+        Assert.False(SwitchIteratorReconstruction.TryReconstruct(moveNext, function,
+            Assert.IsType<NewObject>(Assert.IsType<Return>(Assert.Single(function.Body.Blocks).Children.Single()).Value),
+            out _));
+        var (runFunction, _, _) = SwitchIteratorFixture(fallthroughStatement: ResumeSideEffectStatement());
+        RunIteratorReconstructionAndAcknowledgment(runFunction,
+            () => SwitchIteratorFixture(fallthroughStatement: ResumeSideEffectStatement()).MoveNext);
+
+        AssertHonestIteratorPartial(runFunction);
+    }
+
+    [Fact]
     public void NestedIfIterator_StillReconstructs()
     {
         var function = Raised(nameof(CfgSampleClass.ValidNestedIf));
@@ -899,10 +931,31 @@ public class IteratorReconstructionPassTests
         return (function, moveNext);
     }
 
+    static void RunIteratorReconstructionAndAcknowledgment(IrFunction function, Func<IrFunction> moveNextFactory)
+    {
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => method.Name == "MoveNext" ? moveNextFactory() : null);
+
+        new IteratorReconstructionPass().Run(function, context);
+        new IteratorAcknowledgmentPass().Run(function, context);
+        function.CheckInvariant();
+    }
+
+    static void AssertHonestIteratorPartial(IrFunction function)
+    {
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<YieldBreak>());
+        var marker = Assert.Single(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains("not reconstructed", marker.Reason);
+    }
+
     static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) CountingLoopFixture(
         IrNode? resumeMiddle = null,
         IrExpression? incrementLeft = null,
-        IrExpression? yieldValue = null)
+        IrExpression? yieldValue = null,
+        IrNode? dispatchMiddle = null)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var boolType = TypeRef.CoreLib("System", "Boolean");
@@ -941,6 +994,8 @@ public class IteratorReconstructionPassTests
         dispatch0.Add(new ConditionalBranch(new LogicalNot(new LoadLocal(0, intType)), targetOffset: 10));
 
         var dispatch1 = new Block(1);
+        if (dispatchMiddle is not null)
+            dispatch1.Add(dispatchMiddle);
         dispatch1.Add(new ConditionalBranch(
             new Comparison(ComparisonKind.Equal, false, new LoadLocal(0, intType), new Constant(1, intType)),
             targetOffset: 40));
@@ -986,6 +1041,115 @@ public class IteratorReconstructionPassTests
 
         var moveNextBody = new BlockContainer();
         foreach (var block in new[] { dispatch0, dispatch1, defaultReturn, init, yield, resume, cond, terminal })
+            moveNextBody.Add(block);
+        var moveNext = new IrFunction(
+            "MoveNext",
+            stateMachine,
+            new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            moveNextBody);
+        return (kickoff, handoff, moveNext);
+    }
+
+    static (IrFunction Kickoff, NewObject Handoff, IrFunction MoveNext) SwitchIteratorFixture(IrNode? fallthroughStatement = null)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var enumerable = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1"),
+            [intType]);
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Outer");
+        var stateMachine = StateMachineType();
+        var stateField = new FieldRef(stateMachine, "<>1__state", intType);
+        var currentField = new FieldRef(stateMachine, "<>2__current", intType);
+        var constructor = new MethodRef(
+            stateMachine,
+            ".ctor",
+            voidType,
+            [intType],
+            HasThis: true)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
+        };
+        var handoff = new NewObject(constructor, [new Constant(-2, intType)]);
+        var kickoffBlock = new Block(0);
+        kickoffBlock.Add(new Return(handoff));
+        var kickoffBody = new BlockContainer();
+        kickoffBody.Add(kickoffBlock);
+        var kickoff = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(enumerable, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            kickoffBody);
+
+        var dispatch = new Block(0);
+        dispatch.Add(new StoreLocal(0, intType, new LoadField(stateField, This(stateMachine))));
+        dispatch.Add(new SwitchBranch(new LoadLocal(0, intType), [10, 21, 31, 41, 51, 60]));
+
+        var fallthrough = new Block(1);
+        if (fallthroughStatement is not null)
+            fallthrough.Add(fallthroughStatement);
+        fallthrough.Add(new Return(new Constant(false, boolType)));
+
+        var entry = new Block(10);
+        entry.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        entry.Add(new StoreLocal(1, intType, new Constant(0, intType)));
+        entry.Add(new ConditionalBranch(new LogicalNot(new LoadLocal(1, intType)), targetOffset: 12));
+
+        var secondDispatch = new Block(11);
+        secondDispatch.Add(new ConditionalBranch(
+            new Comparison(ComparisonKind.Equal, false, new LoadLocal(1, intType), new Constant(1, intType)),
+            targetOffset: 30));
+
+        var defaultDispatch = new Block(12);
+        defaultDispatch.Add(new Branch(50));
+
+        var case0 = new Block(20);
+        case0.Add(new StoreField(currentField, This(stateMachine), new Constant(10, intType)));
+        case0.Add(new StoreField(stateField, This(stateMachine), new Constant(1, intType)));
+        case0.Add(new Return(new Constant(true, boolType)));
+
+        var state1 = new Block(21);
+        state1.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        state1.Add(new Branch(55));
+
+        var case1First = new Block(30);
+        case1First.Add(new StoreField(currentField, This(stateMachine), new Constant(20, intType)));
+        case1First.Add(new StoreField(stateField, This(stateMachine), new Constant(2, intType)));
+        case1First.Add(new Return(new Constant(true, boolType)));
+
+        var case1Second = new Block(31);
+        case1Second.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        case1Second.Add(new StoreField(currentField, This(stateMachine), new Constant(21, intType)));
+        case1Second.Add(new StoreField(stateField, This(stateMachine), new Constant(3, intType)));
+        case1Second.Add(new Return(new Constant(true, boolType)));
+
+        var state3 = new Block(41);
+        state3.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        state3.Add(new Branch(55));
+
+        var defaultCase = new Block(50);
+        defaultCase.Add(new StoreField(currentField, This(stateMachine), new Constant(99, intType)));
+        defaultCase.Add(new StoreField(stateField, This(stateMachine), new Constant(4, intType)));
+        defaultCase.Add(new Return(new Constant(true, boolType)));
+
+        var state4 = new Block(51);
+        state4.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        state4.Add(new Branch(55));
+
+        var post = new Block(55);
+        post.Add(new StoreField(currentField, This(stateMachine), new Constant(100, intType)));
+        post.Add(new StoreField(stateField, This(stateMachine), new Constant(5, intType)));
+        post.Add(new Return(new Constant(true, boolType)));
+
+        var terminal = new Block(60);
+        terminal.Add(new StoreField(stateField, This(stateMachine), new Constant(-1, intType)));
+        terminal.Add(new Return(new Constant(false, boolType)));
+
+        var moveNextBody = new BlockContainer();
+        foreach (var block in new[] { dispatch, fallthrough, entry, secondDispatch, defaultDispatch, case0, state1, case1First, case1Second, state3, defaultCase, state4, post, terminal })
             moveNextBody.Add(block);
         var moveNext = new IrFunction(
             "MoveNext",
