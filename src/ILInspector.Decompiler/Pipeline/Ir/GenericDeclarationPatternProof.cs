@@ -60,6 +60,40 @@ internal static class GenericDeclarationPatternProof
     }
 
     /// <summary>
+    /// Whether <paramref name="site"/> is proven successful specifically by
+    /// <paramref name="guard"/> — not merely by some nested same-value guard that
+    /// tests a re-read of the value past a write. Raising binds the pattern local
+    /// at <paramref name="guard"/>, so every rewritten extraction must read the
+    /// value the guard tested: the site must lie in the guard's <c>Then</c> arm,
+    /// with no loop or nested-function boundary and no reassignment of the tested
+    /// value between the guard and the site. A site that is only valid because an
+    /// inner guard re-tested a mutated value must not be rebound to this guard's
+    /// binding.
+    /// </summary>
+    public static bool IsProvenBySpecificGuard(IfStatement guard, IrNode site, IsInstance test)
+    {
+        if (!IsReadOnlyOperand(test.Operand) || HasAddressTaken(site, test.Operand))
+            return false;
+
+        for (IrNode current = site; current.Parent is { } parent; current = parent)
+        {
+            // A loop could re-execute the site against a value mutated on the
+            // backedge; a nested function changes value semantics (capture). Either
+            // between the guard and the site breaks the "same tested value" identity.
+            if (parent is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                or Lambda or LocalFunctionStatement)
+            {
+                return false;
+            }
+            if (HasInterveningWrite(parent, current.ChildIndex, test.Operand))
+                return false;
+            if (ReferenceEquals(parent, guard.Then))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The flat-CFG counterpart of the structured proof above: real-world
     /// declaration-pattern extractions frequently sit in a ternary-shaped merge
     /// region <see cref="StructuringPass"/> left as raw blocks and a
@@ -294,7 +328,11 @@ internal static class GenericDeclarationPatternProof
             yield return descendant;
     }
 
-    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
+    // Pre-order descendants that do NOT cross a nested-function (lambda/local
+    // function) boundary. Transforms that mint locals on the root IrFunction must
+    // use this to skip guards inside nested scopes, whose locals live in a
+    // separate pool the root printer never sees.
+    public static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
     {
         foreach (var child in node.Children)
         {

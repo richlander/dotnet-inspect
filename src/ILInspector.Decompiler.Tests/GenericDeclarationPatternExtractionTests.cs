@@ -450,6 +450,91 @@ public class GenericDeclarationPatternExtractionTests
         Assert.DoesNotMatch(@"is T V_\d+", output);
     }
 
+    // Synthetic (#2862 cross-guard soundness): an outer guard tests the value,
+    // then the tested local is REASSIGNED, then an inner guard re-tests and an
+    // extraction reads the post-write value. The extraction is proven only by
+    // the inner guard. The outer guard must NOT be raised to bind the pre-write
+    // value and steal the inner extraction (that would return the stale value);
+    // only a guard with no intervening write to the site may bind it.
+    [Fact]
+    public void CrossGuardInterveningWrite_DoesNotRaiseStaleOuterBinding()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        IrExpression ReadLocal() => new LoadLocal(0, generic);
+        IrExpression TestLocal() => new IsInstance(generic, new Box(generic, ReadLocal()));
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, new Box(generic, ReadLocal()))))));
+        var outerThen = new Block();
+        outerThen.Add(new StoreLocal(0, generic, new LoadArgument(0, "newValue", generic)));
+        outerThen.Add(new IfStatement(TestLocal(), innerThen, null));
+        var outer = new Block();
+        outer.Add(new IfStatement(TestLocal(), outerThen, null));
+        outer.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("newValue", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        // The outer guard (before the `V_0 = newValue` write) must not bind a local
+        // that is then returned across the write; that would return the stale value.
+        Assert.DoesNotMatch(
+            new Regex(@"is T (V_\d+)\).*V_0 = newValue.*return \1", RegexOptions.Singleline),
+            output);
+    }
+
+    // Synthetic (#2862 nested-scope soundness, Gemini review): a provable generic
+    // declaration-pattern guard inside a nested lambda must NOT be raised. The
+    // pattern local is minted on the ROOT function, but the printer scopes the
+    // lambda with its own (smaller) local pool — a root-allocated index would
+    // dangle and crash LocalName. The guard must stay on the #2856 object-bridge.
+    [Fact]
+    public void GuardInsideNestedLambda_IsNotRaised_AndDoesNotCrash()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var funcType = TypeRef.Definition("System.Private.CoreLib", "System", "Func`1");
+        IrExpression Test() => new IsInstance(generic, new Box(generic, new LoadLocal(0, generic)));
+
+        var lambdaThen = new Block();
+        lambdaThen.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, new Box(generic, new LoadLocal(0, generic)))))));
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new IfStatement(Test(), lambdaThen, null));
+        lambdaBlock.Add(new Return(new Constant(null, objectType)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(funcType, [], [generic], [null], false, false, lambdaBody);
+
+        var block = new Block();
+        block.Add(new StoreLocal(0, funcType, lambda));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [generic],
+            body);
+
+        // Must not throw (a dangling root-scoped pattern local would crash the
+        // lambda's independent printer scope) and must leave the guard bridged.
+        var output = RunPipelineAndPrint(function);
+
+        Assert.DoesNotMatch(@"is T V_\d+", output);
+    }
+
     static string RunPipelineAndPrint(IrFunction function)
     {
         IrPasses.Run(function);
