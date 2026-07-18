@@ -102,7 +102,8 @@ public sealed record DecompilerFidelityCause
         string nodeKind,
         string node,
         string reason,
-        string? discriminator = null)
+        string? discriminator = null,
+        string? inventoryBucket = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeKind);
@@ -115,6 +116,7 @@ public sealed record DecompilerFidelityCause
         Node = node;
         Reason = reason;
         Discriminator = discriminator;
+        InventoryBucket = inventoryBucket;
     }
 
     public string Code { get; }
@@ -132,4 +134,11 @@ public sealed record DecompilerFidelityCause
     /// such as an unsupported opcode or type-shape reason.
     /// </summary>
     public string? Discriminator { get; }
+
+    /// <summary>
+    /// Producer-owned grouping label retained for inventory presentation
+    /// compatibility. This is display data, not a semantic classification facet;
+    /// policy consumers must use <see cref="Discriminator"/>.
+    /// </summary>
+    public string? InventoryBucket { get; }
 }

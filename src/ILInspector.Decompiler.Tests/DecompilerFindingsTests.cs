@@ -119,6 +119,7 @@ public class DecompilerFindingsTests
         Assert.Equal(
             DecompilerFidelityDiscriminators.UnsupportedTypeShape,
             cause.Discriminator);
+        Assert.Equal("custom modifier; function pointer", cause.InventoryBucket);
         Assert.Contains("function pointer", cause.Reason);
         Assert.Contains("custom modifier", cause.Reason);
         Assert.Equal(DecompilerFidelityLocationKind.Signature, cause.Location.Kind);
@@ -294,6 +295,33 @@ public class DecompilerFindingsTests
 
         var comparison = CompleteComparison(
             DecompilerFindings.CompareFidelityCauses(oldFunction, newFunction, Subject));
+
+        Assert.True(comparison.IsExact);
+        Assert.All(comparison.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
+    }
+
+    [Fact]
+    public void Compare_InventoryBucketOnlyChange_IsExact()
+    {
+        static IrFunction FunctionWithUnsupportedParameter(string reason)
+        {
+            var container = new BlockContainer();
+            var block = new Block(0);
+            container.Add(block);
+            block.Add(new Return(new Constant(0, Int32)));
+            var signature = new MethodSignature(
+                Int32,
+                [new Parameter("value", TypeRef.Unsupported(reason))],
+                HasThis: false,
+                GenericParameterCount: 0);
+            return new IrFunction("M", Object, signature, [], container);
+        }
+
+        var comparison = CompleteComparison(
+            DecompilerFindings.CompareFidelityCauses(
+                FunctionWithUnsupportedParameter("function pointer"),
+                FunctionWithUnsupportedParameter("custom modifier"),
+                Subject));
 
         Assert.True(comparison.IsExact);
         Assert.All(comparison.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));

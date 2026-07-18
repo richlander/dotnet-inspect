@@ -121,6 +121,12 @@ public static class FidelityRemarks
             if (unsupportedTypes is not null)
             {
                 string types = string.Join("; ", unsupportedTypes.Select(UnrepresentableTypeText));
+                string inventoryBucket = string.Join(
+                    "; ",
+                    unsupportedTypes
+                        .SelectMany(static type => type.UnsupportedReasons())
+                        .Distinct(StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal));
                 string discriminator = string.Join(
                     "; ",
                     unsupportedTypes
@@ -132,7 +138,8 @@ public static class FidelityRemarks
                     LocationOf(node),
                     node,
                     $"references an unrepresentable type ({types})",
-                    discriminator);
+                    discriminator,
+                    inventoryBucket);
             }
 
             if (CSharpSpellability.InspectUnrepresentableMetadataName(node) is { } nameIssue)
@@ -175,14 +182,16 @@ public static class FidelityRemarks
         DecompilerFidelityLocation location,
         IrNode node,
         string reason,
-        string? discriminator = null)
+        string? discriminator = null,
+        string? inventoryBucket = null)
         => new(
             code,
             location,
             node.GetType().Name,
             node.Describe(),
             reason,
-            discriminator);
+            discriminator,
+            inventoryBucket);
 
     static IEnumerable<int>? UnraisedPinnedLocals(IrFunction function)
     {

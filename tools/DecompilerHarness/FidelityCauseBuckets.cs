@@ -12,9 +12,6 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 internal static class FidelityCauseBuckets
 {
-    const string PrivateImplementationDetailsBucket =
-        "unspellable C# type name '__PrivateImplementationDetails_'";
-
     internal enum CensusState
     {
         Complete,
@@ -84,14 +81,8 @@ internal static class FidelityCauseBuckets
     internal static string BucketFor(DecompilerFidelityCause cause)
     {
         ArgumentNullException.ThrowIfNull(cause);
-        if (cause is
-            {
-                Code: DiagnosticIds.UnsupportedType,
-                Discriminator: DecompilerFidelityDiscriminators.PrivateImplementationDetailsType,
-            })
-        {
-            return PrivateImplementationDetailsBucket;
-        }
+        if (cause.InventoryBucket is { } inventoryBucket)
+            return inventoryBucket;
 
         return cause.Code switch
         {

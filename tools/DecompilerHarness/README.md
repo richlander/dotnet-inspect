@@ -358,6 +358,8 @@ harness-owned policy dispositions or rule IDs. Older snapshots remain readable;
 a method without v4 cause observations is counted as unclassified if a
 portfolio is built from it. Existing corpus regression gates continue to use
 the same primary residual and aggregate metrics.
+The producer's separate inventory-bucket label preserves those legacy residual
+strings; it is display-only and is neither persisted nor classified.
 An empty complete cause census has no primary bucket; the old synthetic
 `(typed)` fallback is no longer emitted.
 
