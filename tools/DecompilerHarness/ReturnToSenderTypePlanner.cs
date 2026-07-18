@@ -437,6 +437,7 @@ public static class CompileBackSourceComposer
             request.Reader,
             request.Function,
             request.TargetType,
+            request.TargetMethod,
             targetRoot,
             closure.Roots,
             closure.Facts,
@@ -456,6 +457,7 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         IrFunction function,
         TypeDefinitionHandle targetType,
+        MethodDefinitionHandle targetMethod,
         TypeDefinitionHandle targetRoot,
         HashSet<TypeDefinitionHandle> closureRoots,
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
@@ -577,10 +579,28 @@ public static class CompileBackSourceComposer
         void AddSingleMethodFact(MethodRef method, bool allowTargetRoot)
         {
             AddMemberFact(method.DeclaringType, "method", method.Name);
+            // A self-reference to the target method itself (e.g. a recursive call)
+            // must never spawn a closure member requirement: the target method is
+            // already emitted with its real body, and a second hollow `throw null`
+            // stub of the same signature produces a CS0111 duplicate-member break.
+            // Sibling members on the target type are still reconstructed (they are
+            // distinct handles); only the target method's own handle is excluded.
+            if (ResolvesToTargetMethod(method))
+                return;
             AddMemberRequirement(
                 method.DeclaringType,
                 root => TryCreateClosureMemberRequirement(reader, root, method),
                 allowTargetRoot);
+        }
+
+        bool ResolvesToTargetMethod(MethodRef method)
+        {
+            var definition = method.DeclaringType.Kind == TypeRefKind.GenericInstance
+                ? method.DeclaringType.ElementType ?? method.DeclaringType
+                : method.DeclaringType;
+            if (TryResolveHandle(definition) is not { } handle || handle != targetType)
+                return false;
+            return TypeProducer.TryFindMethod(reader, reader.GetTypeDefinition(targetType), method) == targetMethod;
         }
 
         void AddFieldFact(FieldRef field)
@@ -2544,7 +2564,7 @@ public static class CompileBackSourceComposer
             return null;
         }
 
-        static MethodDefinitionHandle? TryFindMethod(
+        public static MethodDefinitionHandle? TryFindMethod(
             MetadataReader reader,
             TypeDefinition typeDef,
             MethodRef methodRef)
