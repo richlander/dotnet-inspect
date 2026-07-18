@@ -107,6 +107,33 @@ public class IteratorReconstructionPassTests
                         i++;
                     }
                 }
+
+                public static IEnumerable<int> LinearFourYields()
+                {
+                    yield return 1;
+                    yield return 2;
+                    yield return 3;
+                    yield return 4;
+                }
+
+                public static IEnumerable<int> LinearFiveYields()
+                {
+                    yield return 1;
+                    yield return 2;
+                    yield return 3;
+                    yield return 4;
+                    yield return 5;
+                }
+
+                public static IEnumerable<int> LinearSixYields()
+                {
+                    yield return 1;
+                    yield return 2;
+                    yield return 3;
+                    yield return 4;
+                    yield return 5;
+                    yield return 6;
+                }
             }
             """;
 
@@ -601,6 +628,31 @@ public class IteratorReconstructionPassTests
         Assert.Contains("not reconstructed", marker.Reason);
         Assert.Contains("return default;", result.Output);
         Assert.DoesNotContain("yield return", result.Output);
+    }
+
+    [Theory]
+    [InlineData(OptimizationLevel.Debug, "LinearFourYields", 4)]
+    [InlineData(OptimizationLevel.Release, "LinearFourYields", 4)]
+    [InlineData(OptimizationLevel.Debug, "LinearFiveYields", 5)]
+    [InlineData(OptimizationLevel.Release, "LinearFiveYields", 5)]
+    [InlineData(OptimizationLevel.Debug, "LinearSixYields", 6)]
+    [InlineData(OptimizationLevel.Release, "LinearSixYields", 6)]
+    public void LinearIterators_NearSwitchShape_StillUseGeneralRecovery(
+        OptimizationLevel optimization,
+        string methodName,
+        int expectedYields)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.Iterators", methodName);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        Assert.Equal(expectedYields, result.Function.Descendants.OfType<YieldReturn>().Count());
+        Assert.Empty(result.Function.Descendants.OfType<Switch>());
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        for (var value = 1; value <= expectedYields; value++)
+            Assert.Contains($"yield return {value};", result.Output);
     }
 
     [Fact]

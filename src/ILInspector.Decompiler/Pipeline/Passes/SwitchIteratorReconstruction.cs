@@ -23,8 +23,43 @@ internal static class SwitchIteratorReconstruction
             return false;
         }
 
-        return work.Descendants.OfType<StoreField>()
-            .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" }) == 5;
+        if (work.Descendants.OfType<StoreField>()
+                .Count(store => store is { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" }) != 5)
+        {
+            return false;
+        }
+
+        var graph = new BlockGraph(work.Body.Blocks);
+        var stateBlocks = new Dictionary<int, Block>();
+        for (var state = 0; state < branch.TargetOffsets.Length; state++)
+        {
+            if (!graph.TryResolve(branch.TargetOffsets[state], out var target))
+                return false;
+            stateBlocks[state] = target;
+        }
+
+        if (!TryReadSwitchEntryShape(stateBlocks[0], graph, out _, out _, out _, out _, out _))
+        {
+            return false;
+        }
+
+        if (!TryReadResumeToSharedPost(stateBlocks[1], graph, out var postOffset))
+        {
+            return false;
+        }
+
+        if (!TryReadResumeToSharedPost(stateBlocks[3], graph, out var case1PostOffset)
+            || case1PostOffset != postOffset)
+        {
+            return false;
+        }
+
+        return TryReadResumeToSharedPost(stateBlocks[4], graph, out var defaultPostOffset)
+            && defaultPostOffset == postOffset
+            && graph.TryResolve(postOffset, out var postBlock)
+            && TryReadYieldShape(postBlock, out var finalState)
+            && finalState == 5
+            && IsTerminalState(stateBlocks[5]);
     }
 
     public static bool TryReconstruct(IrFunction work, IrFunction kickoff, NewObject handoff, out List<IrNode> statements)
@@ -60,7 +95,7 @@ internal static class SwitchIteratorReconstruction
         }
 
         var entry = stateBlocks[0];
-        if (!TryReadSwitchEntry(entry, graph, kickoff, out var switchValue, out var switchLocal, out var secondDispatch, out var case0Offset, out var case1Offset, out var defaultOffset))
+        if (!TryReadSwitchEntry(entry, graph, kickoff, out var switchValue, out _, out var secondDispatch, out var case0Offset, out var case1Offset, out var defaultOffset))
             return false;
         if (!graph.TryResolve(case0Offset, out var case0Block)
             || !graph.TryResolve(case1Offset, out var case1Block)
@@ -208,18 +243,33 @@ internal static class SwitchIteratorReconstruction
         secondDispatch = null!;
         case0Offset = case1Offset = defaultOffset = -1;
 
-        var children = block.Children;
-        var index = 0;
-        if (index >= children.Count || !IsStateStore(children[index++], -1))
-            return false;
-
-        if (index >= children.Count || children[index++] is not StoreLocal valueStore)
+        if (!TryReadSwitchEntryShape(block, graph, out var valueStore, out secondDispatch, out case0Offset, out case1Offset, out defaultOffset))
             return false;
         if (Remap(valueStore.Value, kickoff, EmptyHoisted) is not { } remapped)
             return false;
 
         switchValue = remapped;
-        switchLocal = valueStore.Index;
+        switchLocal = secondDispatch.Children is [ConditionalBranch second]
+            && second.Condition is Comparison { Left: LoadLocal load } ? load.Index : valueStore.Index;
+        return true;
+    }
+
+    static bool TryReadSwitchEntryShape(Block block, BlockGraph graph, out StoreLocal valueStore, out Block secondDispatch, out int case0Offset, out int case1Offset, out int defaultOffset)
+    {
+        valueStore = null!;
+        secondDispatch = null!;
+        case0Offset = case1Offset = defaultOffset = -1;
+
+        var children = block.Children;
+        var index = 0;
+        if (index >= children.Count || !IsStateStore(children[index++], -1))
+            return false;
+
+        if (index >= children.Count || children[index++] is not StoreLocal store)
+            return false;
+
+        valueStore = store;
+        var switchLocal = valueStore.Index;
 
         if (index + 1 < children.Count
             && children[index] is StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: var spillName, Value: LoadLocal spillSource }
@@ -276,22 +326,38 @@ internal static class SwitchIteratorReconstruction
         value = null!;
         nextState = -1;
 
+        if (!TryReadYieldShape(block, out nextState, out var current))
+            return false;
+        if (Remap(current.Value, kickoff, EmptyHoisted) is not { } remapped)
+            return false;
+        value = remapped;
+        return true;
+    }
+
+    static bool TryReadYieldShape(Block block, out int nextState)
+    {
+        var result = TryReadYieldShape(block, out nextState, out _);
+        return result;
+    }
+
+    static bool TryReadYieldShape(Block block, out int nextState, out StoreField current)
+    {
+        current = null!;
+        nextState = -1;
         var children = block.Children;
         var index = 0;
         if (index < children.Count && IsStateStore(children[index], -1))
             index++;
         if (index + 3 != children.Count)
             return false;
-        if (children[index++] is not StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" } current)
+        if (children[index++] is not StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" } currentStore)
             return false;
         if (children[index++] is not StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state", Value: Constant { Value: int state } })
             return false;
         if (children[index] is not Return { Value: Constant { Value: true or 1 } })
             return false;
 
-        if (Remap(current.Value, kickoff, EmptyHoisted) is not { } remapped)
-            return false;
-        value = remapped;
+        current = currentStore;
         nextState = state;
         return true;
     }
