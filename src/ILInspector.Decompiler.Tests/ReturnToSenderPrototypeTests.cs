@@ -4854,6 +4854,49 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_PopulatesEnumMembersWhenTargetReferencesThemByName()
+    {
+        // A target method that returns a nested enum and references several of its
+        // members by name forces the enum to be reconstructed as a closure supporting
+        // type. A member-less `enum { }` shell cannot bind those references (CS0117)
+        // and drops the row to the compile-back floor; the reconstructed enum surface
+        // must carry its named members with their constant values.
+        var assemblyPath = CompileFixture("""
+            public class Host
+            {
+                public enum Kind { Unknown, First, Second }
+
+                public static Kind Classify(int value)
+                {
+                    if (value == 1)
+                        return Kind.First;
+                    if (value == 2)
+                        return Kind.Second;
+                    return Kind.Unknown;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Host", "Classify", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.NotNull(result.Source);
+            Assert.Contains("enum Kind", result.Source);
+            Assert.Contains("Unknown = 0", result.Source);
+            Assert.Contains("First = 1", result.Source);
+            Assert.Contains("Second = 2", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
