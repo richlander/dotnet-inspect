@@ -183,6 +183,78 @@ public class StackAllocInitializerPassTests
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
 
+
+    [Fact]
+    public void SpanGetItemPositive_Raises()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.UseGetItem = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(12, ((Constant)raised.Count).Value);
+    }
+
+    [Fact]
+    public void SpanGetPinnableReferencePositive_Raises()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.UseGetPinnableReference = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(12, ((Constant)raised.Count).Value);
+    }
+
+    [Fact]
+    public void MismatchedSpanElement_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.MismatchedSpanElement = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void WrongHasThis_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.WrongHasThis = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void MalformedArgumentCounts_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.MalformedArgumentCounts = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void RvaMisalignment_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => {
+            b.AllocSize = 13;
+            b.CopySize = 13;
+            b.RvaMisaligned = true;
+            b.Int32Element = true;
+            b.FinalSpanCtor = true;
+        });
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void MalformedFinalSpanCtor_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.MalformedFinalSpanCtor = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
     class Builder
     {
         public bool IsRva;
@@ -203,6 +275,14 @@ public class StackAllocInitializerPassTests
         public bool SpoofedSignature;
         public bool FinalSpanCtor;
         public bool SpoofedFinalSpanCtor;
+        public bool UseGetItem;
+        public bool UseGetPinnableReference;
+        public bool MismatchedSpanElement;
+        public bool WrongHasThis;
+        public bool MalformedArgumentCounts;
+        public bool RvaMisaligned;
+        public bool Int32Element;
+        public bool MalformedFinalSpanCtor;
 
         public IrFunction Build()
         {
@@ -219,6 +299,7 @@ public class StackAllocInitializerPassTests
                 byte[] rvaData;
                 if (LongerRva) rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0 };
                 else if (TruncatedRva) rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0 };
+                else if (RvaMisaligned) rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 5 };
                 else rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0 };
 
                 copySource = new LoadFieldAddress(new FieldRef(TypeRef.CoreLib("Synthetic", "Blob"), "data", Int32), null) { FieldRvaData = rvaData };
@@ -236,11 +317,39 @@ public class StackAllocInitializerPassTests
 
                 var marshalType = SpoofedAssembly ? TypeRef.Definition("System.Memory", "System.Runtime.InteropServices", "MemoryMarshal", ValueTypeHint.ReferenceType) : TypeRef.CoreLib("System.Runtime.InteropServices", "MemoryMarshal");
                 var returnType = SpoofedSignature ? Byte : TypeRef.ByRef(Byte);
-                var getRef = new MethodRef(marshalType, "GetReference", returnType, [ReadOnlySpanByte], HasThis: false)
+                if (MismatchedSpanElement) returnType = TypeRef.ByRef(Int32);
+
+                var spanType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [Byte]);
+                var getRefDecl = marshalType;
+
+                if (UseGetItem)
                 {
-                    DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes
-                };
-                copySource = new Call(getRef, isVirtual: false, [new LoadLocalAddress(2, ReadOnlySpanByte)]);
+                    var getItem = new MethodRef(spanType, "get_Item", returnType, [Int32], HasThis: !WrongHasThis)
+                    {
+                        DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes
+                    };
+                    var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType) } : new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(0, Int32) };
+                    copySource = new Call(getItem, isVirtual: false, args);
+                }
+                else if (UseGetPinnableReference)
+                {
+                    var getPin = new MethodRef(spanType, "GetPinnableReference", returnType, [], HasThis: !WrongHasThis)
+                    {
+                        DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes
+                    };
+                    var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(0, Int32) } : new IrExpression[] { new LoadLocalAddress(2, spanType) };
+                    copySource = new Call(getPin, isVirtual: false, args);
+                }
+                else
+                {
+                    var getRef = new MethodRef(marshalType, "GetReference", returnType, [spanType], HasThis: WrongHasThis)
+                    {
+                        DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes,
+                        TypeArguments = [MismatchedSpanElement ? Int32 : Byte]
+                    };
+                    var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(0, Int32) } : new IrExpression[] { new LoadLocalAddress(2, spanType) };
+                    copySource = new Call(getRef, isVirtual: false, args);
+                }
             }
 
             var copyBlock = new CopyBlock(loadDest, copySource, new Constant(CopySize, Int32));
@@ -286,15 +395,17 @@ public class StackAllocInitializerPassTests
             activeBlock.Add(copyBlock);
 
             IrNode finalUsage;
-            if (FinalSpanCtor)
+            if (FinalSpanCtor || MalformedFinalSpanCtor)
             {
                 var spanCtorType = SpoofedFinalSpanCtor ? TypeRef.Definition("System.Memory", "System", "Span`1", ValueTypeHint.ValueType) : TypeRef.CoreLib("System", "Span`1");
-                spanCtorType = TypeRef.GenericInstance(spanCtorType, [Byte]);
-                var ctor = new MethodRef(spanCtorType, ".ctor", Void, [VoidPointer, Int32], HasThis: true)
+                spanCtorType = TypeRef.GenericInstance(spanCtorType, [Int32Element ? Int32 : Byte]);
+                var paramType = MalformedFinalSpanCtor ? Int32 : VoidPointer;
+                var ctor = new MethodRef(spanCtorType, ".ctor", Void, [paramType, Int32], HasThis: true)
                 {
                     DeclaringTypeIsTrustedPlatform = SpoofedFinalSpanCtor ? MetadataFactState.Unknown : MetadataFactState.Yes
                 };
-                finalUsage = new StoreLocal(1, spanCtorType, new NewObject(ctor, [new LoadStackSlot(0, BytePointer), new Constant(CopySize, Int32)]));
+                var args = MalformedFinalSpanCtor ? new IrExpression[] { new Constant(0, Int32), new Constant(CopySize, Int32) } : new IrExpression[] { new LoadStackSlot(0, BytePointer), new Constant(CopySize, Int32) };
+                finalUsage = new StoreLocal(1, spanCtorType, new NewObject(ctor, args));
             }
             else
             {

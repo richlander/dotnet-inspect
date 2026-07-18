@@ -46,20 +46,26 @@ public sealed class StackAllocInitializerPass : IIrPass
 
             IrExpression? instance = null;
 
+            TypeRef? elementType = null;
+
             if (copyBlock.Source is Call callItem)
             {
-                if (IsTrustedSpanGetItem(callItem.Callee) || IsTrustedSpanGetPinnableReference(callItem.Callee))
+                if (IsTrustedSpanGetItem(callItem.Callee, out elementType))
                 {
-                    instance = callItem.Arguments[0];
+                    if (callItem.Arguments.Count == 2) instance = callItem.Arguments[0];
                 }
-                else if (IsTrustedMemoryMarshalGetReference(callItem.Callee))
+                else if (IsTrustedSpanGetPinnableReference(callItem.Callee, out elementType))
                 {
-                    instance = callItem.Arguments[0];
+                    if (callItem.Arguments.Count == 1) instance = callItem.Arguments[0];
+                }
+                else if (IsTrustedMemoryMarshalGetReference(callItem.Callee, out elementType))
+                {
+                    if (callItem.Arguments.Count == 1) instance = callItem.Arguments[0];
                 }
             }
             else if (copyBlock.Source is LoadProperty loadProp)
             {
-                if (IsTrustedSpanGetItem(loadProp.Accessor))
+                if (IsTrustedSpanGetItem(loadProp.Accessor, out elementType))
                 {
                     instance = loadProp.Instance;
                 }
@@ -107,7 +113,6 @@ public sealed class StackAllocInitializerPass : IIrPass
             if (!match) continue;
 
             List<IrExpression>? elements = null;
-            TypeRef? elementType = null;
 
             if (spanSetupStore != null)
             {
@@ -117,24 +122,25 @@ public sealed class StackAllocInitializerPass : IIrPass
                     var sourceUsages = function.Descendants.OfType<LoadLocalAddress>().Where(l => l.Index == lla.Index).ToList();
                     if (sourceUsages.Count == 1) // Exclusive source ownership
                     {
-                        elementType = spanLit.ElementType;
-                        int? elementSize = GetSizeOf(elementType);
-                        if (elementSize != null && copySize % elementSize.Value == 0)
+                        if (elementType == null || elementType.Equals(spanLit.ElementType))
                         {
-                            int requiredElementCount = copySize / elementSize.Value;
-                            bool allConstants = true;
-                            foreach (var child in spanLit.Children)
+                            elementType = spanLit.ElementType;
+                            int? elementSize = GetSizeOf(elementType);
+                            if (elementSize != null && copySize % elementSize.Value == 0)
                             {
-                                if (child is not Constant) // Must be constant
+                                int requiredElementCount = copySize / elementSize.Value;
+                                bool allConstants = true;
+                                foreach (var child in spanLit.Children)
                                 {
-                                    allConstants = false; break;
+                                    if (child is not Constant) // Must be constant
+                                    {
+                                        allConstants = false; break;
+                                    }
                                 }
-                            }
-                            if (allConstants && spanLit.Children.Count == requiredElementCount)
-                            {
-                                elements = spanLit.Children.Cast<IrExpression>().ToList();
-                                foreach (var el in elements) el.Detach();
-                                spanSetupStore.Detach();
+                                if (allConstants && spanLit.Children.Count == requiredElementCount)
+                                {
+                                    elements = spanLit.Children.Cast<IrExpression>().ToList();
+                                }
                             }
                         }
                     }
@@ -152,12 +158,29 @@ public sealed class StackAllocInitializerPass : IIrPass
                 }
                 else if (finalUsage.Parent is NewObject no)
                 {
-                    var ctorDeclDef = no.Constructor.DeclaringType.Kind == TypeRefKind.GenericInstance ? no.Constructor.DeclaringType.ElementType! : no.Constructor.DeclaringType;
-                    if (ctorDeclDef.Namespace == "System" && ctorDeclDef.Name is "Span`1" or "ReadOnlySpan`1")
+                    var ctor = no.Constructor;
+                    if (ctor.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes
+                        && ctor.HasThis
+                        && ctor.Name == ".ctor"
+                        && ctor.ReturnType.Assembly == TypeRef.CoreLibrary && ctor.ReturnType.Name == "Void"
+                        && ctor.DeclaringType.Kind == TypeRefKind.GenericInstance
+                        && ctor.DeclaringType.TypeArguments.Length == 1)
                     {
-                        if (no.Constructor.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes && no.Constructor.ParameterTypes.Length == 2 && no.Constructor.ParameterTypes[0].Kind == TypeRefKind.Pointer && no.Constructor.ParameterTypes[1].Name == "Int32")
+                        var ctorDeclDef = ctor.DeclaringType.ElementType!;
+                        if (ctorDeclDef.Namespace == "System" && ctorDeclDef.Name is "Span`1" or "ReadOnlySpan`1")
                         {
-                            elementType = no.Constructor.DeclaringType.TypeArguments[0];
+                            if (ctor.ParameterTypes.Length == 2
+                                && ctor.ParameterTypes[0].Kind == TypeRefKind.Pointer
+                                && ctor.ParameterTypes[1].Assembly == TypeRef.CoreLibrary
+                                && ctor.ParameterTypes[1].Namespace == "System"
+                                && ctor.ParameterTypes[1].Name == "Int32")
+                            {
+                                var typeArg = ctor.DeclaringType.TypeArguments[0];
+                                if (ctor.ParameterTypes[0].ElementType!.Equals(typeArg) || typeArg.Name == "Byte" || ctor.ParameterTypes[0].ElementType!.Name == "Void")
+                                {
+                                    elementType = typeArg;
+                                }
+                            }
                         }
                     }
                 }
@@ -179,6 +202,12 @@ public sealed class StackAllocInitializerPass : IIrPass
 
             if (elements != null && elementType != null)
             {
+                if (spanSetupStore != null)
+                {
+                    foreach (var el in elements) el.Detach();
+                    spanSetupStore.Detach();
+                }
+
                 var stackAllocArray = new StackAllocArray(elementType, new Constant(elements.Count, TypeRef.CoreLib("System", "Int32")), TypeRef.Pointer(elementType), elements);
                 stackAllocArray.InheritSourceOffset(stackAlloc);
 
@@ -190,46 +219,74 @@ public sealed class StackAllocInitializerPass : IIrPass
         }
     }
 
-    static bool IsTrustedMemoryMarshalGetReference(MethodRef method)
+    static bool IsTrustedMemoryMarshalGetReference(MethodRef method, out TypeRef? elementType)
     {
-        var declDef = method.DeclaringType.Kind == TypeRefKind.GenericInstance ? method.DeclaringType.ElementType! : method.DeclaringType;
-        var param0Def = method.ParameterTypes.Length > 0 && method.ParameterTypes[0].Kind == TypeRefKind.GenericInstance ? method.ParameterTypes[0].ElementType! : (method.ParameterTypes.Length > 0 ? method.ParameterTypes[0] : null);
+        elementType = null;
+        if (method.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
+        if (method.HasThis) return false;
+        if (method.DeclaringType.Namespace != "System.Runtime.InteropServices" || method.DeclaringType.Name != "MemoryMarshal") return false;
+        if (method.Name != "GetReference") return false;
+        if (method.ParameterTypes.Length != 1) return false;
+        if (method.ReturnType.Kind != TypeRefKind.ByRef) return false;
+        if (method.ParameterTypes[0].Kind != TypeRefKind.GenericInstance) return false;
+        if (method.TypeArguments.Length != 1) return false;
 
-        return method.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes
-            && declDef.Namespace == "System.Runtime.InteropServices"
-            && declDef.Name == "MemoryMarshal"
-            && method.Name == "GetReference"
-            && method.ParameterTypes.Length == 1
-            && method.ReturnType.Kind == TypeRefKind.ByRef
-            && method.ParameterTypes[0].Kind == TypeRefKind.GenericInstance
-            && param0Def?.Name is "Span`1" or "ReadOnlySpan`1";
+        var typeArg = method.TypeArguments[0];
+        if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
+
+        var param0Def = method.ParameterTypes[0].ElementType!;
+        if (param0Def.Namespace != "System" || param0Def.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
+        if (method.ParameterTypes[0].TypeArguments.Length != 1) return false;
+        if (!typeArg.Equals(method.ParameterTypes[0].TypeArguments[0])) return false;
+
+        elementType = typeArg;
+        return true;
     }
 
-    static bool IsTrustedSpanGetItem(MethodRef method)
+    static bool IsTrustedSpanGetItem(MethodRef method, out TypeRef? elementType)
     {
-        var declDef = method.DeclaringType.Kind == TypeRefKind.GenericInstance ? method.DeclaringType.ElementType! : method.DeclaringType;
+        elementType = null;
+        if (method.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
+        if (!method.HasThis) return false;
 
-        return method.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes
-            && method.HasThis
-            && declDef.Namespace == "System"
-            && declDef.Name is "Span`1" or "ReadOnlySpan`1"
-            && method.Name == "get_Item"
-            && method.ParameterTypes.Length == 1
-            && method.ParameterTypes[0].Name == "Int32"
-            && method.ReturnType.Kind == TypeRefKind.ByRef;
+        if (method.DeclaringType.Kind != TypeRefKind.GenericInstance) return false;
+        var declDef = method.DeclaringType.ElementType!;
+        if (declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
+        if (method.DeclaringType.TypeArguments.Length != 1) return false;
+
+        if (method.Name != "get_Item") return false;
+        if (method.ParameterTypes.Length != 1) return false;
+        var p0 = method.ParameterTypes[0];
+        if (p0.Assembly != TypeRef.CoreLibrary || p0.Namespace != "System" || p0.Name != "Int32") return false;
+
+        if (method.ReturnType.Kind != TypeRefKind.ByRef) return false;
+        var typeArg = method.DeclaringType.TypeArguments[0];
+        if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
+
+        elementType = typeArg;
+        return true;
     }
 
-    static bool IsTrustedSpanGetPinnableReference(MethodRef method)
+    static bool IsTrustedSpanGetPinnableReference(MethodRef method, out TypeRef? elementType)
     {
-        var declDef = method.DeclaringType.Kind == TypeRefKind.GenericInstance ? method.DeclaringType.ElementType! : method.DeclaringType;
+        elementType = null;
+        if (method.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
+        if (!method.HasThis) return false;
 
-        return method.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes
-            && method.HasThis
-            && declDef.Namespace == "System"
-            && declDef.Name is "Span`1" or "ReadOnlySpan`1"
-            && method.Name == "GetPinnableReference"
-            && method.ParameterTypes.Length == 0
-            && method.ReturnType.Kind == TypeRefKind.ByRef;
+        if (method.DeclaringType.Kind != TypeRefKind.GenericInstance) return false;
+        var declDef = method.DeclaringType.ElementType!;
+        if (declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
+        if (method.DeclaringType.TypeArguments.Length != 1) return false;
+
+        if (method.Name != "GetPinnableReference") return false;
+        if (method.ParameterTypes.Length != 0) return false;
+
+        if (method.ReturnType.Kind != TypeRefKind.ByRef) return false;
+        var typeArg = method.DeclaringType.TypeArguments[0];
+        if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
+
+        elementType = typeArg;
+        return true;
     }
 
     static IrNode? GetStatement(IrNode node)
@@ -242,7 +299,7 @@ public sealed class StackAllocInitializerPass : IIrPass
 
     static int? GetSizeOf(TypeRef type)
     {
-        if (type.Kind == TypeRefKind.Definition && type.Namespace == "System")
+        if (type.Kind == TypeRefKind.Definition && type.Assembly == TypeRef.CoreLibrary && type.Namespace == "System")
         {
             return type.Name switch
             {
