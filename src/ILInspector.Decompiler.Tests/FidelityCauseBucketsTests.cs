@@ -30,6 +30,22 @@ public class FidelityCauseBucketsTests
     }
 
     [Fact]
+    public void BucketFor_PrivateImplementationFacet_PreservesLegacyInventoryLabel()
+    {
+        var cause = new DecompilerFidelityCause(
+            DiagnosticIds.UnsupportedType,
+            DecompilerFidelityLocation.Signature,
+            "IrFunction",
+            "Function M",
+            "references an unrepresentable type",
+            DecompilerFidelityDiscriminators.PrivateImplementationDetailsType);
+
+        Assert.Equal(
+            "unspellable C# type name '__PrivateImplementationDetails_'",
+            FidelityCauseBuckets.BucketFor(cause));
+    }
+
+    [Fact]
     public void Inspect_OperationFailure_IsSurfaced()
     {
         var function = Function(new Return(new Constant(0, Int32)));
