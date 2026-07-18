@@ -3675,3 +3675,16 @@ public sealed class UnsupportedNode : IrExpression
 
     public override string Describe() => $"Unsupported IL_{ILOffset:X4} {Opcode}: {Reason}";
 }
+
+public sealed class DynamicGetMember : IrExpression
+{
+    public DynamicGetMember(IrExpression receiver, string propertyName)
+    {
+        PropertyName = propertyName;
+        AddChild(receiver);
+    }
+    public string PropertyName { get; }
+    public IrExpression Receiver => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Object");
+    public override string Describe() => $"dynamic-get {PropertyName}";
+}

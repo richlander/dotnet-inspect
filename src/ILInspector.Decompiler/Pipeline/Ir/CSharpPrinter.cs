@@ -2180,6 +2180,7 @@ public sealed partial class CSharpPrinter
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
+        DynamicGetMember d => $"((dynamic){Operand(d.Receiver)}).{d.PropertyName}",
         NewObject n when MultiDimArrayCreationText(n) is { } text => text,
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",

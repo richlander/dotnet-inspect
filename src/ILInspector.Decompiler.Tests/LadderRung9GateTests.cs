@@ -88,12 +88,21 @@ public class LadderRung9GateTests
     }
 
     [Fact]
+    public void Rung9Fixture_RaisesDynamicGetMember()
+    {
+        var members = LoadRaisedMembers();
+        var member = members.Single(m => m.Name == "DynamicGetLength");
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Contains("((dynamic)value).Length;", member.Body);
+    }
+
+    [Fact]
     public void Rung9Fixture_DegradesDynamicCallSitesHonestly()
     {
         var members = LoadRaisedMembers();
 
         AssertDynamicPartial(members, "DynamicAdd", "Binder.BinaryOperation", "CallSite<Func<CallSite, object, object, object>>");
-        AssertDynamicPartial(members, "DynamicGetLength", "Binder.GetMember", "CallSite<Func<CallSite, object, object>>");
+        
         AssertDynamicPartial(members, "DynamicInvoke", "Binder.Invoke", "CallSite<Func<CallSite, object, int, object>>");
         AssertDynamicPartial(members, "DynamicInvokeMember", "Binder.InvokeMember", "CallSite<Func<CallSite, object, int, int, object>>");
         AssertDynamicPartial(members, "DynamicConvert", "Binder.Convert", "CallSite<Func<CallSite, object, int>>");

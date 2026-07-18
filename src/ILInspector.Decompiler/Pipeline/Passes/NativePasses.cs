@@ -75,6 +75,8 @@ internal static class NativePasses
     public static RvaSpanPass RvaSpan => new();
     [Native(NativeCategory.EmitArtifact, "the lazy <>9__ delegate cache (non-capturing lambda / static method group) collapsed to a bare delegate creation")]
     public static LambdaCachePass LambdaCache => new();
+    [Native(NativeCategory.EmitArtifact, "dynamic call site cache initialization scaffolding reconstructed to dynamic IR nodes")]
+    public static DynamicCallSitePass DynamicCallSite => new();
     [Native(NativeCategory.EmitArtifact, "the finalizer try/finally + base.Finalize() scaffold emitted for ~T() collapsed back to the destructor body")]
     public static DestructorRecoveryPass DestructorRecovery => new();
     [Native(NativeCategory.EmitArtifact, "classic async state-machine kickoff/MoveNext scaffolding reconstructed to async/await body")]
