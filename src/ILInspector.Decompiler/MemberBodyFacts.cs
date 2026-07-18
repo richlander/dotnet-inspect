@@ -16,7 +16,8 @@ public static class MemberBodyFacts
     /// and its descendant nodes, so the harness can assemble <c>using</c> directives.
     /// Element/argument types of generic instances, arrays, by-refs, pointers, and
     /// pinned types are unwrapped so only their underlying definition namespaces are
-    /// reported; the global namespace (empty string) is excluded.
+    /// reported; a function pointer's return type and parameter types are unwrapped
+    /// the same way; the global namespace (empty string) is excluded.
     /// <para>
     /// Order: ordinal-sorted (case-sensitive), because the harness builds a stable,
     /// deterministic <c>using</c> block from this set.
@@ -42,6 +43,11 @@ public static class MemberBodyFacts
                 case TypeRefKind.SzArray or TypeRefKind.Array
                     or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
                     Add(type.ElementType);
+                    break;
+                case TypeRefKind.FunctionPointer:
+                    Add(type.ElementType);
+                    foreach (var parameter in type.TypeArguments)
+                        Add(parameter);
                     break;
             }
         }

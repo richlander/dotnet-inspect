@@ -68,7 +68,27 @@ public sealed class IteratorReconstructionPass : IIrPass
             || moveNext is null)
             return;
 
-        if (!TryReconstruct(moveNext, function, handoff, out var statements)
+        var statements = new List<IrNode>();
+        var rawSwitchCandidate = context.ImportMethodBody(moveNextMethod);
+        if (rawSwitchCandidate is not null && SwitchIteratorReconstruction.IsCandidate(rawSwitchCandidate))
+        {
+            if (SwitchIteratorReconstruction.TryReconstruct(rawSwitchCandidate, function, handoff, out var switchCandidateBody))
+            {
+                statements.AddRange(switchCandidateBody);
+                var switchStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+                context.Stepper.StepOver($"reconstruct switch iterator '{switchStateMachine}' as {statements.Count} statement(s)", handoff);
+
+                function.Body.DetachChildren();
+                var switchBlock = new Block(0);
+                foreach (var statement in statements)
+                    switchBlock.Add(statement);
+                function.Body.Add(switchBlock);
+                return;
+            }
+            return;  // exact switch shape with unowned code: leave for honest acknowledgment
+        }
+
+        if (!TryReconstruct(moveNext, function, handoff, out statements)
             || IteratorReconstructionValidation.HasUnsupportedStructuredShape(statements))
         {
             // The structured matchers above all declined. Fall back to the general
@@ -77,6 +97,41 @@ public sealed class IteratorReconstructionPass : IIrPass
             var raw = context.ImportMethodBody(moveNextMethod);
             if (raw is null)
                 return;  // leave for IteratorAcknowledgmentPass
+
+            statements.Clear();
+            if (SwitchIteratorReconstruction.TryReconstruct(raw, function, handoff, out var switchBody))
+            {
+                statements.AddRange(switchBody);
+                var switchStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+                context.Stepper.StepOver($"reconstruct switch iterator '{switchStateMachine}' as {statements.Count} statement(s)", handoff);
+
+                function.Body.DetachChildren();
+                var switchBlock = new Block(0);
+                foreach (var statement in statements)
+                    switchBlock.Add(statement);
+                function.Body.Add(switchBlock);
+                return;
+            }
+            if (SwitchIteratorReconstruction.IsCandidate(raw))
+                return;  // exact switch shape with unowned code: leave for honest acknowledgment
+
+            var rawYieldBreakLoop = context.ImportMethodBody(moveNextMethod);
+            if (rawYieldBreakLoop is not null
+                && YieldBreakLoopIteratorReconstruction.TryReconstruct(rawYieldBreakLoop, function, handoff, out var yieldBreakLoopBody))
+            {
+                statements.AddRange(yieldBreakLoopBody);
+                var loopStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+                context.Stepper.StepOver($"reconstruct yield-break loop iterator '{loopStateMachine}' as {statements.Count} statement(s)", handoff);
+
+                function.Body.DetachChildren();
+                var loopBlock = new Block(0);
+                foreach (var statement in statements)
+                    loopBlock.Add(statement);
+                function.Body.Add(loopBlock);
+                return;
+            }
+            if (rawYieldBreakLoop is not null && YieldBreakLoopIteratorReconstruction.IsCandidate(rawYieldBreakLoop))
+                return;  // exact yield-break-loop shape with unowned code: leave for honest acknowledgment
 
             if (ReducibleIteratorReconstruction.TryReconstruct(raw, function, handoff, context, out var reducibleBody))
             {

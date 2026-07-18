@@ -1,4 +1,4 @@
-# Version Resolution
+# Version resolution
 
 dotnet-inspect uses Docker-style version tags to balance freshness against
 latency. Version discovery is cached briefly; package contents are cached

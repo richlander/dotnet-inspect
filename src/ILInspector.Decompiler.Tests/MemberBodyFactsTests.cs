@@ -81,6 +81,22 @@ public class MemberBodyFactsTests
     }
 
     [Fact]
+    public void ReferencedNamespaces_ReportsFunctionPointerComponentNamespaces()
+    {
+        // FunctionPointerNamespaceFixtures is referenced only through the
+        // function pointer parameter's return type and argument type
+        // (delegate*<ParameterMarker, ReturnMarker>), never as an ordinary
+        // local, field, or parameter/return type. Close-negative coverage for
+        // issue #2847: before TypeRefKind.FunctionPointer was added to the
+        // Add() switch, this namespace was silently omitted.
+        var namespaces = NamespacesFor(
+            typeof(NamespaceRefSample).FullName!,
+            nameof(NamespaceRefSample.ReferencesNamespacesOnlyThroughFunctionPointer));
+
+        Assert.Contains("FunctionPointerNamespaceFixtures", namespaces);
+    }
+
+    [Fact]
     public void Constructor_ChainedConstructor_ReportsChainCalleeParameterTypes()
     {
         // The parameterless overload chains to `this(int, string)`, so the chain
