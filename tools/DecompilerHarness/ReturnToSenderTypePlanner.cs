@@ -716,7 +716,7 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string metadataPropertyName = reader.GetString(property.Name);
         string propertyName = Identifier(metadataPropertyName);
-        string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(metadataPropertyName);
+        string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, metadataPropertyName);
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
         bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
@@ -953,7 +953,7 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string metadataPropertyName = reader.GetString(property.Name);
         string propertyName = Identifier(metadataPropertyName);
-        string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(metadataPropertyName);
+        string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, metadataPropertyName);
         var returnType = CompileBackTypeSignature.Display(propertySignature.ReturnType);
         bool targetIsAutoProperty = IsAutoPropertySetter(reader, targetTypeDef, property, targetSetter, returnType.DisplayName);
 
@@ -2389,13 +2389,25 @@ public static class CompileBackSourceComposer
 
     static string Identifier(string name) => CSharpIdentifier.Sanitize(name);
 
-    static string? ExplicitInterfaceMemberName(string metadataPropertyName)
+    static string? ExplicitInterfaceMemberName(
+        MetadataReader reader,
+        string metadataPropertyName)
     {
         int separator = metadataPropertyName.LastIndexOf('.');
         if (separator <= 0 || separator == metadataPropertyName.Length - 1)
             return null;
 
-        string interfaceName = Clean(metadataPropertyName[..separator]);
+        string interfaceMetadataName = metadataPropertyName[..separator];
+        if (TypeProducer.FindType(reader, interfaceMetadataName) is not { } interfaceHandle)
+            return null;
+        var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+        if (interfaceDef.GetGenericParameters().Count != 0
+            || !IsSupportedClosureRoot(reader, interfaceDef))
+        {
+            return null;
+        }
+
+        string interfaceName = Clean(interfaceMetadataName);
         string memberName = CSharpIdentifier.Sanitize(metadataPropertyName[(separator + 1)..]);
         return $"{interfaceName}.{memberName}";
     }
@@ -2623,7 +2635,7 @@ public static class CompileBackSourceComposer
             string propertyName = reader.GetString(property.Name);
             if (propertyName.Contains('<', StringComparison.Ordinal))
                 return null;
-            string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(propertyName);
+            string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, propertyName);
 
             MetadataPropertyDeclaration propertyDeclaration;
             try
@@ -3537,7 +3549,7 @@ public static class CompileBackSourceComposer
         static string MethodSignatureText(string name, MethodSignature<string> signature)
             => $"{signature.ReturnType} {name}({string.Join(", ", signature.ParameterTypes)})";
 
-        static TypeDefinitionHandle? FindType(MetadataReader reader, string metadataFullName)
+        internal static TypeDefinitionHandle? FindType(MetadataReader reader, string metadataFullName)
         {
             foreach (var handle in reader.TypeDefinitions)
             {
