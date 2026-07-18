@@ -2111,7 +2111,8 @@ public static class IrImporter
                 var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
                 var memberFacts = MemberReferenceDefinitionFacts(reader, member, memberName, signature.Header.IsInstance, parameterTypes);
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
-                if (accessorKind == AccessorKind.Unknown && IsTrustedPlatformMemberReference(reader, member.Parent))
+                bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
+                if (accessorKind == AccessorKind.Unknown && trustedPlatform)
                     accessorKind = AccessorKindFromName(memberName);
                 bool inferredSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
                     || memberName.StartsWith("set_", StringComparison.Ordinal)
@@ -2132,6 +2133,9 @@ public static class IrImporter
                     IsSpecialName = inferredSpecialName,
                     IsSpecialNameInferred = inferredSpecialName,
                     AccessorKind = accessorKind,
+                    DeclaringTypeIsTrustedPlatform = trustedPlatform
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.Unknown,
                     DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
                         ? MetadataFactState.Yes
                         : MetadataFactState.Unknown,
@@ -2695,4 +2699,33 @@ sealed class FieldDataSizeProvider : ISignatureTypeProvider<int, object?>
     public int GetModifiedType(int modifier, int unmodifiedType, bool isRequired) => unmodifiedType;
     public int GetPinnedType(int elementType) => elementType;
     public int GetFunctionPointerType(MethodSignature<int> signature) => 0;
+}
+
+
+/// <summary>
+/// Signature type provider that strips modifiers and constructed-type wrappers and
+/// returns the exact base declaring-type metadata handle (a <see cref="TypeReferenceHandle"/>
+/// or <see cref="TypeDefinitionHandle"/>). Used to route a TypeSpecification declaring
+/// type through the public-key-token trust check without losing handle identity to a
+/// simple-name assembly lookup.
+/// </summary>
+sealed class PlatformDeclaringTypeHandleProvider : ISignatureTypeProvider<EntityHandle, object?>
+{
+    public static readonly PlatformDeclaringTypeHandleProvider Instance = new();
+
+    public EntityHandle GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => handle;
+    public EntityHandle GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => handle;
+    public EntityHandle GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    public EntityHandle GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
+    public EntityHandle GetSZArrayType(EntityHandle elementType) => elementType;
+    public EntityHandle GetArrayType(EntityHandle elementType, ArrayShape shape) => elementType;
+    public EntityHandle GetByReferenceType(EntityHandle elementType) => elementType;
+    public EntityHandle GetPointerType(EntityHandle elementType) => elementType;
+    public EntityHandle GetGenericInstantiation(EntityHandle genericType, ImmutableArray<EntityHandle> typeArguments) => genericType;
+    public EntityHandle GetGenericMethodParameter(object? genericContext, int index) => default;
+    public EntityHandle GetGenericTypeParameter(object? genericContext, int index) => default;
+    public EntityHandle GetModifiedType(EntityHandle modifier, EntityHandle unmodifiedType, bool isRequired) => unmodifiedType;
+    public EntityHandle GetPinnedType(EntityHandle elementType) => elementType;
+    public EntityHandle GetFunctionPointerType(MethodSignature<EntityHandle> signature) => default;
 }

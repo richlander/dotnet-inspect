@@ -38,6 +38,17 @@ public sealed record MethodRef(
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
     /// <summary>
+    /// Metadata fact: the declaring type is from the trusted platform boundary
+    /// (the core library), proven by the public-key token of its root assembly
+    /// reference, preserving exact TypeReference handles. The printer's map to a
+    /// real framework type keys off this token-anchored fact rather than the name.
+    /// <see cref="MetadataFactState.Yes"/> only for token-verified platform
+    /// MemberRefs; <see cref="MetadataFactState.Unknown"/> otherwise (a MethodDef,
+    /// MethodSpec, or a non-platform MemberRef never sets it).
+    /// </summary>
+    public MetadataFactState DeclaringTypeIsTrustedPlatform { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Whether <see cref="ParameterRefKinds"/> is known. Distinguishes "no by-ref
     /// parameters needed spelling facts" from "a MemberRef did not expose rows."
     /// </summary>
