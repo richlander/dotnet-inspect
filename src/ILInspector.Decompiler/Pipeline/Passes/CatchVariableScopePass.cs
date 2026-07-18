@@ -10,11 +10,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// correction must run <em>after</em> those passes have taken their clauses.
 ///
 /// <para>When a plain catch clause survives to here with its folded local still
-/// read, written, or addressed outside the clause (issue #2828 — a local
-/// declared before the <c>try</c> and read after the <c>catch</c>, e.g.
-/// <c>Exception inner = null; try {…} catch (Exception) {} … use(inner)</c>),
-/// naming that outer local as the clause variable shadows its own declaration
-/// (CS0136) and drops the <c>inner = ex</c> assignment the empty body lost.
+/// read, written, or addressed outside the clause, or an enclosing catch binds
+/// the same slot (issue #2828), naming that local as the clause variable
+/// shadows its own declaration (CS0136) and drops the assignment represented
+/// by the handler-entry store.
 /// Rebind the clause to a fresh variable <c>F</c> and restore the entry store as
 /// <c>inner = F</c>: <c>catch (Exception F) { inner = F; … }</c>. <c>F</c> is
 /// used exactly once for the #2828 shape, so csc re-elides it on recompile and
@@ -42,7 +41,8 @@ public sealed class CatchVariableScopePass : IIrPass
                 continue;
             if (clause.Filter is not null)
                 continue;
-            if (!LocalUsedOutsideClause(scope, clause, local))
+            if (!LocalUsedOutsideClause(scope, clause, local)
+                && !EnclosingCatchBindsLocal(clause, local))
                 continue;
 
             int fresh = function.AddLocal(clause.ExceptionType);
@@ -68,6 +68,16 @@ public sealed class CatchVariableScopePass : IIrPass
                 case LoadLocalAddress address when address.Index == local:
                     return true;
             }
+        }
+        return false;
+    }
+
+    static bool EnclosingCatchBindsLocal(CatchClause clause, int local)
+    {
+        for (IrNode? ancestor = clause.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ancestor is CatchClause { VariableIndex: var enclosing } && enclosing == local)
+                return true;
         }
         return false;
     }

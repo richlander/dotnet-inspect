@@ -16,6 +16,10 @@ namespace ILInspector.Decompiler.Tests;
 // Ordinary handler-local folding is preserved.
 public class CatchEntryFoldingTests
 {
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
+    static readonly TypeRef Holder = TypeRef.Definition("Synthetic", "Tests", "Holder");
+
     static IrFunction Raised(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -70,6 +74,69 @@ public class CatchEntryFoldingTests
         Assert.NotNull(output);
         Assert.Contains("captured = ", output);
         AssertCompiles("string", "CatchAssignsPredeclaredLocal", output);
+    }
+
+    [Fact]
+    public void NestedCatchSharingFoldedLocal_RebindsInnerClause()
+    {
+        var inner = Catch(Exception, 0);
+        var outerBody = Body(new TryCatch(Body(), [inner]));
+        var outer = new CatchClause(Exception, outerBody) { VariableIndex = 0 };
+        var function = Function(new TryCatch(Body(), [outer]), Exception);
+
+        new CatchVariableScopePass().Run(function, PassContext.None);
+
+        Assert.Equal(0, outer.VariableIndex);
+        Assert.NotEqual(0, inner.VariableIndex);
+        var restore = Assert.Single(inner.Body.Descendants.OfType<StoreLocal>());
+        Assert.Equal(0, restore.Index);
+        Assert.Equal(inner.VariableIndex, Assert.IsType<LoadLocal>(restore.Value).Index);
+        function.CheckInvariant();
+
+        string? output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        AssertCompiles("void", "NestedCatchSharingFoldedLocal", output);
+    }
+
+    [Fact]
+    public void SiblingCatchesSharingFoldedLocal_KeepTheirBindings()
+    {
+        var specific = Catch(TypeRef.CoreLib("System", "InvalidOperationException"), 0);
+        var general = Catch(Exception, 0);
+        var function = Function(new TryCatch(Body(), [specific, general]), Exception);
+
+        new CatchVariableScopePass().Run(function, PassContext.None);
+
+        Assert.Equal(0, specific.VariableIndex);
+        Assert.Equal(0, general.VariableIndex);
+        Assert.Single(function.Locals);
+        Assert.Empty(function.Descendants.OfType<StoreLocal>());
+        function.CheckInvariant();
+
+        string? output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        AssertCompiles("void", "SiblingCatchesSharingFoldedLocal", output);
+    }
+
+    static CatchClause Catch(TypeRef type, int variable)
+        => new(type, Body()) { VariableIndex = variable };
+
+    static IrFunction Function(IrNode statement, params TypeRef[] locals)
+        => new(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [.. locals],
+            Body(statement));
+
+    static BlockContainer Body(params IrNode[] statements)
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        body.Add(block);
+        return body;
     }
 
     static void AssertCompiles(string returnType, string name, string body)
