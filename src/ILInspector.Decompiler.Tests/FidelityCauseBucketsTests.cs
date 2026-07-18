@@ -30,6 +30,24 @@ public class FidelityCauseBucketsTests
     }
 
     [Fact]
+    public void BucketFor_UsesProducerOwnedInventoryLabel()
+    {
+        var cause = new DecompilerFidelityCause(
+            DiagnosticIds.UnsupportedType,
+            DecompilerFidelityLocation.Signature,
+            "IrFunction",
+            "Function M",
+            "references an unrepresentable type",
+            $"{DecompilerFidelityDiscriminators.PrivateImplementationDetailsType}; "
+                + DecompilerFidelityDiscriminators.UnsupportedTypeShape,
+            "custom modifier; unspellable C# type name '__PrivateImplementationDetails_'");
+
+        Assert.Equal(
+            "custom modifier; unspellable C# type name '__PrivateImplementationDetails_'",
+            FidelityCauseBuckets.BucketFor(cause));
+    }
+
+    [Fact]
     public void Inspect_OperationFailure_IsSurfaced()
     {
         var function = Function(new Return(new Constant(0, Int32)));
@@ -64,6 +82,15 @@ public class FidelityCauseBucketsTests
     {
         var census = FidelityCauseBuckets.FromInspection(
             new FindingInspection<DecompilerFidelityCause>.Absent());
+
+        Assert.Throws<InvalidOperationException>(() => FidelityCauseBuckets.PrimaryBucket(census));
+    }
+
+    [Fact]
+    public void PrimaryBucket_RejectsEmptyCompleteInspection()
+    {
+        var census = FidelityCauseBuckets.FromInspection(
+            new FindingInspection<DecompilerFidelityCause>.Complete([]));
 
         Assert.Throws<InvalidOperationException>(() => FidelityCauseBuckets.PrimaryBucket(census));
     }

@@ -26,7 +26,7 @@ internal sealed record CSharpDeclarationOptions
     public bool TerminateMemberDeclaration { get; init; }
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
-    public bool IncludeCustomAttributes { get; init; } = true;
+    public bool IncludeCustomAttributes { get; init; } = false;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
@@ -100,13 +100,18 @@ internal static class CSharpDeclarationWriter
             if (declaration.Length > 0 && NeedsTerminator(declaration))
                 declaration += ";";
             if (declaration.Length > 0)
-                lines.Add("    " + plan.Apply(declaration));
+                lines.Add(IndentEveryLine(plan.Apply(declaration), "    "));
         }
         lines.Add("}");
 
         var source = ComposeUnit(lines, plan.GeneratedUsings, options);
         return new CSharpRenderedDeclaration(source, plan.GeneratedUsings, plan.Diagnostics);
     }
+
+    static string IndentEveryLine(string text, string pad)
+        => text.Contains('\n', StringComparison.Ordinal)
+            ? string.Join('\n', text.Split('\n').Select(line => line.Length == 0 ? line : pad + line))
+            : pad + text;
 
     public static string RenderTypeDeclaration(ApiType type, CSharpDeclarationOptions? options = null)
     {
@@ -275,9 +280,10 @@ internal static class CSharpDeclarationWriter
             declaration += " : " + string.Join(", ", bases);
 
         declaration = AppendTypeParameterConstraints(declaration, type.TypeParameters);
-        return !options.IncludeCustomAttributes || type.Attributes.Count == 0
-            ? declaration
-            : $"[{string.Join(", ", type.Attributes)}] {declaration}";
+        if (!options.IncludeCustomAttributes || type.Attributes.Count == 0)
+            return declaration;
+        return string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]"))
+            + "\n" + declaration;
     }
 
     static bool NeedsTerminator(string declaration)
@@ -348,17 +354,18 @@ internal static class CSharpDeclarationWriter
         if (!options.AbbreviateSignature)
             signature = EscapeParameterLists(signature);
 
-        List<string> parts = [];
+        List<string> attributeLines = [];
         if (options.IncludeCustomAttributes)
         {
             foreach (var attribute in member.Attributes)
-                parts.Add($"[{attribute}]");
+                attributeLines.Add($"[{attribute}]");
         }
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
-            parts.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
+            attributeLines.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
         if (member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
-            parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
+            attributeLines.Add($"[return: {string.Join(", ", returnAttributes)}]");
 
+        List<string> parts = [];
         List<string> modifiers = [];
         if (member.Name == ".cctor")
         {
@@ -405,7 +412,16 @@ internal static class CSharpDeclarationWriter
             parts.Add(string.Join(" ", modifiers));
         parts.Add(signature);
 
-        return string.Join(" ", parts);
+        string declarationLine = string.Join(" ", parts);
+        if (attributeLines.Count == 0)
+            return declarationLine;
+
+        // On the opt-in surfaces that emit custom attributes (annotated source and
+        // the full type printer) each leading attribute goes on its own line, as is
+        // idiomatic C#. Single-line/table contexts (which never emit custom
+        // attributes) keep obsolete/return attributes inline so the row stays intact.
+        string separator = options.IncludeCustomAttributes ? "\n" : " ";
+        return string.Join(separator, attributeLines) + separator + declarationLine;
     }
 
     static IEnumerable<string> CollectTypeReferences(ApiType type)

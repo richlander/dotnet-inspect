@@ -368,7 +368,7 @@ public class SwitchBranchRenderingTests
         var function = IrImporter.Import(
             source,
             typeof(CSharpSpellability).FullName!,
-            "TypeReason");
+            "TypeIssue");
         Assert.NotNull(function);
 
         var result = CSharpPrinter.PrintRaised(function);

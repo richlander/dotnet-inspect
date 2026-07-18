@@ -958,31 +958,15 @@ public class MemberOptionsParserTests
         Assert.Contains("List", options.TypeName);
     }
 
-    // Debug test
     [Fact]
     public async Task Debug_ListIndexOfParsing()
     {
         ArgumentPreprocessor.Reset();
         var (root, opts, cmdArgs) = CreateTestCommand();
         var parseResult = root.Parse(["member", "List<T>.IndexOf:3"]);
-        
+
         var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
-        
-        // Log what we got
-        Console.WriteLine($"Result type: {result.GetType().Name}");
-        if (result is MemberOptionsParser.VersionError ve)
-        {
-            Console.WriteLine($"Error: {ve.Message}");
-        }
-        else if (result is MemberOptionsParser.Success success)
-        {
-            Console.WriteLine($"TypeName: {success.Options.TypeName}");
-            Console.WriteLine($"PackagePath: {success.Options.PackagePath}");
-            Console.WriteLine($"PlatformAssembly: {success.Options.PlatformAssembly}");
-            Console.WriteLine($"MemberFilter: {string.Join(", ", success.Options.MemberFilter)}");
-        }
-        
-        // Assert for now
+
         Assert.IsType<MemberOptionsParser.Success>(result);
     }
 }

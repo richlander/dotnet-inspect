@@ -4637,7 +4637,7 @@ public class ForeachElementProbe
     }
 }
 
-// Fixtures for ConstructorBodyFactExtractorTests. The neutral constructor
+// Fixtures for MemberBodyFactsTests constructor cases. The neutral constructor
 // body-fact extractor pattern-matches decompiled IR, so these compiled
 // constructor shapes exercise the chain-call and primary-constructor-prologue
 // detections directly.
@@ -4663,4 +4663,24 @@ public class PrimaryCtorSample(int alpha, string beta)
 {
     public int Alpha => alpha;
     public string Beta => beta;
+}
+
+public static class NamespaceRefSample
+{
+    // References System.Text (StringBuilder) and System.Collections.Generic (List<T>)
+    // alongside System (Int32/String), so the body-namespace extractor reports all
+    // three distinct namespaces.
+    public static string ReferencesTextAndGenerics(int count)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < count; i++)
+            list.Add(i);
+        var builder = new System.Text.StringBuilder();
+        foreach (var value in list)
+            builder.Append(value);
+        return builder.ToString();
+    }
+
+    // References only System (Int32).
+    public static int ReferencesOnlySystem(int x) => x + 1;
 }

@@ -444,7 +444,22 @@ internal static class CorpusSensor
                     residual,
                     passBug,
                     Validity: "not-sampled",
-                    FidelityCheck: "not-sampled"));
+                    FidelityCheck: "not-sampled",
+                    FidelityCauses: fidelityCensus is { Succeeded: true, Causes.IsEmpty: false }
+                        ? fidelityCensus.Value.Causes
+                            .GroupBy(static cause => (cause.Code, cause.Discriminator))
+                            .Select(static group =>
+                            {
+                                int sites = group.Count();
+                                return new CorpusFidelityCauseSnapshot(
+                                    group.Key.Code,
+                                    group.Key.Discriminator,
+                                    sites > 1 ? sites : null);
+                            })
+                            .OrderBy(static cause => cause.Code, StringComparer.Ordinal)
+                            .ThenBy(static cause => cause.Discriminator, StringComparer.Ordinal)
+                            .ToImmutableArray()
+                        : null));
             });
             assemblyReports.Add(new CorpusAssemblySnapshot(source.AssemblyName, PortablePath(assemblyPath), methods));
         }
@@ -1177,7 +1192,7 @@ internal static class CorpusSensor
     }
 
     static string MethodKey(CorpusMethodSnapshot method)
-        => MethodKey(method.AssemblyPath, method.Type, method.Method, method.Signature);
+        => method.StableKey;
 
     static string MethodKey(string assemblyPath, string type, string method, string signature)
         => $"{assemblyPath}!{type}::{method}{signature}";
@@ -1589,6 +1604,95 @@ internal static class CorpusSensor
                 $"Fully raised: {fullyRaised.RaisedMethods}/{fullyRaised.CheckedMethods} "
                 + $"({FormatBps(RateBasisPoints(fullyRaised.RaisedMethods, fullyRaised.CheckedMethods))} "
                 + "of completed validity outcomes)");
+        }
+        PrintFidelityResidualPortfolio(snapshot);
+    }
+
+    static void PrintFidelityResidualPortfolio(CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.Methods is not { } methods
+            || !methods.Any(static method => method.FidelityCauses is not null))
+        {
+            return;
+        }
+
+        var portfolio = FidelityResidualPortfolioBuilder.Build(
+            methods,
+            snapshot.Metrics.TotalMethods,
+            snapshot.Metrics.FullyRaisedMethods);
+
+        Console.WriteLine();
+        Console.WriteLine($"## Fidelity residual portfolio (policy v{portfolio.PolicyVersion})");
+        Console.WriteLine();
+        Console.WriteLine(
+            $"Population: {Number(portfolio.FidelityPrimaryMethods)} fidelity-primary methods, "
+            + $"{Number(portfolio.FidelityCauseSites)} cause sites.");
+        Console.WriteLine(
+            "Method rollup: "
+            + $"{Number(portfolio.RecoverableMethods)} all causes recoverable; "
+            + $"{Number(portfolio.PolicyFloorMethods)} any cause at the policy floor; "
+            + $"{Number(portfolio.UnclassifiedMethods)} otherwise unclassified.");
+        if (portfolio.MissingCauseMethods > 0)
+        {
+            Console.WriteLine(
+                $"Missing cause snapshots: {Number(portfolio.MissingCauseMethods)} "
+                + "(counted as unclassified).");
+        }
+        Console.WriteLine(
+            "Current roadmap target range: "
+            + $"{Number(portfolio.RoadmapTargetLowerMethods)}–{Number(portfolio.RoadmapTargetUpperMethods)}"
+            + $"/{Number(portfolio.TotalMethods)} projected fully raised "
+            + $"({FormatBps(RateBasisPoints(portfolio.RoadmapTargetLowerMethods, portfolio.TotalMethods))}"
+            + $"–{FormatBps(RateBasisPoints(portfolio.RoadmapTargetUpperMethods, portfolio.TotalMethods))}).");
+        Console.WriteLine(
+            "The range excludes the current policy floor; its upper endpoint includes "
+            + "unclassified work, so it is a policy target, not a mathematical ceiling.");
+        Console.WriteLine(
+            $"Earlier structural-primary co-occurrence (excluded): "
+            + $"{Number(portfolio.StructuralPrimaryMethodsWithFidelityCauses)} methods, "
+            + $"{Number(portfolio.StructuralPrimaryFidelityCauseSites)} fidelity cause sites.");
+
+        PrintFidelityFacetSection(
+            "Recoverable roadmap",
+            portfolio.Facets,
+            FidelityResidualDisposition.RecoverableRoadmap);
+        PrintFidelityFacetSection(
+            "Policy floor",
+            portfolio.Facets,
+            FidelityResidualDisposition.PolicyFloor);
+        PrintFidelityFacetSection(
+            "Unclassified",
+            portfolio.Facets,
+            FidelityResidualDisposition.Unclassified);
+    }
+
+    static void PrintFidelityFacetSection(
+        string heading,
+        ImmutableArray<FidelityResidualFacetSummary> facets,
+        FidelityResidualDisposition disposition)
+    {
+        var selected = facets
+            .Where(facet => facet.Disposition == disposition)
+            .ToArray();
+        Console.WriteLine();
+        Console.WriteLine($"{heading} facets:");
+        if (selected.Length == 0)
+        {
+            Console.WriteLine("  none");
+            return;
+        }
+
+        foreach (var facet in selected)
+        {
+            string label = facet.Discriminator is null
+                ? facet.Code
+                : $"{facet.Code}/{facet.Discriminator}";
+            string example = facet.Examples.Length == 0
+                ? ""
+                : $"; e.g. {facet.Examples[0]}";
+            Console.WriteLine(
+                $"  {label}: {Number(facet.Methods)} methods, "
+                + $"{Number(facet.CauseSites)} sites{example}");
         }
     }
 

@@ -67,6 +67,8 @@
              Link="CompilerFeatureOptions.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCauseBuckets.cs"
              Link="FidelityCauseBuckets.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\FidelityResidualPortfolio.cs"
+             Link="FidelityResidualPortfolio.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\FidelityCheck.cs"
              Link="FidelityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\MetadataInstructionProducer.cs"

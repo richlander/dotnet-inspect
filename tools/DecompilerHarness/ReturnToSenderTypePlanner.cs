@@ -778,7 +778,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: RequiredNamespaces(function)
+            Usings: MemberBodyFacts.ReferencedNamespaces(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -954,7 +954,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: RequiredNamespaces(function)
+            Usings: MemberBodyFacts.ReferencedNamespaces(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -991,7 +991,7 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
         bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
-        var bodyFacts = isConstructor ? ConstructorBodyFactExtractor.Extract(function) : ConstructorBodyFacts.None;
+        var bodyFacts = isConstructor ? MemberBodyFacts.Constructor(function) : ConstructorBodyFacts.None;
         var primaryConstructor = isConstructor
             ? PrimaryConstructorFromPrologue(reader, method, bodyFacts.PrimaryConstructorPrologue, targetBody)
             : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
@@ -1156,7 +1156,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: RequiredNamespaces(function)
+            Usings: MemberBodyFacts.ReferencedNamespaces(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -2278,41 +2278,6 @@ public static class CompileBackSourceComposer
     {
         var declaring = reader.GetTypeDefinition(handle).GetDeclaringType();
         return declaring.IsNil ? handle : TopLevelRootOf(reader, declaring);
-    }
-
-    static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
-    {
-        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
-
-        void Add(TypeRef? type)
-        {
-            switch (type?.Kind)
-            {
-                case TypeRefKind.Definition:
-                    if (type.Namespace.Length > 0)
-                        namespaces.Add(type.Namespace);
-                    break;
-                case TypeRefKind.GenericInstance:
-                    Add(type.ElementType);
-                    foreach (var argument in type.TypeArguments)
-                        Add(argument);
-                    break;
-                case TypeRefKind.SzArray or TypeRefKind.Array
-                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
-                    Add(type.ElementType);
-                    break;
-            }
-        }
-
-        foreach (var node in function.Descendants.Prepend(function))
-        {
-            foreach (var type in node.DirectTypes)
-                Add(type);
-            if (node is IrExpression expression)
-                Add(expression.ResultType);
-        }
-
-        return namespaces;
     }
 
     static string Clean(string type) => CSharpFormatter.CleanTypeDisplay(type);

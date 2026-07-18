@@ -8,46 +8,48 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class CSharpSpellability
 {
-    public static bool HasUnrepresentableMetadataName(IrNode node)
-        => UnrepresentableMetadataNameReason(node) is not null;
+    internal readonly record struct NameIssue(string Discriminator, string Reason);
 
-    public static string? UnrepresentableMetadataNameReason(IrNode node)
+    public static bool HasUnrepresentableMetadataName(IrNode node)
+        => InspectUnrepresentableMetadataName(node) is not null;
+
+    internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
         foreach (var type in RenderedTypes(node))
         {
-            if (TypeReason(type) is { } reason)
-                return reason;
+            if (TypeIssue(type) is { } issue)
+                return issue;
         }
 
         if (node is IrExpression { ResultType: { } resultType }
-            && TypeReason(resultType) is { } expressionTypeReason)
+            && TypeIssue(resultType) is { } expressionTypeIssue)
         {
-            return expressionTypeReason;
+            return expressionTypeIssue;
         }
 
         return node switch
         {
-            Call call => MethodReason(call.Callee),
-            NewObject newObject => ConstructorReason(newObject.Constructor),
-            AddressOfMethod address => MethodReason(address.Method),
-            DelegateCreation creation => MethodReason(creation.Method),
-            LoadField load => FieldReason(load.Field),
-            StoreField store => FieldReason(store.Field),
-            LoadFieldAddress address => FieldReason(address.Field),
-            LoadProperty load => PropertyReason(load.PropertyName),
-            StoreProperty store => PropertyReason(store.PropertyName),
-            NullCoalescingFieldAssignment assignment => FieldReason(assignment.Field),
-            NullCoalescingFieldAssignmentExpression assignment => FieldReason(assignment.Field),
-            NullCoalescingPropertyAssignment assignment => PropertyReason(assignment.PropertyName),
-            AnonymousObject anonymous => InitializerMembersReason(anonymous.PropertyNames),
-            ObjectInitializerExpression initializer => InitializerMembersReason(initializer.Members),
-            WithExpression withExpression => InitializerMembersReason(withExpression.Members),
-            InitializerBlock block => InitializerMembersReason(block.Members),
-            DeconstructionTarget target => DeconstructionTargetReason(target),
-            RecursivePropertyDeclarationPattern pattern => PropertyReason(pattern.PropertyName),
-            EventSubscription subscription => PropertyReason(subscription.EventName),
-            LocalFunctionStatement statement => LocalFunctionReason(statement.Name),
-            LocalFunctionInvocation invocation => LocalFunctionReason(invocation.Name),
+            Call call => MethodIssue(call.Callee),
+            NewObject newObject => ConstructorIssue(newObject.Constructor),
+            AddressOfMethod address => MethodIssue(address.Method),
+            DelegateCreation creation => MethodIssue(creation.Method),
+            LoadField load => FieldIssue(load.Field),
+            StoreField store => FieldIssue(store.Field),
+            LoadFieldAddress address => FieldIssue(address.Field),
+            LoadProperty load => PropertyIssue(load.PropertyName),
+            StoreProperty store => PropertyIssue(store.PropertyName),
+            NullCoalescingFieldAssignment assignment => FieldIssue(assignment.Field),
+            NullCoalescingFieldAssignmentExpression assignment => FieldIssue(assignment.Field),
+            NullCoalescingPropertyAssignment assignment => PropertyIssue(assignment.PropertyName),
+            AnonymousObject anonymous => InitializerMembersIssue(anonymous.PropertyNames),
+            ObjectInitializerExpression initializer => InitializerMembersIssue(initializer.Members),
+            WithExpression withExpression => InitializerMembersIssue(withExpression.Members),
+            InitializerBlock block => InitializerMembersIssue(block.Members),
+            DeconstructionTarget target => DeconstructionTargetIssue(target),
+            RecursivePropertyDeclarationPattern pattern => PropertyIssue(pattern.PropertyName),
+            EventSubscription subscription => PropertyIssue(subscription.EventName),
+            LocalFunctionStatement statement => LocalFunctionIssue(statement.Name),
+            LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
     }
@@ -69,44 +71,72 @@ internal static class CSharpSpellability
                 yield return catchType;
     }
 
-    static string? ConstructorReason(MethodRef constructor)
+    static NameIssue? ConstructorIssue(MethodRef constructor)
     {
         foreach (var argument in constructor.TypeArguments)
-            if (TypeReason(argument) is { } reason)
-                return reason;
+            if (TypeIssue(argument) is { } issue)
+                return issue;
         return null;
     }
 
-    static string? MethodReason(MethodRef method)
+    static NameIssue? MethodIssue(MethodRef method)
     {
         foreach (var argument in method.TypeArguments)
-            if (TypeReason(argument) is { } reason)
-                return reason;
+            if (TypeIssue(argument) is { } issue)
+                return issue;
 
         if (method.Name is ".ctor")
             return null;
 
         if (IsUnverifiedAccessorLikeMethod(method))
-            return $"method '{method.Name}' looks like a property/event accessor but accessor metadata was unavailable; explicit accessor calls have no C# spelling";
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.AccessorMetadataUnavailable,
+                $"method '{method.Name}' looks like a property/event accessor but accessor metadata was unavailable; explicit accessor calls have no C# spelling");
+        }
 
         string name = CSharpNaming.MethodName(method.Name);
         return CSharpNaming.IsEscapableIdentifier(name)
             ? null
-            : $"method name '{method.Name}' has no C# spelling";
+            : Issue(
+                MethodNameDiscriminator(method.Name),
+                $"method name '{method.Name}' has no C# spelling");
     }
 
-    static string? FieldReason(FieldRef field)
+    static NameIssue? FieldIssue(FieldRef field)
     {
         string name = field.BackingPropertyName ?? field.Name;
-        return CSharpNaming.IsUsableIdentifier(name)
-            ? null
-            : $"field name '{field.Name}' has no C# spelling";
+        if (CSharpNaming.IsUsableIdentifier(name))
+            return null;
+        if (CSharpNaming.IsEscapableIdentifier(name))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.EscapableFieldName,
+                $"field name '{field.Name}' requires C# @ escaping");
+        }
+        return Issue(
+            GeneratedCodeIdentity.IsGeneratedFieldName(name)
+                ? DecompilerFidelityDiscriminators.GeneratedFieldName
+                : DecompilerFidelityDiscriminators.UnspellableFieldName,
+            $"field name '{field.Name}' has no C# spelling");
     }
 
-    static string? PropertyReason(string name)
-        => CSharpNaming.IsUsableIdentifier(name)
-            ? null
-            : $"property name '{name}' has no C# spelling";
+    static NameIssue? PropertyIssue(string name)
+    {
+        if (CSharpNaming.IsUsableIdentifier(name))
+            return null;
+        if (CSharpNaming.IsEscapableIdentifier(name))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.EscapablePropertyName,
+                $"property name '{name}' requires C# @ escaping");
+        }
+        return Issue(
+            IsGeneratedNameShape(name)
+                ? DecompilerFidelityDiscriminators.GeneratedPropertyName
+                : DecompilerFidelityDiscriminators.UnspellablePropertyName,
+            $"property name '{name}' has no C# spelling");
+    }
 
     static bool IsUnverifiedAccessorLikeMethod(MethodRef method)
         => method.AccessorKind == AccessorKind.Unknown
@@ -122,32 +152,46 @@ internal static class CSharpSpellability
     // invalid identifier characters (e.g. a hand-written `bad-name`) has no C#
     // spelling. Use the keyword-tolerant predicate to avoid degrading the
     // keyword-escaped local functions #1465 made Full.
-    static string? LocalFunctionReason(string name)
+    static NameIssue? LocalFunctionIssue(string name)
         => CSharpNaming.IsEscapableIdentifier(name)
             ? null
-            : $"local function name '{name}' has no C# spelling";
+            : Issue(
+                DecompilerFidelityDiscriminators.UnspellableLocalFunctionName,
+                $"local function name '{name}' has no C# spelling");
 
-    static string? InitializerMembersReason(IEnumerable<string?> members)
+    static NameIssue? InitializerMembersIssue(IEnumerable<string?> members)
     {
         foreach (var member in members)
         {
             if (member is null)
                 continue;
             if (!CSharpNaming.IsUsableIdentifier(member))
-                return $"initializer member name '{member}' has no C# spelling";
+            {
+                if (CSharpNaming.IsEscapableIdentifier(member))
+                {
+                    return Issue(
+                        DecompilerFidelityDiscriminators.EscapableInitializerMemberName,
+                        $"initializer member name '{member}' requires C# @ escaping");
+                }
+                return Issue(
+                    IsGeneratedNameShape(member)
+                        ? DecompilerFidelityDiscriminators.GeneratedInitializerMemberName
+                        : DecompilerFidelityDiscriminators.UnspellableInitializerMemberName,
+                    $"initializer member name '{member}' has no C# spelling");
+            }
         }
         return null;
     }
 
-    static string? DeconstructionTargetReason(DeconstructionTarget target)
+    static NameIssue? DeconstructionTargetIssue(DeconstructionTarget target)
         => target.Kind switch
         {
-            DeconstructionTargetKind.Field when target.Field is { } field => FieldReason(field),
-            DeconstructionTargetKind.Property => PropertyReason(target.PropertyName),
+            DeconstructionTargetKind.Field when target.Field is { } field => FieldIssue(field),
+            DeconstructionTargetKind.Property => PropertyIssue(target.PropertyName),
             _ => null,
         };
 
-    static string? TypeReason(TypeRef type)
+    static NameIssue? TypeIssue(TypeRef type)
     {
         switch (type.Kind)
         {
@@ -164,16 +208,20 @@ internal static class CSharpSpellability
                 {
                     string simpleSegment = StripArity(segment);
                     if (!CSharpNaming.IsEscapableIdentifier(simpleSegment))
-                        return $"type name '{simpleSegment}' has no C# spelling";
+                    {
+                        return Issue(
+                            TypeNameDiscriminator(simpleSegment),
+                            $"type name '{simpleSegment}' has no C# spelling");
+                    }
                 }
                 return null;
 
             case TypeRefKind.GenericInstance:
-                if (type.ElementType is { } definition && TypeReason(definition) is { } definitionReason)
-                    return definitionReason;
+                if (type.ElementType is { } definition && TypeIssue(definition) is { } definitionIssue)
+                    return definitionIssue;
                 foreach (var argument in type.TypeArguments)
-                    if (TypeReason(argument) is { } argumentReason)
-                        return argumentReason;
+                    if (TypeIssue(argument) is { } argumentIssue)
+                        return argumentIssue;
                 return null;
 
             case TypeRefKind.SzArray:
@@ -181,26 +229,63 @@ internal static class CSharpSpellability
             case TypeRefKind.ByRef:
             case TypeRefKind.Pointer:
             case TypeRefKind.Pinned:
-                return type.ElementType is { } element ? TypeReason(element) : null;
+                return type.ElementType is { } element ? TypeIssue(element) : null;
 
             case TypeRefKind.GenericParameter:
             case TypeRefKind.MethodGenericParameter:
                 return type.GenericParameterName.Length == 0 || CSharpNaming.IsEscapableIdentifier(type.GenericParameterName)
                     ? null
-                    : $"generic parameter name '{type.GenericParameterName}' has no C# spelling";
+                    : Issue(
+                        IsGeneratedNameShape(type.GenericParameterName)
+                            ? DecompilerFidelityDiscriminators.GeneratedGenericParameterName
+                            : DecompilerFidelityDiscriminators.UnspellableGenericParameterName,
+                        $"generic parameter name '{type.GenericParameterName}' has no C# spelling");
 
             case TypeRefKind.FunctionPointer:
-                if (type.ElementType is { } returnType && TypeReason(returnType) is { } returnReason)
-                    return returnReason;
+                if (type.ElementType is { } returnType && TypeIssue(returnType) is { } returnIssue)
+                    return returnIssue;
                 foreach (var parameter in type.TypeArguments)
-                    if (TypeReason(parameter) is { } parameterReason)
-                        return parameterReason;
+                    if (TypeIssue(parameter) is { } parameterIssue)
+                        return parameterIssue;
                 return null;
 
             default:
                 return null;
         }
     }
+
+    static string MethodNameDiscriminator(string name)
+    {
+        if (GeneratedCodeIdentity.IsSynthesizedLambdaMethodName(name))
+            return DecompilerFidelityDiscriminators.LambdaMethodName;
+        if (GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(name))
+            return DecompilerFidelityDiscriminators.LocalFunctionMethodName;
+        return IsGeneratedNameShape(name)
+            ? DecompilerFidelityDiscriminators.GeneratedMethodName
+            : DecompilerFidelityDiscriminators.UnspellableMethodName;
+    }
+
+    static string TypeNameDiscriminator(string name)
+    {
+        if (name.StartsWith("<>c__DisplayClass", StringComparison.Ordinal))
+            return DecompilerFidelityDiscriminators.DisplayClassTypeName;
+        if (name == "<>c")
+            return DecompilerFidelityDiscriminators.LambdaHolderTypeName;
+        if (name.StartsWith("<", StringComparison.Ordinal)
+            && name.Contains(">d__", StringComparison.Ordinal))
+        {
+            return DecompilerFidelityDiscriminators.StateMachineTypeName;
+        }
+        return IsGeneratedNameShape(name)
+            ? DecompilerFidelityDiscriminators.GeneratedTypeName
+            : DecompilerFidelityDiscriminators.UnspellableTypeName;
+    }
+
+    static bool IsGeneratedNameShape(string name)
+        => name.StartsWith("<", StringComparison.Ordinal);
+
+    static NameIssue Issue(string discriminator, string reason)
+        => new(discriminator, reason);
 
     static bool IsCoreLibPrimitive(TypeRef type)
         => type.Assembly == TypeRef.CoreLibrary

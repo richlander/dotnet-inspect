@@ -94,7 +94,11 @@ public class LibraryInspectionView
             .OrderBy(m => m.DeclaringType, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new AsyncMethodRow(m.MethodName, m.DeclaringType, m.Kind, m.Signature))
+            .Select(m => new AsyncMethodRow(
+                m.MethodName,
+                MarkoutInline.Code(MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType)),
+                m.Kind,
+                MarkoutInline.Code(m.Signature)))
             .ToList();
 
     [MarkoutIgnore]
@@ -200,7 +204,11 @@ public class LibraryInspectionView
             .ThenBy(m => m.MethodName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.ModuleName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.Signature, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new PInvokeMethodRow(m.MethodName, m.DeclaringType, m.ModuleName ?? "", m.Signature))
+            .Select(m => new PInvokeMethodRow(
+                m.MethodName,
+                MarkoutInline.Code(MetadataTypeNameFormatter.FormatGenericTypeName(m.DeclaringType)),
+                m.ModuleName ?? "",
+                MarkoutInline.Code(m.Signature)))
             .ToList();
 
     [MarkoutIgnore]

@@ -9584,6 +9584,40 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task AsyncMethods_DeclaringTypeAndSignature_RenderAsCodeSpansWithExpandedArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--section", "Async Methods", "-v:d", "--tips", "q");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        // Generic declaring types expand arity to a C#-friendly code span (no raw `2, no escaped angle brackets).
+        Assert.Contains(
+            "`System.Text.Json.Serialization.Converters.IAsyncEnumerableOfTConverter<T1, T2>.BufferedAsyncEnumerable`",
+            output);
+        // Generic signatures render as code spans with literal angle brackets.
+        Assert.Contains("`System.Collections.Generic.IAsyncEnumerator<TElement> GetAsyncEnumerator", output);
+        Assert.DoesNotContain("&#96;", output);
+        Assert.DoesNotContain("&lt;", output);
+        Assert.DoesNotContain("&gt;", output);
+    }
+
+    [Fact]
+    public async Task AsyncMethods_MachineOutput_KeepsRawValuesWithoutCodeMarkup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--section", "Async Methods", "--jsonl");
+
+        Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+        Assert.Contains(
+            "\"declaring_type\":\"System.Text.Json.Serialization.Converters.IAsyncEnumerableOfTConverter<T1, T2>.BufferedAsyncEnumerable\"",
+            output);
+        Assert.DoesNotContain("<code>", output);
+        Assert.DoesNotContain("`", output);
+    }
+
+    [Fact]
     public async Task Project_SkillsPrint_JsonlIsSingleCompactRecord()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(

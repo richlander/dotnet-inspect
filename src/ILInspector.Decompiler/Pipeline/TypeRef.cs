@@ -377,6 +377,20 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 yield return reason;
     }
 
+    internal IEnumerable<string> UnsupportedDiscriminators()
+    {
+        if (Kind == TypeRefKind.Unsupported)
+            yield return DecompilerFidelityDiscriminators.UnsupportedTypeShape;
+        if (IsPrivateImplementationDetails)
+            yield return DecompilerFidelityDiscriminators.PrivateImplementationDetailsType;
+        if (ElementType is { } element)
+            foreach (var discriminator in element.UnsupportedDiscriminators())
+                yield return discriminator;
+        foreach (var argument in TypeArguments)
+            foreach (var discriminator in argument.UnsupportedDiscriminators())
+                yield return discriminator;
+    }
+
     public bool Equals(TypeRef? other)
     {
         if (other is null)

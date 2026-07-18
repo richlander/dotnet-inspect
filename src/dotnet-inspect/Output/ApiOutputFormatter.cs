@@ -24,6 +24,8 @@ namespace DotnetInspector.Output;
 public static class ApiOutputFormatter
 {
     static readonly CSharpFormatter DefaultCSharpFormatter = new();
+    static readonly CSharpFormatter AnnotatedCSharpFormatter = new(
+        new CSharpFormatOptions { IncludeCustomAttributes = true });
     static readonly CSharpFormatter AbbreviatedCSharpFormatter = new(
         new CSharpFormatOptions { AbbreviateSignature = true });
     static readonly CSharpFormatter CSharpFormatterWithoutObsolete = new(
@@ -1570,7 +1572,8 @@ public static class ApiOutputFormatter
                 member,
                 code.MethodGenericParameters,
                 annotatedResult,
-                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
+                includeCustomAttributes: true);
             hasCode = true;
         }
 
@@ -2284,7 +2287,8 @@ public static class ApiOutputFormatter
         Decompiler.DecompilerResult result,
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null,
-        bool requiresAsyncBodyModifier = false)
+        bool requiresAsyncBodyModifier = false,
+        bool includeCustomAttributes = false)
     {
         if (!result.Succeeded)
             return new CodeSection("csharp", DiagnosticComment(result));
@@ -2300,7 +2304,8 @@ public static class ApiOutputFormatter
                     result,
                     preferExpressionBodied,
                     leadingBodyComments,
-                    requiresAsyncBodyModifier));
+                    requiresAsyncBodyModifier,
+                    includeCustomAttributes));
         }
         catch (Exception ex)
         {
@@ -2317,7 +2322,8 @@ public static class ApiOutputFormatter
         Decompiler.DecompilerResult result,
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null,
-        bool requiresAsyncBodyModifier = false)
+        bool requiresAsyncBodyModifier = false,
+        bool includeCustomAttributes = false)
     {
         var lowered = result.Output
             ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
@@ -2326,7 +2332,8 @@ public static class ApiOutputFormatter
             RequiresAsyncModifier = requiresAsyncBodyModifier,
             RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier
         };
-        var declaration = DefaultCSharpFormatter.FormatMemberWithBody(
+        var formatter = includeCustomAttributes ? AnnotatedCSharpFormatter : DefaultCSharpFormatter;
+        var declaration = formatter.FormatMemberWithBody(
             type,
             member,
             bodyShape,

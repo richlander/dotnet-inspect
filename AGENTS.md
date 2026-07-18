@@ -216,10 +216,10 @@ Any PR with non-trivial behavior changes, new heuristics or shapes, or subtle
 correctness, security, or compatibility risk requires adversarial review from
 two different models chosen from:
 
-- Claude Opus 4.8
-- GPT-5.5
+- Claude Opus (for example Claude Opus 4.8)
 - Gemini Pro (for example Gemini 3.1 Pro)
-- the MAI Flash family (for example MAI-Code-1-Flash)
+- GPT (for example GPT 5.6 Sol)
+- MAI-Code (for example MAI-Code-1-Flash)
 
 This list is the single source of truth for the reviewer roster; scenario docs
 should reference it rather than restating it.

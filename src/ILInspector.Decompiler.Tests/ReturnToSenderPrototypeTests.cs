@@ -3486,17 +3486,17 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int Method1()", result.Source);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\n    public int Method1()", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("[System.Obsolete(\"use Method1\")] public int ObsoleteMethod()", result.Source);
+                    Assert.Contains("[System.Obsolete(\"use Method1\")]\n    public int ObsoleteMethod()", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string Text", result.Source);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\n    public string Text", result.Source);
                 },
                 result =>
                 {
@@ -3535,12 +3535,12 @@ public class ReturnToSenderPrototypeTests
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class Class1", result.Source);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\npublic class Class1", result.Source);
                 },
                 result =>
                 {
                     Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class Class1", result.Source);
+                    Assert.Contains("[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\npublic class Class1", result.Source);
                 });
         }
         finally
