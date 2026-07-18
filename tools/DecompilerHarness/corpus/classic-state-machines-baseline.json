@@ -1,0 +1,1518 @@
+{
+  "schemaVersion": 4,
+  "description": "#2818 classic async/iterator state-machine corpus: pinned classic async, iterator, async-iterator, and switch fixtures, raised with the cross-method import seam wired.",
+  "generatedUtc": "2026-07-18T19:48:15.289718+00:00",
+  "validityCompileCap": 4000,
+  "fidelityCompileCap": 0,
+  "methodCap": null,
+  "tolerances": {
+    "fullyRaisedDropBasisPoints": 10,
+    "conditionalBranchIncreaseBasisPoints": 10,
+    "forwardMergeIncreaseBasisPoints": 10,
+    "fullMalformedIncrease": 0,
+    "semanticDefectIncrease": 0,
+    "passBugIncrease": 0,
+    "fidelityOpcodeDiffIncrease": 0,
+    "fidelityRecompileFailIncrease": 0,
+    "fidelityContextFailIncrease": 0
+  },
+  "assemblies": [
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "path": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "totalMethods": 73
+    }
+  ],
+  "methods": [
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 7
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Int32\u003E.GetAsyncEnumerator",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Collections.Generic.IAsyncEnumerator\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 20
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Collections.Generic.IAsyncEnumerable\u003CSystem.Int32\u003E.GetAsyncEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.MoveNextAsync",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Threading.Tasks.ValueTask\u00601\u003Ccorelib:System.Boolean\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 18
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.MoveNextAsync#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.IAsyncDisposable.DisposeAsync",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Threading.Tasks.ValueTask",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 18
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.IAsyncDisposable.DisposeAsync#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource.GetResult",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Threading.Tasks.Sources.IValueTaskSource.GetResult#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource.GetStatus",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Threading.Tasks.Sources.ValueTaskSourceStatus",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Threading.Tasks.Sources.IValueTaskSource.GetStatus#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource.OnCompleted",
+      "overload": 0,
+      "signature": "(corelib:System.Action\u00601\u003Ccorelib:System.Object\u003E, corelib:System.Object, corelib:System.Int16, corelib:System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Threading.Tasks.Sources.IValueTaskSource.OnCompleted#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetResult",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetResult#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetStatus",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Threading.Tasks.Sources.ValueTaskSourceStatus",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetStatus#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.OnCompleted",
+      "overload": 0,
+      "signature": "(corelib:System.Action\u00601\u003Ccorelib:System.Object\u003E, corelib:System.Object, corelib:System.Int16, corelib:System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_AwaitThenYield\u003Ed__7::System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.OnCompleted#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 7
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Int32\u003E.GetAsyncEnumerator",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Collections.Generic.IAsyncEnumerator\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 24
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Collections.Generic.IAsyncEnumerable\u003CSystem.Int32\u003E.GetAsyncEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.MoveNextAsync",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Threading.Tasks.ValueTask\u00601\u003Ccorelib:System.Boolean\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 18
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.MoveNextAsync#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Collections.Generic.IAsyncEnumerator\u003CSystem.Int32\u003E.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.IAsyncDisposable.DisposeAsync",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Threading.Tasks.ValueTask",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 18
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.IAsyncDisposable.DisposeAsync#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource.GetResult",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Threading.Tasks.Sources.IValueTaskSource.GetResult#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource.GetStatus",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Threading.Tasks.Sources.ValueTaskSourceStatus",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Threading.Tasks.Sources.IValueTaskSource.GetStatus#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource.OnCompleted",
+      "overload": 0,
+      "signature": "(corelib:System.Action\u00601\u003Ccorelib:System.Object\u003E, corelib:System.Object, corelib:System.Int16, corelib:System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Threading.Tasks.Sources.IValueTaskSource.OnCompleted#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetResult",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetResult#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetStatus",
+      "overload": 0,
+      "signature": "(corelib:System.Int16) -\u003E corelib:System.Threading.Tasks.Sources.ValueTaskSourceStatus",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.GetStatus#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8",
+      "method": "System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.OnCompleted",
+      "overload": 0,
+      "signature": "(corelib:System.Action\u00601\u003Ccorelib:System.Object\u003E, corelib:System.Object, corelib:System.Int16, corelib:System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsyncIterator_YieldBreakEarly\u003Ed__8::System.Threading.Tasks.Sources.IValueTaskSource\u003CSystem.Boolean\u003E.OnCompleted#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInLoop\u003Ed__3",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInLoop\u003Ed__3::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInLoop\u003Ed__3",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInLoop\u003Ed__3::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInTryFinally\u003Ed__2",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInTryFinally\u003Ed__2::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInTryFinally\u003Ed__2",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitInTryFinally\u003Ed__2::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitValue\u003Ed__0",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitValue\u003Ed__0::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitValue\u003Ed__0",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_AwaitValue\u003Ed__0::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_TwoSequentialAwaits\u003Ed__1",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_TwoSequentialAwaits\u003Ed__1::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_TwoSequentialAwaits\u003Ed__1",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CAsync_TwoSequentialAwaits\u003Ed__1::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 5
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 22
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "System.Collections.Generic.IEnumerable\u003CSystem.Int32\u003E.GetEnumerator",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Collections.Generic.IEnumerator\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 16
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::System.Collections.Generic.IEnumerable\u003CSystem.Int32\u003E.GetEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "System.Collections.Generic.IEnumerator\u003CSystem.Int32\u003E.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::System.Collections.Generic.IEnumerator\u003CSystem.Int32\u003E.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "System.Collections.IEnumerable.GetEnumerator",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Collections.IEnumerator",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::System.Collections.IEnumerable.GetEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "System.Collections.IEnumerator.Reset",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::System.Collections.IEnumerator.Reset#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "System.Collections.IEnumerator.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Object",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::System.Collections.IEnumerator.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5",
+      "method": "System.IDisposable.Dispose",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldBreakEarly\u003Ed__5::System.IDisposable.Dispose#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 5
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "\u003C\u003Em__Finally1",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 4
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::\u003C\u003Em__Finally1#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "\u003C\u003Em__Finally2",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 6
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::\u003C\u003Em__Finally2#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 30
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "System.Collections.Generic.IEnumerable\u003CSystem.Int32\u003E.GetEnumerator",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Collections.Generic.IEnumerator\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 16
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::System.Collections.Generic.IEnumerable\u003CSystem.Int32\u003E.GetEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "System.Collections.Generic.IEnumerator\u003CSystem.Int32\u003E.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::System.Collections.Generic.IEnumerator\u003CSystem.Int32\u003E.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "System.Collections.IEnumerable.GetEnumerator",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Collections.IEnumerator",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::System.Collections.IEnumerable.GetEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "System.Collections.IEnumerator.Reset",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::System.Collections.IEnumerator.Reset#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "System.Collections.IEnumerator.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Object",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::System.Collections.IEnumerator.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6",
+      "method": "System.IDisposable.Dispose",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 10
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldInTryFinally\u003Ed__6::System.IDisposable.Dispose#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": ".ctor",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 5
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::.ctor#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "structuring: conditional-branch",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 22
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "System.Collections.Generic.IEnumerable\u003CSystem.Int32\u003E.GetEnumerator",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Collections.Generic.IEnumerator\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 16
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::System.Collections.Generic.IEnumerable\u003CSystem.Int32\u003E.GetEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "System.Collections.Generic.IEnumerator\u003CSystem.Int32\u003E.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::System.Collections.Generic.IEnumerator\u003CSystem.Int32\u003E.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "System.Collections.IEnumerable.GetEnumerator",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Collections.IEnumerator",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::System.Collections.IEnumerable.GetEnumerator#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "System.Collections.IEnumerator.Reset",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::System.Collections.IEnumerator.Reset#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "System.Collections.IEnumerator.get_Current",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Object",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::System.Collections.IEnumerator.get_Current#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4",
+      "method": "System.IDisposable.Dispose",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CIterator_YieldSequence\u003Ed__4::System.IDisposable.Dispose#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CSwitch_InsideAsync\u003Ed__10",
+      "method": "MoveNext",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CSwitch_InsideAsync\u003Ed__10::MoveNext#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CSwitch_InsideAsync\u003Ed__10",
+      "method": "SetStateMachine",
+      "overload": 0,
+      "signature": "(corelib:System.Runtime.CompilerServices.IAsyncStateMachine) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures.\u003CSwitch_InsideAsync\u003Ed__10::SetStateMachine#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "AsyncIterator_AwaitThenYield",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E[]) -\u003E corelib:System.Collections.Generic.IAsyncEnumerable\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "partial-malformed:CS1003,CS1013,CS1525",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::AsyncIterator_AwaitThenYield#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "AsyncIterator_YieldBreakEarly",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E[], corelib:System.Int32) -\u003E corelib:System.Collections.Generic.IAsyncEnumerable\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "partial-malformed:CS1003,CS1013,CS1525",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 2
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::AsyncIterator_YieldBreakEarly#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Async_AwaitInLoop",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E[]) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Async_AwaitInLoop#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Async_AwaitInTryFinally",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Async_AwaitInTryFinally#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Async_AwaitValue",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E, corelib:System.Int32) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Async_AwaitValue#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Async_TwoSequentialAwaits",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E, corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E) -\u003E corelib:System.Threading.Tasks.Task",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Async_TwoSequentialAwaits#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Iterator_YieldBreakEarly",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: unsupported-node",
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "iterator"
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Iterator_YieldBreakEarly#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Iterator_YieldInTryFinally",
+      "overload": 0,
+      "signature": "(corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Int32\u003E) -\u003E corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: unsupported-node",
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "iterator"
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Iterator_YieldInTryFinally#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Iterator_YieldSequence",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Int32\u003E",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Iterator_YieldSequence#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Switch_ClassifyState",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Switch_ClassifyState#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+      "assemblyPath": "artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
+      "type": "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+      "method": "Switch_InsideAsync",
+      "overload": 0,
+      "signature": "(corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Int32\u003E) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.String\u003E",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "state-machine-type-name",
+          "sites": 13
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Switch_InsideAsync#0"
+    }
+  ],
+  "metrics": {
+    "totalMethods": 73,
+    "fullyRaisedMethods": 23,
+    "fullyRaisedBasisPoints": 3151,
+    "conditionalBranchMethods": 3,
+    "conditionalBranchBasisPoints": 411,
+    "forwardMergeStoppedContainers": 7,
+    "forwardMergeBasisPoints": 959,
+    "fullMalformedMethods": 0,
+    "semanticCheckedMethods": 1,
+    "semanticDefectMethods": 0,
+    "passBugs": 0,
+    "residualBuckets": {
+      "fidelity: DEC0009": 45,
+      "fidelity: unsupported-node": 2,
+      "structuring: conditional-branch": 3
+    },
+    "structuring": {
+      "totalMethods": 73,
+      "structuredContainers": 21,
+      "stoppedContainers": 10,
+      "methodsWithStops": 10,
+      "passBugs": 0,
+      "stopReasons": {
+        "arm-externally-entered": 2,
+        "cond-target-past-region": 6,
+        "forward-branch-not-region-exit": 1,
+        "unconsumed-regions": 1
+      }
+    },
+    "fidelity": {
+      "checkedMethods": 0,
+      "exactMethods": 0,
+      "opcodeDiffMethods": 0,
+      "recompileFailMethods": 0,
+      "contextFailMethods": 0,
+      "notFullMethods": 0
+    }
+  },
+  "fidelityOracle": "compile-back",
+  "profile": "classic-state-machines",
+  "featureCoverage": {
+    "classic-async-iterator-methods": 28,
+    "classic-async-methods": 12,
+    "classic-iterator-methods": 29,
+    "switch-methods": 4
+  }
+}

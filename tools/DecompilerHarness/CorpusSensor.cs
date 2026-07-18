@@ -29,6 +29,9 @@ internal enum CorpusProfile
 
     [JsonStringEnumMemberName("opt-in-net11")]
     OptInNet11,
+
+    [JsonStringEnumMemberName("classic-state-machines")]
+    ClassicStateMachines,
 }
 
 internal static class CorpusSensor
@@ -56,6 +59,15 @@ internal static class CorpusSensor
             ["union-switch-methods"] = 1,
             ["union-types"] = 1,
             ["updated-memory-safety-methods"] = 1,
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+
+    static readonly ImmutableSortedDictionary<string, int> RequiredClassicStateMachinesFeatures =
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["classic-async-methods"] = 1,
+            ["classic-iterator-methods"] = 1,
+            ["classic-async-iterator-methods"] = 1,
+            ["switch-methods"] = 1,
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
     public static int Run(
@@ -327,6 +339,8 @@ internal static class CorpusSensor
                 => "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
             CorpusProfile.OptInNet11
                 => "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
+            CorpusProfile.ClassicStateMachines
+                => "#2818 classic async/iterator state-machine corpus: pinned classic async, iterator, async-iterator, and switch fixtures, raised with the cross-method import seam wired.",
             _ => throw new ArgumentOutOfRangeException(nameof(profile)),
         };
 
@@ -387,6 +401,16 @@ internal static class CorpusSensor
                             source.AssemblyName,
                             StageDump.PassesThatChanged(stages),
                             featureCoverage);
+                    }
+                    else if (profile == CorpusProfile.ClassicStateMachines)
+                    {
+                        // Wires the cross-method import seam (same helper the
+                        // product and --dump/--library-report paths use) so
+                        // cross-method passes like ClassicAsyncReconstructionPass
+                        // can pull in the sibling MoveNext body, exactly as they
+                        // do outside the corpus sensor (#2818).
+                        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(method => IrImporter.Import(source, method)));
+                        RecordClassicStateMachineFeatureCoverage(typeName, methodName, featureCoverage);
                     }
                     else
                     {
@@ -561,6 +585,33 @@ internal static class CorpusSensor
             StringComparer.Ordinal);
         RecordMethodFeatureCoverage(function, "", [], coverage);
         return coverage;
+    }
+
+    /// <summary>
+    /// Tags classic-state-machine fixture methods by the name-prefix contract
+    /// documented on <c>ClassicStateMachineFixtures</c> (#2818): a top-level
+    /// kickoff method and its compiler-generated state machine type both embed
+    /// the original method name, so either <paramref name="typeName"/> (e.g.
+    /// <c>&lt;Async_AwaitValue&gt;d__2</c>) or <paramref name="methodName"/>
+    /// carries the prefix. Check the more specific "AsyncIterator_"/"Iterator_"
+    /// prefixes before the plain "Async_" prefix, since "AsyncIterator_"
+    /// textually contains "Iterator_".
+    /// </summary>
+    static void RecordClassicStateMachineFeatureCoverage(
+        string typeName,
+        string methodName,
+        ConcurrentDictionary<string, int> featureCoverage)
+    {
+        string haystack = typeName + "::" + methodName;
+        if (haystack.Contains("AsyncIterator_", StringComparison.Ordinal))
+            AddFeature(featureCoverage, "classic-async-iterator-methods");
+        else if (haystack.Contains("Iterator_", StringComparison.Ordinal))
+            AddFeature(featureCoverage, "classic-iterator-methods");
+        else if (haystack.Contains("Async_", StringComparison.Ordinal))
+            AddFeature(featureCoverage, "classic-async-methods");
+
+        if (haystack.Contains("Switch_", StringComparison.Ordinal))
+            AddFeature(featureCoverage, "switch-methods");
     }
 
     static void AddFeature(
@@ -1381,11 +1432,17 @@ internal static class CorpusSensor
 
     internal static ImmutableArray<string> FeatureCoverageFailures(CorpusSensorSnapshot snapshot)
     {
-        if (snapshot.Profile != CorpusProfile.OptInNet11)
+        var required = snapshot.Profile switch
+        {
+            CorpusProfile.OptInNet11 => RequiredOptInNet11Features,
+            CorpusProfile.ClassicStateMachines => RequiredClassicStateMachinesFeatures,
+            _ => (ImmutableSortedDictionary<string, int>?)null,
+        };
+        if (required is null)
             return [];
 
         var failures = ImmutableArray.CreateBuilder<string>();
-        foreach (var (feature, minimum) in RequiredOptInNet11Features)
+        foreach (var (feature, minimum) in required)
         {
             int actual = snapshot.FeatureCoverage?.GetValueOrDefault(feature) ?? 0;
             if (actual < minimum)
