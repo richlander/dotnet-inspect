@@ -71,7 +71,7 @@ public static class MetadataDeclarationQuery
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var attributes = typeDef.Attributes;
-        var (ns, name) = GetApiTypeNameParts(reader, typeDef);
+        var (ns, name) = GetApiTypeNameParts(reader, typeHandle);
         var type = new ApiType
         {
             Namespace = ns,
@@ -880,10 +880,18 @@ public static class MetadataDeclarationQuery
         return degradedValue;
     }
 
-    static (string? Namespace, string Name) GetApiTypeNameParts(MetadataReader reader, TypeDefinition typeDef)
+    static (string? Namespace, string Name) GetApiTypeNameParts(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
     {
-        var fullName = TypeResolver.GetFullName(reader, typeDef);
-        var rootNamespace = GetRootNamespace(reader, typeDef);
+        var chain = MetadataRelationshipTraversal
+            .WalkTypeDefinitionDeclaringChain(reader, handle)
+            .GetValueOrThrow();
+        var fullName = TypeResolver.ResolveTypeNameFromDefinition(
+            reader,
+            handle).GetValueOrThrow();
+        var rootNamespace = reader.GetString(
+            reader.GetTypeDefinition(chain.Handles[0]).Namespace);
         if (rootNamespace.Length == 0)
             return (null, fullName);
 
@@ -891,14 +899,6 @@ public static class MetadataDeclarationQuery
         return fullName.StartsWith(prefix, StringComparison.Ordinal)
             ? (rootNamespace, fullName[prefix.Length..])
             : (rootNamespace, fullName);
-    }
-
-    static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
-    {
-        var declaringType = typeDef.GetDeclaringType();
-        return declaringType.IsNil
-            ? reader.GetString(typeDef.Namespace)
-            : GetRootNamespace(reader, reader.GetTypeDefinition(declaringType));
     }
 
     static string MethodSignatureText(MetadataMethodDeclaration declaration)

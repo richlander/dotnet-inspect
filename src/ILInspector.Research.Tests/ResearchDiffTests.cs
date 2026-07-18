@@ -547,6 +547,32 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void FromApiDiff_PreservesInspectionFailure()
+    {
+        var failure = new ApiDiffInspectionFailure(
+            "new",
+            "type identity",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Relationship,
+            "Cycle",
+            "Type definition declaring chain contains a cycle.");
+        var apiDiff = new ApiDiff
+        {
+            InspectionFailures = [failure],
+        };
+
+        var diff = ResearchDiff.FromApiDiff(apiDiff);
+
+        var change = Assert.Single(diff.Changes);
+        Assert.Equal(
+            "api.identity-resolution-failure",
+            change.Descriptor.Id);
+        Assert.Equal(ResearchChangeKind.Failed, change.Kind);
+        Assert.Equal("api:new:0x02000002", change.Subject.Id);
+        Assert.Same(apiDiff, diff.ApiDiff);
+    }
+
+    [Fact]
     public void FromCSharpBodyDiff_PreservesProducerFailureRow()
     {
         var csharp = CSharpBodyDiff.CompareAssemblies(
@@ -569,6 +595,37 @@ public class ResearchDiffTests
         Assert.Contains(diff.Changes, row =>
             row.CSharpRow is not null
             && row.Descriptor.Id == "csharp.method.body-added");
+    }
+
+    [Fact]
+    public void FromCSharpBodyDiff_PreservesIdentityResolutionFailure()
+    {
+        var failure = new CSharpIdentityResolutionFailure(
+            "old",
+            "/tmp/old.dll",
+            0x01000001,
+            MetadataTypeNameFailureMechanism.Relationship,
+            "Cycle",
+            "TypeRef resolution scope contains a cycle.");
+
+        var diff = ResearchDiff.FromCSharpBodyDiff(
+            new CSharpBodyDiffResult([], [], [failure]));
+
+        var change = Assert.Single(diff.Changes);
+        Assert.Equal(
+            "csharp.identity-resolution-failure",
+            change.Descriptor.Id);
+        Assert.Equal(ResearchChangeKind.Failed, change.Kind);
+        Assert.Equal(
+            ResearchChangeMechanism.CSharp,
+            change.Mechanism);
+        Assert.Equal(
+            "csharp:old:0x01000001",
+            change.Subject.Id);
+        Assert.Contains(
+            "Relationship/Cycle",
+            change.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]

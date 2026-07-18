@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -45,6 +46,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public int GenericParameterIndex { get; private init; } = -1;
     public string GenericParameterName { get; private init; } = "";
     public string UnsupportedReason { get; private init; } = "";
+    public MetadataTypeNameFailure? MetadataNameFailure { get; private init; }
 
     // Whether this type's declaring assembly carries a known Microsoft framework
     // public-key-token (#1708 Row A). Advisory classification used by the framework
@@ -87,7 +89,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => new(TypeRefKind.GenericParameter) { GenericParameterIndex = index, GenericParameterName = name };
     public static TypeRef MethodGenericParameter(int index, string name = "")
         => new(TypeRefKind.MethodGenericParameter) { GenericParameterIndex = index, GenericParameterName = name };
-    public static TypeRef Unsupported(string reason) => new(TypeRefKind.Unsupported) { UnsupportedReason = reason };
+    public static TypeRef Unsupported(
+        string reason,
+        MetadataTypeNameFailure? metadataNameFailure = null)
+        => new(TypeRefKind.Unsupported)
+        {
+            UnsupportedReason = reason,
+            MetadataNameFailure = metadataNameFailure,
+        };
 
     public TypeRef Instantiate(ImmutableArray<TypeRef> typeArguments, ImmutableArray<TypeRef> methodArguments)
     {

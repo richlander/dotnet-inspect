@@ -9,6 +9,34 @@ namespace ILInspector.Metadata;
 public static class TypeResolver
 {
     /// <summary>
+    /// Strictly resolves a type name while preserving absence and typed
+    /// relationship or signature rejection as distinct outcomes.
+    /// </summary>
+    public static MetadataTypeNameResult ResolveTypeName(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context = null)
+    {
+        if (handle.IsNil)
+            return new MetadataTypeNameResult.Absent();
+
+        return handle.Kind switch
+        {
+            HandleKind.TypeReference => FromRelationship(
+                ResolveTypeNameFromReference(reader, (TypeReferenceHandle)handle)),
+            HandleKind.TypeDefinition => FromRelationship(
+                ResolveTypeNameFromDefinition(reader, (TypeDefinitionHandle)handle)),
+            HandleKind.TypeSpecification => FromSignature(
+                DecodeTypeNameFromSpecification(
+                    reader,
+                    (TypeSpecificationHandle)handle,
+                    context),
+                (TypeSpecificationHandle)handle),
+            _ => new MetadataTypeNameResult.Absent(),
+        };
+    }
+
+    /// <summary>
     /// Gets the fully qualified type name from an entity handle.
     /// Handles TypeReference, TypeDefinition, and TypeSpecification.
     /// </summary>
@@ -656,6 +684,33 @@ public static class TypeResolver
         RelationshipTraversalRejection rejection)
         where T : notnull
         => new RelationshipTraversalResult<T>.Rejected(rejection);
+
+    static MetadataTypeNameResult FromRelationship(
+        RelationshipTraversalResult<string> result)
+        => result switch
+        {
+            RelationshipTraversalResult<string>.Completed completed =>
+                new MetadataTypeNameResult.Resolved(completed.Value),
+            RelationshipTraversalResult<string>.Rejected rejected =>
+                new MetadataTypeNameResult.Rejected(
+                    MetadataTypeNameFailure.From(rejected.Rejection)),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata relationship traversal result."),
+        };
+
+    static MetadataTypeNameResult FromSignature(
+        SignatureDecodeResult<string> result,
+        TypeSpecificationHandle subject)
+        => result switch
+        {
+            SignatureDecodeResult<string>.Decoded decoded =>
+                new MetadataTypeNameResult.Resolved(decoded.Value),
+            SignatureDecodeResult<string>.Rejected rejected =>
+                new MetadataTypeNameResult.Rejected(
+                    MetadataTypeNameFailure.From(rejected.Rejection, subject)),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata signature decode result."),
+        };
 
     static string ThrowMalformed(
         Exception exception,

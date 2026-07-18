@@ -73,6 +73,7 @@ public static class TypeCommand
             PackageRangeAddress = null,
             ProjectAssetsPath = projectAssetsPath,
         };
+        bool inspectionIncomplete = false;
 
         try
         {
@@ -112,6 +113,7 @@ public static class TypeCommand
                 }
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                inspectionIncomplete = api.InspectionFailures.Count > 0;
 
                 if (!options.FormatExplicitlySet && !options.IsRawOutput)
                 {
@@ -362,7 +364,7 @@ public static class TypeCommand
                 }
             }
 
-            return 0;
+            return inspectionIncomplete ? 1 : 0;
         }
         catch (Exception ex)
         {

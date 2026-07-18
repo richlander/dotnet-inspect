@@ -35,7 +35,8 @@ public class SignatureDecoderSafetyTests
             "new.dll");
 
         Assert.True(result.Diff.ComparedBodyCount > 0);
-        Assert.Equal(0, result.Diff.FailureCount);
+        Assert.Equal(2, result.Diff.FailureCount);
+        Assert.Equal(2, result.Diff.IdentityFailures.Length);
 
         using var oneOverload = new MemoryStream(BuildRejectedOverloadImage(methodCount: 1));
         using var twoOverloads = new MemoryStream(BuildRejectedOverloadImage(methodCount: 2));
@@ -45,7 +46,8 @@ public class SignatureDecoderSafetyTests
             twoOverloads,
             "two.dll");
 
-        Assert.Equal(1, overloadResult.Diff.FailureCount);
+        Assert.Equal(3, overloadResult.Diff.FailureCount);
+        Assert.Equal(3, overloadResult.Diff.IdentityFailures.Length);
 
         var unshifted = BuildShiftedGuardedMethodImage(addPrefixMethod: false);
         var shifted = BuildShiftedGuardedMethodImage(addPrefixMethod: true);
@@ -57,7 +59,8 @@ public class SignatureDecoderSafetyTests
             shiftedStream,
             "shifted.dll");
 
-        Assert.Equal(1, shiftedResult.Diff.FailureCount);
+        Assert.Equal(3, shiftedResult.Diff.FailureCount);
+        Assert.Equal(2, shiftedResult.Diff.IdentityFailures.Length);
         Assert.Equal(1, shiftedResult.Diff.PairExactCount);
 
         using var oldPe = new PEReader(new MemoryStream(unshifted));

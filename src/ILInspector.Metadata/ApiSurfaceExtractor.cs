@@ -22,6 +22,12 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
+            int publicMethodCount = surface.PublicMethodCount;
+            int publicPropertyCount = surface.PublicPropertyCount;
+            int publicEventCount = surface.PublicEventCount;
+            int publicFieldCount = surface.PublicFieldCount;
+            try
+            {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             var attributes = typeDef.Attributes;
 
@@ -42,13 +48,13 @@ public static class ApiSurfaceExtractor
             if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
                 continue;
 
-            var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDef);
+            var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
 
             var apiType = new ApiType
             {
                 Namespace = typeNamespace,
                 Name = typeName,
-                MetadataName = GetMetadataName(reader, typeDef),
+                MetadataName = GetMetadataName(reader, typeDefHandle),
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -62,7 +68,9 @@ public static class ApiSurfaceExtractor
             }
             else if (!typeDef.BaseType.IsNil)
             {
-                string? baseTypeName = TypeResolver.GetTypeName(reader, typeDef.BaseType);
+                string baseTypeName = ResolveRequiredTypeName(
+                    reader,
+                    typeDef.BaseType);
                 apiType.BaseType = baseTypeName;
 
                 apiType.Kind = baseTypeName switch
@@ -110,9 +118,11 @@ public static class ApiSurfaceExtractor
                 foreach (var ifaceHandle in interfaces)
                 {
                     var iface = reader.GetInterfaceImplementation(ifaceHandle);
-                    string? ifaceName = TypeResolver.GetTypeName(reader, iface.Interface, typeContext);
-                    if (ifaceName != null)
-                        apiType.Interfaces.Add(ifaceName);
+                    string ifaceName = ResolveRequiredTypeName(
+                        reader,
+                        iface.Interface,
+                        typeContext);
+                    apiType.Interfaces.Add(ifaceName);
                 }
             }
 
@@ -405,7 +415,10 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
-                var eventType = TypeResolver.GetTypeName(reader, evt.Type, GenericContext.ForType(reader, typeDef)) ?? "";
+                var eventType = ResolveRequiredTypeName(
+                    reader,
+                    evt.Type,
+                    GenericContext.ForType(reader, typeDef));
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
                 eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
@@ -442,6 +455,31 @@ public static class ApiSurfaceExtractor
 
             surface.Types.Add(apiType);
             surface.PublicTypeCount++;
+            }
+            catch (MetadataRowRejectedException ex)
+            {
+                surface.PublicMethodCount = publicMethodCount;
+                surface.PublicPropertyCount = publicPropertyCount;
+                surface.PublicEventCount = publicEventCount;
+                surface.PublicFieldCount = publicFieldCount;
+                AddInspectionFailure(
+                    surface,
+                    ex.Operation,
+                    typeDefHandle,
+                    ex.Failure);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                surface.PublicMethodCount = publicMethodCount;
+                surface.PublicPropertyCount = publicPropertyCount;
+                surface.PublicEventCount = publicEventCount;
+                surface.PublicFieldCount = publicFieldCount;
+                AddInspectionFailure(
+                    surface,
+                    "type row",
+                    typeDefHandle,
+                    MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message));
+            }
         }
 
         AttachLocalExtensionMethods(surface);
@@ -449,27 +487,56 @@ public static class ApiSurfaceExtractor
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         foreach (var exportedTypeHandle in reader.ExportedTypes)
         {
-            var exportedType = reader.GetExportedType(exportedTypeHandle);
-
-            // Type forwarders have IsForwarder flag set
-            if (!exportedType.IsForwarder)
-                continue;
-
-            var fullName = reader.GetFullTypeName(exportedType);
-
-            // Get the target assembly
-            string targetAssembly = "";
-            if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
+            try
             {
-                var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
-                targetAssembly = reader.GetString(assemblyRef.Name);
+                var exportedType = reader.GetExportedType(exportedTypeHandle);
+
+                // Type forwarders have IsForwarder flag set
+                if (!exportedType.IsForwarder)
+                    continue;
+
+                var fullName = reader.ResolveFullTypeName(exportedTypeHandle) switch
+                {
+                    RelationshipTraversalResult<string>.Completed completed =>
+                        completed.Value,
+                    RelationshipTraversalResult<string>.Rejected rejected =>
+                        throw new MetadataRowRejectedException(
+                            "type forwarder identity",
+                            MetadataTypeNameFailure.From(rejected.Rejection)),
+                    _ => throw new InvalidOperationException(
+                        "Unknown exported-type relationship result."),
+                };
+
+                // Get the target assembly
+                string targetAssembly = "";
+                if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
+                {
+                    var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
+                    targetAssembly = reader.GetString(assemblyRef.Name);
+                }
+
+                surface.TypeForwarders.Add(new TypeForwarder
+                {
+                    TypeName = fullName,
+                    TargetAssembly = targetAssembly
+                });
             }
-
-            surface.TypeForwarders.Add(new TypeForwarder
+            catch (MetadataRowRejectedException ex)
             {
-                TypeName = fullName,
-                TargetAssembly = targetAssembly
-            });
+                AddInspectionFailure(
+                    surface,
+                    ex.Operation,
+                    exportedTypeHandle,
+                    ex.Failure);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                AddInspectionFailure(
+                    surface,
+                    "type forwarder row",
+                    exportedTypeHandle,
+                    MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
+            }
         }
 
         return surface;
@@ -518,9 +585,10 @@ public static class ApiSurfaceExtractor
             foreach (var constraintHandle in param.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                string? constraintTypeName = TypeResolver.GetTypeName(reader, constraint.Type, context);
-                if (constraintTypeName is null)
-                    continue;
+                string constraintTypeName = ResolveRequiredTypeName(
+                    reader,
+                    constraint.Type,
+                    context);
                 if (constraintTypeName is "System.ValueType" or "System.Object")
                     continue;
                 var formatted = FormatConstraintType(reader, constraint, constraintTypeName, nullableContext);
@@ -555,10 +623,30 @@ public static class ApiSurfaceExtractor
             : constraintTypeName;
     }
 
-    private static (string? Namespace, string Name) GetApiTypeNameParts(MetadataReader reader, TypeDefinition typeDef)
+    private static (string? Namespace, string Name) GetApiTypeNameParts(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
     {
-        var fullName = reader.GetFullTypeName(typeDef);
-        var rootNamespace = GetRootNamespace(reader, typeDef);
+        var result = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
+            reader,
+            handle);
+        if (result is RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Rejected rejected)
+        {
+            throw new MetadataRowRejectedException(
+                "type identity",
+                MetadataTypeNameFailure.From(rejected.Rejection));
+        }
+
+        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
+        var rootNamespace = reader.GetString(
+            reader.GetTypeDefinition(chain.Handles[0]).Namespace);
+        string name = string.Join(
+            ".",
+            chain.Handles.Select(current =>
+                reader.GetString(reader.GetTypeDefinition(current).Name)));
+        string fullName = rootNamespace.Length == 0
+            ? name
+            : $"{rootNamespace}.{name}";
         if (rootNamespace.Length == 0)
             return (null, fullName);
 
@@ -568,15 +656,25 @@ public static class ApiSurfaceExtractor
             : (rootNamespace, fullName);
     }
 
-    private static string GetMetadataName(MetadataReader reader, TypeDefinition typeDef)
+    private static string GetMetadataName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
     {
-        string name = reader.GetString(typeDef.Name);
-        if (typeDef.IsNested)
+        var result = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
+            reader,
+            handle);
+        if (result is RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Rejected rejected)
         {
-            var declaring = reader.GetTypeDefinition(typeDef.GetDeclaringType());
-            return $"{GetMetadataName(reader, declaring)}+{name}";
+            throw new MetadataRowRejectedException(
+                "type metadata identity",
+                MetadataTypeNameFailure.From(rejected.Rejection));
         }
-        return name;
+
+        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
+        return string.Join(
+            "+",
+            chain.Handles.Select(current =>
+                reader.GetString(reader.GetTypeDefinition(current).Name)));
     }
 
     private static (string Text, bool IsDegraded) DecodeFieldType(
@@ -596,15 +694,6 @@ public static class ApiSurfaceExtractor
         int pos = 0;
         fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
         return (fieldNode.Render(), fieldNode.IsDegraded);
-    }
-
-    private static string GetRootNamespace(MetadataReader reader, TypeDefinition typeDef)
-    {
-        var declaringType = typeDef.GetDeclaringType();
-        if (!declaringType.IsNil)
-            return GetRootNamespace(reader, reader.GetTypeDefinition(declaringType));
-
-        return reader.GetString(typeDef.Namespace);
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
@@ -1209,31 +1298,44 @@ public static class ApiSurfaceExtractor
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            if (!IsEnum(reader, typeDef))
-                continue;
-
-            var enumTypeName = TypeResolver.GetFullName(reader, typeDef);
-            if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
-                continue;
-
-            foreach (var fieldHandle in typeDef.GetFields())
+            try
             {
-                var field = reader.GetFieldDefinition(fieldHandle);
-                if ((field.Attributes & FieldAttributes.Literal) == 0)
+                var typeDef = reader.GetTypeDefinition(typeHandle);
+                if (!IsEnum(reader, typeDef))
                     continue;
-                var constantHandle = field.GetDefaultValue();
-                if (constantHandle.IsNil)
-                    continue;
-                var constant = reader.GetConstant(constantHandle);
-                if (TryReadEnumConstant(reader, constant, out var memberValue)
-                    && memberValue == defaultValue)
-                {
-                    return $"{typeName}.{reader.GetString(field.Name)}";
-                }
-            }
 
-            return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+                if (TypeResolver.ResolveTypeName(reader, typeHandle)
+                    is not MetadataTypeNameResult.Resolved resolvedEnumType)
+                {
+                    continue;
+                }
+
+                var enumTypeName = resolvedEnumType.Value;
+                if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
+                    continue;
+
+                foreach (var fieldHandle in typeDef.GetFields())
+                {
+                    var field = reader.GetFieldDefinition(fieldHandle);
+                    if ((field.Attributes & FieldAttributes.Literal) == 0)
+                        continue;
+                    var constantHandle = field.GetDefaultValue();
+                    if (constantHandle.IsNil)
+                        continue;
+                    var constant = reader.GetConstant(constantHandle);
+                    if (TryReadEnumConstant(reader, constant, out var memberValue)
+                        && memberValue == defaultValue)
+                    {
+                        return $"{typeName}.{reader.GetString(field.Name)}";
+                    }
+                }
+
+                return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                continue;
+            }
         }
 
         return null;
@@ -1247,8 +1349,62 @@ public static class ApiSurfaceExtractor
             or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double"
             or "System.Decimal" or "System.DateTime");
 
+    private static string ResolveRequiredTypeName(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context = null)
+        => TypeResolver.ResolveTypeName(reader, handle, context) switch
+        {
+            MetadataTypeNameResult.Resolved resolved => resolved.Value,
+            MetadataTypeNameResult.Rejected rejected =>
+                throw new MetadataRowRejectedException(
+                    "type name",
+                    rejected.Failure),
+            MetadataTypeNameResult.Absent =>
+                throw new MetadataRowRejectedException(
+                    "type name",
+                    MetadataTypeNameFailure.ForMechanism(
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        handle,
+                        "The metadata type name is absent.")),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata type-name result."),
+        };
+
+    private static void AddInspectionFailure(
+        ApiSurface surface,
+        string operation,
+        EntityHandle subject,
+        MetadataTypeNameFailure failure)
+        => surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            operation,
+            failure.SubjectToken ?? MetadataTokens.GetToken(subject),
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail));
+
     private static bool IsEnum(MetadataReader reader, TypeDefinition typeDef)
-        => TypeResolver.GetTypeName(reader, typeDef.BaseType) == "System.Enum";
+        => !typeDef.BaseType.IsNil
+            && TypeResolver.ResolveTypeName(reader, typeDef.BaseType)
+                is MetadataTypeNameResult.Resolved { Value: "System.Enum" };
+
+    private sealed class MetadataRowRejectedException
+        : InvalidOperationException
+    {
+        public MetadataRowRejectedException(
+            string operation,
+            MetadataTypeNameFailure failure)
+            : base(
+                $"Metadata row rejected during {operation} "
+                + $"({failure.Mechanism}/{failure.Kind}): {failure.Detail}")
+        {
+            Operation = operation;
+            Failure = failure;
+        }
+
+        public string Operation { get; }
+        public MetadataTypeNameFailure Failure { get; }
+    }
 
     private static bool TryReadEnumConstant(MetadataReader reader, Constant constant, out decimal value)
     {

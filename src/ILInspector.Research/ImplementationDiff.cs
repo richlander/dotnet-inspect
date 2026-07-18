@@ -555,6 +555,25 @@ public static class ImplementationDiff
             return [];
 
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
+        foreach (var failure in diff.IdentityFailures.IsDefault
+            ? []
+            : diff.IdentityFailures)
+        {
+            string detail = $"{failure.Side} 0x{failure.SubjectToken:X8} "
+                + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
+            changes.Add(new ResearchChange(
+                subject,
+                ResearchChangeMechanism.CSharp,
+                new FindingDescriptor(
+                    "csharp.diff.identity-resolution-failure",
+                    "Identity resolution failure"),
+                ResearchChangeKind.Failed,
+                oldValue: failure.Side == "old" ? detail : null,
+                newValue: failure.Side == "new" ? detail : null,
+                detail: detail,
+                category: ResearchChangeCategory.CSharp));
+        }
+
         var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
         var operationalFailureHunks = ResearchDiff.OperationalCSharpFailureHunks(failureRows);
         foreach (var failure in failureRows)

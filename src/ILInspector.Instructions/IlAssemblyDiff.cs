@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 
@@ -18,7 +19,15 @@ public sealed record IlAssemblyDiffResult(
     ImmutableArray<IlDiffBucket> FailureBuckets,
     ImmutableArray<IlDiffBucket> TopHunkKinds,
     ImmutableArray<IlDiffBucket> TopOpcodeFamilies,
-    ImmutableArray<IlAssemblyDiffExample> Examples);
+    ImmutableArray<IlAssemblyDiffExample> Examples,
+    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default);
+
+public sealed record IlIdentityResolutionFailure(
+    string Side,
+    int SubjectToken,
+    MetadataTypeNameFailureMechanism Mechanism,
+    string Kind,
+    string Detail);
 
 public sealed record IlAssemblyDiffPairResult(
     string Old,
@@ -32,7 +41,8 @@ public sealed record IlMemberDiffSubject(
 public sealed record IlMemberDiffResult(
     IlMemberDiffSubject Old,
     IlMemberDiffSubject New,
-    IlBodyDiffResult Diff);
+    IlBodyDiffResult Diff,
+    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default);
 
 /// <summary>
 /// Product-owned IL/body diff producer over two metadata-backed assemblies.
@@ -43,6 +53,14 @@ public static class IlAssemblyDiff
     {
         public string Display => Occurrence == 1 ? Identity : $"{Identity}#occurrence:{Occurrence}";
     }
+
+    sealed record MethodMapResult(
+        Dictionary<MethodMapKey, MethodDefinitionHandle> Methods,
+        ImmutableArray<IlIdentityResolutionFailure> Failures);
+
+    readonly record struct MethodIdentityResult(
+        string? Identity,
+        MetadataTypeNameFailure? Failure);
 
     public static IlAssemblyDiffPairResult CompareFiles(
         string oldPath,
@@ -89,10 +107,10 @@ public static class IlAssemblyDiff
         if (maxExamples < 0)
             throw new ArgumentOutOfRangeException(nameof(maxExamples), maxExamples, "Example count must be non-negative.");
 
-        var oldMethods = MethodMap(oldReader);
-        var newMethods = MethodMap(newReader);
-        var keys = oldMethods.Keys
-            .Union(newMethods.Keys)
+        var oldIndex = MethodMap(oldReader, "old");
+        var newIndex = MethodMap(newReader, "new");
+        var keys = oldIndex.Methods.Keys
+            .Union(newIndex.Methods.Keys)
             .OrderBy(key => key.Identity, StringComparer.Ordinal)
             .ThenBy(key => key.Occurrence)
             .ToArray();
@@ -100,6 +118,11 @@ public static class IlAssemblyDiff
         var hunkKinds = new Dictionary<string, int>(StringComparer.Ordinal);
         var opcodeFamilies = new Dictionary<string, int>(StringComparer.Ordinal);
         var examples = ImmutableArray.CreateBuilder<IlAssemblyDiffExample>();
+        var identityFailures = ImmutableArray.CreateBuilder<IlIdentityResolutionFailure>();
+        identityFailures.AddRange(oldIndex.Failures);
+        identityFailures.AddRange(newIndex.Failures);
+        foreach (var failure in identityFailures)
+            Increment(failures, $"identity resolution failed: {failure.Mechanism}/{failure.Kind}");
 
         int compared = 0;
         int pairExact = 0;
@@ -108,13 +131,13 @@ public static class IlAssemblyDiff
 
         foreach (var key in keys)
         {
-            if (!oldMethods.TryGetValue(key, out var oldHandle))
+            if (!oldIndex.Methods.TryGetValue(key, out var oldHandle))
             {
                 IncrementFailure(failures, IlBodyDiffResult.OldBodyMissing());
                 continue;
             }
 
-            if (!newMethods.TryGetValue(key, out var newHandle))
+            if (!newIndex.Methods.TryGetValue(key, out var newHandle))
             {
                 IncrementFailure(failures, IlBodyDiffResult.NewBodyMissing());
                 continue;
@@ -194,7 +217,8 @@ public static class IlAssemblyDiff
             Buckets(failures),
             Buckets(hunkKinds),
             Buckets(opcodeFamilies),
-            examples.ToImmutable());
+            examples.ToImmutable(),
+            identityFailures.ToImmutable());
     }
 
     public static IlMemberDiffResult CompareMembers(
@@ -218,15 +242,29 @@ public static class IlAssemblyDiff
 
         var oldDefinition = oldReader.GetMethodDefinition(oldMethod);
         var newDefinition = newReader.GetMethodDefinition(newMethod);
-        var oldIdentity = MethodKey(oldReader, oldDefinition);
-        var newIdentity = MethodKey(newReader, newDefinition);
-        var oldSubject = new IlMemberDiffSubject(oldIdentity, oldLabel ?? oldIdentity);
-        var newSubject = new IlMemberDiffSubject(newIdentity, newLabel ?? newIdentity);
+        var oldIdentity = MethodKey(oldReader, oldMethod, oldDefinition);
+        var newIdentity = MethodKey(newReader, newMethod, newDefinition);
+        var identityFailures = ImmutableArray.CreateBuilder<IlIdentityResolutionFailure>();
+        AddIdentityFailure(identityFailures, "old", oldMethod, oldIdentity.Failure);
+        AddIdentityFailure(identityFailures, "new", newMethod, newIdentity.Failure);
+        string oldIdentityText = oldIdentity.Identity ?? TokenSubject(oldMethod);
+        string newIdentityText = newIdentity.Identity ?? TokenSubject(newMethod);
+        var oldSubject = new IlMemberDiffSubject(oldIdentityText, oldLabel ?? oldIdentityText);
+        var newSubject = new IlMemberDiffSubject(newIdentityText, newLabel ?? newIdentityText);
 
         var oldBody = TryGetBody(oldPe, oldDefinition, "old");
         var newBody = TryGetBody(newPe, newDefinition, "new");
-        var diff = oldBody.Result ?? newBody.Result ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!);
-        return new IlMemberDiffResult(oldSubject, newSubject, diff);
+        var diff = identityFailures.Count > 0
+            ? IlBodyDiffResult.Failed(
+                IlDiffFailureKind.IdentityResolutionFailure,
+                "method identity resolution failed",
+                detail: string.Join("; ", identityFailures.Select(FormatIdentityFailure)))
+            : oldBody.Result ?? newBody.Result ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!);
+        return new IlMemberDiffResult(
+            oldSubject,
+            newSubject,
+            diff,
+            identityFailures.ToImmutable());
     }
 
     static (MethodBodyBlock? Body, IlBodyDiffResult? Result) TryGetBody(PEReader pe, MethodDefinition method, string side)
@@ -253,43 +291,78 @@ public static class IlAssemblyDiff
         }
     }
 
-    static Dictionary<MethodMapKey, MethodDefinitionHandle> MethodMap(MetadataReader reader)
+    static MethodMapResult MethodMap(MetadataReader reader, string side)
     {
         var methods = new Dictionary<MethodMapKey, MethodDefinitionHandle>();
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var failures = ImmutableArray.CreateBuilder<IlIdentityResolutionFailure>();
         foreach (var handle in reader.MethodDefinitions)
         {
             var method = reader.GetMethodDefinition(handle);
-            string identity = MethodKey(reader, method);
+            var result = MethodKey(reader, handle, method);
+            if (result.Failure is not null)
+            {
+                AddIdentityFailure(failures, side, handle, result.Failure);
+                continue;
+            }
+
+            string identity = result.Identity!;
             int occurrence = occurrences.TryGetValue(identity, out int count) ? count + 1 : 1;
             occurrences[identity] = occurrence;
             methods.Add(new MethodMapKey(identity, occurrence), handle);
         }
 
-        return methods;
+        return new MethodMapResult(methods, failures.ToImmutable());
     }
 
-    static string MethodKey(MetadataReader reader, MethodDefinition method)
+    static MethodIdentityResult MethodKey(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        MethodDefinition method)
     {
-        string type = TypeName(reader, method.GetDeclaringType());
+        var type = MetadataIdentityName.TypeDefinition(
+            reader,
+            method.GetDeclaringType(),
+            includeAssembly: false);
+        if (type is MetadataTypeNameResult.Rejected rejectedType)
+            return new MethodIdentityResult(null, rejectedType.Failure);
+        if (type is not MetadataTypeNameResult.Resolved resolvedType)
+        {
+            return new MethodIdentityResult(
+                null,
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Relationship,
+                    method.GetDeclaringType(),
+                    "The method declaring type has no resolvable identity."));
+        }
+
         string name = reader.GetString(method.Name);
+        var context = new SignatureIdentityContext();
+        var provider = new SignatureIdentityProvider(context);
         if (!GuardedProviderDecode.TryMethod(
             reader,
             method,
-            SignatureIdentityProvider.Instance,
-            context: null,
+            provider,
+            context,
             out var signature))
         {
-            return $"{type}::{name}#{GuardedProviderDecode.RejectedIdentity(reader, method.Signature)}";
+            return new MethodIdentityResult(
+                null,
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Signature,
+                    handle,
+                    "The method signature was rejected before an identity could be produced."));
         }
+        if (context.Failure is not null)
+            return new MethodIdentityResult(null, context.Failure);
+
         string instance = signature.Header.IsInstance ? "instance" : "static";
         string genericArity = signature.GenericParameterCount > 0 ? $"<{signature.GenericParameterCount}>" : "";
         string signatureText = $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
-        return $"{type}::{name}{genericArity}#{signatureText}";
+        return new MethodIdentityResult(
+            $"{resolvedType.Value}::{name}{genericArity}#{signatureText}",
+            null);
     }
-
-    static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
-        => BoundedMetadataName.TypeDefinition(reader, handle, includeAssembly: false);
 
     static ImmutableArray<IlDiffBucket> Buckets(Dictionary<string, int> counts)
         => [.. counts
@@ -311,11 +384,48 @@ public static class IlAssemblyDiff
 
         Increment(counts, result.Failure ?? "unknown failure");
     }
+
+    static void AddIdentityFailure(
+        ImmutableArray<IlIdentityResolutionFailure>.Builder failures,
+        string side,
+        EntityHandle subject,
+        MetadataTypeNameFailure? failure)
+    {
+        if (failure is null)
+            return;
+        failures.Add(new IlIdentityResolutionFailure(
+            side,
+            failure.SubjectToken ?? MetadataTokens.GetToken(subject),
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail));
+    }
+
+    static string FormatIdentityFailure(IlIdentityResolutionFailure failure)
+        => $"{failure.Side} 0x{failure.SubjectToken:X8} "
+            + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
+
+    static string TokenSubject(EntityHandle handle)
+        => $"token 0x{MetadataTokens.GetToken(handle):X8}";
 }
 
-sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
+sealed class SignatureIdentityContext
 {
-    public static SignatureIdentityProvider Instance { get; } = new();
+    public MetadataTypeNameFailure? Failure { get; private set; }
+
+    public void Reject(MetadataTypeNameFailure failure)
+        => Failure ??= failure;
+}
+
+sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, SignatureIdentityContext>
+{
+    readonly SignatureIdentityContext _context;
+
+    public SignatureIdentityProvider(SignatureIdentityContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _context = context;
+    }
 
     public string GetPrimitiveType(PrimitiveTypeCode typeCode)
         => typeCode switch
@@ -341,13 +451,29 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
             _ => typeCode.ToString(),
         };
 
-    public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => BoundedMetadataName.TypeDefinition(reader, handle, includeAssembly: true);
+    public string GetTypeFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        byte rawTypeKind)
+        => Resolve(
+            MetadataIdentityName.TypeDefinition(reader, handle, includeAssembly: true),
+            handle,
+            _context);
 
-    public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => BoundedMetadataName.TypeReference(reader, handle);
+    public string GetTypeFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        byte rawTypeKind)
+        => Resolve(
+            MetadataIdentityName.TypeReference(reader, handle),
+            handle,
+            _context);
 
-    public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+    public string GetTypeFromSpecification(
+        MetadataReader reader,
+        SignatureIdentityContext genericContext,
+        TypeSpecificationHandle handle,
+        byte rawTypeKind)
     {
         var specification = reader.GetTypeSpecification(handle);
         return GuardedProviderDecode.TryTypeSpec(
@@ -367,11 +493,28 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     public string GetPinnedType(string elementType) => $"{elementType} pinned";
     public string GetGenericInstantiation(string genericType, System.Collections.Immutable.ImmutableArray<string> typeArguments)
         => $"{genericType}<{string.Join(", ", typeArguments)}>";
-    public string GetGenericTypeParameter(object? genericContext, int index) => $"!{index}";
-    public string GetGenericMethodParameter(object? genericContext, int index) => $"!!{index}";
+    public string GetGenericTypeParameter(SignatureIdentityContext genericContext, int index) => $"!{index}";
+    public string GetGenericMethodParameter(SignatureIdentityContext genericContext, int index) => $"!!{index}";
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
         => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
     public string GetFunctionPointerType(MethodSignature<string> signature)
         => $"method {signature.ReturnType} *({string.Join(", ", signature.ParameterTypes)})";
 
+    static string Resolve(
+        MetadataTypeNameResult result,
+        EntityHandle subject,
+        SignatureIdentityContext? context)
+    {
+        if (result is MetadataTypeNameResult.Resolved resolved)
+            return resolved.Value;
+
+        var failure = result is MetadataTypeNameResult.Rejected rejected
+            ? rejected.Failure
+            : MetadataTypeNameFailure.ForMechanism(
+                MetadataTypeNameFailureMechanism.Relationship,
+                subject,
+                "The signature type has no resolvable identity.");
+        context?.Reject(failure);
+        return $"<identity-rejected:0x{MetadataTokens.GetToken(subject):X8}>";
+    }
 }
