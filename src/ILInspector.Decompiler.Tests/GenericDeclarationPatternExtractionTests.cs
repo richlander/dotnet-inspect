@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -34,8 +35,7 @@ public class GenericDeclarationPatternExtractionTests
             typeof(GenericDeclarationPatternSpecimens<,>),
             nameof(GenericDeclarationPatternSpecimens<object, object>.Unconstrained));
 
-        Assert.Contains("if ((V_1) is T)", output);
-        Assert.Contains("(T)(object)(V_1)", output);
+        AssertBridgedLocal(output, negatedGuard: false);
         Assert.DoesNotContain("as T", output);
     }
 
@@ -46,8 +46,7 @@ public class GenericDeclarationPatternExtractionTests
             typeof(GenericDeclarationPatternSpecimensStruct<,>),
             nameof(GenericDeclarationPatternSpecimensStruct<int, object>.StructConstrained));
 
-        Assert.Contains("if ((V_1) is T)", output);
-        Assert.Contains("(T)(object)(V_1)", output);
+        AssertBridgedLocal(output, negatedGuard: false);
         Assert.DoesNotContain("as T", output);
     }
 
@@ -65,8 +64,7 @@ public class GenericDeclarationPatternExtractionTests
             typeof(FlatGuardDeclarationPatternSpecimens<,>),
             nameof(FlatGuardDeclarationPatternSpecimens<object, object>.ExtractThenUse));
 
-        Assert.Contains("if ((V_1) is not T) goto", output);
-        Assert.Contains("(T)(object)(V_1)", output);
+        AssertBridgedLocal(output, negatedGuard: true);
         Assert.DoesNotContain("as T", output);
     }
 
@@ -110,7 +108,7 @@ public class GenericDeclarationPatternExtractionTests
             typeof(ConcreteDeclarationPatternSpecimens),
             nameof(ConcreteDeclarationPatternSpecimens.ConcreteValue));
 
-        Assert.Contains("(int)V_1", output);
+        Assert.Matches(@"\(int\)V_\d+", output);
         Assert.DoesNotContain("(object)", output);
     }
 
@@ -125,8 +123,9 @@ public class GenericDeclarationPatternExtractionTests
             typeof(MismatchDeclarationPatternSpecimens<>),
             nameof(MismatchDeclarationPatternSpecimens<object>.MismatchWithElse));
 
-        Assert.Contains("if (V_1 is T)", output);
-        Assert.Contains("(T)V_1", output);
+        var guardedLocal = Regex.Match(output, @"if \((V_\d+) is T\)");
+        Assert.True(guardedLocal.Success, output);
+        Assert.Contains($"(T){guardedLocal.Groups[1].Value}", output);
         Assert.DoesNotContain("as T", output);
     }
 
@@ -342,6 +341,122 @@ public class GenericDeclarationPatternExtractionTests
         var output = CSharpPrinter.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
+    public void UnboxOfIsInstance_FlatGuard_AtEntryWithBackedge_DoesNotBridge()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var siteBlock = new Block(0);
+        siteBlock.Add(new StoreLocal(
+            1,
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal()))));
+        siteBlock.Add(new Branch(targetOffset: 10));
+
+        var guardBlock = new Block(10);
+        guardBlock.Add(new ConditionalBranch(
+            new IsInstance(generic, ReadLocal()),
+            targetOffset: 0));
+
+        var exitBlock = new Block(20);
+        exitBlock.Add(new Return(null));
+
+        var body = new BlockContainer();
+        body.Add(siteBlock);
+        body.Add(guardBlock);
+        body.Add(exitBlock);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType, generic],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
+    public void UnboxOfIsInstance_WithAddressTakenLocal_DoesNotBridge()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var thenBlock = new Block();
+        thenBlock.Add(new InitObject(objectType, new LoadLocalAddress(0, objectType)));
+        thenBlock.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+
+        var outer = new Block();
+        outer.Add(new IfStatement(new IsInstance(generic, ReadLocal()), thenBlock, null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
+    public void UnboxOfIsInstance_WithAddressTakenArgument_DoesNotBridge()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadArgument() => new LoadArgument(0, "value", objectType);
+
+        var thenBlock = new Block();
+        thenBlock.Add(new InitObject(
+            objectType,
+            new LoadArgumentAddress(0, "value", objectType)));
+        thenBlock.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadArgument())))));
+
+        var outer = new Block();
+        outer.Add(new IfStatement(
+            new IsInstance(generic, ReadArgument()),
+            thenBlock,
+            null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(
+                objectType,
+                [new Parameter("value", objectType)],
+                HasThis: false,
+                GenericParameterCount: 1),
+            [],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    static void AssertBridgedLocal(string output, bool negatedGuard)
+    {
+        string condition = negatedGuard ? "is not T" : "is T";
+        var guardedLocal = Regex.Match(
+            output,
+            $@"if \(\((V_\d+)\) {condition}\){(negatedGuard ? " goto" : "")}");
+        Assert.True(guardedLocal.Success, output);
+        Assert.Contains($"(T)(object)({guardedLocal.Groups[1].Value})", output);
     }
 }
 

@@ -2557,6 +2557,8 @@ public sealed partial class CSharpPrinter
     {
         if (!IsReadOnlyOperand(test.Operand))
             return false;
+        if (HasAddressTaken(site, test.Operand))
+            return false;
 
         for (var current = site.Parent; current is not null; current = current.Parent)
         {
@@ -2623,7 +2625,11 @@ public sealed partial class CSharpPrinter
                 break;
             }
         }
-        if (siteIndex < 0)
+        // The container's entry block also has an implicit predecessor from
+        // outside the region. Cfg models only intra-container edges, so it
+        // cannot prove that a backedge into block zero dominates the first
+        // execution of that block.
+        if (siteIndex <= 0)
             return false;
 
         var edges = Cfg.Build(blocks);
@@ -2727,6 +2733,34 @@ public sealed partial class CSharpPrinter
                 if (node is StoreArgument storeArgument && arguments.Contains(storeArgument.Index))
                     return true;
             }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the tested local or argument has any managed-address use in its
+    /// function scope. Once an address exists, a later indirect write can
+    /// mutate the value without a direct <see cref="StoreLocal"/> or
+    /// <see cref="StoreArgument"/> between the guard and extraction.
+    /// </summary>
+    static bool HasAddressTaken(IrNode site, IrExpression value)
+    {
+        var locals = new List<int>();
+        var arguments = new List<int>();
+        CollectReadOnlyReferences(value, locals, arguments);
+        if (locals.Count == 0 && arguments.Count == 0)
+            return false;
+
+        IrNode root = site;
+        while (root.Parent is not null)
+            root = root.Parent;
+
+        foreach (var node in DescendantsAndSelfOutsideNestedFunctions(root))
+        {
+            if (node is LoadLocalAddress address && locals.Contains(address.Index))
+                return true;
+            if (node is LoadArgumentAddress argumentAddress && arguments.Contains(argumentAddress.Index))
+                return true;
         }
         return false;
     }
