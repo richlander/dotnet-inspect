@@ -907,6 +907,46 @@ public class CfgSampleClass
         catch (OverflowException) { return -2; }
     }
 
+    // Positive fold: the caught exception is spilled into a real IL local at
+    // handler entry (the branch inside the handler forces csc to allocate a
+    // local for `e`). That local is handler-local — never read in the try or
+    // after the catch — so EhStructuringPass folds the entry store into the
+    // clause variable and emits `catch (Exception e) { ... }`.
+    public static int CatchFoldsHandlerLocal(string s)
+    {
+        try
+        {
+            return int.Parse(s);
+        }
+        catch (Exception e)
+        {
+            if (e.InnerException != null)
+                Console.WriteLine(e.Message);
+            Console.WriteLine(e.StackTrace);
+            return -1;
+        }
+    }
+
+    // Near miss / issue #2828 shape: the caught exception is assigned into a
+    // local that is declared before the try and read after the catch. csc emits
+    // the assignment as `stloc captured` at handler entry, but that local is live
+    // outside the handler, so folding it into the clause variable would emit a
+    // duplicate declaration (CS0136) and drop the `captured = ex` assignment.
+    public static string CatchAssignsPredeclaredLocal(string s)
+    {
+        Exception? captured = null;
+        try
+        {
+            return int.Parse(s).ToString();
+        }
+        catch (Exception ex)
+        {
+            captured = ex;
+        }
+
+        return captured?.Message ?? "ok";
+    }
+
     public static int ParseWithCleanup(string s, Action done)
     {
         try { return int.Parse(s); }
@@ -1770,6 +1810,99 @@ public class CfgSampleClass
         return sum;
     }
 
+    public static void Issue2830_ForLoopLeave()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 5)
+                    continue;
+                System.Console.WriteLine();
+            }
+            catch (System.Exception)
+            {
+            }
+            System.Console.WriteLine();
+        }
+    }
+
+    public static void Issue2830_ForLoopLeaveToAnotherTarget()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 5)
+                    goto Out;
+                System.Console.WriteLine();
+            }
+            catch (System.Exception)
+            {
+            }
+            System.Console.WriteLine();
+        }
+    Out:;
+    }
+
+    public static void Issue2830_ForLoopEhCleanupContinue()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 5)
+                    continue;
+                System.Console.WriteLine();
+            }
+            finally
+            {
+                System.Console.WriteLine();
+            }
+            System.Console.WriteLine();
+        }
+    }
+
+    public static void Issue2830_ForLoopWithNestedLambdaTargetConflict()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            System.Action a = () =>
+            {
+                for (int j = 0; j < 10; j++)
+                {
+                    try
+                    {
+                        if (j == 5)
+                            continue;
+                    }
+                    catch (System.Exception)
+                    {
+                    }
+                }
+            };
+            a();
+        }
+    }
+
+    public static void Issue2830_ForLoopNestedContinue()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            for (int j = 0; j < 10; j++)
+            {
+                try
+                {
+                    if (j == 5)
+                        continue;
+                    System.Console.WriteLine();
+                }
+                catch (System.Exception)
+                {
+                }
+            }
+        }
+    }
     public static int LoopWithBreak(int[] values, int limit)
     {
         int sum = 0;

@@ -13,8 +13,17 @@ public sealed class ForLoopPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        var liveTargetsByScope = new Dictionary<IrNode, HashSet<int>>();
+
         foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
         {
+            var scope = EnclosingFunctionScope(loop, function);
+            if (!liveTargetsByScope.TryGetValue(scope, out var liveTargets))
+            {
+                liveTargets = CollectLiveTargets(scope);
+                liveTargetsByScope.Add(scope, liveTargets);
+            }
+
             if (loop.Parent is not Block container)
                 continue;
             int slot = loop.ChildIndex;
@@ -41,11 +50,52 @@ public sealed class ForLoopPass : IIrPass
             if (ContainsCurrentLoopContinue(loop.Body))
                 continue;
 
+            if (increment.SourceOffset >= 0 && liveTargets.Contains(increment.SourceOffset))
+                continue;
+
             increment.Detach();
             var parts = loop.DetachChildren();  // [condition, body]
             initializer.Detach();               // reindexes the loop's slot
             context.Stepper.StepOver("raise while loop to for loop", loop);
             loop.ReplaceWith(new ForLoop(initializer, (IrExpression)parts[0], increment, (Block)parts[1]));
+        }
+    }
+
+    static IrNode EnclosingFunctionScope(IrNode node, IrFunction function)
+    {
+        for (IrNode? current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is IrFunction or Lambda or LocalFunctionStatement)
+                return current;
+        }
+        return function;
+    }
+
+    static HashSet<int> CollectLiveTargets(IrNode scope)
+    {
+        var targets = new HashSet<int>();
+        foreach (var node in DescendantsOutsideNestedFunctions(scope))
+        {
+            switch (node)
+            {
+                case Branch b: targets.Add(b.TargetOffset); break;
+                case ConditionalBranch cb: targets.Add(cb.TargetOffset); break;
+                case SwitchBranch sb: foreach (int t in sb.TargetOffsets) targets.Add(t); break;
+                case Leave l: targets.Add(l.TargetOffset); break;
+            }
+        }
+        return targets;
+    }
+
+    static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            yield return child;
+            if (child is Lambda or LocalFunctionStatement)
+                continue;
+            foreach (var descendant in DescendantsOutsideNestedFunctions(child))
+                yield return descendant;
         }
     }
 

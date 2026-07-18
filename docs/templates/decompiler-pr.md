@@ -5,6 +5,15 @@ Use this for decompiler PRs that affect raising, structuring, validity,
 fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
 tables generated; do not re-key metric rows by hand.
 
+Every raise PR must keep Before, After, and Fully Raised. Before and After must
+each show a concrete C# example. After records this PR's output; Fully Raised
+records the intended endpoint.
+
+Adversarial review evidence belongs in a separate PR comment, not this
+description. Before marking the PR ready, post a comment that names each
+reviewer/model, the exact head reviewed, findings and their resolution commits
+or explicit non-actions, and each reviewer's final verdict.
+
 For focused invalid-Full / burndown row fixes, prefer
 `docs/templates/decompiler-burndown-fix-pr.md`.
 -->
@@ -19,17 +28,39 @@ For focused invalid-Full / burndown row fixes, prefer
 
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence with the decisive reason}.
 
-Before:
+### Before
 
 ```csharp
 // short failing or lower-quality output
 ```
 
-After:
+### After
 
 ```csharp
-// short fixed or improved output
+// output produced by this PR, including an honest fallback when not fully raised
 ```
+
+### Fully Raised
+
+<!--
+Required for every raise PR. Choose one:
+
+1. If After is fully raised, write exactly:
+
+   The After decompilation is in the fully raised state.
+
+   Then delete the code block and tracking-issue item below.
+
+2. Otherwise, show the intended fully raised C# below. At least one tracking
+   issue is required, and each linked issue must name the remaining slice or
+   slices needed to reach that state.
+-->
+
+```csharp
+// intended fully raised output; delete when After is fully raised
+```
+
+- Required tracking issue: #{issue} — {remaining slice or slices}
 
 ## Evidence
 
@@ -88,15 +119,6 @@ For the full local delta, see
 
 </details>
 <!-- markdownlint-enable MD033 -->
-
-## Review
-
-| Reviewer | Result | Notes |
-| --- | --- | --- |
-| {model/reviewer} | No blocking findings / findings resolved | {short evidence} |
-| {model/reviewer} | No blocking findings / findings resolved | {short evidence} |
-
-**Review conclusion:** **PASS/REVIEW/BLOCKED** — {one-line reconciliation}.
 
 ## Validation
 

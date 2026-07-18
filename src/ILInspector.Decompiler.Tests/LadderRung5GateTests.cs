@@ -45,8 +45,8 @@ public class LadderRung5GateTests
     static readonly string[] ExpectedProgramMembers =
     [
         ".ctor", "Describe", "FromEnd", "IsOrigin", "IsRealString", "LastElement",
-        "MakeScaled", "MiddleSlice", "Prefix", "Quadrant", "Shift", "Size",
-        "UsingDeclaration",
+        "MakeScaled", "MiddleSlice", "MultiMemberWith", "Prefix", "Quadrant",
+        "Shift", "Size", "UsingDeclaration",
     ];
 
     // The record's compiler-synthesized member set (primary + copy ctor, Clone,
@@ -184,6 +184,33 @@ public class LadderRung5GateTests
 
         // nondestructive mutation (with-expression) on a record.
         Assert.Contains("return point with { X = point.X + dx };", Body("Shift"));
+
+        var multiMemberWith = Body("MultiMemberWith");
+        Assert.Equal("return r with { A = 1, B = 2 };", multiMemberWith);
+        Assert.DoesNotContain(".B = 2", multiMemberWith);
+    }
+
+    [Fact]
+    public void Rung5Fixture_RendersCompilerProducedMultiMemberWith()
+    {
+        var function = LoadImportedMember(ProgramType, "MultiMemberWith");
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is WithExpressionPass)
+                break;
+            pass.Run(function, PassContext.None);
+            function.CheckInvariant();
+        }
+
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Value is LoadStackSlot);
+        Assert.Equal(["A", "B"], function.Descendants.OfType<StoreProperty>().Select(store => store.PropertyName).ToArray());
+
+        new WithExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var output = CSharpPrinter.PrintRaised(function).Output?.Trim() ?? "";
+        Assert.Equal("return r with { A = 1, B = 2 };", output);
+        Assert.DoesNotContain(".B = 2", output);
     }
 
     // The compiler-synthesized record members render at the rung 5 bar. These pin
@@ -347,12 +374,25 @@ public class LadderRung5GateTests
     static List<(string Type, string Name, IrFunction Function)> LoadRaisedMembers()
     {
         var members = new List<(string Type, string Name, IrFunction Function)>();
+        foreach (var member in LoadImportedMembers())
+        {
+            IrPasses.Run(member.Function);
+            members.Add(member);
+        }
+        return members;
+    }
+
+    static IrFunction LoadImportedMember(string typeName, string methodName)
+        => LoadImportedMembers().Single(member => member.Type == typeName && member.Name == methodName).Function;
+
+    static List<(string Type, string Name, IrFunction Function)> LoadImportedMembers()
+    {
+        var members = new List<(string Type, string Name, IrFunction Function)>();
         using var source = MetadataSource.Open(FixturePath);
         foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
         {
             if (!typeName.StartsWith("LadderRung5.", StringComparison.Ordinal))
                 continue;
-            IrPasses.Run(function);
             members.Add((typeName, methodName, function));
         }
         return members;
