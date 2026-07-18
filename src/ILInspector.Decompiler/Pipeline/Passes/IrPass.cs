@@ -137,6 +137,11 @@ public static class IrPasses
         // Fold whole-method type-test / guard return dispatches once inner
         // return diamonds and isolated return tails are normalized.
         new ReturnDispatchPass(),
+        // Fold the exhaustive nested if/return comparison tree ReturnDispatchPass
+        // just built into a tuple relational-pattern switch expression, when every
+        // component and leaf value proves exhaustive, mutually exclusive, and
+        // side-effect-free (issue #2867).
+        new TupleSwitchExpressionPass(),
         // Fold the generic null-conditional invocation lowering (`recv?.M() ?? x`
         // over an unconstrained-generic receiver — csc's default(T)-box two-stage
         // null test with a reload, both guards sharing one call arm) into a single

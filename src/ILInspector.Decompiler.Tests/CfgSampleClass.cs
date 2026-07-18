@@ -16,6 +16,19 @@ public class CfgSampleClass
         s_finalized = true;
     }
 
+    // A three-component tuple relational-pattern switch (issue #2867 breadth
+    // coverage beyond LadderRung5.Quadrant's two components). csc lowers this
+    // to the same nested-if/return comparison-tree shape TupleSwitchExpressionPass
+    // recognizes, so this proves the fold generalizes to componentCount > 2.
+    public static string Octant(int x, int y, int z) => (x, y, z) switch
+    {
+        (> 0, > 0, > 0) => "+++",
+        (> 0, > 0, < 0) => "++-",
+        (> 0, < 0, > 0) => "+-+",
+        (< 0, > 0, > 0) => "-++",
+        _ => "other",
+    };
+
     // A non-public overload declared BEFORE the public one of the same name.
     // With publicOnly resolution, the visibility filter must skip this so the
     // overload index lands on the public overload below — masking the access

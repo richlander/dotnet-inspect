@@ -1526,6 +1526,18 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("};");
             return;
         }
+        if (node is Return { Value: TupleSwitchExpression tupleSwitch })
+        {
+            // Mirrors the SwitchExpression/UnionSwitchExpression return-position
+            // forms above: one arm per line, indented under the governing tuple.
+            string inner = pad + "    ";
+            sb.Append(pad).Append("return ").Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLine(" switch");
+            sb.Append(pad).AppendLine("{");
+            foreach (var arm in tupleSwitch.Arms)
+                sb.Append(inner).Append(TupleSwitchArmText(arm, _function.Signature.ReturnType)).AppendLine(",");
+            sb.Append(pad).AppendLine("};");
+            return;
+        }
         if (node is Return { Value: StackAllocate stackAllocate }
             && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
         {
@@ -2159,6 +2171,7 @@ public sealed partial class CSharpPrinter
         Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
         UnionSwitchExpression se => UnionSwitchExpressionInline(se),
+        TupleSwitchExpression se => TupleSwitchExpressionInline(se),
         NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),

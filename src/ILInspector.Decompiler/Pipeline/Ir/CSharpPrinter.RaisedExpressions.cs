@@ -225,6 +225,25 @@ public sealed partial class CSharpPrinter
     string UnionSwitchReceiverText(IrExpression value)
         => UnionValueReceiverText(value) ?? Operand(value);
 
+    /// <summary>The single-line form of a tuple relational-pattern switch expression, used when it is nested inside another expression.</summary>
+    string TupleSwitchExpressionInline(TupleSwitchExpression node, TypeRef? target = null)
+        => $"{TupleSwitchGoverningValueText(node)} switch {{ {string.Join(", ", node.Arms.Select(arm => TupleSwitchArmText(arm, target)))} }}";
+
+    string TupleSwitchGoverningValueText(TupleSwitchExpression node)
+        => $"({string.Join(", ", node.Components.Select(Operand))})";
+
+    /// <summary>The text of one tuple switch arm: its positional pattern (or <c>_</c> for the default) and the value it yields.</summary>
+    string TupleSwitchArmText(TupleSwitchExpressionArm arm, TypeRef? target = null)
+        => $"{TupleSwitchArmLabelText(arm)} => {SwitchArmValueText(arm.Value, target)}";
+
+    static string TupleSwitchArmLabelText(TupleSwitchExpressionArm arm)
+    {
+        if (arm.IsDefault)
+            return "_";
+        var constants = arm.Constants;
+        return $"({string.Join(", ", arm.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i])))})";
+    }
+
     string InterpolatedStringText(InterpolatedStringExpression node)
     {
         var sb = new StringBuilder().Append("$\"");

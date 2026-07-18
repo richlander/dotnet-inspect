@@ -11,6 +11,7 @@ internal sealed class SwitchRaisingScorecardCases : IdiomShapeScorecardTests.ICa
         new("SwitchRaisingPass", nameof(CfgSampleClass.PowerOfTwo), SyntaxKind.SwitchExpression, [SyntaxKind.SwitchStatement]),
         new("SwitchRaisingPass", nameof(CfgSampleClass.SmallStringSwitch), SyntaxKind.SwitchStatement, [SyntaxKind.GotoStatement]),
         new("SwitchRaisingPass", nameof(CfgSampleClass.ClassifyMode), SyntaxKind.SwitchStatement, [SyntaxKind.IfStatement]),
+        new("TupleSwitchExpressionPass", nameof(CfgSampleClass.Octant), SyntaxKind.SwitchExpression, [SyntaxKind.IfStatement]),
     ];
 }
 
