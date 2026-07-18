@@ -66,7 +66,8 @@ public sealed class IsPatternPass : IIrPass
             || FoldPositionalPatternReturnOne(function, context.Stepper)
             || FoldUnionValueReceiverCopy(function, context.Stepper)
             || RaiseGenericDeclarationPattern(function, context.Stepper)
-            || InlineGenericPatternSubject(function, context.Stepper))
+            || InlineGenericPatternSubject(function, context.Stepper)
+            || BindGenericPatternToCacheLocal(function, context.Stepper))
         {
         }
     }
@@ -183,6 +184,66 @@ public sealed class IsPatternPass : IIrPass
                 store.Detach();
                 return true;
             }
+        }
+        return false;
+    }
+
+    // #2862 slice (#2872): bind a multi-use generic declaration pattern directly
+    // to csc's cache local and drop the redundant copy. When the binding is read
+    // more than once, csc caches the single `isinst` extraction in a real,
+    // source-named local, so RaiseGenericDeclarationPattern binds a synthesized
+    // `V_N` and leaves `cacheLocal = V_N;` at the top of the guarded arm. When
+    // that minted local feeds only the copy, and the cache local is assigned only
+    // there and read only inside the guarded arm, re-point the pattern to the
+    // cache local (recovering its name) and elide the copy — turning
+    // `if (x is T V_N) { c = V_N; ... c ... }` into `if (x is T c) { ... c ... }`.
+    static bool BindGenericPatternToCacheLocal(IrFunction function, Stepper stepper)
+    {
+        // Only root-scope guards: re-pointing the binding rewrites references in
+        // the root local pool, so a nested-function guard (separate pool) is out.
+        foreach (var ifStatement in GenericDeclarationPatternProof
+            .DescendantsOutsideNestedFunctions(function).OfType<IfStatement>().ToList())
+        {
+            if (ifStatement.Condition is not IsPattern pattern)
+                continue;
+
+            // The copy must be the guarded arm's first statement, so the cache
+            // local is bound before any read — exactly the pattern's own scope.
+            if (ifStatement.Then.Children is not [StoreLocal copy, ..]
+                || copy.Value is not LoadLocal { Index: var boundIndex }
+                || boundIndex != pattern.LocalIndex
+                || copy.Index == pattern.LocalIndex)
+            {
+                continue;
+            }
+
+            int cacheIndex = copy.Index;
+
+            // The minted binding must feed only this copy: its single reference is
+            // the `LoadLocal` inside `copy` (the pattern's LocalIndex is a slot
+            // designation, not a Load/Store reference, so it is not counted here).
+            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, pattern.LocalIndex, [copy]))
+                continue;
+
+            // The cache local must be a single-assignment temp whose every use is
+            // inside this guarded arm, so binding it in the pattern covers all
+            // reads with the exact value the copy provided. A managed-address use
+            // (e.g. a constrained `t.CompareTo(...)` call) is safe: the pattern
+            // binding is an ordinary addressable local, and single assignment
+            // means the bound value equals the copied value, so any ref-use is
+            // preserved identically. The pattern's tested value must not read it.
+            if (function.Descendants.OfType<StoreLocal>().Count(s => s.Index == cacheIndex) != 1
+                || ReferenceOwnership.SubtreeReferencesLocal(pattern.Value, cacheIndex)
+                || !ReferenceOwnership.LocalReferencesOnlyWithin(function, cacheIndex, [ifStatement.Then]))
+            {
+                continue;
+            }
+
+            stepper.StepOver("bind generic declaration pattern to cache local", ifStatement);
+            pattern.ReplaceWith(new IsPattern(
+                (IrExpression)pattern.Value.Clone(), pattern.Type, cacheIndex));
+            copy.Detach();
+            return true;
         }
         return false;
     }
