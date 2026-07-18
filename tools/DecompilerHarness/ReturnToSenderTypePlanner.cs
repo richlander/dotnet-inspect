@@ -353,6 +353,19 @@ public static class CompileBackSourceComposer
         return new ProductTargetBody(printed.Output, printed.Decisions, printed.ConstructorChain);
     }
 
+    // ReferencedNamespaces already returns an ordinal-sorted set; route "System"
+    // through the same set instead of an unconditional Prepend so a body that
+    // already references a System namespace doesn't emit a duplicate using
+    // (issue #2848). Ordinal ordering is preserved for the merged result.
+    static string[] BuildUsings(IrFunction function)
+    {
+        var namespaces = new SortedSet<string>(MemberBodyFacts.ReferencedNamespaces(function), StringComparer.Ordinal)
+        {
+            "System",
+        };
+        return namespaces.ToArray();
+    }
+
     internal static ProductArtifact Compose(ArtifactRequest request)
     {
         var closure = CreateClosureInputs(request);
@@ -803,9 +816,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: MemberBodyFacts.ReferencedNamespaces(function)
-                .Prepend("System")
-                .ToArray(),
+            Usings: BuildUsings(function),
             AssemblyAttributes: [],
             ModuleAttributes: []);
         var plan = new CompileBackReconstructionPlan(
@@ -1038,9 +1049,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: MemberBodyFacts.ReferencedNamespaces(function)
-                .Prepend("System")
-                .ToArray(),
+            Usings: BuildUsings(function),
             AssemblyAttributes: [],
             ModuleAttributes: []);
         var plan = new CompileBackReconstructionPlan(
@@ -1240,9 +1249,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: MemberBodyFacts.ReferencedNamespaces(function)
-                .Prepend("System")
-                .ToArray(),
+            Usings: BuildUsings(function),
             AssemblyAttributes: [],
             ModuleAttributes: []);
         var plan = new CompileBackReconstructionPlan(
