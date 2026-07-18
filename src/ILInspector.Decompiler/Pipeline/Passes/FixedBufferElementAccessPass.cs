@@ -172,8 +172,13 @@ public sealed class FixedBufferElementAccessPass : IIrPass
 
     static IrExpression NativeIntegerOperand(IrExpression expression)
         => expression is Convert { Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" }, Operand: { } operand }
+                && !IsIntegerConstantExpression(operand)
             ? operand
             : expression;
+
+    static bool IsIntegerConstantExpression(IrExpression expression)
+        => expression is Constant
+            || expression is Convert { Operand: { } operand } && IsIntegerConstantExpression(operand);
 
     static bool IsConstant(IrExpression expression, int value)
         => TryConstantInteger(expression, out var actual) && actual == value;
@@ -192,9 +197,6 @@ public sealed class FixedBufferElementAccessPass : IIrPass
 
     static bool TryConstantInteger(IrExpression expression, out long value)
     {
-        if (expression is Convert { Operand: { } operand })
-            expression = operand;
-
         switch (expression)
         {
             case Constant { Value: int i }:
@@ -203,11 +205,31 @@ public sealed class FixedBufferElementAccessPass : IIrPass
             case Constant { Value: long l }:
                 value = l;
                 return true;
+            case Convert { Operand: { } operand } conversion
+                when TryConstantInteger(operand, out var operandValue)
+                    && TryValuePreservingIntegerConversion(conversion, operandValue):
+                value = operandValue;
+                return true;
             default:
                 value = 0;
                 return false;
         }
     }
+
+    static bool TryValuePreservingIntegerConversion(Convert conversion, long value)
+        => conversion.Target is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && conversion.Target.Name switch
+            {
+                "SByte" => value is >= sbyte.MinValue and <= sbyte.MaxValue,
+                "Byte" => value is >= byte.MinValue and <= byte.MaxValue,
+                "Int16" => value is >= short.MinValue and <= short.MaxValue,
+                "UInt16" => value is >= ushort.MinValue and <= ushort.MaxValue,
+                "Int32" => value is >= int.MinValue and <= int.MaxValue,
+                "UInt32" => value is >= uint.MinValue and <= uint.MaxValue,
+                "Int64" or "IntPtr" => true,
+                "UInt64" or "UIntPtr" => value >= 0,
+                _ => false,
+            };
 
     static int? ByteSize(TypeRef type)
         => type is { Assembly: TypeRef.CoreLibrary, Namespace: "System" }

@@ -379,6 +379,44 @@ public class FixedBufferElementAccessPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void SignednessChangingConvertedConstantOffset_IsNotRaised()
+    {
+        var function = SyntheticReadWithOffset(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            new Convert(
+                UInt32,
+                isChecked: false,
+                isUnsigned: true,
+                new Constant(-4, Int32)));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void TruncatingConvertedConstantOffset_IsNotRaised()
+    {
+        var function = SyntheticReadWithOffset(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            new Convert(
+                SByte,
+                isChecked: false,
+                isUnsigned: false,
+                new Constant(260, Int32)));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
     static IrFunction Raised(string assemblyPath, string typeName, string methodName)
     {
         using var source = MetadataSource.Open(assemblyPath);
