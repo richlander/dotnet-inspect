@@ -81,6 +81,48 @@ public static class StackallocInitializerNegatives
             System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), (uint)size);
         }
     }
+
+    public static void SharedSpanLiteralMutation()
+    {
+        unsafe {
+            byte* dest = stackalloc byte[12];
+            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
+            System.Console.WriteLine(src[0]);
+        }
+    }
+
+    public static void InterveningSideEffect()
+    {
+        unsafe {
+            byte* dest = stackalloc byte[12];
+            System.Console.WriteLine("Side effect");
+            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
+        }
+    }
+
+    public static void InterveningWrite()
+    {
+        unsafe {
+            byte* dest = stackalloc byte[12];
+            dest[0] = 42;
+            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
+        }
+    }
+
+    public static void CrossBlockCopy(bool condition)
+    {
+        unsafe {
+            byte* dest = stackalloc byte[12];
+            if (condition)
+            {
+                ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+                System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
+            }
+        }
+    }
 }
 
 public static class PointerArithmeticFixtures

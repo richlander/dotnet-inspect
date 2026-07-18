@@ -59,33 +59,49 @@ public sealed class StackAllocInitializerPass : IIrPass
             List<IrExpression>? elements = null;
             TypeRef? elementType = null;
 
+            IrExpression? instance = null;
+
             if (copyBlock.Source is Call callItem)
             {
+                var (ns, name) = GetTypeIdentity(callItem.Callee.DeclaringType);
                 if ((callItem.Callee.Name == "get_Item" || callItem.Callee.Name == "GetPinnableReference") && 
-                    callItem.Callee.DeclaringType.Namespace == "System" &&
-                    callItem.Callee.DeclaringType.Name is "ReadOnlySpan`1" or "Span`1" &&
+                    ns == "System" && name is "ReadOnlySpan`1" or "Span`1" &&
                     callItem.Arguments.Count > 0)
                 {
-                    var instance = callItem.Arguments[0];
-                    if (instance is LoadLocalAddress lla && localStores.TryGetValue(lla.Index, out var stores) && stores.Count == 1)
+                    instance = callItem.Arguments[0];
+                }
+            }
+            else if (copyBlock.Source is LoadProperty loadProp)
+            {
+                var (ns, name) = GetTypeIdentity(loadProp.Accessor.DeclaringType);
+                if ((loadProp.PropertyName == "Item" || loadProp.Accessor.Name == "get_Item") && 
+                    ns == "System" && name is "ReadOnlySpan`1" or "Span`1" &&
+                    loadProp.Instance != null)
+                {
+                    instance = loadProp.Instance;
+                }
+            }
+
+            if (instance != null)
+            {
+                if (instance is LoadLocalAddress lla && localStores.TryGetValue(lla.Index, out var stores) && stores.Count == 1)
+                {
+                    var store = stores[0];
+                    if (store.Value is SpanLiteral spanLit)
                     {
-                        var store = stores[0];
-                        if (store.Value is SpanLiteral spanLit)
+                        var sourceUsages = function.Descendants.OfType<LoadLocalAddress>().Where(l => l.Index == lla.Index).ToList();
+                        if (sourceUsages.Count == 1) // Exclusive source ownership
                         {
-                            var sourceUsages = function.Descendants.OfType<LoadLocalAddress>().Where(l => l.Index == lla.Index).ToList();
-                            if (sourceUsages.Count == 1) // Exclusive source ownership
+                            elementType = spanLit.ElementType;
+                            int? elementSize = GetSizeOf(elementType);
+                            if (elementSize != null && copySize % elementSize.Value == 0)
                             {
-                                elementType = spanLit.ElementType;
-                                int? elementSize = GetSizeOf(elementType);
-                                if (elementSize != null && copySize % elementSize.Value == 0)
+                                int requiredElementCount = copySize / elementSize.Value;
+                                if (spanLit.Children.Count == requiredElementCount)
                                 {
-                                    int requiredElementCount = copySize / elementSize.Value;
-                                    if (spanLit.Children.Count == requiredElementCount)
-                                    {
-                                        elements = spanLit.Children.Cast<IrExpression>().ToList();
-                                        foreach (var el in elements) el.Detach();
-                                        store.Detach();
-                                    }
+                                    elements = spanLit.Children.Cast<IrExpression>().ToList();
+                                    foreach (var el in elements) el.Detach();
+                                    store.Detach();
                                 }
                             }
                         }
@@ -156,6 +172,15 @@ public sealed class StackAllocInitializerPass : IIrPass
             if (HasSideEffect(child)) return true;
             
         return false;
+    }
+
+    static (string Namespace, string Name) GetTypeIdentity(TypeRef type)
+    {
+        while (type != null && type.Kind != TypeRefKind.Definition && type.ElementType != null)
+        {
+            type = type.ElementType;
+        }
+        return type != null ? (type.Namespace, type.Name) : ("", "");
     }
 
     static int? GetSizeOf(TypeRef type)

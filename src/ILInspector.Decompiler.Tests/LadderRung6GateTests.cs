@@ -858,13 +858,55 @@ public class LadderRung6GateTests
     static void AssertStackallocInitializerNegatives(string assemblyPath, string typeName)
     {
         var members = LoadRaisedMembers(assemblyPath, typeName);
-        foreach (var name in new[] { "PartialCopy", "EscapedDestination", "NonConstantSize" })
+        foreach (var name in new[] { "PartialCopy", "EscapedDestination", "NonConstantSize", "SharedSpanLiteralMutation", "InterveningSideEffect", "InterveningWrite", "CrossBlockCopy" })
         {
             var member = members.Single(m => m.Name == name);
             // They should not be recovered as stackalloc array initializers!
             Assert.Contains("Unsafe.CopyBlock", member.Body);
             Assert.DoesNotContain("stackalloc byte[] {", member.Body);
         }
+    }
+
+    [Fact]
+    public void Rung6StackallocInitializerNegatives_SyntheticMismatchedSize_Degrades()
+    {
+        var body = CSharpPrinter.PrintRaised(SyntheticStackallocInitializer(sizeMismatch: true)).Output ?? "";
+        Assert.Contains("CopyBlock", body);
+        Assert.DoesNotContain("stackalloc int[] {", body);
+    }
+
+    static IrFunction SyntheticStackallocInitializer(bool sizeMismatch)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var intPtr = TypeRef.Pointer(intType);
+        
+        var stackAlloc = new StackAllocate(new Constant(sizeMismatch ? 16 : 12, intType));
+        var storeSlot = new StoreStackSlot(0, stackAlloc);
+        
+        var loadDest = new LoadStackSlot(0, intPtr);
+        var rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0 };
+        var loadField = new LoadFieldAddress(new FieldRef(TypeRef.CoreLib("Synthetic", "Blob"), "data", intType), null) { FieldRvaData = rvaData };
+        
+        var copyBlock = new CopyBlock(loadDest, loadField, new Constant(12, intType));
+        var finalUsage = new StoreLocal(1, intPtr, new LoadStackSlot(0, intPtr));
+        
+        var block = new Block(0);
+        block.Add(storeSlot);
+        block.Add(copyBlock);
+        block.Add(finalUsage);
+        
+        var container = new BlockContainer();
+        container.Add(block);
+        
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "StackallocInitializer"),
+            new MethodSignature(intPtr, [], HasThis: false, GenericParameterCount: 0),
+            System.Collections.Immutable.ImmutableArray.Create(intType, intPtr),
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true
+        };
     }
 
     static IrFunction SyntheticStringPin(
