@@ -1,4 +1,4 @@
-# Decompiler Harness
+# Decompiler harness
 
 The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — the asmdiffs analog for the decompiler. It inventories the pipeline's health, scores the real-gap completeness, validates output two ways, and dumps a single method through every pipeline stage. This is the invocation reference for the modes; the strategy they serve — which check proves what, what gates CI, the corpus-sweep plan — is [docs/decompiler-quality.md](../../docs/decompiler-quality.md).
 
@@ -33,7 +33,7 @@ corpus-scale analog of `--dump --assertions`' `UNSOUND` marker (see below and
 The `final-stage survivors (UNSOUND)` line is the real soundness number:
 `first violation sites` counts everything (mostly discharged obligations, which
 are the pipeline working as designed), while a non-zero survivor count is the
-load-bearing signal. "Final stage is zero survivors" for the wrappable population
+blocking signal. "Final stage is zero survivors" for the wrappable population
 is now measured corpus-wide rather than eyeballed from `--dump --assertions`
 exemplars (known `PrinterOwned` residuals excluded). `--emit-assertion-violations`
 persists the survivor flag (snapshot schema v2), and `--diff-assertion-violations`

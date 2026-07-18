@@ -1,4 +1,4 @@
-# Assembly Inspection Query Model
+# Assembly inspection query model
 
 > Design north-star for the CLI-thinning work tracked in
 > [#2122](https://github.com/richlander/dotnet-inspect/issues/2122). Describes the target

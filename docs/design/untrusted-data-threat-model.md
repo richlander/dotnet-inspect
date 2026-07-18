@@ -1,4 +1,4 @@
-# Untrusted Data Threat Model
+# Untrusted data threat model
 
 `dotnet-inspect` reads artifacts that may be malformed or intentionally hostile.
 Inspection must not grant those artifacts authority to execute code, choose
