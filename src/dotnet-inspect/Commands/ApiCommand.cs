@@ -469,6 +469,16 @@ public class ApiCommand
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
 
+        if (api.InspectionFailures.Count > 0
+            && (options.Count
+                || options.Tabular
+                || options.Verbosity < Verbosity.Normal))
+        {
+            Console.Error.WriteLine(
+                $"Warning: API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
+                + "use normal verbosity or JSON for failure details.");
+        }
+
         if (options.JsonOutput && !options.Count)
         {
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));

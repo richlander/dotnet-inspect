@@ -27,7 +27,11 @@ public static class AssemblyReader
             }
             return surface;
         }
-        catch
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
         {
             return null;
         }
@@ -48,7 +52,11 @@ public static class AssemblyReader
 
             return ApiSurfaceExtractor.Extract(peReader, includeAll, typesOnly);
         }
-        catch
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
         {
             return null;
         }

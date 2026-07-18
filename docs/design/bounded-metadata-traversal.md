@@ -110,7 +110,8 @@ Signature and graph rejection remain mechanism-specific at their substrate
 boundaries. A composite Metadata operation maps either one into a common
 failure envelope that retains:
 
-- the mechanism (`Signature`, `TypeSpec`, `Relationship`, or `Projection`);
+- the mechanism (`Metadata`, `Signature`, `TypeSpecification`,
+  `Relationship`, or `Projection`);
 - the original rejection kind and detail;
 - the subject handle or token when available;
 - consumed-work counters.
@@ -119,6 +120,12 @@ Dependent stages stop after the first rejection in a documented evaluation
 order. Independent row fields may collect multiple failures in stable field
 order. Consumers do not discard the original mechanism or reduce every failure
 to an undifferentiated `Degraded` flag.
+
+The implemented composite type-name operation is `MetadataTypeNameResult`:
+`Resolved` carries a complete name, `Absent` represents a handle kind that has
+no type-name operation, and `Rejected` carries `MetadataTypeNameFailure`.
+`TypeSpecificationBudget` remains a `TypeSpecification` failure rather than
+being flattened into a generic signature rejection.
 
 ### Budget integrity
 
@@ -140,11 +147,16 @@ not the model for ordinary graph traversal.
 - cycle detection with visited handles;
 - centralized policy values;
 - typed completion/rejection results;
+- caller-owned buffered overloads for allocation-sensitive consumers;
 - an explicit projection budget used by consumer-owned formatters.
 
 The chain result exposes handles and the terminal scope, not a formatted name.
 Consumers decide whether nested separators are `.`, `+`, or `/`, whether an
 assembly qualifier is required, and how a rejection is presented.
+Buffered overloads apply the same node ceiling and typed rejection contract but
+write a completed root-to-leaf chain into caller-owned storage. Callers must
+check completion before reading that storage; a rejected walk exposes only
+failure evidence and consumed work, never a partial identity.
 
 Consumer formatters receive an operation-scoped projection budget and charge
 characters and items before appending or materializing them. The shared
@@ -360,6 +372,12 @@ APIs. They may not use a throwing compatibility wrapper where one malformed
 member would abort processing of otherwise independent rows. Throwing wrappers
 are limited to callers that already own a whole-operation failure boundary.
 
+The legacy nullable `TypeResolver.GetTypeName` compatibility surface is not
+globally redefined during consumer migration. Migrated identity, correlation,
+and row-producing consumers use `ResolveTypeName`; deferred display and
+classifier callers retain their existing compatibility behavior until they
+receive an explicit failure-bearing boundary.
+
 ## Ownership
 
 - `ILInspector.MetadataPrimitives` owns traversal mechanics, budgets, and
@@ -400,6 +418,21 @@ spelling, Analysis and Decompiler TypeRef decoding, and C# implementation-diff
 visibility checks. Existing TypeRef decoders may keep their semantic
 `Unsupported` value, but cycle and budget evidence must come from the shared
 relationship walk rather than ambient depth alone.
+
+The relationship-consumer implementation applies these projections:
+
+- API surface extraction records `ApiSurfaceInspectionFailure`, rolls back
+  counts for the rejected type row, and continues with independent rows.
+- API diff carries those failures and suppresses unilateral added/removed type
+  claims when the opposite surface has rejected identities.
+- IL assembly diff records `IlIdentityResolutionFailure`; rejected methods do
+  not enter the correlation map.
+- C# implementation diff records `CSharpIdentityResolutionFailure`; rejected
+  types or methods do not enter the correlation map, while independent methods
+  continue.
+- Analysis and Decompiler `TypeRef` values retain the typed metadata failure on
+  `Unsupported`; TypeSpec re-entry and signature-structure limits remain
+  separate mechanisms.
 
 Delete depth-only and silent-truncation duplicates after consumer migration. A
 syntax census should retain an explicit list of direct relationship reads and
@@ -458,6 +491,8 @@ The implementation must also demonstrate:
 
 - no rejection on a pinned runtime and package corpus;
 - unchanged identities and rendered text for completed traversals;
+- measured valid-path allocation and throughput against the pre-migration
+  consumer implementation;
 - bounded allocation and output for every rejected fixture;
 - deterministic results across repeated and parallel runs;
 - no new inspected-assembly loading, Roslyn dependency, or NativeAOT break.

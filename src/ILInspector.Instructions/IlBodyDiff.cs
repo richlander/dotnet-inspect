@@ -65,6 +65,7 @@ public enum IlDiffFailureKind
     OldBodyMissing,
     NewBodyMissing,
     DecodeFailure,
+    IdentityResolutionFailure,
     TokenResolutionFailure,
     UnsupportedBoundary,
 }

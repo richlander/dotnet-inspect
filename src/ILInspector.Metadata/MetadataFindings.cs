@@ -13,6 +13,9 @@ public static partial class MetadataFindings
     public static readonly FindingDescriptor TypeDescriptor = new("api.type", "API type");
     public static readonly FindingDescriptor MemberDescriptor = new("api.member", "API member");
     public static readonly FindingDescriptor AttributeDescriptor = new("api.attribute", "API attribute");
+    public static readonly FindingDescriptor InspectionDescriptor = new(
+        "api.inspect",
+        "API inspection");
     public static readonly FindingMatchTier ExtensionInstanceMatchTier =
         new("api.member.extension-instance", 85);
 
@@ -283,8 +286,8 @@ public static partial class MetadataFindings
         ApiDiffOptions options,
         ApiDiff diff)
     {
-        var oldInspection = InspectApiTypes(oldSurface, subject);
-        var newInspection = InspectApiTypes(newSurface, subject);
+        var oldInspection = InspectApiTypesForComparison(oldSurface, subject);
+        var newInspection = InspectApiTypesForComparison(newSurface, subject);
         return FindingComparison.Compare(
             oldInspection,
             newInspection,
@@ -300,8 +303,8 @@ public static partial class MetadataFindings
         ApiDiff diff,
         int acceptanceThreshold = 100)
     {
-        var oldInspection = InspectApiMembers(oldSurface, subject);
-        var newInspection = InspectApiMembers(newSurface, subject);
+        var oldInspection = InspectApiMembersForComparison(oldSurface, subject);
+        var newInspection = InspectApiMembersForComparison(newSurface, subject);
         return FindingComparison.Compare(
             oldInspection,
             newInspection,
@@ -309,6 +312,38 @@ public static partial class MetadataFindings
             acceptanceThreshold)
             .TransformPairs(pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
     }
+
+    static FindingInspection<ApiTypeHandle> InspectApiTypesForComparison(
+        ApiSurface surface,
+        FindingSubject subject)
+    {
+        return surface.InspectionFailures.Count == 0
+            ? InspectApiTypes(surface, subject)
+            : new FindingInspection<ApiTypeHandle>.Failed(
+                ApiInspectionError(surface, subject));
+    }
+
+    static FindingInspection<ApiMemberHandle> InspectApiMembersForComparison(
+        ApiSurface surface,
+        FindingSubject subject)
+    {
+        return surface.InspectionFailures.Count == 0
+            ? InspectApiMembers(surface, subject)
+            : new FindingInspection<ApiMemberHandle>.Failed(
+                ApiInspectionError(surface, subject));
+    }
+
+    static InspectionError ApiInspectionError(
+        ApiSurface surface,
+        FindingSubject subject)
+        => new(
+            subject,
+            InspectionDescriptor,
+            string.Join(
+                "; ",
+                surface.InspectionFailures.Select(failure =>
+                    $"{failure.Operation} 0x{failure.SubjectToken:X8} "
+                    + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}")));
 
     static ImmutableArray<PairFinding<ApiTypeHandle>> ApplyTypeFacetChanges(
         ImmutableArray<PairFinding<ApiTypeHandle>> pairs,

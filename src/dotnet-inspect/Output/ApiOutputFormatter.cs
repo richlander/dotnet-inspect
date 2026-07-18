@@ -104,6 +104,19 @@ public static class ApiOutputFormatter
             Tfm = api.Tfm
         };
 
+        if (api.InspectionFailures.Count > 0
+            && options.Verbosity >= Verbosity.Normal)
+        {
+            view.InspectionFailures = api.InspectionFailures
+                .Select(failure => new ApiInspectionFailureRow(
+                    failure.Operation,
+                    $"0x{failure.SubjectToken:X8}",
+                    failure.Mechanism.ToString(),
+                    failure.Kind,
+                    failure.Detail))
+                .ToList();
+        }
+
         if (totalCount == 0)
         {
             if (api.TypeForwarders.Count > 0)

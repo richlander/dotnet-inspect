@@ -6,13 +6,9 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
-// Malformed metadata can encode a type-reference resolution scope or a nested-type chain
-// that points back at itself. Without a recursion guard the decoder recurses until it hits
-// an *uncatchable* StackOverflowException and terminates the process. These tests craft
-// those cycles and assert the decoder fails closed to Unsupported instead of crashing.
-//
-// WARNING: if the recursion guard in TypeRefDecoder is removed, these tests do not fail —
-// they StackOverflow and take down the whole test runner.
+// Malformed metadata can encode cyclic or over-budget relationship chains. The decoder
+// must preserve the shared relationship rejection rather than recurse or invent a
+// plausible partial identity.
 public class TypeRefDecoderRecursionTests
 {
     [Fact]
@@ -31,6 +27,10 @@ public class TypeRefDecoderRecursionTests
             0);
 
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-reference resolution-scope relationship rejected (Cycle) at 0x01000001 after 1 nodes",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -54,6 +54,38 @@ public class TypeRefDecoderRecursionTests
         var result = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, typeHandle, 0);
 
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-definition declaring-type relationship rejected (Cycle) at 0x02000002 after 1 nodes",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OverBudgetResolutionScope_PreservesNodeBudgetFailure()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            for (int row = 1; row <= 257; row++)
+            {
+                metadata.AddTypeReference(
+                    row == 257 ? default : MetadataTokens.TypeReferenceHandle(row + 1),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString($"Type{row}"));
+            }
+
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-reference resolution-scope relationship rejected (NodeBudget) at 0x01000101 after 256 nodes",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
     }
 
     [Fact]

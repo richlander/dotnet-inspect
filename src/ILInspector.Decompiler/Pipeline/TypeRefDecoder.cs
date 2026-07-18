@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -21,12 +23,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 {
     public static readonly TypeRefDecoder Instance = new();
 
-    // Attacker-controlled metadata can encode a self-referential resolution scope,
-    // TypeSpecification, or nested-type chain, which recurses into an *uncatchable*
-    // StackOverflow (the try/catch filters around these calls cannot catch it). Guard the
-    // recursive descents with a per-thread depth limit — the decoder is a shared singleton
-    // used under Parallel, so the counter must be thread-local — and fail closed to
-    // Unsupported. Real metadata nests shallowly, so the limit only trips on malformed input.
+    // TypeSpecification decoding can re-enter through custom modifiers. Relationship
+    // chains use MetadataRelationshipTraversal instead and never consume native stack.
     [ThreadStatic]
     static int s_recursionDepth;
     const int MaxRecursionDepth = 256;
@@ -76,65 +74,113 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     public TypeRef GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        var typeDef = reader.GetTypeDefinition(handle);
-        string name = reader.GetString(typeDef.Name);
-        string ns = reader.GetString(typeDef.Namespace);
-        if (typeDef.IsNested)
+        Span<TypeDefinitionHandle> handles =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                handles,
+                out int consumedNodes,
+                out _,
+                out var rejection))
         {
-            if (s_recursionDepth >= MaxRecursionDepth)
-                return TypeRef.Unsupported("type-definition nesting depth exceeded");
-            s_recursionDepth++;
-            try
-            {
-                var declaring = GetTypeFromDefinition(reader, typeDef.GetDeclaringType(), 0);
-                if (declaring.Kind == TypeRefKind.Unsupported)
-                    return declaring;
-                return TypeRef.Definition(
-                    declaring.Assembly,
-                    declaring.Namespace,
-                    $"{declaring.Name}+{name}",
-                    HintFrom(rawTypeKind),
-                    InlineArrayFact(reader, typeDef));
-            }
-            finally
-            {
-                s_recursionDepth--;
-            }
+            return TypeRef.Unsupported(
+                RelationshipFailure("type-definition declaring-type", rejection!),
+                MetadataTypeNameFailure.From(rejection!));
         }
-        string assembly = reader.IsAssembly
-            ? Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
-            : "";
-        return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind), InlineArrayFact(reader, typeDef));
+
+        try
+        {
+            var chain = handles[..consumedNodes];
+            var root = reader.GetTypeDefinition(chain[0]);
+            var leaf = reader.GetTypeDefinition(handle);
+            string assembly = reader.IsAssembly
+                ? Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
+                : "";
+            string ns = reader.GetString(root.Namespace);
+            string name = TypeDefinitionName(reader, chain);
+            return TypeRef.Definition(
+                assembly,
+                ns,
+                name,
+                HintFrom(rawTypeKind),
+                InlineArrayFact(reader, leaf));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return TypeRef.Unsupported(
+                RelationshipProjectionFailure("type-definition declaring-type", handle, ex),
+                RelationshipProjectionFailure(handle, ex));
+        }
     }
 
     public TypeRef GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        var typeRef = reader.GetTypeReference(handle);
-        string name = reader.GetString(typeRef.Name);
-        string ns = reader.GetString(typeRef.Namespace);
-        switch (typeRef.ResolutionScope.Kind)
+        Span<TypeReferenceHandle> handles =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                handles,
+                out int consumedNodes,
+                out EntityHandle terminal,
+                out var rejection))
         {
-            case HandleKind.AssemblyReference:
-                var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)typeRef.ResolutionScope);
-                return TypeRef.Definition(Canonical(reader.GetString(assembly.Name)), ns, name, HintFrom(rawTypeKind));
-            case HandleKind.TypeReference:
-                if (s_recursionDepth >= MaxRecursionDepth)
-                    return TypeRef.Unsupported("type-reference resolution-scope recursion depth exceeded");
-                s_recursionDepth++;
-                try
-                {
-                    var declaring = GetTypeFromReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope, 0);
-                    if (declaring.Kind == TypeRefKind.Unsupported)
-                        return declaring;
-                    return TypeRef.Definition(declaring.Assembly, declaring.Namespace, $"{declaring.Name}+{name}", HintFrom(rawTypeKind));
-                }
-                finally
-                {
-                    s_recursionDepth--;
-                }
-            default:
-                return TypeRef.Definition("", ns, name, HintFrom(rawTypeKind));
+            return TypeRef.Unsupported(
+                RelationshipFailure("type-reference resolution-scope", rejection!),
+                MetadataTypeNameFailure.From(rejection!));
         }
+
+        try
+        {
+            var chain = handles[..consumedNodes];
+            var root = reader.GetTypeReference(chain[0]);
+            string ns = reader.GetString(root.Namespace);
+            string name = TypeReferenceName(reader, chain);
+            string assembly = terminal.Kind == HandleKind.AssemblyReference
+                ? Canonical(reader.GetString(
+                    reader.GetAssemblyReference((AssemblyReferenceHandle)terminal).Name))
+                : "";
+            return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return TypeRef.Unsupported(
+                RelationshipProjectionFailure("type-reference resolution-scope", handle, ex),
+                RelationshipProjectionFailure(handle, ex));
+        }
+    }
+
+    static string TypeDefinitionName(
+        MetadataReader reader,
+        ReadOnlySpan<TypeDefinitionHandle> handles)
+    {
+        string name = reader.GetString(
+            reader.GetTypeDefinition(handles[0]).Name);
+        for (int i = 1; i < handles.Length; i++)
+        {
+            name = string.Concat(
+                name,
+                "+",
+                reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
+        }
+        return name;
+    }
+
+    static string TypeReferenceName(
+        MetadataReader reader,
+        ReadOnlySpan<TypeReferenceHandle> handles)
+    {
+        string name = reader.GetString(
+            reader.GetTypeReference(handles[0]).Name);
+        for (int i = 1; i < handles.Length; i++)
+        {
+            name = string.Concat(
+                name,
+                "+",
+                reader.GetString(reader.GetTypeReference(handles[i]).Name));
+        }
+        return name;
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
@@ -271,4 +317,28 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"
         ? TypeRef.CoreLibrary
         : assemblyName;
+
+    static string RelationshipFailure(
+        string relationship,
+        RelationshipTraversalRejection rejection)
+        => $"{relationship} relationship rejected ({rejection.Kind}) at "
+            + $"0x{MetadataTokens.GetToken(rejection.Subject):X8} after "
+            + $"{rejection.ConsumedNodes} nodes: {rejection.Detail}";
+
+    static string RelationshipProjectionFailure(
+        string relationship,
+        EntityHandle subject,
+        Exception exception)
+        => $"{relationship} projection rejected (MalformedMetadata) at "
+            + $"0x{MetadataTokens.GetToken(subject):X8}: {exception.Message}";
+
+    static MetadataTypeNameFailure RelationshipProjectionFailure(
+        EntityHandle subject,
+        Exception exception)
+        => MetadataTypeNameFailure.From(
+            new RelationshipTraversalRejection(
+                RelationshipTraversalRejectionKind.MalformedMetadata,
+                exception.Message,
+                subject,
+                consumedNodes: 0));
 }

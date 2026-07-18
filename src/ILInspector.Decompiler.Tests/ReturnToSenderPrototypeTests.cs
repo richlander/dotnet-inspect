@@ -166,6 +166,184 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_RoundTripsInheritedExplicitInterfaceProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitPropertyFixture : IDerived
+            {
+                int IBase.Value => 42;
+
+                void IBase.Touch()
+                {
+                }
+            }
+
+            public interface IDerived : IBase
+            {
+            }
+
+            public interface IBase
+            {
+                int Value { get; }
+
+                void Touch();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int IBase.Value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IBase_Value", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitIndexerFixture : IValues
+            {
+                int IValues.this[int index] => index;
+            }
+
+            public interface IValues
+            {
+                int this[int index] { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitIndexerFixture",
+                    "IValues.get_Item",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int IValues.this[int index]", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public int IValues.this", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Consumer
+            {
+                public int Read => ((IBase)new ImplicitPropertyFixture()).Value;
+            }
+
+            public sealed class ImplicitPropertyFixture : IDerived
+            {
+                public int Value => 42;
+
+                public void Touch()
+                {
+                }
+            }
+
+            public interface IDerived : IBase
+            {
+            }
+
+            public interface IBase
+            {
+                int Value { get; }
+
+                void Touch();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("public int Value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public void Touch", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_ProjectsPropertiesFromRequiredInterfaceSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class InheritedTypeParameter : IGenericTypeParameter, IGenericParameter
+            {
+                private readonly IGenericTypeParameter _parentParameter;
+
+                public InheritedTypeParameter(IGenericTypeParameter parentParameter)
+                {
+                    _parentParameter = parentParameter;
+                }
+
+                public bool MustBeReferenceType => _parentParameter.MustBeReferenceType;
+
+                public ITypeDefinition DefiningType => _parentParameter.DefiningType;
+            }
+
+            public interface IGenericTypeParameter : IGenericParameter
+            {
+                ITypeDefinition DefiningType { get; }
+            }
+
+            public interface IGenericParameter
+            {
+                bool MustBeReferenceType { get; }
+            }
+
+            public interface ITypeDefinition
+            {
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "InheritedTypeParameter",
+                    "get_MustBeReferenceType",
+                    0)]));
+
+            Assert.DoesNotContain("CS0535", result.Detail ?? "", StringComparison.Ordinal);
+            var targetType = Assert.Single(
+                result.Plan.Types,
+                type => type.Name == "InheritedTypeParameter");
+            Assert.Contains(targetType.Members, member =>
+                member.Name == "DefiningType"
+                && member.SourceFacts.Any(fact =>
+                    fact.Id == "required-interface-property"));
+            Assert.Equal(1, targetType.Members.Count(member => member.Name == "MustBeReferenceType"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_ExposesTypedModuleAndTypeShellPlan()
     {
         var assemblyPath = CompileFixture("""
