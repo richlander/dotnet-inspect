@@ -1,4 +1,4 @@
-# Finding Adoption
+# Finding adoption
 
 A Finding producer is not adopted when a consumer merely calls it. Adoption is
 complete when the consumer retains the producer's outcome semantics, replaces
@@ -191,7 +191,7 @@ equality explicitly, or supply an explicit comparer.
 
 **Model.** [PR #2701](https://github.com/richlander/dotnet-inspect/pull/2701)
 gives Finding collection records sequence- and set-aware value equality while
-keeping matching key-driven. The load-bearing pin is
+keeping matching key-driven. The test that pins this behavior is
 `FindingPayloadEquality_IsProducerOwnedButMatchingRemainsKeyDriven`: equal keys
 still match while unequal payload content reports unequal, and that is correct.
 See [Finding Value Equality](finding-value-equality.md) and

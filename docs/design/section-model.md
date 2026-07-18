@@ -1,4 +1,4 @@
-# Section selection, Column filtering and rendering flow
+# Section selection, column filtering, and rendering flow
 
 One of the strongest features of dotnet-inspect and Markout is section filtering and view models. Every operation is a query that can be evaluated and executed. This clarity enables a variety of decisions and optimizations to be made.
 

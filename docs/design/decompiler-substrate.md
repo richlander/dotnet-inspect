@@ -1,4 +1,4 @@
-# Decompiler Substrate Layers
+# Decompiler substrate layers
 
 How shared rewrite-gate predicates are factored out from the raising passes, and
 how we notice when several passes have independently grown the same need. This
@@ -36,11 +36,16 @@ call. The live substrate layers are:
 | `GeneratedCodeIdentity` | Compiler-generated shape (attribute-gated) | Is this a non-capturing lambda holder? |
 | `PlaceIdentity` | Intra-method re-evaluable place identity | Are these two reads the same local? |
 | `ReferenceOwnership` | Reference-scope ownership for consumed scaffolds | Is every use of this synthetic local inside the nodes this rewrite consumes? |
+| `ProtectedRegionControlFlow` | EH transfer legality | Can this protected-region leave become structured control flow? |
 
 They are siblings by construction — thin, allocation-light, no pass state, named
 for the evidence category not the caller — but each owns a different category:
 metadata identity, compiler-shape evidence, intra-method place identity, and
-reference-scope ownership.
+reference-scope ownership. `ProtectedRegionControlFlow` adds the narrow EH
+category shared by `StructuringPass` and `ForLoopPass`: it proves that a
+`Leave` exits a `try`/`catch` region and never originates in a `finally` body.
+Its boundary-aware atom also proves that the protected region is below the
+candidate construct; the consuming pass still owns target and loop identity.
 
 ## Boundaries and roadmap
 
@@ -74,9 +79,9 @@ ledger/scorecard movement, or a corpus/fidelity signal.
 
 ## Atoms, not one maximal predicate
 
-The load-bearing design choice is that a substrate layer exposes **atoms the
-caller composes**, never a single "does everything" predicate. The equality
-logic is shared; *which node kinds a pass admits* is not — that admissibility is
+A substrate layer exposes **atoms the caller composes**, never a single "does
+everything" predicate. Equality is shared; *which node kinds a pass admits* is
+not — that admissibility is
 a deliberate soundness discriminator the pass still owns.
 
 `PlaceIdentity` is the clearest illustration. Several passes — `??=`, `?.`, switch
