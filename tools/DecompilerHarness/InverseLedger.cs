@@ -33,6 +33,7 @@ public static class InverseLedger
         "CollectionSpreadElement",
         "Conditional",
         "DelegateCreation",
+        "DynamicGetMember",
         "IncrementDecrement",
         "IndexFromEnd",
         "InitializerBlock",

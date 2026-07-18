@@ -4,12 +4,13 @@ using System;
 using System.Runtime.CompilerServices;
 using Microsoft.CSharp.RuntimeBinder;
 
+[CompilerGenerated]
 public class DynamicLookalikes
 {
-    // A manual shell that mimics the dynamic getter scaffolding exactly, 
+    // A manual shell that mimics the dynamic getter scaffolding exactly,
     // but the cache field is not compiler-generated.
     static CallSite<Func<CallSite, object, object>> s_cache;
-    
+
     public object ManualCache(object value)
     {
         if (s_cache == null)
@@ -24,7 +25,7 @@ public class DynamicLookalikes
     [CompilerGenerated]
     static CallSite<Func<CallSite, object, object>> s_cache_extra_side_effect;
     public static int s_extra;
-    
+
     public object ExtraSideEffect(object value)
     {
         if (s_cache_extra_side_effect == null)
@@ -39,7 +40,7 @@ public class DynamicLookalikes
     // A compiler-generated cache field, but wrong member name.
     [CompilerGenerated]
     static CallSite<Func<CallSite, object, object>> s_cache_wrong_name;
-    
+
     public object WrongName(object value)
     {
         if (s_cache_wrong_name == null)
@@ -53,7 +54,7 @@ public class DynamicLookalikes
     // A compiler-generated cache field, but wrong context type.
     [CompilerGenerated]
     static CallSite<Func<CallSite, object, object>> s_cache_wrong_context;
-    
+
     public object WrongContext(object value)
     {
         if (s_cache_wrong_context == null)
@@ -67,7 +68,7 @@ public class DynamicLookalikes
     // A compiler-generated cache field, but wrong flags.
     [CompilerGenerated]
     static CallSite<Func<CallSite, object, object>> s_cache_wrong_flags;
-    
+
     public object WrongFlags(object value)
     {
         if (s_cache_wrong_flags == null)
