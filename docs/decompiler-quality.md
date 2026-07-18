@@ -421,7 +421,9 @@ touches the same hotspots as raise work (`LoweringCoverage`, `IrPasses`,
 `CfgSampleClass`, the sidecar fact providers, and the scorecard), so two rows
 sharing a tree will collide. A per-row worktree keeps each review isolated,
 lets reviews proceed in parallel, and makes the upstream sync in the pass loop
-below clean. Tear the worktree down once the row's PR merges.
+below clean. Tear the development and review worktrees down as soon as both
+fixed-head reviews are clean. If later work is needed, recreate a worktree for
+the branch.
 
 #### Useful tool patterns
 
