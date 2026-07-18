@@ -907,6 +907,30 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceProperty_Static_RetainsStaticModifier()
+    {
+        // #2875: static-abstract interface members implemented explicitly must keep `static`
+        // while still omitting the access modifier.
+        var type = new ApiType { Namespace = "Samples", Name = "Counter", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Samples.ICounter.Count",
+            Kind = "explicit-interface-implementation",
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Samples.ICounter.Count",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("static int Samples.ICounter.Count { get; }", declaration);
+    }
+
+    [Fact]
     public void ExplicitInterfaceImplementation_WithUnsafeSignature_RetainsUnsafeModifier()
     {
         var type = new ApiType { Namespace = "Samples", Name = "UnsafeImpl", Kind = "class" };
