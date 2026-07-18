@@ -936,7 +936,7 @@ static class FidelityCheck
             catch { continue; }
             if (body is null)
                 continue;
-            var requiredNamespaces = RequiredNamespaces(function);
+            var requiredNamespaces = BodyNamespaceExtractor.ReferencedNamespaces(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(
                 reader, method, ConstructorBodyFactExtractor.Extract(function).PrimaryConstructorPrologue, body);
             var original = MetadataInstructionProducer.Disassemble(pe, reader, method);
@@ -951,41 +951,6 @@ static class FidelityCheck
                 break;
         }
         return (fullType, entries);
-    }
-
-    static IReadOnlySet<string> RequiredNamespaces(IrFunction function)
-    {
-        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
-
-        void Add(TypeRef? type)
-        {
-            switch (type?.Kind)
-            {
-                case TypeRefKind.Definition:
-                    if (type.Namespace.Length > 0)
-                        namespaces.Add(type.Namespace);
-                    break;
-                case TypeRefKind.GenericInstance:
-                    Add(type.ElementType);
-                    foreach (var argument in type.TypeArguments)
-                        Add(argument);
-                    break;
-                case TypeRefKind.SzArray or TypeRefKind.Array
-                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
-                    Add(type.ElementType);
-                    break;
-            }
-        }
-
-        foreach (var node in function.Descendants.Prepend(function))
-        {
-            foreach (var type in node.DirectTypes)
-                Add(type);
-            if (node is IrExpression expression)
-                Add(expression.ResultType);
-        }
-
-        return namespaces;
     }
 
     static bool IsGeneratedType(MetadataReader reader, TypeDefinition typeDef, string fullType)
