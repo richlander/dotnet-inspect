@@ -5,9 +5,17 @@ Use this for decompiler PRs that affect raising, structuring, validity,
 fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
 tables generated; do not re-key metric rows by hand.
 
-Every raise PR must keep Before, After, and Fully Raised. Before and After must
-each show a concrete C# example. After records this PR's output; Fully Raised
+Every raise PR must keep Before, After, and Fully raised. Before and After must
+each show a concrete C# example. After records this PR's output; Fully raised
 records the intended endpoint.
+
+Look for the authoritative original source with `dotnet-inspect`, including
+through SourceLink:
+
+dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Original Source"
+
+When original source is available, keep Original source immediately before
+Before and include the relevant C#.
 
 Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
@@ -28,6 +36,17 @@ For focused invalid-Full / burndown row fixes, prefer
 
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence with the decisive reason}.
 
+### Original source
+
+<!--
+Required when authoritative original source is available. Delete this section
+only after checking with dotnet-inspect, including SourceLink.
+-->
+
+```csharp
+// authoritative original source
+```
+
 ### Before
 
 ```csharp
@@ -40,7 +59,7 @@ For focused invalid-Full / burndown row fixes, prefer
 // output produced by this PR, including an honest fallback when not fully raised
 ```
 
-### Fully Raised
+### Fully raised
 
 <!--
 Required for every raise PR. Choose one:

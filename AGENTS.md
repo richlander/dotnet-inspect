@@ -1,4 +1,4 @@
-# Agent Instructions
+# Agent instructions
 
 ## Start here
 
@@ -6,28 +6,66 @@
 projects, platform libraries, metadata, APIs, dependencies, source provenance,
 analysis, Findings, implementation diffs, and decompilation.
 
-Read:
+Read this file before doing work. Then read only the task-specific entry
+documents relevant to the change:
 
-1. `README.md` for current capabilities, commands, and examples.
-2. `docs/overview.md` for the minimum system and ownership model.
-3. `docs/architecture.md` for command, source, and evidence architecture.
-4. The task-specific docs below before changing that area.
+- Read `README.md` when changing user-visible capabilities, commands, or
+  examples.
+- Read `docs/overview.md` when a change crosses subsystem ownership boundaries.
+- Read the relevant section of `docs/architecture.md` only when implementation
+  structure matters to the task.
+- Follow the task-specific entry points below and then only the links relevant
+  to the change.
 
-Keep this file to repository-wide engineering and workflow rules. Detailed
-design, subsystem mechanics, and historical context belong in `docs/`, tool
-READMEs, and focused skills.
+This file is the source of truth for repository-wide engineering and workflow
+rules. Detailed design, subsystem mechanics, version requirements, and
+historical context belong with their owning code, workflow, or focused
+documentation.
+
+## Before changing files
+
+- `main` is protected. Keep the primary repository checkout attached to
+  `main`; never detach its HEAD or develop in it.
+- Before starting a change, run `git fetch origin main` from the primary
+  checkout, then create a descriptive branch and linked worktree with
+  `git worktree add -b <branch> <path> origin/main`. Make all edits, builds,
+  tests, and commits in the worktree, not the primary checkout.
+- Use one development worktree per PR, plus temporary worktrees for independent
+  reviews. Do not reuse a worktree across unrelated changes.
+- Never amend commits; create follow-up commits.
+- Before requesting review, fetch `origin/main` and incorporate it into the
+  feature branch. Rebase only before the branch's first push. Once a branch is
+  public or under review, merge `origin/main`; never amend, rebase, or
+  force-push reviewed history.
+- After updating from main or resolving conflicts, re-read `AGENTS.md` and
+  task-relevant docs before continuing.
+- Do not mix unrelated changes into one commit or sweep another contributor's
+  working-tree changes into your work.
+- Treat worktrees as temporary. For a PR requiring adversarial review, confirm
+  the exact reviewed head is pushed, then remove the development and review
+  worktrees with `git worktree remove <path>` as soon as both fixed-head
+  reviews are clean. For a change that does not require adversarial review,
+  remove its development worktree after merge. Do not retain inactive
+  worktrees in case more work appears; recreate one for the branch if follow-up
+  work is needed.
 
 ## Task-specific guidance
 
 | Area | Read first |
 | --- | --- |
-| Commands, sections, and output | `docs/design/progressive-disclosure.md`, `docs/design/output-shapes.md`, `docs/design/style-guide.md`, `docs/design/section-model.md` |
-| Metadata, source, and acquisition | `docs/design/assembly-inspection-query.md`, `docs/design/source-finding-producers.md`, `docs/pdb-acquisition.md`, `docs/design/version-resolution.md`, `docs/design/cache-concurrency.md` |
+| Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
+| Output data shapes | `docs/design/output-shapes.md` |
+| Output style | `docs/design/style-guide.md` |
+| Sections and selection | `docs/design/section-model.md` |
+| Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
+| PDB and source acquisition | `docs/pdb-acquisition.md` |
+| Source Finding producers | `docs/design/source-finding-producers.md` |
+| Package resolution and caches | `docs/design/version-resolution.md` |
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
-| Analysis, Findings, and Research | `docs/design/finding-nomenclature.md`, `docs/design/finding-producers.md`, `docs/design/finding-adoption.md`, `docs/design/finding-coordinates.md`, `docs/design/analysis-ux-scopes.md` |
+| Analysis, Findings, and Research | `docs/design/finding-adoption.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
-| Decompiler behavior or harnesses | `docs/decompiler-quality.md`, `docs/decompiler-correctness-pipeline.md`, `docs/decompiler-raise-discipline.md`, `docs/design/decompiler-substrate.md`, `tools/DecompilerHarness/README.md` |
-| Skills | `taste/skill-guidance.md`, `skills/dotnet-inspect/SKILL.md`, and the relevant `skills/<scenario>/SKILL.md` |
+| Decompiler behavior or harnesses | `docs/decompiler-correctness-pipeline.md` |
+| Skills | `taste/skill-guidance.md` |
 | Release and publishing | `docs/release-workflow.md` |
 
 PR templates:
@@ -39,8 +77,9 @@ PR templates:
 | Compile-back harness, fidelity skeleton, or ReturnToSender coverage | `docs/templates/decompiler-compile-back-harness-pr.md` |
 
 Some files under `docs/design/` record proposals or design history. Prefer
-current behavior in `README.md`, `docs/overview.md`, `docs/architecture.md`,
-focused current docs, and tests when sources disagree.
+current product behavior and tests over design history. When current sources
+disagree, stop and resolve which owner is authoritative rather than silently
+choosing one.
 
 When adding a focused skill, register it in `SkillCommand.Skills`. Its YAML
 frontmatter `description:` is the single source of truth for the generated
@@ -115,43 +154,22 @@ library is needed. Write probes under `/tmp/` and run them with:
 dotnet run /tmp/check.cs
 ```
 
-A file-based app can reference a project directly:
-
-```csharp
-#:project ../src/MyLib/MyLib.csproj
-
-using MyLib.Domain;
-
-var items = await MyService.LoadAsync();
-Console.WriteLine($"Found {items.Count} items");
-```
-
 ## Building and testing
 
-Repository development uses a .NET 11 daily SDK. Before installing an SDK or
-changing `PATH`, inspect the current selection:
+Use the SDK and toolchain selected by current repository configuration and CI.
+Version requirements belong with those owners, not in this file. Before
+installing an SDK or changing `PATH`, inspect the current selection:
 
 ```bash
 command -v dotnet
 dotnet --version
 ```
 
-If `dotnet` already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
-`dotnet` commands. If it is centrally installed (for example under `/usr/bin`,
+If `dotnet` is centrally installed (for example under `/usr/bin`,
 `/usr/local/share/dotnet`, `/snap`, or `C:\Program Files\dotnet`), stop and ask
-before installing, replacing, or shadowing it.
-
-Use dotnetup for non-invasive user-level acquisition when approved:
-
-```bash
-curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
-bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-dotnetup sdk install 11.0-daily --interactive false
-```
-
-Use `dotnetup dotnet ...` for command isolation, or evaluate its environment
-script for one shell. Do not modify shell startup files unless explicitly
-requested.
+before installing, replacing, or shadowing it. Follow
+`README.md#repository-development-sdk` for the current SDK acquisition
+workflow. Do not modify shell startup files unless explicitly requested.
 
 Build the normal product, test, and fixture graph with:
 
@@ -159,7 +177,7 @@ Build the normal product, test, and fixture graph with:
 dotnet build dotnet-inspect.slnx -c Release
 ```
 
-Tests use xUnit v3 executable projects. **Use `dotnet run`, not `dotnet test`**;
+Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here.
 
 | Area | Command |
@@ -200,20 +218,6 @@ section and promote verbosity as needed. Keep alternate lenses, section
 selection, row queries, and rendering formats orthogonal; follow the current
 progressive-disclosure and output-shape docs for detailed behavior.
 
-## Git and worktrees
-
-- `main` is protected. Work on a descriptive feature or fix branch.
-- Development must happen in a worktree. A fresh worktree per PR and a reused
-  development worktree are both valid.
-- Start each new change from the latest `origin/main`.
-- Never amend commits; create follow-up commits.
-- Before opening a PR, fetch `origin/main`, update the feature branch by merge
-  or rebase, resolve conflicts locally, and rerun relevant checks.
-- After updating from main or resolving conflicts, re-read `AGENTS.md` and
-  task-relevant docs before continuing.
-- Do not mix unrelated changes into one commit or sweep another contributor's
-  working-tree changes into your work.
-
 When all merge-blocking validation, CI, and required review are complete, post
 a PR comment that says `Ready to merge`. Label later work as non-blocking
 follow-up so readiness remains unambiguous.
@@ -224,10 +228,10 @@ Any PR with non-trivial behavior changes, new heuristics or shapes, or subtle
 correctness, security, or compatibility risk requires adversarial review from
 two different models chosen from:
 
-- Claude Opus (for example Claude Opus 4.8)
-- Gemini Pro (for example Gemini 3.1 Pro)
-- GPT (for example GPT 5.6 Sol)
-- MAI-Code (for example MAI-Code-1-Flash)
+- Claude Opus
+- Gemini Pro
+- GPT
+- MAI-Code
 
 This list is the single source of truth for the reviewer roster; scenario docs
 should reference it rather than restating it.
@@ -238,10 +242,10 @@ model.
 
 Give both reviewers the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
-Isolate every reviewer in a separate checkout or worktree. Require scratch work
-under `/tmp/` and prohibit `git reset`, `git add`, and commits in review trees.
-Before acting on a blocking finding, reproduce it on a clean exact-head
-checkout.
+Isolate every reviewer in a separate linked review worktree; never detach the
+primary checkout for review. Require scratch work under `/tmp/` and prohibit
+`git reset`, `git add`, and commits in review trees. Before acting on a blocking
+finding, reproduce it on a clean exact-head review worktree.
 
 After addressing findings, re-review the fixed exact head. Reconcile both
 reviews publicly on the PR: attribute findings, state what was verified or
