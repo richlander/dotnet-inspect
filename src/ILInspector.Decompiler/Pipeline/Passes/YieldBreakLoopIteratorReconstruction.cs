@@ -233,31 +233,61 @@ internal static class YieldBreakLoopIteratorReconstruction
         if (children.Count < 2 || !IsStateStore(children[0], -1))
             return false;
 
-        var store = children.OfType<StoreField>().LastOrDefault(s =>
-            s is { Instance: LoadArgument { Index: 0 }, Field.Name: var name } && name == loopFieldName);
-        if (store?.Value is not Binary binary || binary.Right is not Constant step)
+        var index = 1;
+        int? tempLocal = null;
+        if (index < children.Count
+            && children[index] is StoreLocal tempStore
+            && IsLoopFieldLoad(tempStore.Value, loopFieldName))
+        {
+            tempLocal = tempStore.Index;
+            index++;
+        }
+
+        if (index >= children.Count
+            || children[index++] is not StoreField
+            {
+                Instance: LoadArgument { Index: 0 },
+                Field.Name: var incrementField,
+                Value: Binary binary,
+            }
+            || incrementField != loopFieldName
+            || binary.Right is not Constant step)
+        {
             return false;
-        if (!IncrementReadsLoopField(children, binary.Left, loopFieldName))
+        }
+        if (!IncrementReadsLoopField(binary.Left, loopFieldName, tempLocal))
             return false;
 
-        if (children[^1] is Branch branch)
-            return graph.ResolveOffset(branch.TargetOffset) == conditionOffset
-                && Assign(new Increment(binary.Kind, binary.IsChecked, binary.IsUnsigned, step), out increment);
-        if (graph.NextBlock(block)?.StartOffset == conditionOffset)
-            return Assign(new Increment(binary.Kind, binary.IsChecked, binary.IsUnsigned, step), out increment);
+        int targetOffset;
+        if (index == children.Count)
+        {
+            if (graph.NextBlock(block) is not { } next)
+                return false;
+            targetOffset = next.StartOffset;
+        }
+        else if (index + 1 == children.Count && children[index] is Branch branch)
+        {
+            targetOffset = graph.ResolveOffset(branch.TargetOffset);
+        }
+        else
+        {
+            return false;
+        }
+
+        if (targetOffset == conditionOffset)
+        {
+            increment = new Increment(binary.Kind, binary.IsChecked, binary.IsUnsigned, step);
+            return true;
+        }
+
         return false;
     }
 
-    static bool IncrementReadsLoopField(IReadOnlyList<IrNode> resumeChildren, IrExpression left, string loopFieldName)
+    static bool IncrementReadsLoopField(IrExpression left, string loopFieldName, int? tempLocal)
     {
-        if (IsLoopFieldLoad(left, loopFieldName))
-            return true;
-
-        if (left is not LoadLocal temp)
-            return false;
-        return resumeChildren.Any(node => node is StoreLocal { Index: var stored, Value: var value }
-                && stored == temp.Index
-                && IsLoopFieldLoad(value, loopFieldName));
+        if (tempLocal is null)
+            return IsLoopFieldLoad(left, loopFieldName);
+        return left is LoadLocal temp && temp.Index == tempLocal.Value;
     }
 
     static bool IsLoopFieldLoad(IrExpression expression, string loopFieldName)

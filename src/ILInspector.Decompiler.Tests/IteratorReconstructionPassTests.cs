@@ -40,6 +40,7 @@ public class IteratorReconstructionPassTests
     static CompiledFixture CompileComplexIteratorFixture(OptimizationLevel optimization)
     {
         const string source = """
+            using System;
             using System.Collections.Generic;
 
             namespace Issue2868;
@@ -74,6 +75,35 @@ public class IteratorReconstructionPassTests
                             yield break;
 
                         yield return i;
+                        i++;
+                    }
+                }
+
+                public static IEnumerable<int> WhileTrueYieldBreakWithSideEffect(int n)
+                {
+                    int i = 0;
+                    while (true)
+                    {
+                        if (i >= n)
+                            yield break;
+
+                        yield return i;
+                        Console.Write(i);
+                        i++;
+                    }
+                }
+
+                public static IEnumerable<int> WhileTrueYieldBreakWithMultipleSideEffects(int n)
+                {
+                    int i = 0;
+                    while (true)
+                    {
+                        if (i >= n)
+                            yield break;
+
+                        yield return i;
+                        Console.Write(i);
+                        Console.WriteLine(i);
                         i++;
                     }
                 }
@@ -549,6 +579,28 @@ public class IteratorReconstructionPassTests
         Assert.Contains("while (true)", yieldBreakResult.Output);
         Assert.Contains("yield break;", yieldBreakResult.Output);
         Assert.DoesNotContain("not reconstructed", yieldBreakResult.Output);
+    }
+
+    [Theory]
+    [InlineData(OptimizationLevel.Debug, "WhileTrueYieldBreakWithSideEffect")]
+    [InlineData(OptimizationLevel.Release, "WhileTrueYieldBreakWithSideEffect")]
+    [InlineData(OptimizationLevel.Debug, "WhileTrueYieldBreakWithMultipleSideEffects")]
+    [InlineData(OptimizationLevel.Release, "WhileTrueYieldBreakWithMultipleSideEffects")]
+    public void YieldBreakLoopIterator_WithPostYieldSideEffects_DeclinesHonestly(
+        OptimizationLevel optimization,
+        string methodName)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.Iterators", methodName);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Function.Fidelity);
+        Assert.Empty(result.Function.Descendants.OfType<YieldReturn>());
+        var marker = Assert.Single(result.Function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
+        Assert.Contains("not reconstructed", marker.Reason);
+        Assert.Contains("return default;", result.Output);
+        Assert.DoesNotContain("yield return", result.Output);
     }
 
     [Fact]
