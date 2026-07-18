@@ -68,6 +68,15 @@ public class FidelityCauseBucketsTests
         Assert.Throws<InvalidOperationException>(() => FidelityCauseBuckets.PrimaryBucket(census));
     }
 
+    [Fact]
+    public void PrimaryBucket_RejectsEmptyCompleteInspection()
+    {
+        var census = FidelityCauseBuckets.FromInspection(
+            new FindingInspection<DecompilerFidelityCause>.Complete([]));
+
+        Assert.Throws<InvalidOperationException>(() => FidelityCauseBuckets.PrimaryBucket(census));
+    }
+
     static IrFunction Function(IrNode statement)
     {
         var container = new BlockContainer();

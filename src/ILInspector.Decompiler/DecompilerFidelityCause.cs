@@ -1,5 +1,38 @@
 namespace ILInspector.Decompiler;
 
+/// <summary>
+/// Stable semantic facets for <see cref="DecompilerFidelityCause.Discriminator"/>.
+/// Human-readable diagnostic reasons are deliberately not part of this contract.
+/// </summary>
+public static class DecompilerFidelityDiscriminators
+{
+    public const string AccessorMetadataUnavailable = "accessor-metadata-unavailable";
+    public const string DisplayClassTypeName = "display-class-type-name";
+    public const string EscapableFieldName = "escapable-field-name";
+    public const string EscapableInitializerMemberName = "escapable-initializer-member-name";
+    public const string EscapablePropertyName = "escapable-property-name";
+    public const string GeneratedFieldName = "generated-field-name";
+    public const string GeneratedGenericParameterName = "generated-generic-parameter-name";
+    public const string GeneratedInitializerMemberName = "generated-initializer-member-name";
+    public const string GeneratedMethodName = "generated-method-name";
+    public const string GeneratedPropertyName = "generated-property-name";
+    public const string GeneratedTypeName = "generated-type-name";
+    public const string LambdaHolderTypeName = "lambda-holder-type-name";
+    public const string LambdaMethodName = "lambda-method-name";
+    public const string LocalFunctionMethodName = "local-function-method-name";
+    public const string PinnedLocal = "pinned-local";
+    public const string PrivateImplementationDetailsType = "private-implementation-details-type";
+    public const string StateMachineTypeName = "state-machine-type-name";
+    public const string UnsupportedTypeShape = "unsupported-type-shape";
+    public const string UnspellableFieldName = "unspellable-field-name";
+    public const string UnspellableGenericParameterName = "unspellable-generic-parameter-name";
+    public const string UnspellableInitializerMemberName = "unspellable-initializer-member-name";
+    public const string UnspellableLocalFunctionName = "unspellable-local-function-name";
+    public const string UnspellableMethodName = "unspellable-method-name";
+    public const string UnspellablePropertyName = "unspellable-property-name";
+    public const string UnspellableTypeName = "unspellable-type-name";
+}
+
 public enum DecompilerFidelityLocationKind
 {
     Unknown,

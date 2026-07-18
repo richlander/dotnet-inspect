@@ -314,6 +314,85 @@ old message-substring shell filter; they are genuine missing-return defects and
 remain visible measured debt. The fidelity-cap increase did not create that
 semantic-validity population.
 
+Run the uncapped completeness census without the quality-card lens to print the
+fidelity residual portfolio:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+  --emit-corpus-snapshot /tmp/corpus-snapshot.json \
+  --compile-cap 0 \
+  --corpus-fidelity-cap 0 \
+  --max-examples 3
+```
+
+```text
+## Fidelity residual portfolio (policy v1)
+
+Population: ... fidelity-primary methods, ... cause sites.
+Method rollup: ... all causes recoverable; ... any cause at the policy floor;
+... otherwise unclassified.
+Current roadmap target range: ... projected fully raised (...).
+Earlier structural-primary co-occurrence (excluded): ... methods, ... sites.
+
+Recoverable roadmap facets:
+  DEC0009/display-class-type-name: ... methods, ... sites; e.g. <stable method>
+
+Policy floor facets:
+  DEC0009/unspellable-field-name: ... methods, ... sites; e.g. <stable method>
+
+Unclassified facets:
+  DEC0006: ... methods, ... sites; e.g. <stable method>
+```
+
+This is a measurement and prioritization report, not a regression gate. It
+starts with **fidelity-primary methods**: methods whose raised tree has no
+earlier branch or EH residual. Branch/EH-primary methods that also have fidelity
+causes remain visible as excluded co-occurrence, so resolving a fidelity cause
+does not get credit for a method that is still structurally blocked.
+
+Snapshot schema v4 records producer-owned fidelity observations as `code`, an
+optional `discriminator`, and the exact site multiplicity. Identical facets
+within one method share a row; their `sites` count preserves duplicate cause
+sites without bloating the tracked baseline. The snapshot does not persist
+harness-owned policy dispositions or rule IDs. Older snapshots remain readable;
+a method without v4 cause observations is counted as unclassified if a
+portfolio is built from it. Existing corpus regression gates continue to use
+the same primary residual and aggregate metrics.
+An empty complete cause census has no primary bucket; the old synthetic
+`(typed)` fallback is no longer emitted.
+
+Policy v1 rolls multiple causes up per method in this order:
+
+1. **Recoverable roadmap:** every cause is mapped to recoverable work.
+2. **Policy floor:** at least one cause is mapped to the current policy floor.
+3. **Unclassified:** every other combination, including any new producer facet
+   for which the harness has no rule.
+
+The current recoverable rules cover generated-name, escapable-keyword, and
+accessor-metadata DEC0009 facets; iterator and constructor-call DEC0004 facets;
+private-implementation DEC0005 residue; DEC0008 result-type recovery; DEC0013
+continue verification; and DEC0014 fixed-statement raising. The current floor
+covers only DEC0009 metadata names that are neither legal C# identifiers nor
+recognized generated name shapes. Other causes remain visible as unclassified;
+causes absent from the measured corpus are not speculatively assigned.
+
+The lower target endpoint adds only all-recoverable methods to the current
+fully-raised count. The upper endpoint also includes unclassified methods.
+Current policy-floor methods are excluded from both endpoints. This makes the
+range a versioned policy target, not a mathematical upper bound on what a
+future decompiler could represent.
+
+Facet rows report both cause-site and distinct-method counts and include the
+stable method identity
+`assemblyPath!type::method(signature)`. Ranking by method count identifies the
+largest recoverable backlog without letting a method with many repeated cause
+sites dominate the ordering.
+
+SourceLink/source-correspondence evidence remains a peer, explicitly acquired
+lane. Join it to this census by stable method identity when available; do not
+merge its covered subset, acquisition outcomes, or provenance into these local
+corpus totals.
+
 To capture an RTS snapshot without comparing it to the compile-back baseline:
 
 ```bash

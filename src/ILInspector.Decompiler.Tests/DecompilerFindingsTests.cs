@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
 
@@ -115,9 +116,138 @@ public class DecompilerFindingsTests
                 .Findings).Payload;
 
         Assert.Equal(DiagnosticIds.UnsupportedType, cause.Code);
-        Assert.Contains("function pointer", cause.Discriminator);
-        Assert.Contains("custom modifier", cause.Discriminator);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnsupportedTypeShape,
+            cause.Discriminator);
+        Assert.Contains("function pointer", cause.Reason);
+        Assert.Contains("custom modifier", cause.Reason);
         Assert.Equal(DecompilerFidelityLocationKind.Signature, cause.Location.Kind);
+    }
+
+    [Fact]
+    public void Inspect_GeneratedTypeName_HasStructuredDiscriminator()
+    {
+        var closure = TypeRef.Definition(
+            "Synthetic",
+            "Samples",
+            "<>c__DisplayClass0_0");
+        var function = Function(
+            new StoreLocal(0, closure, new Constant(null, closure)),
+            locals: [closure]);
+
+        var causes =
+            CompleteInspection(DecompilerFindings.InspectFidelityCauses(function, Subject))
+                .Findings
+                .Select(finding => finding.Payload)
+                .ToArray();
+
+        Assert.NotEmpty(causes);
+        Assert.All(causes, cause =>
+        {
+            Assert.Equal(DiagnosticIds.UnrepresentableMetadataName, cause.Code);
+            Assert.Equal(
+                DecompilerFidelityDiscriminators.DisplayClassTypeName,
+                cause.Discriminator);
+        });
+    }
+
+    [Fact]
+    public void Inspect_UnspellableTypeName_IsNotClassifiedAsGenerated()
+    {
+        var invalid = TypeRef.Definition("Synthetic", "Samples", "bad-name");
+        var function = Function(
+            new StoreLocal(0, invalid, new Constant(null, invalid)),
+            locals: [invalid]);
+
+        var causes =
+            CompleteInspection(DecompilerFindings.InspectFidelityCauses(function, Subject))
+                .Findings
+                .Select(finding => finding.Payload)
+                .ToArray();
+
+        Assert.NotEmpty(causes);
+        Assert.All(causes, cause =>
+        {
+            Assert.Equal(DiagnosticIds.UnrepresentableMetadataName, cause.Code);
+            Assert.Equal(
+                DecompilerFidelityDiscriminators.UnspellableTypeName,
+                cause.Discriminator);
+        });
+    }
+
+    [Fact]
+    public void Inspect_GenericParameterName_DistinguishesGeneratedShape()
+    {
+        var generated = TypeRef.GenericParameter(0, "<Value>j__TPar");
+        var invalid = TypeRef.GenericParameter(1, "bad-name");
+        var generatedCause = Assert.Single(CompleteInspection(
+                DecompilerFindings.InspectFidelityCauses(
+                    Function(new Return(new Constant(null, generated))),
+                    Subject))
+            .Findings).Payload;
+        var invalidCause = Assert.Single(CompleteInspection(
+                DecompilerFindings.InspectFidelityCauses(
+                    Function(new Return(new Constant(null, invalid))),
+                    Subject))
+            .Findings).Payload;
+
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.GeneratedGenericParameterName,
+            generatedCause.Discriminator);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableGenericParameterName,
+            invalidCause.Discriminator);
+    }
+
+    [Fact]
+    public void Inspect_FieldName_DistinguishesEscapableKeyword()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var keyword = new FieldRef(holder, "else", Int32);
+        var invalid = new FieldRef(holder, "bad-name", Int32);
+
+        var keywordCause = Assert.Single(CompleteInspection(
+                DecompilerFindings.InspectFidelityCauses(
+                    Function(new Return(new LoadField(keyword, instance: null))),
+                    Subject))
+            .Findings).Payload;
+        var invalidCause = Assert.Single(CompleteInspection(
+                DecompilerFindings.InspectFidelityCauses(
+                    Function(new Return(new LoadField(invalid, instance: null))),
+                    Subject))
+            .Findings).Payload;
+
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.EscapableFieldName,
+            keywordCause.Discriminator);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableFieldName,
+            invalidCause.Discriminator);
+    }
+
+    [Fact]
+    public void Inspect_UnverifiedAccessor_HasStructuredDiscriminator()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var accessor = new MethodRef(holder, "get_Value", Int32, [], HasThis: true)
+        {
+            IsSpecialName = true,
+            AccessorKind = AccessorKind.Unknown,
+        };
+        var function = Function(
+            new Return(new Call(
+                accessor,
+                isVirtual: true,
+                [new LoadArgument(0, "self", holder)])));
+
+        var cause = Assert.Single(
+            CompleteInspection(DecompilerFindings.InspectFidelityCauses(function, Subject))
+                .Findings).Payload;
+
+        Assert.Equal(DiagnosticIds.UnrepresentableMetadataName, cause.Code);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.AccessorMetadataUnavailable,
+            cause.Discriminator);
     }
 
     [Fact]
@@ -231,10 +361,16 @@ public class DecompilerFindingsTests
         Assert.Contains(DiagnosticIds.InternalError, comparison.Failure);
     }
 
-    static IrFunction Function(IrNode statement, int blockOffset = 0)
-        => Function([statement], blockOffset);
+    static IrFunction Function(
+        IrNode statement,
+        int blockOffset = 0,
+        ImmutableArray<TypeRef> locals = default)
+        => Function([statement], blockOffset, locals);
 
-    static IrFunction Function(IReadOnlyList<IrNode> statements, int blockOffset = 0)
+    static IrFunction Function(
+        IReadOnlyList<IrNode> statements,
+        int blockOffset = 0,
+        ImmutableArray<TypeRef> locals = default)
     {
         var container = new BlockContainer();
         var block = new Block(blockOffset);
@@ -247,7 +383,12 @@ public class DecompilerFindingsTests
             [],
             HasThis: false,
             GenericParameterCount: 0);
-        return new IrFunction("M", Object, signature, [], container);
+        return new IrFunction(
+            "M",
+            Object,
+            signature,
+            locals.IsDefault ? [] : locals,
+            container);
     }
 
     static FindingInspection<DecompilerFidelityCause>.Complete CompleteInspection(

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -49,6 +50,146 @@ public class CorpusSensorComparisonTests
                 CorpusProfile.RealWorld,
                 qualityDiffCard: true,
                 qualityCardRisky: false));
+    }
+
+    [Fact]
+    public void FidelityResidualPolicy_UsesExactProducerFacets()
+    {
+        Assert.Equal(
+            FidelityResidualDisposition.RecoverableRoadmap,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnrepresentableMetadataName,
+                DecompilerFidelityDiscriminators.DisplayClassTypeName)).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.PolicyFloor,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnrepresentableMetadataName,
+                DecompilerFidelityDiscriminators.UnspellableTypeName)).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.Unclassified,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnrepresentableMetadataName,
+                "new-name-shape")).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.RecoverableRoadmap,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnsupportedConstruct,
+                "iterator")).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.Unclassified,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnsupportedConstruct,
+                "calli")).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.Unclassified,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnsupportedExceptionFilter,
+                null)).Disposition);
+    }
+
+    [Fact]
+    public void FidelityResidualPortfolio_SeparatesSitesMethodsAndStructuralPrimary()
+    {
+        var displayClass = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnrepresentableMetadataName,
+            DecompilerFidelityDiscriminators.DisplayClassTypeName,
+            Sites: 2);
+        var unspellable = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnrepresentableMetadataName,
+            DecompilerFidelityDiscriminators.UnspellableTypeName);
+        var unknownType = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnknownResultType,
+            null);
+        var unsupportedFunctionPointer = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnsupportedFunctionPointer,
+            null);
+
+        CorpusMethodSnapshot[] methods =
+        [
+            SnapshotMethod("Full"),
+            ResidualMethod(
+                "Recoverable",
+                "fidelity: DEC0009",
+                displayClass,
+                unknownType),
+            ResidualMethod("Floor", "fidelity: DEC0009", displayClass, unspellable),
+            ResidualMethod("Unknown", "fidelity: DEC0006", unsupportedFunctionPointer),
+            ResidualMethod("Missing", "fidelity: DEC0009"),
+            ResidualMethod("Structural", "structuring: conditional-branch", displayClass),
+            ResidualMethod("EhStructural", "eh: leave/endfinally", displayClass),
+        ];
+
+        var portfolio = FidelityResidualPortfolioBuilder.Build(
+            methods,
+            totalMethods: methods.Length,
+            fullyRaisedMethods: 1);
+
+        Assert.Equal(4, portfolio.FidelityPrimaryMethods);
+        Assert.Equal(7, portfolio.FidelityCauseSites);
+        Assert.Equal(1, portfolio.RecoverableMethods);
+        Assert.Equal(1, portfolio.PolicyFloorMethods);
+        Assert.Equal(2, portfolio.UnclassifiedMethods);
+        Assert.Equal(1, portfolio.MissingCauseMethods);
+        Assert.Equal(2, portfolio.StructuralPrimaryMethodsWithFidelityCauses);
+        Assert.Equal(4, portfolio.StructuralPrimaryFidelityCauseSites);
+        Assert.Equal(2, portfolio.RoadmapTargetLowerMethods);
+        Assert.Equal(4, portfolio.RoadmapTargetUpperMethods);
+
+        var facet = Assert.Single(
+            portfolio.Facets,
+            summary => summary.Discriminator
+                == DecompilerFidelityDiscriminators.DisplayClassTypeName);
+        Assert.Equal(4, facet.CauseSites);
+        Assert.Equal(2, facet.Methods);
+        Assert.Equal(
+            ["nuget:pinned/lib.dll!T::Floor()", "nuget:pinned/lib.dll!T::Recoverable()"],
+            facet.Examples);
+    }
+
+    [Fact]
+    public void CorpusMethodSnapshot_PreV4JsonLeavesFidelityCausesAbsent()
+    {
+        const string json =
+            """
+            {
+              "assembly": "Pinned",
+              "assemblyPath": "pinned.dll",
+              "type": "T",
+              "method": "M",
+              "overload": 0,
+              "signature": "()",
+              "fidelity": "Partial",
+              "fullyRaised": false,
+              "residual": "fidelity: DEC0009",
+              "passBug": null,
+              "validity": "not-sampled",
+              "fidelityCheck": "not-sampled"
+            }
+            """;
+
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
+        var method = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json, options);
+
+        Assert.NotNull(method);
+        Assert.Null(method.FidelityCauses);
+        Assert.DoesNotContain(
+            "stableKey",
+            JsonSerializer.Serialize(method, options),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CorpusFidelityCauseSnapshot_RejectsInvalidSiteMultiplicity()
+    {
+        var cause = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnrepresentableMetadataName,
+            DecompilerFidelityDiscriminators.DisplayClassTypeName,
+            Sites: 0);
+
+        Assert.Throws<InvalidDataException>(() => cause.SiteCount);
     }
 
     [Fact]
@@ -1108,6 +1249,25 @@ public class CorpusSensorComparisonTests
             Validity: validity,
             FidelityCheck: fidelityCheck,
             FidelityReference: fidelityReference);
+
+    static CorpusMethodSnapshot ResidualMethod(
+        string method,
+        string residual,
+        params CorpusFidelityCauseSnapshot[] causes)
+        => new(
+            Assembly: "Pinned",
+            AssemblyPath: "nuget:pinned/lib.dll",
+            Type: "T",
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: "Partial",
+            FullyRaised: false,
+            Residual: residual,
+            PassBug: null,
+            Validity: "not-sampled",
+            FidelityCheck: "not-sampled",
+            FidelityCauses: causes.Length == 0 ? null : causes);
 
     static CorpusMethodSnapshot RtsMethod(
         string method,

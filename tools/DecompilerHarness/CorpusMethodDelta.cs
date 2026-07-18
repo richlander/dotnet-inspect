@@ -23,9 +23,30 @@ internal sealed record CorpusMethodSnapshot(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? FidelityCapture = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? FidelityReference = null)
+    string? FidelityReference = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CorpusFidelityCauseSnapshot>? FidelityCauses = null)
 {
     public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
+
+    [JsonIgnore]
+    public string StableKey => $"{AssemblyPath}!{Type}::{Method}{Signature}";
+}
+
+internal sealed record CorpusFidelityCauseSnapshot(
+    string Code,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Discriminator,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? Sites = null)
+{
+    [JsonIgnore]
+    public int SiteCount => Sites switch
+    {
+        null => 1,
+        > 0 => Sites.Value,
+        _ => throw new InvalidDataException("A fidelity-cause facet must represent at least one site."),
+    };
 }
 
 internal sealed record CorpusMethodDeltaArtifact(
