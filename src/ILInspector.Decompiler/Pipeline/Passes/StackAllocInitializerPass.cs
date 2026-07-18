@@ -15,7 +15,7 @@ public sealed class StackAllocInitializerPass : IIrPass
         foreach (var copyBlock in function.Descendants.OfType<CopyBlock>().ToList())
         {
             if (copyBlock.Parent is not Block parentBlock) continue;
-            
+
             if (copyBlock.Destination is not LoadStackSlot loadDest || !stackSlots.TryGetValue(loadDest.Slot, out var storeDests) || storeDests.Count != 1 || storeDests[0].Value is not StackAllocate stackAlloc)
             {
                 continue;
@@ -23,27 +23,32 @@ public sealed class StackAllocInitializerPass : IIrPass
 
             var storeDest = storeDests[0];
             if (storeDest.Parent != parentBlock) continue;
-            
+
             int allocIndex = storeDest.ChildIndex;
             int copyIndex = copyBlock.ChildIndex;
             if (allocIndex >= copyIndex) continue;
-            
-            // Check for side effects in intervening statements
-            bool hasInterveningEffects = false;
+
+            // Prove canonical same-block statement ledger for the compiler shapes being folded.
+            // We permit NO intervening statements between the stack allocation and the copy, EXCEPT
+            // exactly the initialization of the span literal if it's stored to a local that is used in the copy.
+            bool interveningStatementsValid = true;
             for (int i = allocIndex + 1; i < copyIndex; i++)
             {
-                if (HasSideEffect(parentBlock.Children[i]))
+                var stmt = parentBlock.Children[i];
+                if (stmt is StoreLocal sl && sl.Value is SpanLiteral)
                 {
-                    hasInterveningEffects = true;
-                    break;
+                    // This is the Span literal setup, it's allowed!
+                    continue;
                 }
+                interveningStatementsValid = false;
+                break;
             }
-            if (hasInterveningEffects) continue;
+            if (!interveningStatementsValid) continue;
 
             // Prove destination alias/use ownership
             var usages = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot).ToList();
             if (usages.Count != 2) continue; // One is the CopyBlock, the other is the actual usage.
-            
+
             var finalUsage = usages.First(u => u != loadDest);
             var finalUsageStatement = GetStatement(finalUsage);
             if (finalUsageStatement == null || finalUsageStatement.Parent != parentBlock || finalUsageStatement.ChildIndex <= copyIndex)
@@ -63,19 +68,25 @@ public sealed class StackAllocInitializerPass : IIrPass
 
             if (copyBlock.Source is Call callItem)
             {
-                var (ns, name) = GetTypeIdentity(callItem.Callee.DeclaringType);
-                if ((callItem.Callee.Name == "get_Item" || callItem.Callee.Name == "GetPinnableReference") && 
-                    ns == "System" && name is "ReadOnlySpan`1" or "Span`1" &&
+                if (MemberIdentity.IsSpanLikeType(callItem.Callee.DeclaringType) &&
+                    (callItem.Callee.Name == "get_Item" || callItem.Callee.Name == "GetPinnableReference") &&
                     callItem.Arguments.Count > 0)
+                {
+                    instance = callItem.Arguments[0];
+                }
+                else if ((callItem.Callee.DeclaringType.Assembly == TypeRef.CoreLibrary || callItem.Callee.DeclaringType.Assembly == "System.Memory") &&
+                         callItem.Callee.DeclaringType.Namespace == "System.Runtime.InteropServices" &&
+                         callItem.Callee.DeclaringType.Name == "MemoryMarshal" &&
+                         callItem.Callee.Name == "GetReference" &&
+                         callItem.Arguments.Count == 1)
                 {
                     instance = callItem.Arguments[0];
                 }
             }
             else if (copyBlock.Source is LoadProperty loadProp)
             {
-                var (ns, name) = GetTypeIdentity(loadProp.Accessor.DeclaringType);
-                if ((loadProp.PropertyName == "Item" || loadProp.Accessor.Name == "get_Item") && 
-                    ns == "System" && name is "ReadOnlySpan`1" or "Span`1" &&
+                if (MemberIdentity.IsSpanLikeType(loadProp.Accessor.DeclaringType) &&
+                    (loadProp.PropertyName == "Item" || loadProp.Accessor.Name == "get_Item") &&
                     loadProp.Instance != null)
                 {
                     instance = loadProp.Instance;
@@ -158,30 +169,6 @@ public sealed class StackAllocInitializerPass : IIrPass
         return node.Parent is Block ? node : null;
     }
 
-    static bool HasSideEffect(IrNode node)
-    {
-        if (node is StoreIndirect or StoreElement or StoreField or StoreProperty or InitObject or CopyBlock) return true;
-        if (node is Call or CallIndirect or NewObject) 
-        {
-            if (node is Call c && c.Callee.Name == "GetReference" && c.Callee.DeclaringType.Name == "MemoryMarshal") return false;
-            return true;
-        }
-        if (node is Branch or ConditionalBranch or SwitchBranch or Return or YieldReturn or Throw or CatchClause or Leave or NullCoalescingAssignment) return true;
-        
-        foreach (var child in node.Children)
-            if (HasSideEffect(child)) return true;
-            
-        return false;
-    }
-
-    static (string Namespace, string Name) GetTypeIdentity(TypeRef type)
-    {
-        while (type != null && type.Kind != TypeRefKind.Definition && type.ElementType != null)
-        {
-            type = type.ElementType;
-        }
-        return type != null ? (type.Namespace, type.Name) : ("", "");
-    }
 
     static int? GetSizeOf(TypeRef type)
     {

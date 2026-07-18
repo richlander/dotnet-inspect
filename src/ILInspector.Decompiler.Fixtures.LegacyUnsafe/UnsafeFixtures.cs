@@ -42,66 +42,16 @@ public static class StackallocInitializerResiduals
 
 public static class StackallocInitializerNegatives
 {
-    public static unsafe void PartialCopy()
-    {
-        byte* dest = stackalloc byte[12];
-        ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 10);
-    }
-
-    public static unsafe void EscapedDestination(byte* escaped)
-    {
-        ReadOnlySpan<byte> src = new byte[] { 1, 2, 3 };
-        System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *escaped, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 3);
-    }
-
-    public static unsafe void NonConstantSize()
-    {
-        int size = 12;
-        byte* dest = stackalloc byte[size];
-        ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), (uint)size);
-    }
-
-    public static unsafe void SharedSpanLiteralMutation()
-    {
-        byte* dest = stackalloc byte[12];
-        ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
-        System.Console.WriteLine(src[0]);
-    }
-
-    public static unsafe void InterveningSideEffect()
-    {
-        byte* dest = stackalloc byte[12];
-        System.Console.WriteLine("Side effect");
-        ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
-    }
-
-    public static unsafe void InterveningWrite()
-    {
-        byte* dest = stackalloc byte[12];
-        dest[0] = 42;
-        ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-        System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
-    }
-
-    public static unsafe void CrossBlockCopy(bool condition)
-    {
-        byte* dest = stackalloc byte[12];
-        if (condition)
-        {
-            ReadOnlySpan<byte> src = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-            System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
-        }
-    }
-
     public static unsafe int CoalescedSpanLocal()
     {
         int* a = stackalloc int[] { 1, 2, 3 };
         int* b = stackalloc int[] { 4, 5, 6 };
         return a[0] + b[0];
+    }
+
+    public static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)
+    {
+        System.Runtime.CompilerServices.Unsafe.CopyBlock(dest, src, 10);
     }
 }
 

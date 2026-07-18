@@ -1545,8 +1545,7 @@ public sealed partial class CSharpPrinter
         }
         if (node is StoreLocal { Value: StackAllocate storeStackAllocate, Type.Kind: TypeRefKind.Pointer } store
             && store.Type is { } storeType
-            && storeStackAllocate.ResultType is { } stackAllocType
-            && !storeType.Equals(stackAllocType))
+            && storeStackAllocate.ResultType is { } stackAllocType)
         {
             string localName = FreshSyntheticLocalName("__stackalloc");
             sb.Append(pad)
@@ -1559,10 +1558,37 @@ public sealed partial class CSharpPrinter
             sb.Append(pad);
             if (_declaringStores.Contains(store))
                 sb.Append(TypeText(storeType)).Append(' ');
+
+            string cast = storeType.Equals(stackAllocType) ? "" : $"({TypeText(storeType)})";
+
             sb.Append(LocalName(store.Index))
-                .Append(" = (")
-                .Append(TypeText(storeType))
-                .Append(')')
+                .Append(" = ")
+                .Append(cast)
+                .Append(localName)
+                .AppendLine(";");
+            return;
+        }
+        if (node is StoreStackSlot { Value: StackAllocate slotStackAllocate } slotStore
+            && StackSlotTargetType(slotStore) is { Kind: TypeRefKind.Pointer } slotType
+            && slotStackAllocate.ResultType is { } slotAllocType)
+        {
+            string localName = FreshSyntheticLocalName("__stackalloc");
+            sb.Append(pad)
+                .Append(TypeText(slotAllocType))
+                .Append(' ')
+                .Append(localName)
+                .Append(" = ")
+                .Append(Expression(slotStackAllocate))
+                .AppendLine(";");
+            sb.Append(pad);
+            if (_declaringStores.Contains(slotStore))
+                sb.Append(TypeText(slotType)).Append(' ');
+
+            string cast = slotType.Equals(slotAllocType) ? "" : $"({TypeText(slotType)})";
+
+            sb.Append(StackSlotName(slotStore))
+                .Append(" = ")
+                .Append(cast)
                 .Append(localName)
                 .AppendLine(";");
             return;
@@ -3176,7 +3202,8 @@ public sealed partial class CSharpPrinter
     {
         var used = new HashSet<string>(
             _function.Signature.Parameters.Select(p => p.Name)
-                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!)),
+                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!))
+                .Concat(_syntheticLocalNames),
             StringComparer.Ordinal);
         string chosen = baseName;
         if (used.Contains(baseName))

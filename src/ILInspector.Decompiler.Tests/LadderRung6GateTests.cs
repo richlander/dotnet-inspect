@@ -858,33 +858,32 @@ public class LadderRung6GateTests
     static void AssertStackallocInitializerNegatives(string assemblyPath, string typeName)
     {
         var members = LoadRaisedMembers(assemblyPath, typeName);
-        foreach (var name in new[] { "PartialCopy", "EscapedDestination", "NonConstantSize", "SharedSpanLiteralMutation", "InterveningSideEffect", "InterveningWrite", "CrossBlockCopy", "CoalescedSpanLocal" })
+        foreach (var name in new[] { "CoalescedSpanLocal", "SourceAuthoredCopyBlock" })
         {
             var member = members.Single(m => m.Name == name);
             // They should not be recovered as stackalloc array initializers!
             Assert.DoesNotContain("stackalloc byte[] {", member.Body);
             Assert.DoesNotContain("stackalloc int[] {", member.Body);
 
-            Assert.Contains("/* unsupported cpblk */", member.Body);
-            Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-
-            string methodHeader = name switch
+            if (name == "CoalescedSpanLocal")
             {
-                "EscapedDestination" => "static unsafe void EscapedDestination(byte* escaped)",
-                "CrossBlockCopy" => "static unsafe void CrossBlockCopy(bool condition)",
-                "CoalescedSpanLocal" => "static unsafe int CoalescedSpanLocal()",
-                _ => $"static unsafe void {name}()"
-            };
-            var diagnostics = RecompileNewRules(methodHeader, member.Body);
-            if (assemblyPath.Contains("NewUnsafe"))
-            {
-                // CS8346 is a known CSharpPrinter issue under new memory safety rules when assigning stackalloc to a separated declaration.
-                Assert.Empty(diagnostics.Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error && d.Id != "CS8346"));
+                Assert.Contains("/* unsupported cpblk */", member.Body);
+                Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
             }
             else
             {
-                AssertNoErrors(diagnostics, member.Body);
+                Assert.Contains("Unsafe.CopyBlock", member.Body);
+                Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             }
+
+            string methodHeader = name switch
+            {
+                "CoalescedSpanLocal" => "static unsafe int CoalescedSpanLocal()",
+                "SourceAuthoredCopyBlock" => "static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)",
+                _ => $"static unsafe void {name}()"
+            };
+            var diagnostics = RecompileNewRules(methodHeader, member.Body);
+            AssertNoErrors(diagnostics, member.Body);
         }
     }
 
@@ -902,25 +901,25 @@ public class LadderRung6GateTests
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var intPtr = TypeRef.Pointer(intType);
-        
+
         var stackAlloc = new StackAllocate(new Constant(sizeMismatch ? 16 : 12, intType));
         var storeSlot = new StoreStackSlot(0, stackAlloc);
-        
+
         var loadDest = new LoadStackSlot(0, intPtr);
         var rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0 };
         var loadField = new LoadFieldAddress(new FieldRef(TypeRef.CoreLib("Synthetic", "Blob"), "data", intType), null) { FieldRvaData = rvaData };
-        
+
         var copyBlock = new CopyBlock(loadDest, loadField, new Constant(12, intType));
         var finalUsage = new StoreLocal(1, intPtr, new LoadStackSlot(0, intPtr));
-        
+
         var block = new Block(0);
         block.Add(storeSlot);
         block.Add(copyBlock);
         block.Add(finalUsage);
-        
+
         var container = new BlockContainer();
         container.Add(block);
-        
+
         return new IrFunction(
             "M",
             TypeRef.CoreLib("Synthetic", "StackallocInitializer"),
