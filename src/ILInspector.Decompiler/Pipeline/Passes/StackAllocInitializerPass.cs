@@ -137,7 +137,7 @@ public sealed class StackAllocInitializerPass : IIrPass
                 if (elementType != null)
                 {
                     int? elementSize = GetSizeOf(elementType);
-                    if (elementSize != null && copySize % elementSize.Value == 0 && rvaData.Length >= copySize)
+                    if (elementSize != null && copySize % elementSize.Value == 0 && rvaData.Length == copySize)
                     {
                         int requiredElementCount = copySize / elementSize.Value;
                         elements = RvaSpanPass.DecodeElements(function, elementType, rvaData, requiredElementCount);
