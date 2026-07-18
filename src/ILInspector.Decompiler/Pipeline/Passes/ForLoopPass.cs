@@ -13,17 +13,10 @@ public sealed class ForLoopPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var liveTargetsByScope = new Dictionary<IrNode, HashSet<int>>();
+        var targetSourcesByScope = new Dictionary<IrNode, Dictionary<int, List<IrNode>>>();
 
         foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
         {
-            var scope = EnclosingFunctionScope(loop, function);
-            if (!liveTargetsByScope.TryGetValue(scope, out var liveTargets))
-            {
-                liveTargets = CollectLiveTargets(scope);
-                liveTargetsByScope.Add(scope, liveTargets);
-            }
-
             if (loop.Parent is not Block container)
                 continue;
             int slot = loop.ChildIndex;
@@ -50,14 +43,47 @@ public sealed class ForLoopPass : IIrPass
             if (ContainsCurrentLoopContinue(loop.Body))
                 continue;
 
-            if (increment.SourceOffset >= 0 && liveTargets.Contains(increment.SourceOffset))
-                continue;
+            var scope = EnclosingFunctionScope(loop, function);
+            if (!targetSourcesByScope.TryGetValue(scope, out var targetSources))
+            {
+                targetSources = CollectTargetSources(scope);
+                targetSourcesByScope.Add(scope, targetSources);
+            }
+
+            IReadOnlyList<Leave> protectedContinues = [];
+            if (increment.SourceOffset >= 0
+                && targetSources.TryGetValue(increment.SourceOffset, out var targeters))
+            {
+                var candidates = new List<Leave>(targeters.Count);
+                bool allTargetsConsumed = true;
+                foreach (var targeter in targeters)
+                {
+                    if (targeter is not Leave leave
+                        || !ProtectedRegionControlFlow.CanRaiseLeave(leave, loop)
+                        || !BelongsToLoop(leave, loop))
+                    {
+                        allTargetsConsumed = false;
+                        break;
+                    }
+                    candidates.Add(leave);
+                }
+                if (!allTargetsConsumed)
+                    continue;
+                protectedContinues = candidates;
+            }
 
             increment.Detach();
             var parts = loop.DetachChildren();  // [condition, body]
             initializer.Detach();               // reindexes the loop's slot
             context.Stepper.StepOver("raise while loop to for loop", loop);
             loop.ReplaceWith(new ForLoop(initializer, (IrExpression)parts[0], increment, (Block)parts[1]));
+
+            foreach (var leave in protectedContinues)
+            {
+                var next = new Continue(ContinueOrigin.ProtectedRegionLeaveToForIncrement);
+                next.InheritSourceOffset(leave);
+                leave.ReplaceWith(next);
+            }
         }
     }
 
@@ -71,20 +97,39 @@ public sealed class ForLoopPass : IIrPass
         return function;
     }
 
-    static HashSet<int> CollectLiveTargets(IrNode scope)
+    static Dictionary<int, List<IrNode>> CollectTargetSources(IrNode scope)
     {
-        var targets = new HashSet<int>();
+        var targets = new Dictionary<int, List<IrNode>>();
         foreach (var node in DescendantsOutsideNestedFunctions(scope))
         {
             switch (node)
             {
-                case Branch b: targets.Add(b.TargetOffset); break;
-                case ConditionalBranch cb: targets.Add(cb.TargetOffset); break;
-                case SwitchBranch sb: foreach (int t in sb.TargetOffsets) targets.Add(t); break;
-                case Leave l: targets.Add(l.TargetOffset); break;
+                case Branch branch:
+                    AddTargetSource(targets, branch.TargetOffset, branch);
+                    break;
+                case ConditionalBranch branch:
+                    AddTargetSource(targets, branch.TargetOffset, branch);
+                    break;
+                case SwitchBranch branch:
+                    foreach (int target in branch.TargetOffsets)
+                        AddTargetSource(targets, target, branch);
+                    break;
+                case Leave leave:
+                    AddTargetSource(targets, leave.TargetOffset, leave);
+                    break;
             }
         }
         return targets;
+    }
+
+    static void AddTargetSource(Dictionary<int, List<IrNode>> targets, int offset, IrNode source)
+    {
+        if (!targets.TryGetValue(offset, out var sources))
+        {
+            sources = [];
+            targets.Add(offset, sources);
+        }
+        sources.Add(source);
     }
 
     static IEnumerable<IrNode> DescendantsOutsideNestedFunctions(IrNode node)
@@ -111,6 +156,19 @@ public sealed class ForLoopPass : IIrPass
         {
             if (node is LoadLocal inner && inner.Index == localIndex)
                 return true;
+        }
+        return false;
+    }
+
+    static bool BelongsToLoop(IrNode node, WhileLoop loop)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(current, loop))
+                return true;
+            if (current is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                or Lambda or LocalFunctionStatement or IrFunction)
+                return false;
         }
         return false;
     }

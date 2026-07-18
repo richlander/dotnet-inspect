@@ -919,13 +919,27 @@ public sealed class Break : IrNode
 }
 
 /// <summary>
-/// A C# <c>continue</c>: a loop back-edge raised from a branch or an EH
-/// <see cref="Leave"/> to the loop header. Childless terminator, like
-/// <see cref="Branch"/>.
+/// A C# <c>continue</c>: a loop-continuation transfer raised from a branch or
+/// an EH <see cref="Leave"/>. Childless terminator, like <see cref="Branch"/>.
 /// </summary>
 public sealed class Continue : IrNode
 {
+    public Continue(ContinueOrigin origin = ContinueOrigin.Unverified)
+        => Origin = origin;
+
+    public ContinueOrigin Origin { get; }
+
     public override string Describe() => "Continue";
+}
+
+/// <summary>The structural proof, if any, that licenses a raised <see cref="Continue"/>.</summary>
+public enum ContinueOrigin
+{
+    /// <summary>No proof currently licenses opcode-exact fidelity.</summary>
+    Unverified,
+
+    /// <summary>A protected-region leave bound to the owning for-loop increment.</summary>
+    ProtectedRegionLeaveToForIncrement,
 }
 
 public enum ComparisonKind { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual }
