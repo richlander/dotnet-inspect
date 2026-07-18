@@ -918,7 +918,7 @@ public static class CompileBackSourceComposer
                 continue;
 
             var requirement = requirements[requirementIndex];
-            if (!requirement.RequiredMembers.Any(existing => SameMemberDeclaration(existing, member)))
+            if (!requirement.RequiredMembers.Any(existing => TypeProducer.SameMemberShape(existing, member)))
             {
                 requirements[requirementIndex] = requirement with
                 {
@@ -2799,7 +2799,7 @@ public static class CompileBackSourceComposer
                 AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
             if (kind is CompileBackTypeKind.Class or CompileBackTypeKind.Record or CompileBackTypeKind.Struct)
             {
-                AddRequiredExplicitInterfaceProperties(
+                AddRequiredInterfaceProperties(
                     reader,
                     typeDef,
                     requirement,
@@ -2848,7 +2848,7 @@ public static class CompileBackSourceComposer
                     diagnostics));
         }
 
-        static void AddRequiredExplicitInterfaceProperties(
+        static void AddRequiredInterfaceProperties(
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeRequirement requirement,
@@ -2871,7 +2871,19 @@ public static class CompileBackSourceComposer
                     continue;
                 }
 
-                foreach (var interfaceMember in interfaceRequirement.RequiredMembers.Where(
+                var interfaceMembers = RequiredMemberRequirements(interfaceRequirement);
+                if (interfaceRequirement.IncludeMemberSurface)
+                {
+                    // The interface's own BuildSpec call reports surface diagnostics.
+                    AddClosureMemberSurface(
+                        reader,
+                        interfaceDef,
+                        interfaceRequirement,
+                        interfaceMembers,
+                        diagnostics: []);
+                }
+
+                foreach (var interfaceMember in interfaceMembers.Where(
                     member => member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet))
                 {
                     var propertyHandle = ImplementingProperty(
@@ -2897,11 +2909,7 @@ public static class CompileBackSourceComposer
                         reader.GetString(reader.GetMethodDefinition(accessor).Name),
                         "required-interface-property");
                     if (property is not null
-                        && !members.Any(existing =>
-                            SameMemberDeclaration(existing, property)
-                            || property.ExplicitInterfaceMemberName is not null
-                                && existing.ExplicitInterfaceMemberName
-                                    == property.ExplicitInterfaceMemberName))
+                        && !members.Any(existing => SameMemberShape(existing, property)))
                     {
                         members.Add(property);
                     }
@@ -2963,6 +2971,24 @@ public static class CompileBackSourceComposer
                     return propertyHandle;
             }
             return default;
+        }
+
+        internal static bool SameMemberShape(
+            CompileBackMemberRequirement left,
+            CompileBackMemberRequirement right)
+        {
+            if (SameMemberDeclaration(left, right))
+                return true;
+            if (left.Kind is not (CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet)
+                || right.Kind is not (CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet))
+            {
+                return false;
+            }
+
+            string leftName = left.ExplicitInterfaceMemberName ?? left.Identity.Method;
+            string rightName = right.ExplicitInterfaceMemberName ?? right.Identity.Method;
+            return leftName == rightName
+                && SameParameters(left.Parameters, right.Parameters);
         }
 
         static CSharpTypeShellKind ToShellKind(CompileBackTypeKind kind)

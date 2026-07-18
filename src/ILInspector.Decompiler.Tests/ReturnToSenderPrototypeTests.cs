@@ -242,6 +242,63 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_ProjectsPropertiesFromRequiredInterfaceSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class InheritedTypeParameter : IGenericTypeParameter, IGenericParameter
+            {
+                private readonly IGenericTypeParameter _parentParameter;
+
+                public InheritedTypeParameter(IGenericTypeParameter parentParameter)
+                {
+                    _parentParameter = parentParameter;
+                }
+
+                public bool MustBeReferenceType => _parentParameter.MustBeReferenceType;
+
+                public ITypeDefinition DefiningType => _parentParameter.DefiningType;
+            }
+
+            public interface IGenericTypeParameter : IGenericParameter
+            {
+                ITypeDefinition DefiningType { get; }
+            }
+
+            public interface IGenericParameter
+            {
+                bool MustBeReferenceType { get; }
+            }
+
+            public interface ITypeDefinition
+            {
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "InheritedTypeParameter",
+                    "get_MustBeReferenceType",
+                    0)]));
+
+            Assert.DoesNotContain("CS0535", result.Detail ?? "", StringComparison.Ordinal);
+            var targetType = Assert.Single(
+                result.Plan.Types,
+                type => type.Name == "InheritedTypeParameter");
+            Assert.Contains(targetType.Members, member =>
+                member.Name == "DefiningType"
+                && member.SourceFacts.Any(fact =>
+                    fact.Id == "required-interface-property"));
+            Assert.Equal(1, targetType.Members.Count(member => member.Name == "MustBeReferenceType"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_ExposesTypedModuleAndTypeShellPlan()
     {
         var assemblyPath = CompileFixture("""
