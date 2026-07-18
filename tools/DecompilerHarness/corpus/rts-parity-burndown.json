@@ -11,10 +11,6 @@
       "status": "RecompileFail"
     },
     {
-      "method": "ILInspector.MetadataPrimitives!ILInspector.Metadata.TypeResolver::GetTypeNameFromReference#0",
-      "status": "RecompileFail"
-    },
-    {
       "method": "Newtonsoft.Json!Newtonsoft.Json.Utilities.Base64Encoder::WriteCharsAsync#0",
       "status": "RecompileFail"
     },
