@@ -309,7 +309,7 @@ public sealed class CSharpTypePrinterTests
             new CSharpTypePrintOptions { IncludeCustomAttributes = true });
 
         Assert.Contains(
-            $"[{attribute}] public record Point(int value)",
+            $"[{attribute}]\npublic record Point(int value)",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
     }
@@ -1358,11 +1358,11 @@ public sealed class CSharpTypePrinterTests
             });
 
         Assert.Contains(
-            "[TypeMarker] public class Container<T> : Samples.BaseType, Samples.IContract where T : System.IDisposable",
+            "[TypeMarker]\npublic class Container<T> : Samples.BaseType, Samples.IContract where T : System.IDisposable",
             rendered.Source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "[MemberMarker] [return: ReturnMarker] public T Transform([ParamMarker] T value);",
+            "[MemberMarker]\n    [return: ReturnMarker]\n    public T Transform([ParamMarker] T value);",
             rendered.Source,
             StringComparison.Ordinal);
         Assert.Contains(

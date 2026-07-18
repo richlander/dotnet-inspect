@@ -10,6 +10,8 @@ namespace DotnetInspector.Tests;
 public class ApiSurfaceExtractorTests
 {
     static readonly CSharpFormatter Formatter = new();
+    static readonly CSharpFormatter AttributeFormatter = new(
+        new CSharpFormatOptions { IncludeCustomAttributes = true });
 
     [Fact]
     public void Extract_IncludesParameterNamesInMethodSignatures()
@@ -369,23 +371,23 @@ public class ApiSurfaceExtractorTests
 
         var method = testType.Members.FirstOrDefault(m => m.Name == "MethodWithMemberAttribute");
         Assert.NotNull(method);
-        var methodDeclaration = Formatter.FormatMember(testType, method);
+        var methodDeclaration = AttributeFormatter.FormatMember(testType, method);
         Assert.StartsWith(
-            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public int MethodWithMemberAttribute()",
+            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\npublic int MethodWithMemberAttribute()",
             methodDeclaration,
             StringComparison.Ordinal);
 
         var property = testType.Members.FirstOrDefault(m => m.Name == "PropertyWithMemberAttribute");
         Assert.NotNull(property);
-        var propertyDeclaration = Formatter.FormatMember(testType, property);
+        var propertyDeclaration = AttributeFormatter.FormatMember(testType, property);
         Assert.StartsWith(
-            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public string PropertyWithMemberAttribute",
+            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\npublic string PropertyWithMemberAttribute",
             propertyDeclaration,
             StringComparison.Ordinal);
 
         var decimalField = testType.Members.FirstOrDefault(m => m.Name == "DecimalField");
         Assert.NotNull(decimalField);
-        var decimalFieldDeclaration = Formatter.FormatMember(testType, decimalField);
+        var decimalFieldDeclaration = AttributeFormatter.FormatMember(testType, decimalField);
         Assert.DoesNotContain("DecimalConstant", decimalFieldDeclaration);
         Assert.Contains("DecimalField", decimalFieldDeclaration);
     }
@@ -402,9 +404,9 @@ public class ApiSurfaceExtractorTests
         var testType = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleTypeAttributeHost));
         Assert.NotNull(testType);
 
-        var declaration = Formatter.FormatTypeDeclaration(testType);
+        var declaration = AttributeFormatter.FormatTypeDeclaration(testType);
         Assert.StartsWith(
-            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] public class SampleTypeAttributeHost",
+            "[System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]\npublic class SampleTypeAttributeHost",
             declaration,
             StringComparison.Ordinal);
     }

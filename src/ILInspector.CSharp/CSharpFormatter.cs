@@ -26,7 +26,7 @@ public sealed record CSharpFormatOptions
     public bool TerminateMemberDeclaration { get; init; }
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
-    public bool IncludeCustomAttributes { get; init; } = true;
+    public bool IncludeCustomAttributes { get; init; } = false;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
@@ -142,7 +142,7 @@ public sealed class CSharpFormatter
         }
 
         string attributes = _declarationOptions.IncludeCustomAttributes && type.Attributes.Count > 0
-            ? $"[{string.Join(", ", type.Attributes)}] "
+            ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
             : "";
         string unsafeText = invoke.IsUnsafe ? " unsafe" : "";
         string parameters = FormatParameterList(signature.Parameters);

@@ -279,7 +279,7 @@ public sealed class CSharpTypePrinter
 
         var lines = new List<string>
         {
-            $"{pad}{declaration}",
+            PadDeclaration(declaration, pad),
             $"{pad}{{"
         };
         if (prepared.Type.Kind == "enum")
@@ -310,8 +310,8 @@ public sealed class CSharpTypePrinter
         {
             string declaration = formatter.FormatMember(type.Type, member.Member);
             if (member.Body is CSharpFieldInitializer fieldInitializer)
-                return [$"{pad}{declaration} = {fieldInitializer.Source};"];
-            return [$"{pad}{EnsureTerminated(declaration)}"];
+                return [$"{PadDeclaration(declaration, pad)} = {fieldInitializer.Source};"];
+            return [PadDeclaration(EnsureTerminated(declaration), pad)];
         }
 
         if (member.Member.Kind == "property")
@@ -324,13 +324,13 @@ public sealed class CSharpTypePrinter
             || member.Member.IsAbstract
             || member.Policy == CSharpBodyPolicy.Skeleton)
         {
-            return [$"{pad}{EnsureTerminated(memberDeclaration)}"];
+            return [PadDeclaration(EnsureTerminated(memberDeclaration), pad)];
         }
         string initializer = member.Body is CSharpBlockBody { ConstructorInitializer: { } constructorInitializer }
             ? " " + CSharpFormatter.FormatConstructorInitializer(constructorInitializer)
             : "";
         if (member.Body is null && member.Policy == CSharpBodyPolicy.Stub)
-            return [$"{pad}{memberDeclaration}{initializer} {{ throw null; }}"];
+            return [$"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}"];
 
         var body = member.Body switch
         {
@@ -339,7 +339,7 @@ public sealed class CSharpTypePrinter
                 $"Member '{member.Member.Name}' has no renderable block body."),
         };
         if (member.Policy == CSharpBodyPolicy.Stub && body == "throw null;")
-            return [$"{pad}{memberDeclaration}{initializer} {{ throw null; }}"];
+            return [$"{PadDeclaration(memberDeclaration, pad)}{initializer} {{ throw null; }}"];
         return RenderBlock(memberDeclaration + initializer, body, indent);
     }
 
@@ -354,7 +354,7 @@ public sealed class CSharpTypePrinter
         if (member.Policy == CSharpBodyPolicy.Skeleton)
         {
             string skeleton = formatter.FormatMember(type.Type, member.Member);
-            return [$"{pad}{EnsureTerminated(skeleton)}"];
+            return [PadDeclaration(EnsureTerminated(skeleton), pad)];
         }
 
         var body = (CSharpPropertyBody)member.Body!;
@@ -369,12 +369,12 @@ public sealed class CSharpTypePrinter
                 accessors.Add(AccessorHead(member.Member, "get") + ";");
             if (body.Setter is not null)
                 accessors.Add(AccessorHead(member.Member, "set") + ";");
-            return [$"{pad}{declaration} {{ {string.Join(" ", accessors)} }}"];
+            return [$"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}"];
         }
 
         var lines = new List<string>
         {
-            $"{pad}{declaration}",
+            PadDeclaration(declaration, pad),
             $"{pad}{{"
         };
         AddAccessor(lines, member.Member, "get", body.Getter, indent + 1);
@@ -427,7 +427,7 @@ public sealed class CSharpTypePrinter
     {
         string pad = new(' ', indent * 4);
         var invoke = prepared.Members.Single(member => member.Member.Name == "Invoke").Member;
-        return $"{pad}{formatter.FormatDelegate(prepared.Type, invoke)}";
+        return PadDeclaration(formatter.FormatDelegate(prepared.Type, invoke), pad);
     }
 
     static string RenderEnumMember(PreparedMember member, int indent, bool trailingComma)
@@ -459,12 +459,19 @@ public sealed class CSharpTypePrinter
     static IEnumerable<string> RenderBlock(string declaration, string source, int indent)
     {
         string pad = new(' ', indent * 4);
-        yield return $"{pad}{declaration}";
+        yield return PadDeclaration(declaration, pad);
         yield return $"{pad}{{";
         foreach (var line in SourceLines(source))
             yield return $"{pad}    {line}";
         yield return $"{pad}}}";
     }
+
+    // A rendered declaration may span several lines when leading attributes are
+    // emitted one per line; indent every line so nested members stay aligned.
+    static string PadDeclaration(string declaration, string pad)
+        => declaration.Contains('\n', StringComparison.Ordinal)
+            ? string.Join('\n', declaration.Split('\n').Select(line => line.Length == 0 ? line : pad + line))
+            : pad + declaration;
 
     static IEnumerable<string> SourceLines(string source)
         => source.Split('\n')
