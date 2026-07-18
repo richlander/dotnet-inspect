@@ -57,9 +57,10 @@ public class GenericDeclarationPatternExtractionTests
         AssertRaisedBinding(output);
     }
 
-    // #2862 robustness: when the binding is read more than once csc caches the
-    // single extraction in a real local; the guard still raises to a pattern
-    // binding that feeds the cache, with no `(object)` bridge left behind.
+    // #2872: when the binding is read more than once csc caches the single
+    // extraction in a real, source-named local; the pattern binds that local
+    // directly (recovering its name) with no redundant copy and no `(object)`
+    // bridge left behind.
     [Fact]
     public void MultipleUsesDeclarationPattern_RaisesBinding()
     {
@@ -67,8 +68,12 @@ public class GenericDeclarationPatternExtractionTests
             typeof(GenericDeclarationPatternSpecimens<,>),
             nameof(GenericDeclarationPatternSpecimens<object, object>.MultipleUses));
 
-        Assert.Matches(@"if \(Subject is T V_\d+\)", output);
-        Assert.Equal(2, Regex.Matches(output, @"Console\.WriteLine\(").Count);
+        Assert.Matches(@"if \(Subject is T t\)", output);
+        Assert.Equal(2, Regex.Matches(output, @"Console\.WriteLine\(t\)").Count);
+        // No redundant `t = V_N;` copy and no stray up-front declaration of the
+        // cache local — the pattern binding owns it.
+        Assert.DoesNotMatch(@"t = V_\d+", output);
+        Assert.DoesNotMatch(@"(?m)^\s*T t;\s*$", output);
         Assert.DoesNotContain("(object)", output);
         Assert.DoesNotContain("as T", output);
     }
@@ -533,6 +538,146 @@ public class GenericDeclarationPatternExtractionTests
         var output = RunPipelineAndPrint(function);
 
         Assert.DoesNotMatch(@"is T V_\d+", output);
+    }
+
+    // Synthetic (#2872 gate): the cache local is read AFTER the guard, so binding
+    // it in the pattern (which scopes it to the guarded arm) would leave the
+    // trailing read referencing an out-of-scope variable. The copy must survive.
+    [Fact]
+    public void CacheReadAfterGuard_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new Return(new Box(generic, new LoadLocal(0, generic))));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Box(generic, new LoadLocal(0, generic))));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        // The pattern keeps its synthesized binding and the local-to-local copy
+        // survives, because the cache local escapes the guarded arm.
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+
+    // Synthetic (#2872 gate): the cache local is assigned twice inside the guarded
+    // arm, so it is not a single-assignment temp; re-pointing the pattern to it
+    // would drop the second assignment's value. The copy must survive.
+    [Fact]
+    public void CacheAssignedTwice_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(0, generic, new LoadArgument(0, "other", generic)));
+        then.Add(new Return(new Box(generic, new LoadLocal(0, generic))));
+        var block = new Block();
+        block.Add(new IfStatement(
+            new IsPattern(new LoadArgument(0, "other", generic), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("other", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+
+    // Synthetic (#2872 gate, Issue 1 re-review): the cache local's address is
+    // forwarded through a by-ref-returning receiver call — `p = ref c.Ref()` —
+    // and stored into a ref local that outlives the arm. The `LoadLocalAddress`
+    // sits directly under the `Call`, so a gate that only inspects the address's
+    // direct parent (Store/Return) would miss the escape and fold. The pointer
+    // still escapes once the binding narrows to the pattern's scope, so the fold
+    // must be rejected and the copy must survive. This exercises the
+    // in-place-receiver allow-list's non-by-ref-result clause: a by-ref-returning
+    // receiver call is not an in-place consumer.
+    [Fact]
+    public void CacheAddressForwardedThroughByRefReturningCall_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var byRef = TypeRef.ByRef(generic);
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        // A by-ref-returning instance method on the cache local; the returned
+        // reference forwards the receiver's address to the caller.
+        var refReturn = new MethodRef(generic, "Ref", byRef, [], HasThis: true);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(2, byRef,
+            new Call(refReturn, isVirtual: false, [new LoadLocalAddress(0, generic)])));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic, byRef],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+    // captured into a ref local (`ref T p = ref c;`) that outlives the guarded
+    // arm. The address load sits inside the arm, so confinement alone is
+    // satisfied, but re-pointing the binding narrows `c` to the pattern's scope
+    // and leaves the escaped reference dangling. The copy must survive.
+    [Fact]
+    public void CacheAddressCapturedToRefLocal_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var byRef = TypeRef.ByRef(generic);
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(2, byRef, new LoadLocalAddress(0, generic)));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic, byRef],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
     }
 
     static string RunPipelineAndPrint(IrFunction function)
