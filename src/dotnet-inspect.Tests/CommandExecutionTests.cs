@@ -3318,7 +3318,6 @@ public class CommandExecutionTests
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("| Facts | section (opt-in) |", output);
         Assert.DoesNotContain("IR (Stages)", output);
-        Assert.Contains("Use -S @All to select all sections.", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
 
@@ -3355,7 +3354,6 @@ public class CommandExecutionTests
         Assert.Contains("| Call Graph | section (opt-in) |", output);
         Assert.Contains("| Facts | section (opt-in) |", output);
         Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
-        Assert.Contains("Use -S @All to select all sections.", output);
     }
 
     [Fact]
@@ -8089,28 +8087,9 @@ public class CommandExecutionTests
             Assert.Contains("Source Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
-            Assert.DoesNotContain("Tip:", error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_DiscoverSchema_WritesAllSelectorHint()
-    {
-        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--schema");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Signals", output);
-            Assert.Contains("section (opt-in)", output);
-            Assert.Contains("@Default", output);
             Assert.Contains("@All", output);
-            Assert.Contains("Use -S @All to select all sections.", output);
+            Assert.Contains("@Default", output);
+            Assert.Contains("section (opt-in)", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
