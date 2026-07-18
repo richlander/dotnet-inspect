@@ -7,6 +7,8 @@ public class TupleSwitchExpressionPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef UInt32 = TypeRef.CoreLib("System", "UInt32");
+    static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
     static readonly TypeRef Double = TypeRef.CoreLib("System", "Double");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
 
@@ -34,8 +36,10 @@ public class TupleSwitchExpressionPassTests
         return block;
     }
 
-    static Comparison GT(int argIndex, string name, int constant, TypeRef? type = null) => new(ComparisonKind.GreaterThan, isUnsigned: false, new LoadArgument(argIndex, name, type ?? Int32), new Constant(constant, type ?? Int32));
-    static Comparison LT(int argIndex, string name, int constant, TypeRef? type = null) => new(ComparisonKind.LessThan, isUnsigned: false, new LoadArgument(argIndex, name, type ?? Int32), new Constant(constant, type ?? Int32));
+    static Comparison GT(int argIndex, string name, int constant, TypeRef? type = null, bool isUnsigned = false, TypeRef? constantType = null)
+        => new(ComparisonKind.GreaterThan, isUnsigned, new LoadArgument(argIndex, name, type ?? Int32), new Constant(constant, constantType ?? type ?? Int32));
+    static Comparison LT(int argIndex, string name, int constant, TypeRef? type = null, bool isUnsigned = false, TypeRef? constantType = null)
+        => new(ComparisonKind.LessThan, isUnsigned, new LoadArgument(argIndex, name, type ?? Int32), new Constant(constant, constantType ?? type ?? Int32));
 
     static IrFunction MakeFunction(IfStatement root, ImmutableArray<Parameter> parameters, ImmutableArray<TypeRef> localTypes = default)
     {
@@ -89,6 +93,124 @@ public class TupleSwitchExpressionPassTests
         Assert.Contains("(> 0, < 0, > 0) => \"+-+\",", output);
         Assert.Contains("(< 0, > 0, > 0) => \"-++\",", output);
         Assert.Contains("_ => \"other\",", output);
+    }
+
+    [Fact]
+    public void UIntQuadrant_FoldsToTwoComponentUnsignedTupleSwitch()
+    {
+        // Compiler-backed positive: x and y are genuinely uint, so csc compiles
+        // their </> as clt.un/cgt.un (Comparison.IsUnsigned = true against a
+        // uint place). This proves the fold's signedness proof positively
+        // recognizes a correctly-unsigned comparison against an unsigned
+        // place, not merely declines every unsigned flag the way a blanket
+        // rule (mirroring IsPatternPass's own decline) would.
+        var function = Raised(nameof(CfgSampleClass.UIntQuadrant));
+
+        var tupleSwitch = Assert.Single(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.Equal(2, tupleSwitch.ComponentCount);
+        Assert.Equal(5, tupleSwitch.Arms.Count);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("return (x, y) switch", output);
+        Assert.Contains("=> \"I\",", output);
+        Assert.Contains("=> \"II\",", output);
+        Assert.Contains("=> \"III\",", output);
+        Assert.Contains("=> \"IV\",", output);
+        Assert.Contains("_ => \"axis\",", output);
+    }
+
+    [Fact]
+    public void SignedPlaceWithUnsignedCompare_DeclinesFold()
+    {
+        // The headline signedness bug (#2867 follow-up): x is signed Int32,
+        // but its comparisons are marked IsUnsigned = true. csc never emits
+        // that for an int place (only uint/ulong/nuint compare unsigned), so
+        // trusting the flag would silently reorder a negative x as if it
+        // were large and positive when recompiled as `x is > 0`. The fold
+        // must decline rather than emit that pattern.
+        var xPositive = Wrap(new IfStatement(GT(1, "y", 0), Leaf("I"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("IV"), Leaf("axis")))));
+        var xNegativeInner = Wrap(new IfStatement(GT(1, "y", 0), Leaf("II"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("III"), Leaf("axis")))));
+        var xNegative = Wrap(new IfStatement(LT(0, "x", 0, isUnsigned: true), xNegativeInner, Leaf("axis")));
+
+        var root = new IfStatement(GT(0, "x", 0, isUnsigned: true), xPositive, xNegative);
+        var function = MakeFunction(root, [new Parameter("x", Int32), new Parameter("y", Int32)]);
+
+        new TupleSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void UnsignedPlaceWithIncompatibleSignedOrdering_DeclinesFold()
+    {
+        // x is genuinely UInt32 — csc always compiles a uint's </> unsigned
+        // (clt.un/cgt.un) — but these comparisons are marked IsUnsigned =
+        // false, an ordering csc never emits for a uint place. Accepting it
+        // would emit `x is > 0` for a uint x, which recompiles UNSIGNED
+        // (matching uint's own semantics), silently changing the ordering
+        // the tree's actual (signed) comparisons used. Declines rather than
+        // guesses which ordering was intended.
+        var xPositive = Wrap(new IfStatement(GT(1, "y", 0), Leaf("I"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("IV"), Leaf("axis")))));
+        var xNegativeInner = Wrap(new IfStatement(GT(1, "y", 0), Leaf("II"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("III"), Leaf("axis")))));
+        var xNegative = Wrap(new IfStatement(LT(0, "x", 0, type: UInt32), xNegativeInner, Leaf("axis")));
+
+        var root = new IfStatement(GT(0, "x", 0, type: UInt32), xPositive, xNegative);
+        var function = MakeFunction(root, [new Parameter("x", UInt32), new Parameter("y", Int32)]);
+
+        new TupleSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void AnchorOutOfRangeForNarrowPlace_DeclinesFold()
+    {
+        // x is byte; the anchor constant 1000 does not fit byte's 0..255
+        // range (matching real IL, where a byte comparison's constant stays
+        // Int32-typed — TypedConstantsPass only retypes bool/char/enum
+        // sinks). Emitting `x is > 1000` for a byte x is CS0031 (not an
+        // implicit constant-expression conversion); the fold must decline
+        // rather than emit an anchor the place's type cannot represent.
+        var xPositive = Wrap(new IfStatement(GT(1, "y", 0), Leaf("I"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("IV"), Leaf("axis")))));
+        var xNegativeInner = Wrap(new IfStatement(GT(1, "y", 0), Leaf("II"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("III"), Leaf("axis")))));
+        var xNegative = Wrap(new IfStatement(LT(0, "x", 1000, type: Byte, constantType: Int32), xNegativeInner, Leaf("axis")));
+
+        var root = new IfStatement(GT(0, "x", 1000, type: Byte, constantType: Int32), xPositive, xNegative);
+        var function = MakeFunction(root, [new Parameter("x", Byte), new Parameter("y", Int32)]);
+
+        new TupleSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void NegativeAnchorForUnsignedPlace_DeclinesFold()
+    {
+        // x is genuinely uint with correctly-unsigned comparisons (proving
+        // this decline is independent of the signedness-match check above),
+        // but the anchor constant is -1 — not implicitly convertible to uint
+        // (CS0031), and if coerced would silently mean uint.MaxValue rather
+        // than the tree's actual comparand. Declines rather than emits an
+        // out-of-range anchor.
+        var xPositive = Wrap(new IfStatement(GT(1, "y", 0), Leaf("I"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("IV"), Leaf("axis")))));
+        var xNegativeInner = Wrap(new IfStatement(GT(1, "y", 0), Leaf("II"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("III"), Leaf("axis")))));
+        var xNegative = Wrap(new IfStatement(LT(0, "x", -1, type: UInt32, isUnsigned: true), xNegativeInner, Leaf("axis")));
+
+        var root = new IfStatement(GT(0, "x", -1, type: UInt32, isUnsigned: true), xPositive, xNegative);
+        var function = MakeFunction(root, [new Parameter("x", UInt32), new Parameter("y", Int32)]);
+
+        new TupleSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
     }
 
     [Fact]

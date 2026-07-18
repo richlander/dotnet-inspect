@@ -28,6 +28,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// disagree on NaN, the same reason <c>IsPatternPass</c> declines float positional
 /// sub-patterns) — and a constant that anchors that place the same way (same
 /// value and type) everywhere in the tree;</item>
+/// <item>every comparison's <see cref="Comparison.IsUnsigned"/> flag must be
+/// exactly the ordering csc recompiles for the place's declared type (see
+/// <c>TryDecompose</c>'s <c>RequiresUnsignedRelationalCompare</c>), and the
+/// anchor constant must fit the place's type without an implicit conversion
+/// that would change its value — an unproven signedness or an out-of-range
+/// anchor declines rather than risks silently reordering or misreading a
+/// value (#2867 follow-up);</item>
 /// <item>a leaf whose accumulated per-component constraints cover every
 /// discovered component becomes an explicit arm; a leaf that leaves at least one
 /// component unconstrained is a default candidate, and all default candidates
@@ -179,6 +186,38 @@ public sealed class TupleSwitchExpressionPass : IIrPass
     /// component must be integer-like; an existing one must share the exact same
     /// anchor constant (value and type) as its first occurrence, or the whole
     /// rewrite declines — a different anchor for the same place is out of scope.
+    ///
+    /// <para>Every occurrence — new or existing — must also prove the IL
+    /// comparison is exactly the ordering and the constant C# will regenerate
+    /// for a relational/constant pattern against this place's declared type,
+    /// or the recompiled pattern would silently change behavior:</para>
+    /// <list type="bullet">
+    /// <item><see cref="RequiresUnsignedRelationalCompare"/> pins which
+    /// integer-like types recompile an ordering comparison as unsigned IL —
+    /// verified against csc's actual codegen (not guessed): byte, sbyte,
+    /// short, ushort, char, int, long, and nint all promote through a signed
+    /// <c>cgt</c>/<c>clt</c> compare (values that fit the type's range never
+    /// disagree between signed and unsigned interpretation at that width), and
+    /// only uint, ulong, and nuint compare with <c>cgt.un</c>/<c>clt.un</c>. A
+    /// <see cref="Comparison.IsUnsigned"/> that disagrees with this — an
+    /// unsigned IL compare against a place csc would compare signed (the
+    /// headline bug: silently reordering a negative <c>int</c> as if it were
+    /// large and positive), or a signed IL compare against a place csc would
+    /// compare unsigned — declines rather than emits a pattern with different
+    /// ordering semantics than the source IL. Equal/NotEqual are exempt: they
+    /// have no distinct unsigned IL form (<c>ceq</c>/<c>bne.un</c> are
+    /// signedness-agnostic bit-pattern comparisons), and pattern equality
+    /// against any in-range anchor is safe regardless of the place's
+    /// signedness;</item>
+    /// <item>the anchor constant must be exactly the value C# would splice
+    /// into the pattern for this place's type — <see cref="TryNumericValue"/>
+    /// reduces the constant to its numeric value and
+    /// <see cref="CSharpConversionRules.ConstantFits"/> proves it is in
+    /// range, so e.g. <c>1000</c> never becomes a <c>byte</c> pattern's
+    /// anchor (not implicitly convertible — CS0031) and <c>-1</c> never
+    /// becomes a <c>uint</c> pattern's anchor (would silently mean
+    /// <c>uint.MaxValue</c>, not the source's actual comparand).</item>
+    /// </list>
     /// </summary>
     static bool TryDecompose(
         IrExpression condition,
@@ -211,12 +250,20 @@ public sealed class TupleSwitchExpressionPass : IIrPass
             return false;
         }
 
+        if (place.ResultType is not { } placeType || !TypeFamilies.IsIntegerLike(placeType))
+            return false;
+
+        bool isOrdering = kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+            or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual;
+        if (isOrdering && comparison.IsUnsigned != RequiresUnsignedRelationalCompare(placeType))
+            return false;
+
+        if (!TryNumericValue(constant, out long numericValue) || !CSharpConversionRules.ConstantFits(numericValue, placeType))
+            return false;
+
         index = components.FindIndex(existing => PlaceIdentity.SameVariable(existing, place));
         if (index < 0)
         {
-            if (place.ResultType is not { } placeType || !TypeFamilies.IsIntegerLike(placeType))
-                return false;
-
             index = components.Count;
             components.Add(place);
             anchors.Add((constant.Value, constant.Type));
@@ -227,6 +274,39 @@ public sealed class TupleSwitchExpressionPass : IIrPass
     }
 
     static bool IsPlaceCandidate(IrExpression expression) => expression is LoadArgument or LoadLocal;
+
+    /// <summary>
+    /// True for the integer-like primitives whose relational IL comparison is
+    /// unsigned (<c>cgt.un</c>/<c>clt.un</c> etc.) — confirmed against actual
+    /// csc codegen: only 32-/64-bit/native unsigned integers need it. Byte,
+    /// ushort, and char are unsigned by declaration but always compare through
+    /// a promoted signed int32 (never disagreeing with unsigned ordering in
+    /// their 0..65535 range), so they are deliberately excluded here even
+    /// though <see cref="TypeFamilies.IsUnsignedIntegerPrimitive"/> — a
+    /// different, broader concern (casts/printing) — includes them.
+    /// </summary>
+    static bool RequiresUnsignedRelationalCompare(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "UInt32" or "UInt64" or "UIntPtr" };
+
+    /// <summary>The constant's value as a <see cref="long"/>, for an in-range check against a place's type; false for a non-integer boxed value or a <see langword="ulong"/> too large to fit.</summary>
+    static bool TryNumericValue(Constant constant, out long value)
+    {
+        switch (constant.Value)
+        {
+            case sbyte sb: value = sb; return true;
+            case byte b: value = b; return true;
+            case short s: value = s; return true;
+            case ushort us: value = us; return true;
+            case int i: value = i; return true;
+            case uint u: value = u; return true;
+            case long l: value = l; return true;
+            case ulong ul when ul <= long.MaxValue: value = (long)ul; return true;
+            case char c: value = c; return true;
+            default:
+                value = 0;
+                return false;
+        }
+    }
 
     static bool TryMerge(
         ImmutableDictionary<int, ComparisonKind> constraints,

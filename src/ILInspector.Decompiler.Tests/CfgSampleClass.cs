@@ -29,6 +29,22 @@ public class CfgSampleClass
         _ => "other",
     };
 
+    // A tuple relational-pattern switch over genuinely UNSIGNED (uint)
+    // components (issue #2867 signedness follow-up). csc compiles uint's `>`/`<`
+    // as cgt.un/clt.un (Comparison.IsUnsigned = true) — unlike Octant/Quadrant's
+    // `int`, and unlike byte/ushort/char, which promote through a signed int32
+    // compare despite being unsigned types. This proves the fold's signedness
+    // proof positively recognizes a matching unsigned comparison against an
+    // unsigned place, not just declines every unsigned flag.
+    public static string UIntQuadrant(uint x, uint y) => (x, y) switch
+    {
+        (> 100u, > 100u) => "I",
+        (> 100u, < 100u) => "IV",
+        (< 100u, > 100u) => "II",
+        (< 100u, < 100u) => "III",
+        _ => "axis",
+    };
+
     // A non-public overload declared BEFORE the public one of the same name.
     // With publicOnly resolution, the visibility filter must skip this so the
     // overload index lands on the public overload below — masking the access
