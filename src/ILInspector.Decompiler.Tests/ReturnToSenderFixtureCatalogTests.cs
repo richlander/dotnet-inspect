@@ -602,29 +602,53 @@ public class ReturnToSenderFixtureCatalogTests
     {
         var results = new[]
         {
-            Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            ReturnToSenderSourceProbe.EvaluateTargets(
                 FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
                 [
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
                         "Sum",
                         Overload: 0),
-                ])),
-            Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "RefAt",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PassByRef",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "RefLocalIncrement",
+                        Overload: 0),
+                ]),
+            ReturnToSenderSourceProbe.EvaluateTargets(
                 FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
                 [
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
                         "Sum",
                         Overload: 0),
-                ])),
-        };
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "RefAt",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PassByRef",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "RefLocalIncrement",
+                        Overload: 0),
+                ]),
+        }.SelectMany(static result => result).ToArray();
 
         Assert.All(results, result =>
         {
             Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
             Assert.DoesNotContain("CS1525", result.Detail, StringComparison.Ordinal);
-            Assert.Contains("Data[i]", result.ActualBody, StringComparison.Ordinal);
+            Assert.Contains("Data[", result.ActualBody, StringComparison.Ordinal);
             Assert.DoesNotContain("Unsafe.Add", result.ActualBody, StringComparison.Ordinal);
             Assert.DoesNotContain("FixedElementField", result.ActualBody, StringComparison.Ordinal);
         });

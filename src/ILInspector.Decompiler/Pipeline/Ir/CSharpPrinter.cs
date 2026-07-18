@@ -1114,7 +1114,8 @@ public sealed partial class CSharpPrinter
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
-                if (HasUnsafeOperation(store.Value)
+                if (store.Type.Kind != TypeRefKind.ByRef
+                    && HasUnsafeOperation(store.Value)
                     && LocalIsRead(function, store.Index)
                     && !LocalReadsStayInsideUnsafeRun(function, store))
                 {
@@ -1868,6 +1869,7 @@ public sealed partial class CSharpPrinter
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         Binary b => IsPointerArithmetic(b),
         Comparison c => IsPointerComparison(c),
+        FixedBufferElementAddress => true,
         LoadIndirect { Address: FixedBufferElementAddress } => true,
         StoreIndirect { Address: FixedBufferElementAddress } => true,
         LoadIndirect l => RendersAsPointerDeref(l.Address),

@@ -46,6 +46,34 @@ public struct FixedBufferResiduals
             }
         }
     }
+
+    public ref int RefAt(int index)
+    {
+        unsafe
+        {
+            return ref Data[index];
+        }
+    }
+
+    public void PassByRef(int index)
+    {
+        unsafe
+        {
+            Increment(ref Data[index]);
+        }
+    }
+
+    public int RefLocalIncrement(int index)
+    {
+        unsafe
+        {
+            ref int value = ref Data[index];
+            value++;
+            return value;
+        }
+    }
+
+    static void Increment(ref int value) => value++;
 }
 
 public struct FixedBufferPrimitiveResiduals

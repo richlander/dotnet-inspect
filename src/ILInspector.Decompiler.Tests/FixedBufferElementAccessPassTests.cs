@@ -128,6 +128,50 @@ public class FixedBufferElementAccessPassTests
     }
 
     [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferRefReturn_RendersSourceIndexingAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "RefAt");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("return ref Data[index];", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferRefArgument_RendersSourceIndexingAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "PassByRef");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("Increment(ref Data[index]);", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerFixedBufferRefLocal_RendersSourceIndexingAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "RefLocalIncrement");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains("ref int value = ref Data[index];", output);
+        Assert.Contains("value++;", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+        Assert.DoesNotContain("Unsafe.NullRef", output);
+    }
+
+    [Theory]
     [MemberData(nameof(PrimitiveFixedBufferFixtures))]
     public void CompilerFixedBufferPrimitiveRead_RendersSourceIndexingAndReachesFull(
         string assemblyPath,
@@ -299,6 +343,82 @@ public class FixedBufferElementAccessPassTests
             ElementField(Backing, Byte),
             scale: 1,
             pinnedElementType: SByte);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ByRefReturnElementMismatch_IsNotRaised()
+    {
+        var function = SyntheticRefReturn(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            returnElement: Int64);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ByRefLocalElementMismatch_IsNotRaised()
+    {
+        var function = SyntheticRefLocal(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            localElement: Int64);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ByRefCallParameterElementMismatch_IsNotRaised()
+    {
+        var function = SyntheticByRefCall(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            parameterElement: Int64,
+            parameterFactsKnown: true);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CrossAssemblyByRefCallWithoutRefKindFacts_IsNotRaised()
+    {
+        var function = SyntheticByRefCall(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32),
+            parameterElement: Int32,
+            parameterFactsKnown: false);
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NativeAddressCastWithoutTypedElementConsumer_IsNotRaised()
+    {
+        var function = SyntheticNativeAddressCast(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32));
 
         new FixedBufferElementAccessPass().Run(function, PassContext.None);
 
@@ -573,6 +693,92 @@ public class FixedBufferElementAccessPassTests
             Owner,
             new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
             [TypeRef.Pinned(TypeRef.ByRef(pinnedElementType))],
+            body);
+    }
+
+    static IrFunction SyntheticRefReturn(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef returnElement)
+    {
+        var block = new Block();
+        block.Add(new Return(FixedElementAddress(bufferField, elementField, FixedElementOffset(4))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(TypeRef.ByRef(returnElement), [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticRefLocal(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef localElement)
+    {
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            TypeRef.ByRef(localElement),
+            FixedElementAddress(bufferField, elementField, FixedElementOffset(4))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [TypeRef.ByRef(localElement)],
+            body);
+    }
+
+    static IrFunction SyntheticByRefCall(
+        FieldRef bufferField,
+        FieldRef elementField,
+        TypeRef parameterElement,
+        bool parameterFactsKnown)
+    {
+        var callee = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Consumer"),
+            "Consume",
+            Void,
+            [TypeRef.ByRef(parameterElement)],
+            HasThis: false)
+        {
+            ParameterRefKinds = parameterFactsKnown ? [ArgumentRefKind.Ref] : [],
+            ParameterRefKindsFacts = parameterFactsKnown ? ParameterRefKindFacts.Known : ParameterRefKindFacts.Unknown,
+        };
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            callee,
+            isVirtual: false,
+            [FixedElementAddress(bufferField, elementField, FixedElementOffset(4))])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticNativeAddressCast(FieldRef bufferField, FieldRef elementField)
+    {
+        var block = new Block();
+        block.Add(new Return(new Convert(
+            NInt,
+            isChecked: false,
+            isUnsigned: false,
+            FixedElementAddress(bufferField, elementField, FixedElementOffset(4)))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(NInt, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
             body);
     }
 

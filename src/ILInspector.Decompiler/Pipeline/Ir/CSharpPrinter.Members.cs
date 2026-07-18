@@ -602,7 +602,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? ArgumentPlace(IrExpression argument) => argument switch
     {
-        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
+        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
         Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect => Expression(argument),
         _ => null,
@@ -615,7 +615,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? ArgumentLvalue(IrExpression argument) => argument switch
     {
-        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress => Deref(argument),
+        LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
         // A ref-typed value already names a place: a ref local/parameter, a
         // ref-returning call, or a ref slot the importer spilled the managed
         // pointer into (a ref argument evaluated before a later side-effecting

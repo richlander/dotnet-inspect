@@ -24,6 +24,19 @@ public unsafe struct FixedBufferResiduals
         fixed (int* p = &Data[index])
             return *p;
     }
+
+    public ref int RefAt(int index) => ref Data[index];
+
+    public void PassByRef(int index) => Increment(ref Data[index]);
+
+    public int RefLocalIncrement(int index)
+    {
+        ref int value = ref Data[index];
+        value++;
+        return value;
+    }
+
+    static void Increment(ref int value) => value++;
 }
 
 public unsafe struct FixedBufferPrimitiveResiduals

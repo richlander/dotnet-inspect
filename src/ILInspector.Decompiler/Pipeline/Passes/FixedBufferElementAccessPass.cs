@@ -11,6 +11,7 @@ public sealed class FixedBufferElementAccessPass : IIrPass
 
     enum AccessKind
     {
+        Address,
         Read,
         Write,
         PinnedSource,
@@ -42,7 +43,52 @@ public sealed class FixedBufferElementAccessPass : IIrPass
                     context.Stepper.StepOver("raise fixed-buffer pinned source", store.Value);
                     store.Value.ReplaceWith(pinSource);
                     break;
+
+                case StoreLocal store
+                    when store.Type is { Kind: TypeRefKind.ByRef, ElementType: { } element }
+                        && TryCreate(store.Value, element, AccessKind.Address, out var localAddress):
+                    context.Stepper.StepOver("raise fixed-buffer ref local source", store.Value);
+                    store.Value.ReplaceWith(localAddress);
+                    break;
+
+                case Return ret
+                    when function.Signature.ReturnType is { Kind: TypeRefKind.ByRef, ElementType: { } element }
+                        && ret.Value is { } value
+                        && TryCreate(value, element, AccessKind.Address, out var returnAddress):
+                    context.Stepper.StepOver("raise fixed-buffer ref return source", value);
+                    value.ReplaceWith(returnAddress);
+                    break;
+
+                case Call call:
+                    RaiseCallArguments(call, context);
+                    break;
             }
+        }
+    }
+
+    static void RaiseCallArguments(Call call, PassContext context)
+    {
+        var arguments = call.Arguments;
+        int firstParameterArgument = call.Callee.HasThis ? 1 : 0;
+        if (call.Callee.ParameterRefKindsFacts != ParameterRefKindFacts.Known
+            || call.Callee.ParameterRefKinds.Length < call.Callee.ParameterTypes.Length)
+        {
+            return;
+        }
+
+        for (int argumentIndex = firstParameterArgument; argumentIndex < arguments.Count; argumentIndex++)
+        {
+            int parameterIndex = argumentIndex - firstParameterArgument;
+            if (parameterIndex >= call.Callee.ParameterTypes.Length
+                || call.Callee.ParameterTypes[parameterIndex] is not { Kind: TypeRefKind.ByRef, ElementType: { } element }
+                || call.Callee.ParameterRefKinds[parameterIndex] == ArgumentRefKind.Value
+                || !TryCreate(arguments[argumentIndex], element, AccessKind.Address, out var argumentAddress))
+            {
+                continue;
+            }
+
+            context.Stepper.StepOver("raise fixed-buffer ref argument source", arguments[argumentIndex]);
+            arguments[argumentIndex].ReplaceWith(argumentAddress);
         }
     }
 
@@ -100,7 +146,7 @@ public sealed class FixedBufferElementAccessPass : IIrPass
         if (observed.Equals(element))
             return true;
 
-        if (accessKind == AccessKind.PinnedSource)
+        if (accessKind is AccessKind.Address or AccessKind.PinnedSource)
             return false;
 
         return accessKind == AccessKind.Read
