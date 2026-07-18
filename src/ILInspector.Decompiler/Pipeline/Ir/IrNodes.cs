@@ -168,6 +168,9 @@ public sealed record MethodRef(
     }
 }
 
+/// <summary>Compiler fixed-buffer source-field metadata decoded from <c>FixedBufferAttribute</c>.</summary>
+public sealed record FixedBufferFieldInfo(TypeRef ElementType, int Length);
+
 /// <summary>A materialized field reference.</summary>
 public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
 {
@@ -176,6 +179,12 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     /// has a corresponding property. Null means no proof, not proof of absence.
     /// </summary>
     public string? BackingPropertyName { get; init; }
+
+    /// <summary>
+    /// Positive metadata evidence that this field is a C# fixed buffer source
+    /// field. Null means no proof, not proof of absence.
+    /// </summary>
+    public FixedBufferFieldInfo? FixedBuffer { get; init; }
 }
 
 /// <summary>The C# method kind decoded from a reserved metadata method name: an ordinary method, an instance constructor (<c>.ctor</c>), or a static constructor (<c>.cctor</c>).</summary>
@@ -3449,6 +3458,38 @@ public sealed class LoadElementAddress : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [ElementType];
 
     public override string Describe() => $"LoadElementAddress {ElementType.ToDisplayString()}{(IsReadOnly ? " readonly" : "")}";
+}
+
+/// <summary>
+/// Source fixed-buffer element place (<c>buffer[index]</c>) recovered from the
+/// compiler-generated backing field's <c>FixedElementField</c> address plus a
+/// proven element-scaled offset.
+/// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "fixed-buffer element access / FixedElementField address plus scaled offset",
+    precondition: "source field carries FixedBufferAttribute; generated element field identity, element type, receiver, and offset scale all match the fixed-buffer metadata",
+    witness: "new/legacy unsafe fixed-buffer fixtures and close negative tests")]
+public sealed class FixedBufferElementAddress : IrExpression
+{
+    public FixedBufferElementAddress(FieldRef bufferField, TypeRef elementType, IrExpression instance, IrExpression index)
+    {
+        BufferField = bufferField;
+        ElementType = elementType;
+        AddChild(instance);
+        AddChild(index);
+    }
+
+    public FieldRef BufferField { get; }
+    public TypeRef ElementType { get; }
+    public IrExpression Instance => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.ByRef(ElementType);
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe()
+        => $"FixedBufferElementAddress {BufferField.DeclaringType.ToDisplayString()}.{BufferField.Name}[...]";
 }
 
 /// <summary>Load through an address (ldobj and the ldind.* family). A null type means the opcode does not encode one (ldind.ref).</summary>

@@ -90,6 +90,11 @@ public static class TypeShellProducer
             || signature.Contains("<>", StringComparison.Ordinal)
             || signature.Contains('{', StringComparison.Ordinal);
 
+    public static CSharpFixedBufferField? FixedBufferField(MetadataReader reader, FieldDefinition field)
+        => FixedBufferMetadata.Read(reader, field.GetCustomAttributes()) is { } metadata
+            ? new CSharpFixedBufferField(CSharpFormatter.CleanTypeDisplay(metadata.ElementTypeFullName), metadata.Length)
+            : null;
+
     /// <summary>
     /// The base type name a skeletal type shape should reconstruct for
     /// <paramref name="typeDef"/>, or <see langword="null"/> when the base should

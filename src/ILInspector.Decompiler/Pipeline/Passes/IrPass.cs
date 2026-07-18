@@ -265,6 +265,9 @@ public static class IrPasses
         // clause — restoring a distinct catch variable plus the entry assignment
         // so the survivor does not shadow the outer local (CS0136, issue #2828).
         new CatchVariableScopePass(),
+        // Raise compiler-generated fixed-buffer backing-field element addresses
+        // before fixed-statement recovery consumes pinned byref initializers.
+        new FixedBufferElementAccessPass(),
         // Raise the csc pin lowering (a pinned managed-ref local + derived
         // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
         // Runs after structuring and the second inlining so the pinned region's

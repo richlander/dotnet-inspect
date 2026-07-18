@@ -101,6 +101,8 @@ internal static class NativePasses
     public static BitwiseBoolOperandPass BitwiseBoolOperand => new();
     [Native(NativeCategory.IlErasure, "a standing static function-pointer load (ldftn) spelled &Method")]
     public static MethodAddressPass MethodAddress => new();
+    [Native(NativeCategory.IlErasure, "fixed-buffer backing-field address arithmetic raised to the source buffer[index] place")]
+    public static FixedBufferElementAccessPass FixedBufferElementAccess => new();
     [Native(NativeCategory.IlErasure, "typeof(T) == typeof(U) / typeof type-switch folded")]
     public static TypeOfFoldingPass TypeOfFolding => new();
 

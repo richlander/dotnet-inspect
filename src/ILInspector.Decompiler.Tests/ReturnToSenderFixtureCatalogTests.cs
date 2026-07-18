@@ -624,7 +624,9 @@ public class ReturnToSenderFixtureCatalogTests
         {
             Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
             Assert.DoesNotContain("CS1525", result.Detail, StringComparison.Ordinal);
-            Assert.Contains("Unsafe.Add", result.ActualBody, StringComparison.Ordinal);
+            Assert.Contains("Data[i]", result.ActualBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unsafe.Add", result.ActualBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("FixedElementField", result.ActualBody, StringComparison.Ordinal);
         });
     }
 

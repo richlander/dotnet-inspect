@@ -19,6 +19,33 @@ public struct FixedBufferResiduals
         }
         return sum;
     }
+
+    public int ReadAt(int index)
+    {
+        unsafe
+        {
+            return Data[index];
+        }
+    }
+
+    public void WriteAt(int index, int value)
+    {
+        unsafe
+        {
+            Data[index] = value;
+        }
+    }
+
+    public int ReadAtThroughFixedAddress(int index)
+    {
+        unsafe
+        {
+            fixed (int* p = &Data[index])
+            {
+                return *p;
+            }
+        }
+    }
 }
 
 public static class StringPinningResiduals

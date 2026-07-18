@@ -320,7 +320,9 @@ public sealed record CompileBackMemberRequirement(
     bool IsExtension = false,
     CompileBackAccessibility Accessibility = CompileBackAccessibility.Public,
     string? ConstructorInitializer = null,
-    string? ExplicitInterfaceMemberName = null)
+    string? ExplicitInterfaceMemberName = null,
+    string? DeclarationSignature = null,
+    bool RequiresUnsafeModifier = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -1103,7 +1105,8 @@ public static class CompileBackSourceComposer
                 IsAsync: !isConstructor
                     && (function.RequiresAsyncBodyModifier
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
-                ConstructorInitializer: targetConstructorInitializer)
+                ConstructorInitializer: targetConstructorInitializer,
+                RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
         ];
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
@@ -1267,6 +1270,7 @@ public static class CompileBackSourceComposer
                     _ => throw new NotSupportedException($"Unsupported member declaration kind '{member.Kind}'."),
                 },
             ReturnType = returnType,
+            Signature = member.DeclarationSignature,
             IsStatic = member.IsStatic,
             IsAbstract = member.IsAbstract,
             IsVirtual = member.IsVirtual,
@@ -1274,7 +1278,7 @@ public static class CompileBackSourceComposer
             IsSealed = member.IsSealed,
             Accessibility = AccessibilityText(member.Accessibility),
             Attributes = member.Attributes?.ToList() ?? [],
-            IsUnsafe = RequiresUnsafe(member),
+            IsUnsafe = member.RequiresUnsafeModifier || RequiresUnsafe(member),
             IsAsync = member.IsAsync,
             IsExtension = member.IsExtension,
             IsConst = member.Kind == CompileBackMemberKind.Field
@@ -1483,7 +1487,8 @@ public static class CompileBackSourceComposer
                 && CSharpFormatter.TypeRequiresUnsafeModifier(returnType.DisplayName))
             || member.Parameters.Any(parameter =>
                 CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type.DisplayName))
-            || (member.TargetBody is { } body && CSharpFormatter.RequiresUnsafeModifier(body));
+            || (member.TargetBody is { } body && CSharpFormatter.RequiresUnsafeModifier(body))
+            || (member.DeclarationSignature?.StartsWith("fixed ", StringComparison.Ordinal) == true);
 
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
@@ -1902,7 +1907,8 @@ public static class CompileBackSourceComposer
                 TypeParameters: [],
                 CompileBackStubBodyKind.FieldInitializer,
                 parameterName,
-                [new CompileBackFact("metadata", "primary-constructor-field-initializer", fieldName)]));
+                [new CompileBackFact("metadata", "primary-constructor-field-initializer", fieldName)],
+                DeclarationSignature: FixedBufferDeclarationSignature(reader, field, fieldName)));
         }
 
         if (fieldInitializers.Count == 0)
@@ -2102,7 +2108,8 @@ public static class CompileBackSourceComposer
                 TypeParameters: [],
                 CompileBackStubBodyKind.None,
                 TargetBody: null,
-                [new CompileBackFact("metadata", "target-backing-field-read", reference.FieldName)]));
+                [new CompileBackFact("metadata", "target-backing-field-read", reference.FieldName)],
+                DeclarationSignature: FixedBufferDeclarationSignature(reader, field, propertyName)));
         }
 
         return members;
@@ -2350,6 +2357,12 @@ public static class CompileBackSourceComposer
 
     static string Identifier(string name) => CSharpIdentifier.Sanitize(name);
 
+    static string? FixedBufferDeclarationSignature(MetadataReader reader, FieldDefinition field, string fieldName)
+        => TypeShellProducer.FixedBufferField(reader, field)?.DeclarationSignature(Identifier(fieldName));
+
+    static bool ContainsFixedBufferElementAccess(IrFunction function)
+        => function.Descendants.OfType<FixedBufferElementAddress>().Any();
+
     static string? ExplicitInterfaceMemberName(
         MetadataReader reader,
         string metadataPropertyName)
@@ -2441,14 +2454,15 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            if (IsUnsupportedSurfaceSignature(fieldType))
-                return null;
-
             string fieldName = reader.GetString(field.Name);
             if (fieldName.Contains('.', StringComparison.Ordinal))
             {
                 return null;
             }
+
+            string? fixedBufferSignature = FixedBufferDeclarationSignature(reader, field, fieldName);
+            if (fixedBufferSignature is null && IsUnsupportedSurfaceSignature(fieldType))
+                return null;
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(fieldName), 0, $"field {fieldType}"),
@@ -2461,7 +2475,8 @@ public static class CompileBackSourceComposer
                     ? CompileBackStubBodyKind.TargetBody
                     : CompileBackStubBodyKind.None,
                 constant,
-                [new CompileBackFact("metadata", "typed-closure-field", fieldName)]);
+                [new CompileBackFact("metadata", "typed-closure-field", fieldName)],
+                DeclarationSignature: fixedBufferSignature);
         }
 
         public static TypeProduction Produce(
@@ -3211,7 +3226,8 @@ public static class CompileBackSourceComposer
                     diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "field-signature-decode-failed", fieldName));
                     continue;
                 }
-                if (IsUnsupportedSurfaceSignature(fieldType)
+                string? fixedBufferSignature = FixedBufferDeclarationSignature(reader, field, fieldName);
+                if ((fixedBufferSignature is null && IsUnsupportedSurfaceSignature(fieldType))
                     || (!allowUnsafeSurface && IsPointerSignature(fieldType)))
                     continue;
 
@@ -3226,7 +3242,8 @@ public static class CompileBackSourceComposer
                         ? CompileBackStubBodyKind.TargetBody
                         : CompileBackStubBodyKind.None,
                     TargetBody: constant,
-                    [new CompileBackFact("metadata", "closure-field", fieldName)]));
+                    [new CompileBackFact("metadata", "closure-field", fieldName)],
+                    DeclarationSignature: fixedBufferSignature));
             }
 
             foreach (var propertyHandle in typeDef.GetProperties())
