@@ -88,6 +88,29 @@ public class ForLoopPassTests
         Assert.IsType<StoreLocal>(loop.Increment);
         Assert.Empty(function.Descendants.OfType<WhileLoop>());
     }
+
+    [Fact]
+    public void NestedFunctionLoop_UsesNestedLiveTargets()
+    {
+        var function = FunctionWithNestedLambdaLoop(hasLiveIncrementTarget: true);
+
+        new ForLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Empty(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
+    public void NestedFunctionLoop_WithoutLiveIncrementTarget_Raises()
+    {
+        var function = FunctionWithNestedLambdaLoop(hasLiveIncrementTarget: false);
+
+        new ForLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
     [Fact]
     public void CheckedUserIncrement_StaysWhileLoop()
     {
@@ -166,6 +189,41 @@ public class ForLoopPassTests
                 isUnsigned: false,
                 new LoadLocal(0, Int32),
                 new Constant(1, Int32)));
+
+    static IrFunction FunctionWithNestedLambdaLoop(bool hasLiveIncrementTarget)
+    {
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+
+        var loopBody = new Block();
+        if (hasLiveIncrementTarget)
+            loopBody.Add(new Leave(targetOffset: 0x42));
+        var increment = Increment();
+        increment.SetSourceOffset(0x42);
+        loopBody.Add(increment);
+        lambdaBlock.Add(new WhileLoop(
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadLocal(0, Int32),
+                new Constant(10, Int32)),
+            loopBody));
+        lambdaBody.Add(lambdaBlock);
+
+        var container = new BlockContainer();
+        var block = new Block();
+        block.Add(new ExpressionStatement(
+            new Lambda(Bool, [], [Int32], [], false, false, lambdaBody)));
+        container.Add(block);
+
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            container);
+    }
 
     static IrFunction FunctionWithNestedContinueLoop()
     {

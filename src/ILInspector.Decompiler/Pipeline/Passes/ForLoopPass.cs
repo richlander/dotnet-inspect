@@ -13,10 +13,17 @@ public sealed class ForLoopPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var liveTargets = CollectLiveTargets(function);
+        var liveTargetsByScope = new Dictionary<IrNode, HashSet<int>>();
 
         foreach (var loop in function.Descendants.OfType<WhileLoop>().ToList())
         {
+            var scope = EnclosingFunctionScope(loop, function);
+            if (!liveTargetsByScope.TryGetValue(scope, out var liveTargets))
+            {
+                liveTargets = CollectLiveTargets(scope);
+                liveTargetsByScope.Add(scope, liveTargets);
+            }
+
             if (loop.Parent is not Block container)
                 continue;
             int slot = loop.ChildIndex;
@@ -52,6 +59,16 @@ public sealed class ForLoopPass : IIrPass
             context.Stepper.StepOver("raise while loop to for loop", loop);
             loop.ReplaceWith(new ForLoop(initializer, (IrExpression)parts[0], increment, (Block)parts[1]));
         }
+    }
+
+    static IrNode EnclosingFunctionScope(IrNode node, IrFunction function)
+    {
+        for (IrNode? current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is IrFunction or Lambda or LocalFunctionStatement)
+                return current;
+        }
+        return function;
     }
 
     static HashSet<int> CollectLiveTargets(IrNode scope)
