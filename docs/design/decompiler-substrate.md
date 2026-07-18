@@ -80,8 +80,8 @@ ledger/scorecard movement, or a corpus/fidelity signal.
 ## Atoms, not one maximal predicate
 
 A substrate layer exposes **atoms the caller composes**, never a single "does
-everything" predicate. The equality
-logic is shared; *which node kinds a pass admits* is not — that admissibility is
+everything" predicate. Equality is shared; *which node kinds a pass admits* is
+not — that admissibility is
 a deliberate soundness discriminator the pass still owns.
 
 `PlaceIdentity` is the clearest illustration. Several passes — `??=`, `?.`, switch
