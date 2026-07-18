@@ -234,6 +234,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_KeepsStaticOnExplicitInterfaceProperty()
+    {
+        // #2875: a C# 11 static-abstract interface member implemented explicitly must keep
+        // `static` (while omitting the access modifier). Dropping `static` reconstructs an
+        // instance member and fails the interface contract (CS0106/CS0539).
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitStaticFixture : ICounter
+            {
+                static int ICounter.Count => 7;
+            }
+
+            public interface ICounter
+            {
+                static abstract int Count { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticFixture",
+                    "ICounter.get_Count",
+                    0)]));
+
+            Assert.Contains("static int ICounter.Count", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public int ICounter.Count", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public static int ICounter.Count", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
     {
         var assemblyPath = CompileFixture("""

@@ -402,9 +402,15 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.IsUnsafe || options.ForceUnsafe)
+        else
         {
-            modifiers.Add("unsafe");
+            // Explicit interface implementations omit the access modifier but must still
+            // carry `static` (C# 11 static-abstract interface members implemented explicitly)
+            // and `unsafe`. Order mirrors the .cctor branch: static then unsafe.
+            if (member.IsStatic)
+                modifiers.Add("static");
+            if (member.IsUnsafe || options.ForceUnsafe)
+                modifiers.Add("unsafe");
         }
 
         if ((options.ForceAsync || member.IsAsync)
