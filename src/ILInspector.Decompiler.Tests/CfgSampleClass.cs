@@ -4829,6 +4829,17 @@ public static class NamespaceRefSample
 
     // References only System (Int32).
     public static int ReferencesOnlySystem(int x) => x + 1;
+
+    // References NamespaceOrderFixtures.HPack and NamespaceOrderFixtures.Headers,
+    // whose ordinal order (HPack, then Headers) differs from their culture-aware
+    // and case-insensitive order (Headers, then HPack). See NamespaceOrderFixtures.cs.
+    public static void ReferencesCaseOrderFlippedNamespaces(
+        NamespaceOrderFixtures.HPack.Marker hpack,
+        NamespaceOrderFixtures.Headers.Marker headers)
+    {
+        _ = hpack.ToString();
+        _ = headers.ToString();
+    }
 }
 
 // Fixtures for MemberBodyFactsTests backing-field cases. Auto-property accessors
