@@ -6,8 +6,8 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The fidelity gate for the lowered C# view. Like <see cref="FidelityGateTests"/>,
 /// it decompiles every method on <see cref="CfgSampleClass"/>, recompiles it inside a
-/// reconstructed shape of its type, and compares the canonical opcode stream against the
-/// originally compiled fixture — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
+/// reconstructed shape of its type, and compares the body under compile-back fidelity
+/// contract V1 — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
 /// (the de-sugared SharpLab-style view) instead of the shipped sugared view. Each official
 /// C# view earns its own compiler→decompiler→compiler validation, so a regression that turns
 /// a lowered method's recompiled IL into a different stream fails CI.
@@ -19,7 +19,7 @@ public class LoweredFidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods whose lowered C# still recompiles to a different opcode stream — the open
+    /// Methods whose lowered C# still differs under compile-back fidelity contract V1 — the open
     /// lowered docket. The gate tolerates these but fails if a NEW method joins the set.
     /// Beyond the shared sugared docket (BothPositive, GotoCommonExit,
     /// NeitherOr, SelectBoolReturn), the lowered view adds ReverseCopy:
@@ -119,15 +119,22 @@ public class LoweredFidelityGateTests
         "NullCoalescingAssignStaticProperty",
         "RefKindCallSites",
         "set_SlotMergedDateTimeFormat",
+        // Contract V1 rebaseline: opcode names still match, but canonical
+        // operands, symbolic targets, or branch targets differ.
+        "DayNumber",
+        "DoubleViaLocalFunction",
+        "StaticLocalFunctionCalledTwice",
     };
 
     /// <summary>
-    /// Methods the lowered view keeps opcode-exact. This is the sugared pinned set minus the
+    /// Methods the lowered view keeps exact under contract V1. This is the sugared pinned set minus the
     /// two methods the lowered view legitimately reshapes: ReverseCopy (now an expected diff,
     /// see <see cref="KnownDiffs"/>) and ClassicLock (lowering skips LockSugarPass, emitting an
     /// explicit Monitor.Enter/Exit form the fidelity check shell cannot bind — it lands in the
     /// recompile-fail bucket the gate excludes by design, same as the sugared rail's
-    /// shell-attribution failures). The remaining pins guard that de-sugaring loops, ++/--, and
+    /// shell-attribution failures). DayNumber moved to the V1 difference docket
+    /// because its opcode names match while its branch targets differ. The remaining
+    /// pins guard that de-sugaring loops, ++/--, and
     /// locks does not disturb fixes proven on unrelated constructs (overflow checks, redundant
     /// mask removal, shadowed-field qualification, ctor field-init lifting, stale-field-read
     /// pinning, volatile re-declaration, and EH/return-accumulator sinking).
@@ -172,7 +179,6 @@ public class LoweredFidelityGateTests
         "IsPatternProperty",
         "IsPatternPropertyGreater",
         "IsPatternPropertyAtMost",
-        "DayNumber",
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
@@ -195,10 +201,12 @@ public class LoweredFidelityGateTests
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures() => Results.Value;
 
     [Fact]
-    public void NoNewOpcodeDiffsBeyondKnownDocket()
+    public void NoNewFidelityDiffsBeyondKnownDocket()
     {
         var diffs = EvaluateFixtures()
-            .Where(r => r.Status == FidelityCheck.CompileBackStatus.OpcodeDiff)
+            .Where(r => r.Status is
+                FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff)
             .Select(r => r.Method)
             .OrderBy(m => m, StringComparer.Ordinal)
             .ToList();
@@ -206,12 +214,26 @@ public class LoweredFidelityGateTests
         var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
 
         Assert.True(unexpected.Count == 0,
-            $"New lowered fidelity check opcode diffs (lowered C# recompiles to different IL): " +
+            $"New lowered fidelity check contract V1 diffs (lowered C# recompiles to different IL): " +
             $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
     }
 
     [Fact]
-    public void PinnedFixesStayOpcodeExact()
+    public void BodyComparisonRemainsAvailable()
+    {
+        var unavailable = EvaluateFixtures()
+            .Where(result => result.Status == FidelityCheck.CompileBackStatus.FidelityUnavailable)
+            .Select(result => $"{result.Method}: {result.Detail}")
+            .ToArray();
+
+        Assert.True(
+            unavailable.Length == 0,
+            "Lowered compile-back fidelity contract V1 was unavailable for: "
+            + string.Join(", ", unavailable));
+    }
+
+    [Fact]
+    public void PinnedFixesStayExact()
     {
         var results = EvaluateFixtures();
 
@@ -237,7 +259,9 @@ public class LoweredFidelityGateTests
             "Expected the lowered fidelity check to render PointerStoreUsesOriginalAddress, but it was not evaluated.");
         foreach (var result in matches)
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"PointerStoreUsesOriginalAddress regressed to {result.Status} in the lowered view: the pointer-store "
                     + "residual (#2644) no longer recompiles. Its lowered C# must stay recompilable so the known-diff "
                     + "docket continues to check the address-preservation shape.\n"

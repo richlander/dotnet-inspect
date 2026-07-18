@@ -185,8 +185,8 @@ also include the original/recompiled opcode streams plus unified IL diff lines,
 so semantic-difference buckets can be triaged without rerunning a member-specific
 probe.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
-for the intended C# idiom, and a compile-back opcode verdict for semantic
-fidelity. A row can therefore be opcode-exact while still exposing a shape
+for the intended C# idiom, and a compile-back contract V1 verdict for semantic
+fidelity. A row can therefore be contract-exact while still exposing a shape
 frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
@@ -197,8 +197,9 @@ payload includes `source_correspondence_findings`: stable Finding-style rows
 keyed by member stable selector when available. Each row carries a descriptor ID
 such as `source.correspondence.valid_different.known_taste`, a coarse category
 (`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
-`semantic-opcode-diff`, `invalid`, or `unclassified`), the source file name, and
-whether opcode-diff evidence is attached. The finding projection intentionally
+`semantic-opcode-diff`, `semantic-operand-diff`, `invalid`, or `unclassified`),
+the source file name, and whether fidelity-diff evidence is attached. The
+finding projection intentionally
 uses source file names rather than absolute source paths so the census can be
 shared without leaking local checkout paths.
 
@@ -218,7 +219,7 @@ The generated fixture ladder is intentionally staged:
 | Materialization | Build the selected source snippets into one temporary class library; `--keep-generated-fixtures` preserves it. |
 | Projection | Decompile each target through the shipped raised product path and record the decompiler fidelity grade. |
 | Shape verdict | Parse the rendered body with Roslyn and compare the optional expected `SyntaxKind`. |
-| Compile-back verdict | Recompile the rendered body, preserve the legacy opcode-name verdict, and additionally compare product-owned `OperandFidelityV1` operations through `IlBodyDiff`. |
+| Compile-back verdict | Recompile the rendered body and apply compile-back fidelity contract V1 through the product-owned `IlBodyDiffProfile.CompileBackFidelityV1` comparison. `Exact` requires opcode and body identity; `OpcodeDiff`, `OperandDiff`, and `FidelityUnavailable` preserve the reason it is not exact. |
 | Frontier ledger | Keep non-exact compiler-lowering observations opt-in; keep source-shape frontiers explicit even when they are compile-back exact. |
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
@@ -241,7 +242,7 @@ The validity and fidelity caps are per assembly so the sensor samples every
 corpus member at bounded cost without adding that cost to every PR. When you
 want to compare a baseline cap with a larger exploratory cap, repeat
 `--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
-fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) while surfacing recompile- and context-failure buckets for triage. Each Deep Inspect census run
+fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable comparisons and recompile- and context-failure buckets for triage. Each Deep Inspect census run
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
@@ -255,7 +256,7 @@ diffing snapshots from different modes is rejected rather than presenting
 incomparable fidelity movement.
 
 The RTS cap is therefore a parity population: methods the default oracle checked
-as `Exact` or `OpcodeDiff`, re-evaluated through RTS. The report classifies each
+as `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated through RTS. The report classifies each
 target as rescued, same, or worse and records the compile-back reference status
 beside the native RTS result. Corpus parity deliberately disables RTS's
 compile-back floor so compile-back evidence cannot rewrite the RTS verdict.
@@ -362,6 +363,12 @@ The producer's separate inventory-bucket label preserves those legacy residual
 strings; it is display-only and is neither persisted nor classified.
 An empty complete cause census has no primary bucket; the old synthetic
 `(typed)` fallback is no longer emitted.
+
+Snapshot schema v5 records compile-back fidelity contract version 1 and its
+single outcome per method. Schema version describes the serialized JSON shape;
+fidelity contract version independently defines what `Exact` and the other
+outcomes mean. Snapshot comparison rejects different contract versions instead
+of presenting incomparable movement.
 
 Policy v1 rolls multiple causes up per method in this order:
 
@@ -520,7 +527,7 @@ failures first; simply raising `--corpus-fidelity-cap` grows an easier general
 sample, not necessarily the risky shape.
 
 If a changed-method run plateaus — compiler diagnostics trade buckets while the
-`Exact` + `OpcodeDiff` population stays flat — stop treating each new diagnostic
+`Exact` + `OpcodeDiff` + `OperandDiff` population stays flat — stop treating each new diagnostic
 as another incremental skeleton task. Report the checkable population separately
 from named uncheckable buckets, and measure whether failures are in the target's
 reconstruction closure before redesigning compile-back context. The #1412
@@ -774,13 +781,14 @@ while PR quality cards keep capped validity for cost.
 
 *Defect tracking — prove a fix regressed nothing.* A raw count (e.g. "CS0266: 263") tells you a bucket shrank but not *which* methods changed, so it cannot distinguish a real fix from a fix that also broke something else. `--emit-validity-defects <file>` writes the per-method defect map (one `Type::Method<TAB>CODE,CODE` row per method) before your change; after the change, `--diff-validity-defects <file>` re-runs the check and prints the differential against that baseline — **REGRESSED** (methods that gained a code) and **IMPROVED** (methods that lost one), per code. A clean fix shows entries only under IMPROVED with an empty REGRESSED; any REGRESSED row is a method your change broke. Only methods checked in *both* runs are compared (cap-boundary methods are excluded), so keep `--compile-cap` identical across the baseline and diff runs. This is the regression-proof loop behind a "N→M occurrences, 0 regressions" claim.
 
-**Fidelity check** (`--fidelity-check`): the *semantic-fidelity* check — `--gaps` is *completeness*, the validity check is *validity*, and this is *does it still mean the same thing*. It closes the round trip named in [docs/decompiler.md](../../docs/decompiler.md): decompile → recompile → compare IL. A body that parses, binds, and reads plausibly but recompiles to a **different opcode stream changed the program** — the worst failure class ([docs/decompiler-taste.md](../../docs/decompiler-taste.md)), invisible to every other check because they never run the output back through a compiler. Each member is recompiled inside a reconstructed **whole-module skeleton** — every top-level type stubbed (fields present, sibling and nested members as throwing stubs) with the one target carrying its real decompiled body, the C# analog of the IL round-trip suite's `IlasmScaffold`. With fields and sibling types in scope, a dropped or mis-bound field access surfaces as a true opcode diff rather than a bind error. The recompiled method is disassembled and its canonical opcode stream (short forms folded, `ldarg`/`ldloc`/`ldc.i4` families normalized) compared against the original; `Full`-fidelity diffs are the docket. References are the running runtime plus the target's sibling DLLs, minus the target itself (it is reconstructed, not referenced). Recompile failures here overlap `--validity-check` (an un-bindable body cannot be opcode-compared) and are reported separately, not as diffs. Compiler/source-generated implementation details — generated-code attributes, compiler-synthesized names, and `JsonSerializerContext` helper types — are skipped because their emitted members are not actionable source-shape fixes; source-spellable auto-property accessors still remain in scope. `CB_TYPE=<substr>` filters to a type; `CB_DUMP=1` prints the first failing compilation units. `--compile-cap N` bounds the slow recompile pass before collecting and compiling a type, so cap-boundary types do not compile more target bodies than the remaining budget. Add `--fidelity-timings` to print phase timings for collect/render, skeleton emit, parse, compilation creation, emit, and opcode comparison. Add `--fidelity-zero-signal-guard N` for large exploratory runs: it probes the first `N` methods and stops early when the probe has no `Exact`/`OpcodeDiff` rows and one failure bucket dominates, reporting the population as zero-signal/uncheckable instead of scaling the same failure to the full cap.
+**Fidelity check** (`--fidelity-check`): the *semantic-fidelity* check — `--gaps` is *completeness*, the validity check is *validity*, and this is *does it still mean the same thing*. It closes the round trip named in [docs/decompiler.md](../../docs/decompiler.md): decompile → recompile → compare IL. A body that parses, binds, and reads plausibly but recompiles to a different contract V1 body changed the measured program shape, invisible to every other check because they never run the output back through a compiler. Each member is recompiled inside a reconstructed **whole-module skeleton** — every top-level type stubbed (fields present, sibling and nested members as throwing stubs) with the one target carrying its real decompiled body, the C# analog of the IL round-trip suite's `IlasmScaffold`. With fields and sibling types in scope, a dropped or mis-bound field access surfaces as a body diff rather than a bind error. The recompiled method is disassembled and compared with the original using `IlBodyDiffProfile.CompileBackFidelityV1`: `Exact` requires matching normalized opcode families, values, symbolic targets, and branch topology; `OpcodeDiff` identifies an opcode-name change; `OperandDiff` identifies a value, target, or topology change with matching opcode names; and `FidelityUnavailable` keeps comparison failures visible. The contract tolerates local/argument macro and slot-layout changes and remains EH-blind. `Full`-fidelity diffs are the docket. References are the running runtime plus the target's sibling DLLs, minus the target itself (it is reconstructed, not referenced). Recompile failures here overlap `--validity-check` (an un-bindable body cannot be compared) and are reported separately, not as diffs. Compiler/source-generated implementation details — generated-code attributes, compiler-synthesized names, and `JsonSerializerContext` helper types — are skipped because their emitted members are not actionable source-shape fixes; source-spellable auto-property accessors still remain in scope. `CB_TYPE=<substr>` filters to a type; `CB_DUMP=1` prints the first failing compilation units. `--compile-cap N` bounds the slow recompile pass before collecting and compiling a type, so cap-boundary types do not compile more target bodies than the remaining budget. Add `--fidelity-timings` to print phase timings for collect/render, skeleton emit, parse, compilation creation, emit, and body comparison. Add `--fidelity-zero-signal-guard N` for large exploratory runs: it probes the first `N` methods and stops early when the probe has no `Exact`/`OpcodeDiff`/`OperandDiff` rows and one failure bucket dominates, reporting the population as zero-signal/uncheckable instead of scaling the same failure to the full cap.
 
 Add `--fidelity-method-delta <delta.json>` when the question is "did the
 methods this PR changed still compile back faithfully?" The input is the
 per-method artifact from `--emit-corpus-delta`; removed methods are skipped and
 current changed methods are attempted exactly, with `Exact`, `OpcodeDiff`,
-`RecompileFail`, `ContextFail`, and `NotFull` buckets. Changed methods on
+`OperandDiff`, `FidelityUnavailable`, `RecompileFail`, `ContextFail`, and
+`NotFull` buckets. Changed methods on
 **nested types** are matched through their declaring type (`Outer.Inner`), so a
 risky PR's nested-type changes are measured rather than silently dropped.
 Compiler-synthesized rows the skeleton can never recompile — regex
@@ -856,7 +864,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 
 *When to use it.* Reach for fidelity check when the question is **"is this decompilation faithful,"** not "does it compile." Run it after any change to the importer, a raising pass, or the printer that could alter emitted semantics — branch sense, checked/unchecked, conversions, field/local ordering, shift masking — and read the `Full` opcode-diff bucket as a regression docket. It is the tool that catches a fix in one method silently degrading another. Prefer the small, fast, purpose-built fixture corpus (`CfgSampleClass` in `ILInspector.Decompiler.Tests`) for a tight loop; sweep a real assembly (BCL) for breadth once the fixtures are clean. Use `--validity-check` first when you only need to know the output is valid C#, and `--gaps` to track the structuring completeness.
 
-*The CI gate.* The console mode above is for exploration; the durable regression guard is `FidelityGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `FidelityCheck.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly recompiles to a different opcode stream (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix. `LoweredFidelityGateTests` is the twin gate for the lowered view (`--lowered`), with its own docket — the lowered C# is recompiled and opcode-compared the same way, so both official C# views earn a per-view E2E roundtrip.
+*The CI gate.* The console mode above is for exploration; the durable regression guard is `FidelityGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `FidelityCheck.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly differs under compile-back fidelity contract V1 (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix. `LoweredFidelityGateTests` is the twin gate for the lowered view (`--lowered`), with its own docket, so both official C# views earn a per-view E2E roundtrip.
 
 **Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — runs one method through the pipeline and prints the IR tree at every stage boundary (the importer output, then after each raising pass), ending in the shipped product C# (`PrintRaised`). So the output is exactly what each pass left behind. When a name resolves to several overloads, `--dump` selects index `0` but prints the overload menu (index, signature, body/no-body) to stderr so you can see what was chosen and pick another with `--index N` (stdout stays pipe-clean); `--list-overloads` prints that menu and stops. Add a sub-mode to narrow what `--dump` shows: `--steps`/`--step-limit` (per-pass fine-grained rewrites), `--facts` (the printer's definite-assignment `gen`/`in`/`out` sets that decide which locals keep `= default`), `--cfg` (per-block predecessor/successor edges; add `--mermaid` for a GitHub-renderable flowchart), `--diff` (each pass's effect as a unified `+`/`-` hunk over the previous stage), or `--remarks` (every IR site that caps the method below `Full` fidelity, with its `DEC####` code, block offset, and reason). `--cfg` shows the raised-IR containers by default; add `--cfg-stage il` for the single flat, EH-aware rung-1 `BlockGraph` produced directly from decoded IL. The IL graph can legitimately contain more blocks and exception-flow edges than the raised graph. `--il` remains a plain stage-dump reading dial that prepends the annotated-IL import views (raw/typed/structured); it is not a CFG-stage selector. `--skip-pdb` ignores any portable PDB so locals render as `V_index` — deterministic, symbol-independent output regardless of nearby symbols (cosmetic only; it never changes emitted IL, so it cannot affect a fidelity result).
 

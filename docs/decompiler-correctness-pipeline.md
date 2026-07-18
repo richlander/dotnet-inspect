@@ -137,7 +137,7 @@ Use these names in issues and PRs when selecting evidence:
 | **Annotation fidelity** | Allocation/unsafety/lifetime facts agree with independent IL witnesses. |
 | **Type artifact correctness** | Whole-type/source output has the right type/file/member shape. |
 | **Type binding** | Whole-type/source output binds in a Roslyn harness. |
-| **Fidelity** | Compile-back opcode proof. This is the semantic body oracle. |
+| **Fidelity** | Compile-back contract V1 body proof. This is the semantic body oracle. |
 | **Completeness** | Raised-vs-residual coverage: `--gaps`, `--structuring-stops`, scorecard/ledger movement. |
 | **Corpus health** | Aggregate real-world signal from the fixed corpus. |
 | **Changed-method evidence** | Per-method delta plus compile-back over methods the PR actually changed. |
@@ -147,15 +147,18 @@ both:
 
 - **Decompiler fidelity grade**: `Full`, `Partial`, `StructuredOnly`, `IlOnly`,
   `Failed`.
-- **Compile-back fidelity result**: `Exact`, `OpcodeDiff`, `RecompileFail`,
-  `ContextFail`, `NotFull`, `not-sampled`.
+- **Compile-back fidelity result**: `Exact`, `OpcodeDiff`, `OperandDiff`,
+  `FidelityUnavailable`, `RecompileFail`, `ContextFail`, `NotFull`,
+  `not-sampled`.
 
-Compile-back also records the additive `OperandFidelityV1` result for legacy
-`Exact` rows. It compares immediate values, symbolic member/type/string
-operands, and branch topology while tolerating local/argument macro and slot
-layout changes. It is explicitly EH-blind and is not a semantic-equivalence
-claim. The legacy result remains the gate until a measured corpus split justifies
-changing a lane.
+Compile-back fidelity contract V1 defines `Exact` as a full product-owned IL
+body comparison match. It compares opcode families, immediate values, symbolic
+member/type/string identities, and branch topology while tolerating
+local/argument macro and slot-layout changes. `OpcodeDiff` means opcode names
+differ; `OperandDiff` means the opcode names match but the body comparison
+differs; `FidelityUnavailable` means the comparison could not return a verdict.
+The contract is explicitly EH-blind and is not a semantic-equivalence claim.
+Its version is independent from the corpus snapshot schema version.
 
 When reporting deltas, spell out `currentValidity`, `currentDecompilerFidelity`,
 and `currentFidelityCheck` rather than mixing axes.
@@ -250,25 +253,26 @@ For #1175-class retained-label work, compare the
 count against the previous #1175/#1212 snapshot. A stable target population says
 "specimens still exist"; it does not prove that a proposed rewrite is safe.
 
-### Opcode fidelity changes
+### Compile-back fidelity changes
 
 Behavior changes that can alter emitted method-body semantics fight the
-**opcode boss**. Use this band when a PR changes the importer, a raising pass, a
+**fidelity boss**. Use this band when a PR changes the importer, a raising pass, a
 structuring pass, or printer semantics such as branch sense, checked/unchecked
 context, conversions, field/local ordering, or shift masking.
 
-Report opcode evidence in two layers:
+Report compile-back evidence in two layers:
 
 1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
    covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
    lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
-   relevant guard. If an opcode-diff docket row is fixed, shrink `KnownDiffs` and
+   relevant guard. If a fidelity-diff docket row is fixed, shrink `KnownDiffs` and
    add the method to `PinnedExact` in the same PR.
 2. **Changed-method / corpus layer** — for risky or broad changes, identify the
    methods the PR actually changed and run `--fidelity-method-delta` over that
-   population when available. Treat `Exact` as checked green and `OpcodeDiff` as
-   the semantic docket. Report `RecompileFail`, `ContextFail`, `NotFull`, and
-   uncheckable buckets separately; they are not passing evidence.
+   population when available. Treat `Exact` as checked green and `OpcodeDiff` /
+   `OperandDiff` as the semantic docket. Report `FidelityUnavailable`,
+   `RecompileFail`, `ContextFail`, `NotFull`, and uncheckable buckets
+   separately; they are not passing evidence.
 
 Keep the axes separate:
 
@@ -400,8 +404,9 @@ Report changed-method runs in three bands:
 
 1. **Attempted population** — total changed methods attempted, plus exact,
    opcode-diff, `NotFull`, recompile-fail, and context-fail counts.
-2. **Checkable population** — `Exact` rows that pin a green set and `OpcodeDiff`
-   rows that become the semantic docket. These are the rows a PR may cite as
+2. **Checkable population** — `Exact` rows that pin a green set and
+   `OpcodeDiff` / `OperandDiff` rows that become the semantic docket. These are
+   the rows a PR may cite as
    compile-back evidence. Under cluster mode (`CB_CLUSTER=1`) this band is
    reported by **capture provenance** — *checkable whole-module* (bound under the
    whole-module skeleton) and *checkable cluster-rescued* (bound only after the
@@ -456,10 +461,11 @@ Decision: Go / Blocked / Pivot
 Scope: <methods, corpus slice, pass family, or PR>
 
 Changed-method evidence:
-- Attempted: <N>; Exact: <N>; OpcodeDiff: <N>; NotFull: <N>;
-  RecompileFail: <N>; ContextFail: <N>
+- Attempted: <N>; Exact: <N>; OpcodeDiff: <N>; OperandDiff: <N>;
+  FidelityUnavailable: <N>; NotFull: <N>; RecompileFail: <N>;
+  ContextFail: <N>
 - Checkable green set: <examples or artifact link>
-- Semantic docket: <OpcodeDiff examples or artifact link>
+- Semantic docket: <OpcodeDiff / OperandDiff examples or artifact link>
 - Uncheckable buckets: <named reasons + counts>
 
 Shape/altitude evidence:

@@ -49,7 +49,7 @@ static class ReturnToSender
         IReadOnlyList<DecompilerDecision>? Decisions = null,
         FidelityCheck.CompileBackResult? CompileBackFloor = null,
         FaultIsolationResult? FaultIsolation = null,
-        IlBodyDiffResult? OperandFidelityDiff = null)
+        IlBodyDiffResult? FidelityDiff = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
         internal ArtifactRequest? FinalRequest { get; init; }
@@ -75,7 +75,8 @@ static class ReturnToSender
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
-        int total = 0, exact = 0, opcodeDiff = 0, recompileFail = 0, contextFail = 0;
+        int total = 0, exact = 0, opcodeDiff = 0, operandDiff = 0;
+        int fidelityUnavailable = 0, recompileFail = 0, contextFail = 0;
         int closureRoots = 0, closureMembers = 0, compileBackFloor = 0;
         var planningDiagnostics = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var examples = new List<string>();
@@ -129,6 +130,12 @@ static class ReturnToSender
                     case FidelityCheck.CompileBackStatus.OpcodeDiff:
                         opcodeDiff++;
                         break;
+                    case FidelityCheck.CompileBackStatus.OperandDiff:
+                        operandDiff++;
+                        break;
+                    case FidelityCheck.CompileBackStatus.FidelityUnavailable:
+                        fidelityUnavailable++;
+                        break;
                     case FidelityCheck.CompileBackStatus.RecompileFail:
                         recompileFail++;
                         break;
@@ -152,8 +159,10 @@ static class ReturnToSender
 
         Console.WriteLine($"RETURNTOSENDER over {total} property getters");
         Console.WriteLine();
-        Console.WriteLine($"  Exact         : {exact}");
+        Console.WriteLine($"  Exact (V{FidelityCheck.CurrentContractVersion})    : {exact}");
         Console.WriteLine($"  OpcodeDiff    : {opcodeDiff}");
+        Console.WriteLine($"  OperandDiff   : {operandDiff}");
+        Console.WriteLine($"  FidelityUnavailable: {fidelityUnavailable}");
         Console.WriteLine($"  RecompileFail : {recompileFail}");
         Console.WriteLine($"  ContextFail   : {contextFail}");
         Console.WriteLine();
@@ -325,8 +334,12 @@ static class ReturnToSender
             return ComparisonDelta.Rescued;
         }
 
-        bool currentChecked = current.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
-        bool rtsChecked = rts.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
+        bool currentChecked = current.Status is FidelityCheck.CompileBackStatus.Exact
+            or FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff;
+        bool rtsChecked = rts.Status is FidelityCheck.CompileBackStatus.Exact
+            or FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff;
         if (!currentChecked && rtsChecked)
             return ComparisonDelta.Rescued;
         if (currentChecked && !rtsChecked)
@@ -575,7 +588,9 @@ static class ReturnToSender
                     .Distinct()
                     .ToArray());
         var floorByTarget = floorRows
-            .Where(row => row.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff)
+            .Where(row => row.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff)
             .GroupBy(FloorKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         if (floorByTarget.Count == 0)
@@ -617,7 +632,7 @@ static class ReturnToSender
             RecompiledOpcodes = floor.RecompiledOpcodes,
             Detail = floorDetail,
             CompileBackFloor = floor,
-            OperandFidelityDiff = floor.OperandDiff,
+            FidelityDiff = floor.FidelityDiff,
         };
     }
 
@@ -1052,7 +1067,7 @@ static class ReturnToSender
                 var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
                 var ilDiff = implementationDiff?.IlDiff;
                 var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
-                var operandFidelityDiff = BuildIlDiff(
+                var fidelityDiff = BuildIlDiff(
                     originalPe,
                     reader,
                     methodHandle,
@@ -1060,7 +1075,7 @@ static class ReturnToSender
                     fullType,
                     methodName,
                     overload: 0,
-                    IlBodyDiffProfile.OperandFidelityV1)?.Diff;
+                    IlBodyDiffProfile.CompileBackFidelityV1)?.Diff;
 
                 if (recompiledOps is null)
                 {
@@ -1079,21 +1094,27 @@ static class ReturnToSender
                     };
                 }
 
+                var status = FidelityCheck.ClassifyStatus(
+                    isFull: true,
+                    opcodesExact: originalOps.SequenceEqual(recompiledOps),
+                    fidelityDiff: fidelityDiff);
+                string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
+                    ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
+                    : fidelityDiff?.Failure;
+
                 return new Result(
                     plan,
                     unit,
-                    originalOps.SequenceEqual(recompiledOps)
-                        ? FidelityCheck.CompileBackStatus.Exact
-                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    status,
                     originalOpcodes,
                     string.Join(" ", recompiledOps),
-                    null,
+                    detail,
                     TargetBody: targetBody.Source,
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
                     Decisions: targetBody.Decisions,
-                    OperandFidelityDiff: operandFidelityDiff)
+                    FidelityDiff: fidelityDiff)
                 {
                     FinalRequest = sourceResult.Request,
                 };

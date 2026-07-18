@@ -116,7 +116,7 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("ignorable", finding.Category);
         Assert.Equal(result.MemberAnchor!.StableSelector, finding.SubjectId);
         Assert.Equal("DiffSample.cs", finding.SourceFile);
-        Assert.False(finding.HasOpcodeDiffEvidence);
+        Assert.False(finding.HasFidelityDiffEvidence);
     }
 
     [Fact]
@@ -147,6 +147,21 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("valid_different.semantic_opcode_diff.checked_context", reason);
         Assert.Contains("checked_context", detail);
         Assert.Contains("OpcodeDiff", detail);
+    }
+
+    [Fact]
+    public void ReturnToSenderSourceProbe_KeepsCheckedContextOperandDiffActionable()
+    {
+        var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(
+            "return left + right;",
+            "return checked(left + right);",
+            FidelityCheck.CompileBackStatus.OperandDiff,
+            decisions: [],
+            out var detail);
+
+        Assert.Equal("valid_different.semantic_operand_diff.checked_context", reason);
+        Assert.Contains("checked_context", detail);
+        Assert.Contains("OperandDiff", detail);
     }
 
     [Fact]
@@ -498,7 +513,7 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("not-yet-raised-sugar", finding.Category);
         Assert.StartsWith("DynamicAdd~", finding.SubjectId, StringComparison.Ordinal);
         Assert.Equal("LadderRung9.cs", finding.SourceFile);
-        Assert.True(finding.HasOpcodeDiffEvidence);
+        Assert.True(finding.HasFidelityDiffEvidence);
     }
 
     [Fact]

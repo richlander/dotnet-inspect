@@ -25,8 +25,6 @@ internal sealed record CorpusMethodSnapshot(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? FidelityReference = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? OperandFidelity = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CorpusFidelityCauseSnapshot>? FidelityCauses = null)
 {
     public string DisplayMethod => $"{Assembly}!{Type}::{Method}#{Overload}";
@@ -56,6 +54,8 @@ internal sealed record CorpusMethodDeltaArtifact(
     DateTimeOffset GeneratedUtc,
     DateTimeOffset BaselineGeneratedUtc,
     DateTimeOffset CurrentGeneratedUtc,
+    int BaselineFidelityContractVersion,
+    int CurrentFidelityContractVersion,
     bool BaselineHasMethodDetails,
     bool CurrentHasMethodDetails,
     IReadOnlyList<CorpusMethodDeltaRow> ChangedMethods);

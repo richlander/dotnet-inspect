@@ -35,13 +35,13 @@ public enum IlBodyDiffProfile
     Default,
 
     /// <summary>
-    /// Operand-fidelity contract v1 for decompile/recompile evidence. It compares
+    /// Compile-back fidelity contract v1. It compares
     /// immediate values, symbolic metadata operands, and branch topology while
     /// tolerating local/argument macro encodings, slot-layout changes, and
     /// compile-back assembly/platform reference-scope changes.
     /// Exception-region tables are outside this profile.
     /// </summary>
-    OperandFidelityV1,
+    CompileBackFidelityV1,
 }
 
 public sealed record IlOperandIdentity(IlOperandIdentityKind Kind, string Value);
@@ -413,7 +413,7 @@ public static class IlBodyDiff
     static string OpcodeFamily(DecodedInstruction instruction, IlBodyDiffProfile profile)
     {
         var opcode = instruction.OpCode;
-        if (profile == IlBodyDiffProfile.OperandFidelityV1)
+        if (profile == IlBodyDiffProfile.CompileBackFidelityV1)
         {
             if (opcode is ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
                 or ILOpCode.Ldarg_3 or ILOpCode.Ldarg_s or ILOpCode.Ldarg)
@@ -500,7 +500,7 @@ public static class IlBodyDiff
                 or OperandKind.ShortInlineR or OperandKind.InlineR
                 => new(IlOperandIdentityKind.Immediate, instruction.OperandValue.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             OperandKind.ShortInlineVar or OperandKind.InlineVar
-                when profile != IlBodyDiffProfile.OperandFidelityV1
+                when profile != IlBodyDiffProfile.CompileBackFidelityV1
                 => new(IlOperandIdentityKind.Slot, instruction.OperandValue.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget
                 => new(IlOperandIdentityKind.BranchTarget, $"IL_{instruction.BranchTargets[0]:X4}"),
@@ -579,7 +579,7 @@ public static class IlBodyDiff
                     OperandKind.InlineSig => ResolveSignature((int)instruction.OperandValue),
                     _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
                 };
-                if (profile == IlBodyDiffProfile.OperandFidelityV1
+                if (profile == IlBodyDiffProfile.CompileBackFidelityV1
                     && reader.IsAssembly
                     && instruction.Operand != OperandKind.InlineString)
                 {
@@ -849,7 +849,7 @@ public static class IlBodyDiff
         }
 
         string CurrentAssemblyName()
-            => profile == IlBodyDiffProfile.OperandFidelityV1
+            => profile == IlBodyDiffProfile.CompileBackFidelityV1
                 ? "<current>"
                 : reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
 

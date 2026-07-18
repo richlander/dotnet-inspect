@@ -5,35 +5,35 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Instructions.Tests;
 
-public class OperandFidelityProfileTests
+public class CompileBackFidelityProfileTests
 {
     [Fact]
-    public void OperandFidelityV1_ToleratesLocalMacroAndSlotLayout()
+    public void CompileBackFidelityV1_ToleratesLocalMacroAndSlotLayout()
     {
         var macro = Decode([0x06, 0x2a]); // ldloc.0; ret
         var explicitSlot = Decode([0x11, 0x07, 0x2a]); // ldloc.s 7; ret
 
         Assert.False(IlBodyDiff.Compare(macro, explicitSlot).IsExact);
-        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffProfile.OperandFidelityV1).IsExact);
+        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffProfile.CompileBackFidelityV1).IsExact);
     }
 
     [Fact]
-    public void OperandFidelityV1_ToleratesArgumentMacroAndSlotLayout()
+    public void CompileBackFidelityV1_ToleratesArgumentMacroAndSlotLayout()
     {
         var macro = Decode([0x02, 0x2a]); // ldarg.0; ret
         var explicitSlot = Decode([0x0e, 0x07, 0x2a]); // ldarg.s 7; ret
 
         Assert.False(IlBodyDiff.Compare(macro, explicitSlot).IsExact);
-        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffProfile.OperandFidelityV1).IsExact);
+        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffProfile.CompileBackFidelityV1).IsExact);
     }
 
     [Fact]
-    public void OperandFidelityV1_DoesNotFoldArgumentValueAndAddressLoads()
+    public void CompileBackFidelityV1_DoesNotFoldArgumentValueAndAddressLoads()
     {
         var valueLoad = Decode([0x02, 0x2a]); // ldarg.0; ret
         var addressLoad = Decode([0x0f, 0x00, 0x2a]); // ldarga.s 0; ret
 
-        var diff = IlBodyDiff.Compare(valueLoad, addressLoad, IlBodyDiffProfile.OperandFidelityV1);
+        var diff = IlBodyDiff.Compare(valueLoad, addressLoad, IlBodyDiffProfile.CompileBackFidelityV1);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "ldarg");
@@ -41,12 +41,12 @@ public class OperandFidelityProfileTests
     }
 
     [Fact]
-    public void OperandFidelityV1_ReportsNumericOperandChange()
+    public void CompileBackFidelityV1_ReportsNumericOperandChange()
     {
         var five = Decode([0x1b, 0x2a]); // ldc.i4.5; ret
         var seven = Decode([0x1d, 0x2a]); // ldc.i4.7; ret
 
-        var diff = IlBodyDiff.Compare(five, seven, IlBodyDiffProfile.OperandFidelityV1);
+        var diff = IlBodyDiff.Compare(five, seven, IlBodyDiffProfile.CompileBackFidelityV1);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value == "5");
@@ -54,12 +54,12 @@ public class OperandFidelityProfileTests
     }
 
     [Fact]
-    public void OperandFidelityV1_ReportsBranchTopologyChange()
+    public void CompileBackFidelityV1_ReportsBranchTopologyChange()
     {
         var firstTarget = Decode([0x2b, 0x03, 0x00, 0x2a, 0x00, 0x2a]);
         var secondTarget = Decode([0x2b, 0x01, 0x00, 0x2a, 0x00, 0x2a]);
 
-        var diff = IlBodyDiff.Compare(firstTarget, secondTarget, IlBodyDiffProfile.OperandFidelityV1);
+        var diff = IlBodyDiff.Compare(firstTarget, secondTarget, IlBodyDiffProfile.CompileBackFidelityV1);
 
         Assert.False(diff.IsExact);
         Assert.Equal(2, diff.Rows.Length);
@@ -67,45 +67,45 @@ public class OperandFidelityProfileTests
     }
 
     [Fact]
-    public void OperandFidelityV1_ToleratesPlatformReferenceScopeChanges()
+    public void CompileBackFidelityV1_ToleratesPlatformReferenceScopeChanges()
     {
         var diff = CompareCallImages("System.Runtime", "System.Private.CoreLib");
 
         Assert.False(diff.Default.IsExact);
-        Assert.True(diff.OperandFidelity.IsExact);
+        Assert.True(diff.CompileBackFidelity.IsExact);
     }
 
     [Fact]
-    public void OperandFidelityV1_PreservesNonPlatformReferenceIdentity()
+    public void CompileBackFidelityV1_PreservesNonPlatformReferenceIdentity()
     {
         var diff = CompareCallImages("Library.One", "Library.Two");
 
-        Assert.False(diff.OperandFidelity.IsExact);
+        Assert.False(diff.CompileBackFidelity.IsExact);
     }
 
     [Fact]
-    public void OperandFidelityV1_PreservesPlatformLikeStringLiterals()
+    public void CompileBackFidelityV1_PreservesPlatformLikeStringLiterals()
     {
         var diff = CompareImages(
             BuildStringImage("Old", "[System.Runtime]"),
             BuildStringImage("New", "[System.Private.CoreLib]"));
 
-        Assert.False(diff.OperandFidelity.IsExact);
-        Assert.Contains(diff.OperandFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Runtime", StringComparison.Ordinal) == true);
-        Assert.Contains(diff.OperandFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Private.CoreLib", StringComparison.Ordinal) == true);
+        Assert.False(diff.CompileBackFidelity.IsExact);
+        Assert.Contains(diff.CompileBackFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Runtime", StringComparison.Ordinal) == true);
+        Assert.Contains(diff.CompileBackFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Private.CoreLib", StringComparison.Ordinal) == true);
     }
 
     static MethodInstructions Decode(byte[] il)
         => MethodInstructions.Decode(il, il.Length, exceptionRegions: []);
 
-    static (IlBodyDiffResult Default, IlBodyDiffResult OperandFidelity) CompareCallImages(
+    static (IlBodyDiffResult Default, IlBodyDiffResult CompileBackFidelity) CompareCallImages(
         string oldReference,
         string newReference)
         => CompareImages(
             BuildCallImage("Old", oldReference),
             BuildCallImage("New", newReference));
 
-    static (IlBodyDiffResult Default, IlBodyDiffResult OperandFidelity) CompareImages(
+    static (IlBodyDiffResult Default, IlBodyDiffResult CompileBackFidelity) CompareImages(
         byte[] oldImage,
         byte[] newImage)
     {
@@ -125,7 +125,7 @@ public class OperandFidelityProfileTests
                 newPe,
                 newReader,
                 newMethod,
-                profile: IlBodyDiffProfile.OperandFidelityV1).Diff);
+                profile: IlBodyDiffProfile.CompileBackFidelityV1).Diff);
     }
 
     static byte[] BuildCallImage(string assemblyName, string referenceAssemblyName)

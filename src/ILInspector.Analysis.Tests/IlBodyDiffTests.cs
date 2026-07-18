@@ -173,9 +173,9 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void OperandFidelityV1_CompiledFixtureCallTargetChange_IsNotExact()
+    public void CompileBackFidelityV1_CompiledFixtureCallTargetChange_IsNotExact()
     {
-        var diff = DiffFixtureDiff("CallToken", IlBodyDiffProfile.OperandFidelityV1);
+        var diff = DiffFixtureDiff("CallToken", IlBodyDiffProfile.CompileBackFidelityV1);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("::Abs(", StringComparison.Ordinal) == true);
