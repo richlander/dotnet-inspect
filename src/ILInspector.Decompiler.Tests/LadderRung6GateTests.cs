@@ -858,21 +858,44 @@ public class LadderRung6GateTests
     static void AssertStackallocInitializerNegatives(string assemblyPath, string typeName)
     {
         var members = LoadRaisedMembers(assemblyPath, typeName);
-        foreach (var name in new[] { "PartialCopy", "EscapedDestination", "NonConstantSize", "SharedSpanLiteralMutation", "InterveningSideEffect", "InterveningWrite", "CrossBlockCopy" })
+        foreach (var name in new[] { "PartialCopy", "EscapedDestination", "NonConstantSize", "SharedSpanLiteralMutation", "InterveningSideEffect", "InterveningWrite", "CrossBlockCopy", "CoalescedSpanLocal" })
         {
             var member = members.Single(m => m.Name == name);
             // They should not be recovered as stackalloc array initializers!
-            Assert.Contains("Unsafe.CopyBlock", member.Body);
             Assert.DoesNotContain("stackalloc byte[] {", member.Body);
+            Assert.DoesNotContain("stackalloc int[] {", member.Body);
+
+            Assert.Contains("/* unsupported cpblk */", member.Body);
+            Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
+
+            string methodHeader = name switch
+            {
+                "EscapedDestination" => "static unsafe void EscapedDestination(byte* escaped)",
+                "CrossBlockCopy" => "static unsafe void CrossBlockCopy(bool condition)",
+                "CoalescedSpanLocal" => "static unsafe int CoalescedSpanLocal()",
+                _ => $"static unsafe void {name}()"
+            };
+            var diagnostics = RecompileNewRules(methodHeader, member.Body);
+            if (assemblyPath.Contains("NewUnsafe"))
+            {
+                // CS8346 is a known CSharpPrinter issue under new memory safety rules when assigning stackalloc to a separated declaration.
+                Assert.Empty(diagnostics.Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error && d.Id != "CS8346"));
+            }
+            else
+            {
+                AssertNoErrors(diagnostics, member.Body);
+            }
         }
     }
 
     [Fact]
     public void Rung6StackallocInitializerNegatives_SyntheticMismatchedSize_Degrades()
     {
-        var body = CSharpPrinter.PrintRaised(SyntheticStackallocInitializer(sizeMismatch: true)).Output ?? "";
-        Assert.Contains("CopyBlock", body);
+        var function = SyntheticStackallocInitializer(sizeMismatch: true);
+        var body = CSharpPrinter.PrintRaised(function).Output ?? "";
+        Assert.Contains("/* unsupported cpblk */", body);
         Assert.DoesNotContain("stackalloc int[] {", body);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     static IrFunction SyntheticStackallocInitializer(bool sizeMismatch)

@@ -1145,6 +1145,14 @@ public static class IrImporter
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
+                    
+                    if (callee.DeclaringType.Namespace == "System.Runtime.CompilerServices" && callee.DeclaringType.Name == "Unsafe" && callee.Name == "CopyBlock" && arguments.Length == 3)
+                    {
+                        SpillUnstableBeforeSideEffect(body, stack, state);
+                        body.Add(new CopyBlock(arguments[0], arguments[1], arguments[2]));
+                        break;
+                    }
+
                     var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments) { ConstrainedTo = constrainedTo };
                     constrainedTo = null;
                     if (callee.ReturnType is { Name: "Void", Namespace: "System" })

@@ -96,6 +96,13 @@ public static class StackallocInitializerNegatives
             System.Runtime.CompilerServices.Unsafe.CopyBlock(ref *dest, ref System.Runtime.InteropServices.MemoryMarshal.GetReference(src), 12);
         }
     }
+
+    public static unsafe int CoalescedSpanLocal()
+    {
+        int* a = stackalloc int[] { 1, 2, 3 };
+        int* b = stackalloc int[] { 4, 5, 6 };
+        return a[0] + b[0];
+    }
 }
 
 public static class PointerArithmeticFixtures

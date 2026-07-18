@@ -123,6 +123,15 @@ public static class StackallocInitializerNegatives
             }
         }
     }
+
+    public static int CoalescedSpanLocal()
+    {
+        unsafe {
+            int* a = stackalloc int[] { 1, 2, 3 };
+            int* b = stackalloc int[] { 4, 5, 6 };
+            return a[0] + b[0];
+        }
+    }
 }
 
 public static class PointerArithmeticFixtures

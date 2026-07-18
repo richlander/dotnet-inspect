@@ -2060,7 +2060,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
-        CopyBlock cb => $"System.Runtime.CompilerServices.Unsafe.CopyBlock({Expression(cb.Destination)}, {Expression(cb.Source)}, {Expression(cb.Size)});",
+        CopyBlock cb => "/* unsupported cpblk */",
         Return { Value: { } value } => ReturnText(value),
         Return => "return;",
         YieldReturn y => $"yield return {Expression(y.Value)};",
