@@ -314,7 +314,7 @@ public sealed class CSharpTypePrinter
             return [$"{pad}{EnsureTerminated(declaration)}"];
         }
 
-        if (member.Member.Kind == "property")
+        if (IsProperty(member.Member))
             return RenderProperty(type, member, formatter, propertyFormatter, indent);
 
         string memberDeclaration = member.Body is null
@@ -683,7 +683,7 @@ public sealed class CSharpTypePrinter
             throw new NotSupportedException(
                 $"Field '{member.Name}' does not support body policy '{policy.BodyPolicy}'.");
         }
-        if (member.Kind == "property"
+        if (IsProperty(member)
             && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
             && policy.Body is null)
         {
@@ -710,7 +710,7 @@ public sealed class CSharpTypePrinter
         {
             (_, null) => policy.BodyPolicy != CSharpBodyPolicy.Full,
             ("field", CSharpFieldInitializer) => true,
-            ("property", CSharpPropertyBody) => true,
+            (_, CSharpPropertyBody) when IsProperty(member) => true,
             ("method" or "extension-method" or "explicit-interface-implementation" or "constructor", CSharpBlockBody) => true,
             _ => false,
         };
@@ -728,6 +728,12 @@ public sealed class CSharpTypePrinter
                 parameterName);
         }
     }
+
+    static bool IsProperty(ApiMember member)
+        => member.Kind == "property"
+            || member.Kind == "explicit-interface-implementation"
+                && member.Name.Contains('.', StringComparison.Ordinal)
+                && member.SignatureModel?.Accessors.Count > 0;
 
     sealed record PreparedType(
         string Namespace,

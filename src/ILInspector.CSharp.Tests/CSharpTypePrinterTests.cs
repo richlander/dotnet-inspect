@@ -1052,6 +1052,55 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void ExplicitInterfacePropertyPreservesQualifiedNameAndOmitsAccessibility()
+    {
+        var property = new ApiMember
+        {
+            Name = "Samples.IValue.Value",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Samples.IValue.Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Interfaces.Add("Samples.IValue");
+        type.Members.Add(property);
+        var request = new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    property,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block("return 42;"),
+                        null))
+            ]);
+
+        var result = _printer.Print(request);
+
+        Assert.Contains(
+            """
+                int Samples.IValue.Value
+                {
+                    get
+                    {
+                        return 42;
+                    }
+                }
+            """,
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "public int Samples.IValue.Value",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NestedTypesAndPrimaryConstructorsRenderInFileScopedNamespaceUnits()
     {
         var nested = CreateEmptyType("Samples", "Nested");

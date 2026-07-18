@@ -815,11 +815,12 @@ internal static class CSharpDeclarationWriter
             signature = AppendTypeParameterConstraints($"{returnType} {memberName}({parameters})", model.TypeParameters);
             return true;
         }
-        if (member.Kind == "property"
+        if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
             && model.ReturnType is { Length: > 0 } propertyType
             && model.Accessors.Count > 0
-            && IsOrdinaryPropertyName(member.Name)
-            && IsOrdinaryPropertyName(model.MemberName))
+            && (member.Kind == "explicit-interface-implementation"
+                || IsOrdinaryPropertyName(member.Name)
+                    && IsOrdinaryPropertyName(model.MemberName)))
         {
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;
             var propertyMemberName = model.MemberName == "this[]"
@@ -872,6 +873,11 @@ internal static class CSharpDeclarationWriter
                || name == "this[]"
                || !name.Contains('.', StringComparison.Ordinal);
     }
+
+    static bool IsExplicitInterfaceProperty(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            && member.Name.Contains('.', StringComparison.Ordinal)
+            && member.SignatureModel?.Accessors.Count > 0;
 
     internal static string FormatParameter(ApiParameter parameter)
     {
