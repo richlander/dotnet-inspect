@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -24,10 +25,18 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         if (!IsSelectedWorker(nameof(MetadataGraphWorker)))
             return;
 
-        AssertContained(BuildTypeDefinitionImage(depth: 1, cyclic: true));
-        AssertContained(BuildTypeDefinitionImage(DeepGraphLength, cyclic: false));
-        AssertContained(BuildTypeReferenceImage(depth: 1, cyclic: true));
-        AssertContained(BuildTypeReferenceImage(DeepGraphLength, cyclic: false));
+        AssertRejected(
+            BuildTypeDefinitionImage(depth: 1, cyclic: true),
+            "Cycle");
+        AssertRejected(
+            BuildTypeDefinitionImage(DeepGraphLength, cyclic: false),
+            "NodeBudget");
+        AssertRejected(
+            BuildTypeReferenceImage(depth: 1, cyclic: true),
+            "Cycle");
+        AssertRejected(
+            BuildTypeReferenceImage(DeepGraphLength, cyclic: false),
+            "NodeBudget");
     }
 
     [Fact]
@@ -47,7 +56,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
     }
 
     [Fact]
-    public void MetadataGraphEdgeCensus_MatchesBoundedImplementations()
+    public void MetadataGraphEdgeCensus_HasNoLocalIdentityRelationshipWalk()
     {
         string sourceDirectory = Path.Combine(FindRepositoryRoot(), "src", "ILInspector.Instructions");
         var actual = Directory.EnumerateFiles(sourceDirectory, "*.cs", SearchOption.AllDirectories)
@@ -75,8 +84,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
 
         GraphEdgeCount[] expected =
         [
-            new("BoundedMetadataName.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 2),
-            new("IlAssemblyDiff.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
+            new("IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
             new("IlBodyDiff.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
             new("MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
         ];
@@ -112,7 +120,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             $"Child worker {workerMethod} exited {process.ExitCode}.\nstdout:\n{standardOutput}\nstderr:\n{standardError}");
     }
 
-    static void AssertContained(byte[] image)
+    static void AssertRejected(byte[] image, string expectedKind)
     {
         using (var oldStream = new MemoryStream(image))
         using (var newStream = new MemoryStream(image))
@@ -123,9 +131,18 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
                 newStream,
                 "new.dll");
 
-            Assert.Equal(1, assemblyResult.Diff.ComparedBodyCount);
-            Assert.Equal(1, assemblyResult.Diff.PairExactCount);
-            Assert.Equal(0, assemblyResult.Diff.FailureCount);
+            Assert.Equal(0, assemblyResult.Diff.ComparedBodyCount);
+            Assert.Equal(0, assemblyResult.Diff.PairExactCount);
+            Assert.Equal(2, assemblyResult.Diff.FailureCount);
+            Assert.Equal(2, assemblyResult.Diff.IdentityFailures.Length);
+            Assert.All(
+                assemblyResult.Diff.IdentityFailures,
+                failure =>
+                {
+                    Assert.Equal(MetadataTypeNameFailureMechanism.Relationship, failure.Mechanism);
+                    Assert.Equal(expectedKind, failure.Kind);
+                    Assert.StartsWith("The Type", failure.Detail, StringComparison.Ordinal);
+                });
         }
 
         using var pe = new PEReader(new MemoryStream(image));
@@ -139,9 +156,14 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             reader,
             method);
 
-        Assert.True(memberResult.Diff.IsExact);
+        Assert.False(memberResult.Diff.IsExact);
+        Assert.Equal("method identity resolution failed", memberResult.Diff.Failure);
+        Assert.Equal(2, memberResult.IdentityFailures.Length);
+        Assert.All(
+            memberResult.IdentityFailures,
+            failure => Assert.Equal(expectedKind, failure.Kind));
         Assert.Equal(memberResult.Old.Identity, memberResult.New.Identity);
-        Assert.InRange(memberResult.Old.Identity.Length, 1, 4096);
+        Assert.StartsWith("token 0x0600", memberResult.Old.Identity, StringComparison.Ordinal);
     }
 
     static string MemberIdentity(byte[] image)

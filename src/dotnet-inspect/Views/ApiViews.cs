@@ -456,6 +456,9 @@ public class CliApiSurface
     [MarkoutSection(Name = "Type Forwarders")]
     public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
 
+    [MarkoutSection(Name = "Inspection Failures")]
+    public List<ApiInspectionFailureRow>? InspectionFailures { get; set; }
+
     // Per-kind type sections (5 kinds × with/without docs)
     [MarkoutSection(Name = "Classes", IgnoreProperty = "Kind,Description")]
     public List<TypeSummaryRow>? Classes { get; set; }
@@ -490,6 +493,14 @@ public record TypeSummaryRow(string Kind, string Type, string Members, string? D
 public record ForwarderSummaryRow(
     [property: MarkoutPropertyName("Target Library")] string TargetLibrary,
     string Types);
+
+[MarkoutSerializable]
+public record ApiInspectionFailureRow(
+    string Operation,
+    string Subject,
+    string Mechanism,
+    string Kind,
+    string Detail);
 
 [MarkoutSerializable]
 public record MemberRow(
@@ -796,6 +807,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ApiSurfaceTableView))]
 [MarkoutContext(typeof(ApiSurfaceTableRow))]
 [MarkoutContext(typeof(SampleRow))]
+[MarkoutContext(typeof(ApiInspectionFailureRow))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {
 }

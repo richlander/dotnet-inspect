@@ -37,6 +37,9 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             TypeResolver.ResolveTypeNameFromDefinition(image.Reader, leaf).GetValueOrThrow());
+        var strict = Assert.IsType<MetadataTypeNameResult.Resolved>(
+            TypeResolver.ResolveTypeName(image.Reader, leaf));
+        Assert.Equal("N.Outer.Middle.Leaf", strict.Value);
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             image.Reader.GetFullTypeName(image.Reader.GetTypeDefinition(leaf)));
@@ -268,6 +271,16 @@ public class MetadataRelationshipTraversalTests
                 image.Reader.ResolveFullTypeName(typeReference),
                 RelationshipTraversalRejectionKind.Cycle,
                 consumedNodes: 1);
+            var strict = Assert.IsType<MetadataTypeNameResult.Rejected>(
+                TypeResolver.ResolveTypeName(image.Reader, typeReference));
+            Assert.Equal(
+                MetadataTypeNameFailureMechanism.Relationship,
+                strict.Failure.Mechanism);
+            Assert.Equal(
+                RelationshipTraversalRejectionKind.Cycle,
+                strict.Failure.RelationshipKind);
+            Assert.Equal(0x01000001, strict.Failure.SubjectToken);
+            Assert.Equal(1, strict.Failure.ConsumedNodes);
             Assert.Throws<BadImageFormatException>(
                 () => image.Reader.GetFullTypeName(
                     image.Reader.GetTypeReference(typeReference)));

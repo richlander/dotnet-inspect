@@ -110,7 +110,8 @@ Signature and graph rejection remain mechanism-specific at their substrate
 boundaries. A composite Metadata operation maps either one into a common
 failure envelope that retains:
 
-- the mechanism (`Signature`, `TypeSpec`, `Relationship`, or `Projection`);
+- the mechanism (`Metadata`, `Signature`, `TypeSpecification`,
+  `Relationship`, or `Projection`);
 - the original rejection kind and detail;
 - the subject handle or token when available;
 - consumed-work counters.
@@ -119,6 +120,12 @@ Dependent stages stop after the first rejection in a documented evaluation
 order. Independent row fields may collect multiple failures in stable field
 order. Consumers do not discard the original mechanism or reduce every failure
 to an undifferentiated `Degraded` flag.
+
+The implemented composite type-name operation is `MetadataTypeNameResult`:
+`Resolved` carries a complete name, `Absent` represents a handle kind that has
+no type-name operation, and `Rejected` carries `MetadataTypeNameFailure`.
+`TypeSpecificationBudget` remains a `TypeSpecification` failure rather than
+being flattened into a generic signature rejection.
 
 ### Budget integrity
 
@@ -360,6 +367,12 @@ APIs. They may not use a throwing compatibility wrapper where one malformed
 member would abort processing of otherwise independent rows. Throwing wrappers
 are limited to callers that already own a whole-operation failure boundary.
 
+The legacy nullable `TypeResolver.GetTypeName` compatibility surface is not
+globally redefined during consumer migration. Migrated identity, correlation,
+and row-producing consumers use `ResolveTypeName`; deferred display and
+classifier callers retain their existing compatibility behavior until they
+receive an explicit failure-bearing boundary.
+
 ## Ownership
 
 - `ILInspector.MetadataPrimitives` owns traversal mechanics, budgets, and
@@ -400,6 +413,21 @@ spelling, Analysis and Decompiler TypeRef decoding, and C# implementation-diff
 visibility checks. Existing TypeRef decoders may keep their semantic
 `Unsupported` value, but cycle and budget evidence must come from the shared
 relationship walk rather than ambient depth alone.
+
+The relationship-consumer implementation applies these projections:
+
+- API surface extraction records `ApiSurfaceInspectionFailure`, rolls back
+  counts for the rejected type row, and continues with independent rows.
+- API diff carries those failures and suppresses unilateral added/removed type
+  claims when the opposite surface has rejected identities.
+- IL assembly diff records `IlIdentityResolutionFailure`; rejected methods do
+  not enter the correlation map.
+- C# implementation diff records `CSharpIdentityResolutionFailure`; rejected
+  types or methods do not enter the correlation map, while independent methods
+  continue.
+- Analysis and Decompiler `TypeRef` values retain the typed metadata failure on
+  `Unsupported`; TypeSpec re-entry and signature-structure limits remain
+  separate mechanisms.
 
 Delete depth-only and silent-truncation duplicates after consumer migration. A
 syntax census should retain an explicit list of direct relationship reads and

@@ -198,6 +198,14 @@ public sealed record CSharpDiffFailureRow(
     string? Detail = null,
     int? HunkId = null);
 
+public sealed record CSharpIdentityResolutionFailure(
+    string Side,
+    string Path,
+    int SubjectToken,
+    MetadataTypeNameFailureMechanism Mechanism,
+    string Kind,
+    string Detail);
+
 internal sealed record CSharpSemanticOperation(
     CSharpDiffOperationKind Kind,
     int Line,
@@ -207,14 +215,17 @@ internal sealed record CSharpSemanticOperation(
 
 public sealed record CSharpBodyDiffResult(
     ImmutableArray<CSharpDiffRow> Rows,
-    ImmutableArray<CSharpDiffFailureRow> FailureRows = default)
+    ImmutableArray<CSharpDiffFailureRow> FailureRows = default,
+    ImmutableArray<CSharpIdentityResolutionFailure> IdentityFailures = default)
 {
     public CSharpBodyDiffResult(ImmutableArray<CSharpDiffRow> rows)
         : this(rows, FailureRows: [])
     {
     }
 
-    public bool IsExact => Rows.IsEmpty && (FailureRows.IsDefaultOrEmpty);
+    public bool IsExact => Rows.IsEmpty
+        && FailureRows.IsDefaultOrEmpty
+        && IdentityFailures.IsDefaultOrEmpty;
 }
 
 /// <summary>
@@ -251,8 +262,35 @@ public static class CSharpBodyDiff
         if (newMethod.IsNil)
             throw new ArgumentException("New method handle must not be nil.", nameof(newMethod));
 
-        var oldEntry = CreateMethodEntry(oldSource, oldSource.Reader.GetMethodDefinition(oldMethod).GetDeclaringType(), oldMethod, StableAssemblyKey(oldSource));
-        var newEntry = CreateMethodEntry(newSource, newSource.Reader.GetMethodDefinition(newMethod).GetDeclaringType(), newMethod, StableAssemblyKey(newSource));
+        var identityFailures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        CSharpMethodEntry? oldEntry = TryCreateMethodEntry(
+            oldSource,
+            oldSource.Reader.GetMethodDefinition(oldMethod).GetDeclaringType(),
+            oldMethod,
+            StableAssemblyKey(oldSource),
+            "old",
+            identityFailures);
+        CSharpMethodEntry? newEntry = TryCreateMethodEntry(
+            newSource,
+            newSource.Reader.GetMethodDefinition(newMethod).GetDeclaringType(),
+            newMethod,
+            StableAssemblyKey(newSource),
+            "new",
+            identityFailures);
+        if (oldEntry is null || newEntry is null)
+        {
+            return new CSharpBodyDiffResult(
+                [],
+                [],
+                identityFailures.ToImmutable());
+        }
+        if (oldEntry.BodyFingerprint is null || newEntry.BodyFingerprint is null)
+        {
+            return new CSharpBodyDiffResult(
+                [],
+                [],
+                identityFailures.ToImmutable());
+        }
         if (oldEntry.BodyFingerprint == newEntry.BodyFingerprint)
             return new CSharpBodyDiffResult([]);
 
@@ -260,7 +298,10 @@ public static class CSharpBodyDiff
         var failureRows = ImmutableArray.CreateBuilder<CSharpDiffFailureRow>();
         int hunkId = 0;
         AddLineDiffRows(rows, failureRows, oldEntry, Decompile(oldEntry, oldSource), Decompile(newEntry, newSource), ref hunkId);
-        return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
+        return new CSharpBodyDiffResult(
+            rows.ToImmutable(),
+            failureRows.ToImmutable(),
+            identityFailures.ToImmutable());
     }
 
     /// <summary>
@@ -308,8 +349,18 @@ public static class CSharpBodyDiff
         ArgumentNullException.ThrowIfNull(oldPaths);
         ArgumentNullException.ThrowIfNull(newPaths);
 
-        var oldMethods = BuildMethodIndex(oldPaths, includeNonPublic, typeFilters);
-        var newMethods = BuildMethodIndex(newPaths, includeNonPublic, typeFilters);
+        var oldIndex = BuildMethodIndexWithFailures(
+            oldPaths,
+            includeNonPublic,
+            typeFilters,
+            "old");
+        var newIndex = BuildMethodIndexWithFailures(
+            newPaths,
+            includeNonPublic,
+            typeFilters,
+            "new");
+        var oldMethods = oldIndex.Methods;
+        var newMethods = newIndex.Methods;
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
         var failureRows = ImmutableArray.CreateBuilder<CSharpDiffFailureRow>();
         var sources = new SourceCache();
@@ -341,6 +392,9 @@ public static class CSharpBodyDiff
                     continue;
                 }
 
+                if (oldMethod.BodyFingerprint is null || newMethod.BodyFingerprint is null)
+                    continue;
+
                 if (oldMethod.BodyFingerprint == newMethod.BodyFingerprint)
                     continue;
 
@@ -352,15 +406,30 @@ public static class CSharpBodyDiff
             sources.Dispose();
         }
 
-        return new CSharpBodyDiffResult(rows.ToImmutable(), failureRows.ToImmutable());
+        return new CSharpBodyDiffResult(
+            rows.ToImmutable(),
+            failureRows.ToImmutable(),
+            [.. oldIndex.Failures, .. newIndex.Failures]);
     }
 
     internal static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(
         IReadOnlyList<string> paths,
         bool includeNonPublic,
         IReadOnlySet<string>? typeFilters)
+        => BuildMethodIndexWithFailures(
+            paths,
+            includeNonPublic,
+            typeFilters,
+            side: "unknown").Methods;
+
+    internal static CSharpMethodIndex BuildMethodIndexWithFailures(
+        IReadOnlyList<string> paths,
+        bool includeNonPublic,
+        IReadOnlySet<string>? typeFilters,
+        string side)
     {
         var entries = new List<CSharpMethodEntry>();
+        var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var path in paths.Distinct(StringComparer.Ordinal))
         {
@@ -369,10 +438,17 @@ public static class CSharpBodyDiff
             int occurrence = assemblyOccurrences.GetValueOrDefault(assemblyKey);
             assemblyOccurrences[assemblyKey] = occurrence + 1;
             string occurrenceKey = $"{assemblyKey}#{occurrence}";
-            entries.AddRange(EnumerateMethods(source, path, occurrenceKey, includeNonPublic, typeFilters));
+            entries.AddRange(EnumerateMethods(
+                source,
+                path,
+                occurrenceKey,
+                includeNonPublic,
+                typeFilters,
+                side,
+                failures));
         }
 
-        return entries
+        var methods = entries
             .GroupBy(entry => $"{entry.StableAssemblyKey}|{entry.RawKey}", StringComparer.Ordinal)
             .SelectMany(group => group
                 .GroupBy(entry => entry.DuplicateDiscriminator, StringComparer.Ordinal)
@@ -388,6 +464,7 @@ public static class CSharpBodyDiff
                     }))
                 .Select(entry => (Key: entry.StableMemberKey, Entry: entry)))
             .ToDictionary(pair => pair.Key, pair => pair.Entry, StringComparer.Ordinal);
+        return new CSharpMethodIndex(methods, failures.ToImmutable());
     }
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
@@ -460,21 +537,52 @@ public static class CSharpBodyDiff
         return min == int.MaxValue ? -1 : min;
     }
 
-    static IEnumerable<CSharpMethodEntry> EnumerateMethods(MetadataSource source, string path, string stableAssemblyKey, bool includeNonPublic, IReadOnlySet<string>? typeFilters)
+    static IEnumerable<CSharpMethodEntry> EnumerateMethods(
+        MetadataSource source,
+        string path,
+        string stableAssemblyKey,
+        bool includeNonPublic,
+        IReadOnlySet<string>? typeFilters,
+        string side,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
     {
         var reader = source.Reader;
         var typeDefinitionsByName = BuildTypeDefinitionMap(reader);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
-            var type = reader.GetTypeDefinition(typeHandle);
-            string typeFullName = reader.GetFullTypeName(type);
-            string typeKey = TypeIdentityKey(reader, typeHandle);
-            if (!includeNonPublic && !IsVisibleSurfaceType(reader, typeHandle, typeDefinitionsByName))
+            TypeDefinition type;
+            string typeFullName;
+            string typeKey;
+            try
+            {
+                type = reader.GetTypeDefinition(typeHandle);
+                typeFullName = ResolveIdentityTypeName(reader, typeHandle);
+                typeKey = TypeIdentityKey(reader, typeHandle);
+                if (!includeNonPublic && !IsVisibleSurfaceType(reader, typeHandle, typeDefinitionsByName))
+                    continue;
+                if (!MatchesTypeFilters(typeFullName, typeFilters))
+                    continue;
+            }
+            catch (MetadataIdentityResolutionException ex)
+            {
+                AddIdentityFailure(failures, side, path, typeHandle, ex.Failure);
                 continue;
-            if (!MatchesTypeFilters(typeFullName, typeFilters))
-                continue;
+            }
 
-            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, type, typeDefinitionsByName);
+            HashSet<MethodDefinitionHandle> explicitImplementationBodies;
+            try
+            {
+                explicitImplementationBodies = GetExplicitImplementationBodies(
+                    reader,
+                    type,
+                    typeDefinitionsByName);
+            }
+            catch (MetadataIdentityResolutionException ex)
+            {
+                AddIdentityFailure(failures, side, path, typeHandle, ex.Failure);
+                continue;
+            }
+
             var nameOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var methodHandle in type.GetMethods())
             {
@@ -486,8 +594,70 @@ public static class CSharpBodyDiff
                 if (!includeNonPublic && !IsPublicSurface(method) && !explicitImplementationBodies.Contains(methodHandle))
                     continue;
 
-                yield return CreateMethodEntry(source, typeHandle, methodHandle, stableAssemblyKey, typeFullName, typeKey, overloadIndex);
+                var entry = TryCreateMethodEntry(
+                    source,
+                    typeHandle,
+                    methodHandle,
+                    stableAssemblyKey,
+                    side,
+                    failures,
+                    typeFullName,
+                    typeKey,
+                    overloadIndex);
+                if (entry is not null)
+                    yield return entry;
             }
+        }
+    }
+
+    static CSharpMethodEntry? TryCreateMethodEntry(
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        string stableAssemblyKey,
+        string side,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        string? typeFullName = null,
+        string? typeKey = null,
+        int? overloadIndex = null)
+    {
+        CSharpMethodEntry entry;
+        try
+        {
+            entry = CreateMethodEntryWithoutFingerprint(
+                source,
+                typeHandle,
+                methodHandle,
+                stableAssemblyKey,
+                typeFullName,
+                typeKey,
+                overloadIndex);
+        }
+        catch (MetadataIdentityResolutionException ex)
+        {
+            AddIdentityFailure(
+                failures,
+                side,
+                source.Path,
+                methodHandle,
+                ex.Failure);
+            return null;
+        }
+
+        try
+        {
+            var method = source.Reader.GetMethodDefinition(methodHandle);
+            return entry with { BodyFingerprint = BodyFingerprint(source, method) };
+        }
+        catch (MetadataIdentityResolutionException ex)
+        {
+            AddIdentityFailure(
+                failures,
+                side,
+                source.Path,
+                methodHandle,
+                ex.Failure);
+            return entry;
         }
     }
 
@@ -500,10 +670,31 @@ public static class CSharpBodyDiff
         string? typeKey = null,
         int? overloadIndex = null)
     {
+        var entry = CreateMethodEntryWithoutFingerprint(
+            source,
+            typeHandle,
+            methodHandle,
+            stableAssemblyKey,
+            typeFullName,
+            typeKey,
+            overloadIndex);
+        var method = source.Reader.GetMethodDefinition(methodHandle);
+        return entry with { BodyFingerprint = BodyFingerprint(source, method) };
+    }
+
+    static CSharpMethodEntry CreateMethodEntryWithoutFingerprint(
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        string stableAssemblyKey,
+        string? typeFullName = null,
+        string? typeKey = null,
+        int? overloadIndex = null)
+    {
         var reader = source.Reader;
         var type = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
-        typeFullName ??= reader.GetFullTypeName(type);
+        typeFullName ??= ResolveIdentityTypeName(reader, typeHandle);
         typeKey ??= TypeIdentityKey(reader, typeHandle);
         string methodName = reader.GetString(method.Name);
         var signature = GuardedDecode.MethodSignature(reader, method, GenericScope.Empty);
@@ -532,7 +723,7 @@ public static class CSharpBodyDiff
             methodHandle,
             overloadIndex ?? OverloadIndex(reader, type, methodHandle, methodName),
             method.RelativeVirtualAddress != 0,
-            BodyFingerprint(source, method));
+            BodyFingerprint: null);
     }
 
     static int OverloadIndex(MetadataReader reader, TypeDefinition type, MethodDefinitionHandle targetMethod, string methodName)
@@ -568,10 +759,14 @@ public static class CSharpBodyDiff
         => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
     static string TypeIdentityKey(MetadataReader reader, TypeDefinitionHandle handle)
-        => reader.GetFullTypeName(reader.GetTypeDefinition(handle));
+        => ResolveIdentityTypeName(reader, handle);
 
     static string CanonicalTypeName(TypeRef type)
-        => type.Kind switch
+    {
+        if (FindMetadataNameFailure(type) is { } failure)
+            throw new MetadataIdentityResolutionException(failure);
+
+        return type.Kind switch
         {
             TypeRefKind.Definition => type.Namespace.Length == 0
                 ? type.Name.Replace("+", ".", StringComparison.Ordinal)
@@ -586,6 +781,44 @@ public static class CSharpBodyDiff
             TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
             TypeRefKind.FunctionPointer => CanonicalFunctionPointer(type),
             _ => $"<unsupported:{type.UnsupportedReason}>",
+        };
+    }
+
+    static MetadataTypeNameFailure? FindMetadataNameFailure(TypeRef type)
+    {
+        if (type.MetadataNameFailure is not null)
+            return type.MetadataNameFailure;
+        if (type.ElementType is not null
+            && FindMetadataNameFailure(type.ElementType) is { } elementFailure)
+        {
+            return elementFailure;
+        }
+
+        foreach (var argument in type.TypeArguments)
+        {
+            if (FindMetadataNameFailure(argument) is { } argumentFailure)
+                return argumentFailure;
+        }
+
+        return null;
+    }
+
+    static string ResolveIdentityTypeName(
+        MetadataReader reader,
+        EntityHandle handle)
+        => TypeResolver.ResolveTypeName(reader, handle) switch
+        {
+            MetadataTypeNameResult.Resolved resolved => resolved.Value,
+            MetadataTypeNameResult.Rejected rejected =>
+                throw new MetadataIdentityResolutionException(rejected.Failure),
+            MetadataTypeNameResult.Absent =>
+                throw new MetadataIdentityResolutionException(
+                    MetadataTypeNameFailure.ForMechanism(
+                        MetadataTypeNameFailureMechanism.Relationship,
+                        handle,
+                        "The metadata type has no resolvable identity.")),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata type-name result."),
         };
 
     static string CanonicalFunctionPointer(TypeRef type)
@@ -697,8 +930,8 @@ public static class CSharpBodyDiff
     static string EntityFingerprint(MetadataReader reader, EntityHandle handle)
         => handle.Kind switch
         {
-            HandleKind.TypeDefinition => $"type-def:{reader.GetFullTypeName(reader.GetTypeDefinition((TypeDefinitionHandle)handle))}",
-            HandleKind.TypeReference => $"type-ref:{reader.GetFullTypeName(reader.GetTypeReference((TypeReferenceHandle)handle))}",
+            HandleKind.TypeDefinition => $"type-def:{ResolveIdentityTypeName(reader, handle)}",
+            HandleKind.TypeReference => $"type-ref:{ResolveIdentityTypeName(reader, handle)}",
             HandleKind.TypeSpecification => $"type-spec:{CanonicalTypeName(GuardedDecode.TypeSpecification(reader, (TypeSpecificationHandle)handle, GenericScope.Empty))}",
             HandleKind.MethodDefinition => MethodDefinitionFingerprint(reader, (MethodDefinitionHandle)handle),
             HandleKind.MemberReference => MemberReferenceFingerprint(reader, (MemberReferenceHandle)handle),
@@ -710,7 +943,7 @@ public static class CSharpBodyDiff
     static string MethodDefinitionFingerprint(MetadataReader reader, MethodDefinitionHandle handle)
     {
         var method = reader.GetMethodDefinition(handle);
-        return $"method-def:{reader.GetFullTypeName(reader.GetTypeDefinition(method.GetDeclaringType()))}.{reader.GetString(method.Name)}:{MethodSignatureFingerprint(reader, method)}";
+        return $"method-def:{ResolveIdentityTypeName(reader, method.GetDeclaringType())}.{reader.GetString(method.Name)}:{MethodSignatureFingerprint(reader, method)}";
     }
 
     static string MemberReferenceFingerprint(MetadataReader reader, MemberReferenceHandle handle)
@@ -732,7 +965,7 @@ public static class CSharpBodyDiff
     static string FieldDefinitionFingerprint(MetadataReader reader, FieldDefinitionHandle handle)
     {
         var field = reader.GetFieldDefinition(handle);
-        return $"field-def:{reader.GetFullTypeName(reader.GetTypeDefinition(field.GetDeclaringType()))}.{reader.GetString(field.Name)}:{CanonicalTypeName(GuardedDecode.FieldType(reader, field, GenericScope.Empty))}";
+        return $"field-def:{ResolveIdentityTypeName(reader, field.GetDeclaringType())}.{reader.GetString(field.Name)}:{CanonicalTypeName(GuardedDecode.FieldType(reader, field, GenericScope.Empty))}";
     }
 
     static string MemberParentFingerprint(MetadataReader reader, EntityHandle handle)
@@ -776,7 +1009,16 @@ public static class CSharpBodyDiff
     {
         var map = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
         foreach (var handle in reader.TypeDefinitions)
-            map.TryAdd(reader.GetFullTypeName(reader.GetTypeDefinition(handle)), handle);
+        {
+            try
+            {
+                map.TryAdd(ResolveIdentityTypeName(reader, handle), handle);
+            }
+            catch (MetadataIdentityResolutionException)
+            {
+                // The owning type enumeration records the row-level rejection.
+            }
+        }
         return map;
     }
 
@@ -785,13 +1027,29 @@ public static class CSharpBodyDiff
         TypeDefinitionHandle handle,
         IReadOnlyDictionary<string, TypeDefinitionHandle> typeDefinitionsByName)
     {
-        var type = reader.GetTypeDefinition(handle);
-        bool visible = (type.Attributes & TypeAttributes.VisibilityMask) is
-            TypeAttributes.Public or TypeAttributes.NestedPublic or TypeAttributes.NestedFamily or TypeAttributes.NestedFamORAssem;
-        if (!visible)
-            return false;
-        var declaring = type.GetDeclaringType();
-        return declaring.IsNil || IsVisibleSurfaceType(reader, declaring, typeDefinitionsByName);
+        var result = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
+            reader,
+            handle);
+        if (result is RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Rejected rejected)
+        {
+            throw new MetadataIdentityResolutionException(
+                MetadataTypeNameFailure.From(rejected.Rejection));
+        }
+
+        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
+        foreach (var current in chain.Handles)
+        {
+            var type = reader.GetTypeDefinition(current);
+            bool visible = (type.Attributes & TypeAttributes.VisibilityMask) is
+                TypeAttributes.Public
+                or TypeAttributes.NestedPublic
+                or TypeAttributes.NestedFamily
+                or TypeAttributes.NestedFamORAssem;
+            if (!visible)
+                return false;
+        }
+
+        return true;
     }
 
     static bool IsPublicSurface(MethodDefinition method)
@@ -861,7 +1119,7 @@ public static class CSharpBodyDiff
         if (reference.ResolutionScope.Kind == HandleKind.AssemblyReference)
             return true;
 
-        string metadataName = reader.GetFullTypeName(reference);
+        string metadataName = ResolveIdentityTypeName(reader, handle);
         if (typeDefinitionsByName.TryGetValue(metadataName, out var typeHandle))
             return IsVisibleInterfaceDefinition(reader, typeHandle, typeDefinitionsByName);
 
@@ -1864,6 +2122,39 @@ public static class CSharpBodyDiff
         return text.Trim();
     }
 
+    static void AddIdentityFailure(
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        string side,
+        string path,
+        EntityHandle subject,
+        MetadataTypeNameFailure failure)
+        => failures.Add(new CSharpIdentityResolutionFailure(
+            side,
+            path,
+            failure.SubjectToken ?? MetadataTokens.GetToken(subject),
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail));
+
+    internal sealed record CSharpMethodIndex(
+        Dictionary<string, CSharpMethodEntry> Methods,
+        ImmutableArray<CSharpIdentityResolutionFailure> Failures);
+
+    sealed class MetadataIdentityResolutionException
+        : InvalidOperationException
+    {
+        public MetadataIdentityResolutionException(
+            MetadataTypeNameFailure failure)
+            : base(
+                $"Metadata identity resolution failed "
+                + $"({failure.Mechanism}/{failure.Kind}): {failure.Detail}")
+        {
+            Failure = failure;
+        }
+
+        public MetadataTypeNameFailure Failure { get; }
+    }
+
     internal sealed record CSharpMethodEntry(
         string Path,
         string AssemblyName,
@@ -1878,7 +2169,7 @@ public static class CSharpBodyDiff
         MethodDefinitionHandle MethodHandle,
         int OverloadIndex,
         bool HasBody,
-        string BodyFingerprint);
+        string? BodyFingerprint);
 
     sealed record CSharpMethodRender(CSharpRenderState State, IReadOnlyList<SourceLine> Lines, DecompilationFidelity Fidelity);
 

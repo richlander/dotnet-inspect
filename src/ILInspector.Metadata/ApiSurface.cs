@@ -86,6 +86,8 @@ public class ApiSurface
 
     public List<ApiType> Types { get; set; } = [];
 
+    public List<ApiSurfaceInspectionFailure> InspectionFailures { get; set; } = [];
+
     public int PublicTypeCount { get; set; }
     public int PublicMethodCount { get; set; }
     public int PublicPropertyCount { get; set; }
@@ -119,6 +121,13 @@ public class ApiSurface
     /// </summary>
     public bool IsTypeForwardingAssembly { get; set; }
 }
+
+public sealed record ApiSurfaceInspectionFailure(
+    string Operation,
+    int SubjectToken,
+    MetadataTypeNameFailureMechanism Mechanism,
+    string Kind,
+    string Detail);
 
 /// <summary>
 /// Represents a type forwarded to another assembly.

@@ -49,6 +49,7 @@ public static class ResearchDiff
     {
         ArgumentNullException.ThrowIfNull(diff);
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
+        changes.AddRange(diff.InspectionFailures.Select(ApiInspectionFailureChange));
         foreach (var typeDiff in diff.TypeDiffs)
         {
             foreach (var change in typeDiff.Changes)
@@ -132,6 +133,28 @@ public static class ResearchDiff
     {
         ArgumentNullException.ThrowIfNull(diff);
         var changes = ImmutableArray.CreateBuilder<ResearchChange>();
+        foreach (var failure in diff.IdentityFailures.IsDefault
+            ? []
+            : diff.IdentityFailures)
+        {
+            string token = $"0x{failure.SubjectToken:X8}";
+            string detail = $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
+            changes.Add(new ResearchChange(
+                new ResearchSubjectKey(
+                    ResearchSubjectKind.Member,
+                    $"csharp:{failure.Side}:{token}",
+                    $"{failure.Side} metadata {token}"),
+                ResearchChangeMechanism.CSharp,
+                Descriptor(
+                    "csharp.identity-resolution-failure",
+                    "Identity resolution failure"),
+                ResearchChangeKind.Failed,
+                oldValue: failure.Side == "old" ? detail : null,
+                newValue: failure.Side == "new" ? detail : null,
+                detail: detail,
+                category: ResearchChangeCategory.CSharp));
+        }
+
         var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
         var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
         if (!failureRows.IsEmpty)
@@ -265,6 +288,9 @@ public static class ResearchDiff
             new ApiDiffOptions(apiScope));
         var diff = findings.ApiDiff;
         builder.ApiComparison = findings;
+        foreach (var failure in diff.InspectionFailures)
+            builder.Add(ApiInspectionFailureChange(failure));
+
         foreach (var typeDiff in diff.TypeDiffs)
         {
             foreach (var change in typeDiff.Changes)
@@ -283,6 +309,29 @@ public static class ResearchDiff
                     apiChange: change));
             }
         }
+
+    }
+
+    static ResearchChange ApiInspectionFailureChange(
+        ApiDiffInspectionFailure failure)
+    {
+        string token = $"0x{failure.SubjectToken:X8}";
+        string detail = $"{failure.Operation}: "
+            + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
+        return new ResearchChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Type,
+                $"api:{failure.Side}:{token}",
+                $"{failure.Side} metadata {token}"),
+            ResearchChangeMechanism.Api,
+            Descriptor(
+                "api.identity-resolution-failure",
+                "Identity resolution failure"),
+            ResearchChangeKind.Failed,
+            oldValue: failure.Side == "old" ? detail : null,
+            newValue: failure.Side == "new" ? detail : null,
+            detail: detail,
+            category: ResearchChangeCategory.Signature);
     }
 
     static void AddBodySignalDiff(
@@ -1018,6 +1067,29 @@ public static class ResearchDiff
             newInput.AssemblyPaths,
             typeFilters: typeFilters,
             memberTargetIdentities: memberTargetIdentities);
+        foreach (var failure in diff.IdentityFailures.IsDefault
+            ? []
+            : diff.IdentityFailures)
+        {
+            string token = $"0x{failure.SubjectToken:X8}";
+            var subject = new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                $"csharp:{failure.Side}:{token}",
+                $"{failure.Side} metadata {token}");
+            string detail = $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
+            builder.Add(new ResearchChange(
+                subject,
+                ResearchChangeMechanism.CSharp,
+                Descriptor(
+                    "csharp.identity-resolution-failure",
+                    "Identity resolution failure"),
+                ResearchChangeKind.Failed,
+                oldValue: failure.Side == "old" ? detail : null,
+                newValue: failure.Side == "new" ? detail : null,
+                detail: detail,
+                category: ResearchChangeCategory.CSharp));
+        }
+
         var failureRows = diff.FailureRows.IsDefault ? [] : diff.FailureRows;
         var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
         foreach (var failure in failureRows)
@@ -1059,11 +1131,36 @@ public static class ResearchDiff
         if (!retainedComparisonDescriptorIds.Contains(CSharpFindings.LineDescriptor.Id))
             return;
 
-        foreach (var retained in CSharpFindings.CompareAssemblies(
+        var findingComparisons = CSharpFindings.CompareAssembliesWithFailures(
             oldInput.AssemblyPaths,
             newInput.AssemblyPaths,
             typeFilters: typeFilters,
-            memberTargetIdentities: memberTargetIdentities))
+            memberTargetIdentities: memberTargetIdentities);
+        foreach (var failure in findingComparisons.IdentityFailures)
+        {
+            string token = $"0x{failure.SubjectToken:X8}";
+            var subject = new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                $"csharp:{failure.Side}:{token}",
+                $"{failure.Side} metadata {token}");
+            if (builder.HasFailure(subject, ResearchChangeMechanism.CSharp))
+                continue;
+
+            string detail = $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}";
+            builder.Add(new ResearchChange(
+                subject,
+                ResearchChangeMechanism.CSharp,
+                Descriptor(
+                    "csharp.identity-resolution-failure",
+                    "Identity resolution failure"),
+                ResearchChangeKind.Failed,
+                oldValue: failure.Side == "old" ? detail : null,
+                newValue: failure.Side == "new" ? detail : null,
+                detail: detail,
+                category: ResearchChangeCategory.CSharp));
+        }
+
+        foreach (var retained in findingComparisons.Comparisons)
         {
             var subject = ResearchMemberIdentity.SubjectFromAnchor(
                 retained.Anchor,
@@ -1174,6 +1271,10 @@ public static class ResearchDiff
         {
             Name = string.Join(",", surfaces.Select(surface => surface!.Name).Where(name => !string.IsNullOrEmpty(name))),
             Types = [.. surfaces.SelectMany(surface => surface!.Types)],
+            InspectionFailures =
+            [
+                .. surfaces.SelectMany(surface => surface!.InspectionFailures),
+            ],
         };
     }
 

@@ -15,6 +15,10 @@ public sealed record CSharpMemberFindingComparison(
     bool NewMemberPresent,
     FindingComparison<CSharpCanonicalLine> Comparison);
 
+public sealed record CSharpAssemblyFindingComparisonResult(
+    ImmutableArray<CSharpMemberFindingComparison> Comparisons,
+    ImmutableArray<CSharpIdentityResolutionFailure> IdentityFailures);
+
 /// <summary>
 /// Adapts decompiled C# method bodies onto the domain-free finding substrate. It reuses
 /// <see cref="CSharpBodyDiff"/> to render and canonicalize a method into ordered C# line
@@ -81,12 +85,37 @@ public static class CSharpFindings
         IReadOnlySet<string>? typeFilters = null,
         IReadOnlySet<string>? memberTargetIdentities = null,
         int acceptanceThreshold = 100)
+        => CompareAssembliesWithFailures(
+            oldPaths,
+            newPaths,
+            includeNonPublic,
+            typeFilters,
+            memberTargetIdentities,
+            acceptanceThreshold).Comparisons;
+
+    public static CSharpAssemblyFindingComparisonResult CompareAssembliesWithFailures(
+        IReadOnlyList<string> oldPaths,
+        IReadOnlyList<string> newPaths,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null,
+        int acceptanceThreshold = 100)
     {
         ArgumentNullException.ThrowIfNull(oldPaths);
         ArgumentNullException.ThrowIfNull(newPaths);
 
-        var oldMethods = CSharpBodyDiff.BuildMethodIndex(oldPaths, includeNonPublic, typeFilters);
-        var newMethods = CSharpBodyDiff.BuildMethodIndex(newPaths, includeNonPublic, typeFilters);
+        var oldIndex = CSharpBodyDiff.BuildMethodIndexWithFailures(
+            oldPaths,
+            includeNonPublic,
+            typeFilters,
+            "old");
+        var newIndex = CSharpBodyDiff.BuildMethodIndexWithFailures(
+            newPaths,
+            includeNonPublic,
+            typeFilters,
+            "new");
+        var oldMethods = oldIndex.Methods;
+        var newMethods = newIndex.Methods;
         var comparisons = ImmutableArray.CreateBuilder<CSharpMemberFindingComparison>();
         using var sources = new CSharpBodyDiff.SourceCache();
 
@@ -119,7 +148,9 @@ public static class CSharpFindings
                 CompareInspections(oldInspection, newInspection, acceptanceThreshold)));
         }
 
-        return comparisons.ToImmutable();
+        return new CSharpAssemblyFindingComparisonResult(
+            comparisons.ToImmutable(),
+            [.. oldIndex.Failures, .. newIndex.Failures]);
     }
 
     internal static FindingComparison<CSharpCanonicalLine> CompareCanonicalized(

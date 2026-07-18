@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -97,6 +98,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>Why this shape is unsupported; empty for supported shapes.</summary>
     public string UnsupportedReason { get; private init; } = "";
 
+    public MetadataTypeNameFailure? MetadataNameFailure { get; private init; }
+
     /// <summary>The C# calling-convention spelling of a function pointer (empty = managed, e.g. <c>unmanaged</c>, <c>unmanaged[Cdecl]</c>); empty otherwise.</summary>
     public string CallingConvention { get; private init; } = "";
 
@@ -185,8 +188,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public static TypeRef MethodGenericParameter(int index, string name = "")
         => new(TypeRefKind.MethodGenericParameter) { GenericParameterIndex = index, GenericParameterName = name };
 
-    public static TypeRef Unsupported(string reason)
-        => new(TypeRefKind.Unsupported) { UnsupportedReason = reason };
+    public static TypeRef Unsupported(
+        string reason,
+        MetadataTypeNameFailure? metadataNameFailure = null)
+        => new(TypeRefKind.Unsupported)
+        {
+            UnsupportedReason = reason,
+            MetadataNameFailure = metadataNameFailure,
+        };
 
     /// <summary>A function pointer over <paramref name="parameters"/> returning <paramref name="returnType"/>; <paramref name="callingConvention"/> is the C# spelling (empty = managed).</summary>
     public static TypeRef FunctionPointer(TypeRef returnType, ImmutableArray<TypeRef> parameters, string callingConvention)
@@ -292,6 +301,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             GenericParameterIndex = GenericParameterIndex,
             GenericParameterName = GenericParameterName,
             UnsupportedReason = UnsupportedReason,
+            MetadataNameFailure = MetadataNameFailure,
             CallingConvention = CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
             ValueTypeHint = ValueTypeHint,

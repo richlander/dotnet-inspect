@@ -166,6 +166,16 @@ public class SignatureDecoderSafetyTests
                 reader,
                 MetadataTokens.TypeSpecificationHandle(1)),
             SignatureDecodeRejectionKind.TypeSpecificationBudget);
+        var strict = Assert.IsType<MetadataTypeNameResult.Rejected>(
+            TypeResolver.ResolveTypeName(
+                reader,
+                MetadataTokens.TypeSpecificationHandle(1)));
+        Assert.Equal(
+            MetadataTypeNameFailureMechanism.TypeSpecification,
+            strict.Failure.Mechanism);
+        Assert.Equal(
+            SignatureDecodeRejectionKind.TypeSpecificationBudget,
+            strict.Failure.SignatureKind);
     }
 
     [Fact]

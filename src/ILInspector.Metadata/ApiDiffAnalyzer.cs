@@ -167,11 +167,20 @@ public record TypeDiff(string TypeFullName, IReadOnlyList<ApiChange> Changes)
 public class ApiDiff
 {
     public IReadOnlyList<TypeDiff> TypeDiffs { get; init; } = [];
+    public IReadOnlyList<ApiDiffInspectionFailure> InspectionFailures { get; init; } = [];
     public int TotalBreaking { get; init; }
     public int TotalAdditive { get; init; }
     public int TotalPotentiallyBreaking { get; init; }
-    public bool IsEmpty => TypeDiffs.Count == 0;
+    public bool IsEmpty => TypeDiffs.Count == 0 && InspectionFailures.Count == 0;
 }
+
+public sealed record ApiDiffInspectionFailure(
+    string Side,
+    string Operation,
+    int SubjectToken,
+    MetadataTypeNameFailureMechanism Mechanism,
+    string Kind,
+    string Detail);
 
 /// <summary>
 /// Compares two <see cref="ApiSurface"/> instances and produces a structured diff
@@ -196,6 +205,8 @@ public static class ApiDiffAnalyzer
 
         var oldTypes = BuildTypeLookup(oldSurface);
         var newTypes = BuildTypeLookup(newSurface);
+        bool oldIdentityIncomplete = oldSurface.InspectionFailures.Count > 0;
+        bool newIdentityIncomplete = newSurface.InspectionFailures.Count > 0;
 
         var allTypeNames = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var key in oldTypes.Keys) allTypeNames.Add(key);
@@ -215,6 +226,8 @@ public static class ApiDiffAnalyzer
 
             if (inOld && !inNew)
             {
+                if (newIdentityIncomplete)
+                    continue;
                 changes = IncludesSignature(options)
                     ? [new ApiChange(ChangeKind.TypeRemoved, ChangeClassification.Breaking,
                         $"Type '{typeName}' was removed",
@@ -223,6 +236,8 @@ public static class ApiDiffAnalyzer
             }
             else if (!inOld && inNew)
             {
+                if (oldIdentityIncomplete)
+                    continue;
                 changes = IncludesSignature(options)
                     ? [new ApiChange(ChangeKind.TypeAdded, ChangeClassification.Additive,
                         $"Type '{typeName}' was added",
@@ -247,6 +262,25 @@ public static class ApiDiffAnalyzer
         return new ApiDiff
         {
             TypeDiffs = typeDiffs,
+            InspectionFailures =
+            [
+                .. oldSurface.InspectionFailures.Select(failure =>
+                    new ApiDiffInspectionFailure(
+                        "old",
+                        failure.Operation,
+                        failure.SubjectToken,
+                        failure.Mechanism,
+                        failure.Kind,
+                        failure.Detail)),
+                .. newSurface.InspectionFailures.Select(failure =>
+                    new ApiDiffInspectionFailure(
+                        "new",
+                        failure.Operation,
+                        failure.SubjectToken,
+                        failure.Mechanism,
+                        failure.Kind,
+                        failure.Detail)),
+            ],
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
             TotalPotentiallyBreaking = totalPotentiallyBreaking
