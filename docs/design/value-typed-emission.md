@@ -234,7 +234,7 @@ per print.
 ### 2. `Coerce(value, targetType)` — the node
 
 A single C#-surface coercion node, distinct from the existing `Convert` node.
-This distinction is load-bearing: `Convert` models the value's **IL history**
+The two nodes represent different facts: `Convert` models the value's **IL history**
 (`conv.i8`); `Coerce` models the **C# rendering conversion** needed at a target. The
 new node is inserted during raising (or synthesised at the emission boundary) and
 owns, in one place, the rules the printer currently spreads around:

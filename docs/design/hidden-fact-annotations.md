@@ -1,4 +1,4 @@
-# Hidden-Fact Annotations
+# Hidden-fact annotations
 
 This document describes the **hidden-fact annotation** layer: a read-only,
 descriptive system over the decompiler's IR that surfaces facts the C# source
@@ -40,9 +40,9 @@ is plainest at `Imported`; a cached-delegate shape only after `Raised`).
 
 An annotation marks the **presence** of a fact, never the absence of others.
 There is no "all clear" — any tally is a roll-up of what was found, never an
-oracle that asserts nothing else exists. This is load-bearing: it is what lets
-the layer stay honest under incomplete analysis. A missed fact is a recall gap,
-never a false "this method is allocation-free" claim.
+oracle that asserts nothing else exists. That rule keeps the layer honest under
+incomplete analysis. A missed fact is a recall gap, never a false "this method
+is allocation-free" claim.
 
 ### Categories and classifiers
 

@@ -1,4 +1,4 @@
-# Decompiler Substrate Layers
+# Decompiler substrate layers
 
 How shared rewrite-gate predicates are factored out from the raising passes, and
 how we notice when several passes have independently grown the same need. This
@@ -79,8 +79,8 @@ ledger/scorecard movement, or a corpus/fidelity signal.
 
 ## Atoms, not one maximal predicate
 
-The load-bearing design choice is that a substrate layer exposes **atoms the
-caller composes**, never a single "does everything" predicate. The equality
+A substrate layer exposes **atoms the caller composes**, never a single "does
+everything" predicate. The equality
 logic is shared; *which node kinds a pass admits* is not — that admissibility is
 a deliberate soundness discriminator the pass still owns.
 
