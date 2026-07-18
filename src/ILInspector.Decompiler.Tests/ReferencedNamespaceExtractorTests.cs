@@ -3,14 +3,14 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
-public class BodyNamespaceExtractorTests
+public class ReferencedNamespaceExtractorTests
 {
     static IReadOnlySet<string> ExtractFor(string typeFullName, string methodName, int overloadIndex = 0)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeFullName, methodName, overloadIndex);
         Assert.NotNull(function);
-        return BodyNamespaceExtractor.ReferencedNamespaces(function);
+        return ReferencedNamespaceExtractor.Extract(function);
     }
 
     [Fact]

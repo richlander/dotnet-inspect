@@ -778,7 +778,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: BodyNamespaceExtractor.ReferencedNamespaces(function)
+            Usings: ReferencedNamespaceExtractor.Extract(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -954,7 +954,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: BodyNamespaceExtractor.ReferencedNamespaces(function)
+            Usings: ReferencedNamespaceExtractor.Extract(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -1156,7 +1156,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: BodyNamespaceExtractor.ReferencedNamespaces(function)
+            Usings: ReferencedNamespaceExtractor.Extract(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],

@@ -936,7 +936,7 @@ static class FidelityCheck
             catch { continue; }
             if (body is null)
                 continue;
-            var requiredNamespaces = BodyNamespaceExtractor.ReferencedNamespaces(function);
+            var requiredNamespaces = ReferencedNamespaceExtractor.Extract(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(
                 reader, method, ConstructorBodyFactExtractor.Extract(function).PrimaryConstructorPrologue, body);
             var original = MetadataInstructionProducer.Disassemble(pe, reader, method);

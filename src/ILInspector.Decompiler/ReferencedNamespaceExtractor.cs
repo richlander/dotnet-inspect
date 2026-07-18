@@ -1,13 +1,13 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Extracts the set of namespaces a decompiled body references from its IR so
+/// Extracts the set of namespaces a decompiled function references from its IR so
 /// ReturnToSender and the fidelity harness can assemble <c>using</c> directives
 /// without reading Decompiler IR themselves. This is the single owner of the IR type
 /// walk those consumers previously duplicated in the harness; the facts it returns are
 /// plain namespace strings and no Decompiler type crosses the boundary.
 /// </summary>
-public static class BodyNamespaceExtractor
+public static class ReferencedNamespaceExtractor
 {
     /// <summary>
     /// The distinct namespaces of every type referenced by <paramref name="function"/>
@@ -16,7 +16,7 @@ public static class BodyNamespaceExtractor
     /// only their underlying definition namespaces are reported; the global namespace
     /// (empty string) is excluded.
     /// </summary>
-    public static IReadOnlySet<string> ReferencedNamespaces(IrFunction function)
+    public static IReadOnlySet<string> Extract(IrFunction function)
     {
         var namespaces = new SortedSet<string>(StringComparer.Ordinal);
 
