@@ -4780,6 +4780,48 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_DoesNotDuplicateSelfRecursiveTargetMethodDuringClosureSurface()
+    {
+        // Guard for the rts-parity burndown row TypeResolver::GetTypeNameFromReference:
+        // a target method that calls itself recursively must not also be reconstructed
+        // as a hollow `throw null` closure stub (the self-reference resolves to the
+        // target method's own handle). Emitting both the body-backed method and a
+        // same-signature stub produced CS0111 (duplicate member) and forced the
+        // compile-back floor. A referenced sibling (Combine) must still be stubbed.
+        var assemblyPath = CompileFixture("""
+            public static class Class1
+            {
+                public static string Describe(int depth, string name)
+                {
+                    if (depth > 0)
+                        return Describe(depth - 1, name);
+                    return Combine(name, name);
+                }
+
+                public static string Combine(string left, string right) => left + right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Describe", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            // The recursive target keeps exactly one declaration (body-backed, not a
+            // hollow stub); the referenced sibling is the only `throw null` member.
+            Assert.Equal(1, result.Source.Split("string Describe(").Length - 1);
+            Assert.DoesNotContain("string Describe(int depth, string name) { throw null; }", result.Source);
+            Assert.Contains("public static string Combine(string left, string right) { throw null; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
