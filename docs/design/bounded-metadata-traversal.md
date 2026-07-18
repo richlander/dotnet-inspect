@@ -147,11 +147,16 @@ not the model for ordinary graph traversal.
 - cycle detection with visited handles;
 - centralized policy values;
 - typed completion/rejection results;
+- caller-owned buffered overloads for allocation-sensitive consumers;
 - an explicit projection budget used by consumer-owned formatters.
 
 The chain result exposes handles and the terminal scope, not a formatted name.
 Consumers decide whether nested separators are `.`, `+`, or `/`, whether an
 assembly qualifier is required, and how a rejection is presented.
+Buffered overloads apply the same node ceiling and typed rejection contract but
+write a completed root-to-leaf chain into caller-owned storage. Callers must
+check completion before reading that storage; a rejected walk exposes only
+failure evidence and consumed work, never a partial identity.
 
 Consumer formatters receive an operation-scoped projection budget and charge
 characters and items before appending or materializing them. The shared
@@ -486,6 +491,8 @@ The implementation must also demonstrate:
 
 - no rejection on a pinned runtime and package corpus;
 - unchanged identities and rendered text for completed traversals;
+- measured valid-path allocation and throughput against the pre-migration
+  consumer implementation;
 - bounded allocation and output for every rejected fixture;
 - deterministic results across repeated and parallel runs;
 - no new inspected-assembly loading, Roslyn dependency, or NativeAOT break.

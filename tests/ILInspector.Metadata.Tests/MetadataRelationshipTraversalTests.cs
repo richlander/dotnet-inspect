@@ -34,6 +34,18 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal([outer, middle, leaf], completed.Value.Handles);
         Assert.True(completed.Value.Terminal.IsNil);
         Assert.Equal(3, completed.ConsumedNodes);
+        Span<TypeDefinitionHandle> buffered =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        Assert.True(MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+            image.Reader,
+            leaf,
+            buffered,
+            out int bufferedCount,
+            out EntityHandle bufferedTerminal,
+            out var rejection));
+        Assert.Equal([outer, middle, leaf], buffered[..bufferedCount].ToArray());
+        Assert.True(bufferedTerminal.IsNil);
+        Assert.Null(rejection);
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             TypeResolver.ResolveTypeNameFromDefinition(image.Reader, leaf).GetValueOrThrow());
@@ -77,6 +89,18 @@ public class MetadataRelationshipTraversalTests
 
         Assert.Equal([outer, middle, leaf], completed.Value.Handles);
         Assert.Equal((EntityHandle)assembly, completed.Value.Terminal);
+        Span<TypeReferenceHandle> buffered =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        Assert.True(MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+            image.Reader,
+            leaf,
+            buffered,
+            out int bufferedCount,
+            out EntityHandle bufferedTerminal,
+            out var rejection));
+        Assert.Equal([outer, middle, leaf], buffered[..bufferedCount].ToArray());
+        Assert.Equal((EntityHandle)assembly, bufferedTerminal);
+        Assert.Null(rejection);
         Assert.Equal(
             "N.Outer.Middle.Leaf",
             image.Reader.ResolveFullTypeName(leaf).GetValueOrThrow());
@@ -123,6 +147,18 @@ public class MetadataRelationshipTraversalTests
 
         Assert.Equal([outer, middle, leaf], completed.Value.Handles);
         Assert.Equal((EntityHandle)assembly, completed.Value.Terminal);
+        Span<ExportedTypeHandle> buffered =
+            stackalloc ExportedTypeHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        Assert.True(MetadataRelationshipTraversal.TryWalkExportedTypeImplementationChain(
+            image.Reader,
+            leaf,
+            buffered,
+            out int bufferedCount,
+            out EntityHandle bufferedTerminal,
+            out var rejection));
+        Assert.Equal([outer, middle, leaf], buffered[..bufferedCount].ToArray());
+        Assert.Equal((EntityHandle)assembly, bufferedTerminal);
+        Assert.Null(rejection);
         Assert.Equal(
             "N.Outer",
             image.Reader.GetFullTypeName(image.Reader.GetExportedType(outer)));
@@ -281,6 +317,20 @@ public class MetadataRelationshipTraversalTests
                 strict.Failure.RelationshipKind);
             Assert.Equal(0x01000001, strict.Failure.SubjectToken);
             Assert.Equal(1, strict.Failure.ConsumedNodes);
+            Span<TypeReferenceHandle> buffered =
+                stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            Assert.False(MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                image.Reader,
+                typeReference,
+                buffered,
+                out int bufferedCount,
+                out _,
+                out var rejection));
+            Assert.Equal(1, bufferedCount);
+            Assert.Equal(
+                RelationshipTraversalRejectionKind.Cycle,
+                rejection!.Kind);
+            Assert.Equal(1, rejection.ConsumedNodes);
             Assert.Throws<BadImageFormatException>(
                 () => image.Reader.GetFullTypeName(
                     image.Reader.GetTypeReference(typeReference)));

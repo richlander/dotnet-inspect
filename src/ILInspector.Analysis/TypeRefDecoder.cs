@@ -65,24 +65,30 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     public TypeRef GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        var result = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle);
-        if (result is RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Rejected rejected)
+        Span<TypeDefinitionHandle> handles =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                handles,
+                out int consumedNodes,
+                out _,
+                out var rejection))
+        {
             return TypeRef.Unsupported(
-                RelationshipFailure("type-definition declaring-type", rejected.Rejection),
-                MetadataTypeNameFailure.From(rejected.Rejection));
+                RelationshipFailure("type-definition declaring-type", rejection!),
+                MetadataTypeNameFailure.From(rejection!));
+        }
 
-        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
         try
         {
-            var root = reader.GetTypeDefinition(chain.Handles[0]);
+            var chain = handles[..consumedNodes];
+            var root = reader.GetTypeDefinition(chain[0]);
             string assembly = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : "";
             string ns = reader.GetString(root.Namespace);
-            string name = string.Join(
-                "+",
-                chain.Handles.Select(current =>
-                    reader.GetString(reader.GetTypeDefinition(current).Name)));
+            string name = TypeDefinitionName(reader, chain);
             return TypeRef.Definition(
                 assembly,
                 ns,
@@ -100,25 +106,31 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     public TypeRef GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        var result = MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle);
-        if (result is RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Rejected rejected)
+        Span<TypeReferenceHandle> handles =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                handles,
+                out int consumedNodes,
+                out EntityHandle terminal,
+                out var rejection))
+        {
             return TypeRef.Unsupported(
-                RelationshipFailure("type-reference resolution-scope", rejected.Rejection),
-                MetadataTypeNameFailure.From(rejected.Rejection));
+                RelationshipFailure("type-reference resolution-scope", rejection!),
+                MetadataTypeNameFailure.From(rejection!));
+        }
 
-        var chain = ((RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Completed)result).Value;
         try
         {
-            var root = reader.GetTypeReference(chain.Handles[0]);
+            var chain = handles[..consumedNodes];
+            var root = reader.GetTypeReference(chain[0]);
             string ns = reader.GetString(root.Namespace);
-            string name = string.Join(
-                "+",
-                chain.Handles.Select(current =>
-                    reader.GetString(reader.GetTypeReference(current).Name)));
+            string name = TypeReferenceName(reader, chain);
 
-            if (chain.Terminal.Kind == HandleKind.AssemblyReference)
+            if (terminal.Kind == HandleKind.AssemblyReference)
             {
-                var assemblyHandle = (AssemblyReferenceHandle)chain.Terminal;
+                var assemblyHandle = (AssemblyReferenceHandle)terminal;
                 return TypeRef.Definition(
                     reader.GetString(reader.GetAssemblyReference(assemblyHandle).Name),
                     ns,
@@ -142,6 +154,38 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 RelationshipProjectionFailure("type-reference resolution-scope", handle, ex),
                 RelationshipProjectionFailure(handle, ex));
         }
+    }
+
+    static string TypeDefinitionName(
+        MetadataReader reader,
+        ReadOnlySpan<TypeDefinitionHandle> handles)
+    {
+        string name = reader.GetString(
+            reader.GetTypeDefinition(handles[0]).Name);
+        for (int i = 1; i < handles.Length; i++)
+        {
+            name = string.Concat(
+                name,
+                "+",
+                reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
+        }
+        return name;
+    }
+
+    static string TypeReferenceName(
+        MetadataReader reader,
+        ReadOnlySpan<TypeReferenceHandle> handles)
+    {
+        string name = reader.GetString(
+            reader.GetTypeReference(handles[0]).Name);
+        for (int i = 1; i < handles.Length; i++)
+        {
+            name = string.Concat(
+                name,
+                "+",
+                reader.GetString(reader.GetTypeReference(handles[i]).Name));
+        }
+        return name;
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
