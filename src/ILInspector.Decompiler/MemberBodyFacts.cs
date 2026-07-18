@@ -3,20 +3,65 @@ using ILInspector.CSharp;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Extracts neutral <see cref="ConstructorBodyFacts"/> from a decompiled constructor's
-/// IR so ReturnToSender and the C# seam can reconstruct constructor-chain initializers
-/// and primary-constructor shells without reading Decompiler IR themselves. This is the
-/// single owner of the IR pattern-matches those consumers previously duplicated in the
-/// harness; the facts it returns carry only strings and indices.
+/// Answers neutral reconstruction questions about a decompiled member body's IR so
+/// ReturnToSender and the fidelity harness never read Decompiler IR themselves. Each
+/// query owns an IR walk those consumers previously duplicated in the harness; every
+/// fact returned carries only plain strings and indices, so no Decompiler type crosses
+/// the boundary. New body-reconstruction questions belong here as additional methods.
 /// </summary>
-public static class ConstructorBodyFactExtractor
+public static class MemberBodyFacts
 {
     /// <summary>
-    /// Produces the chain-call and primary-constructor-prologue facts for
-    /// <paramref name="function"/>. Callers should only apply the constructor-shaped
-    /// facts to actual constructors; the extraction itself is body-shape driven.
+    /// The distinct namespaces of every type referenced by <paramref name="function"/>
+    /// and its descendant nodes, in ordinal-sorted order, so the harness can assemble
+    /// <c>using</c> directives. Element/argument types of generic instances, arrays,
+    /// by-refs, pointers, and pinned types are unwrapped so only their underlying
+    /// definition namespaces are reported; the global namespace (empty string) is
+    /// excluded.
     /// </summary>
-    public static ConstructorBodyFacts Extract(IrFunction function)
+    public static IReadOnlySet<string> ReferencedNamespaces(IrFunction function)
+    {
+        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+        void Add(TypeRef? type)
+        {
+            switch (type?.Kind)
+            {
+                case TypeRefKind.Definition:
+                    if (type.Namespace.Length > 0)
+                        namespaces.Add(type.Namespace);
+                    break;
+                case TypeRefKind.GenericInstance:
+                    Add(type.ElementType);
+                    foreach (var argument in type.TypeArguments)
+                        Add(argument);
+                    break;
+                case TypeRefKind.SzArray or TypeRefKind.Array
+                    or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
+                    Add(type.ElementType);
+                    break;
+            }
+        }
+
+        foreach (var node in function.Descendants.Prepend(function))
+        {
+            foreach (var type in node.DirectTypes)
+                Add(type);
+            if (node is IrExpression expression)
+                Add(expression.ResultType);
+        }
+
+        return namespaces;
+    }
+
+    /// <summary>
+    /// The chain-call and primary-constructor-prologue facts for
+    /// <paramref name="function"/>, so ReturnToSender and the C# seam can reconstruct
+    /// constructor-chain initializers and primary-constructor shells. Callers should
+    /// only apply the constructor-shaped facts to actual constructors; the extraction
+    /// itself is body-shape driven.
+    /// </summary>
+    public static ConstructorBodyFacts Constructor(IrFunction function)
         => new(ChainParameterTypes(function), PrimaryConstructorPrologue(function));
 
     /// <summary>
