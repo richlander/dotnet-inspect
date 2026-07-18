@@ -558,6 +558,20 @@ public class FixedBufferElementAccessPassTests
     }
 
     [Fact]
+    public void MissingReceiverInstanceCall_IsNotRaised()
+    {
+        var function = SyntheticMissingReceiverInstanceCall(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int32));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void ZeroArgumentInstanceCall_DoesNotRaiseOrThrow()
     {
         var function = SyntheticZeroArgumentInstanceCall();
@@ -1054,6 +1068,33 @@ public class FixedBufferElementAccessPassTests
             Void,
             [],
             HasThis: false);
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            callee,
+            isVirtual: false,
+            [FixedElementAddress(bufferField, elementField, FixedElementOffset(4))])));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction SyntheticMissingReceiverInstanceCall(FieldRef bufferField, FieldRef elementField)
+    {
+        var callee = new MethodRef(
+            Int32,
+            "Consume",
+            Void,
+            [TypeRef.ByRef(Int32)],
+            HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Ref],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
         var block = new Block();
         block.Add(new ExpressionStatement(new Call(
             callee,
