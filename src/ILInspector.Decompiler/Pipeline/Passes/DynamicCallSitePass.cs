@@ -71,21 +71,24 @@ public sealed class DynamicCallSitePass : IIrPass
         propertyName = null;
         arrayArgDef = null;
 
-        if (block.Children.Count == 0) return false;
+        var children = block.Children;
+        if (children.Count == 0) return false;
 
-        var last = block.Children[^1] as StoreField;
+        var last = children[^1] as StoreField;
         if (last == null || last.Field != cacheField) return false;
 
         var createCall = last.Value as Call;
         if (createCall == null) return false;
 
-        // Is CallSite<T>.Create?
         var createType = createCall.Callee.DeclaringType;
         if (createType.Kind != TypeRefKind.GenericInstance) return false;
         var createDef = createType.ElementType;
-        if (createDef == null || createDef.Namespace != "System.Runtime.CompilerServices" || createDef.Name != "CallSite`1") return false;
-        if (createDef.Assembly != "System.Linq.Expressions" && createDef.Assembly != "System.Core" && createDef.Assembly != "netstandard" && createDef.Assembly != "System.Dynamic.Runtime") return false;
+
+        if (createCall.Callee.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
+        if (createDef?.Namespace != "System.Runtime.CompilerServices" || createDef.Name != "CallSite`1") return false;
+
         if (!cacheField.Type.Equals(createType)) return false;
+        if (!createCall.Callee.ReturnType.Equals(createType)) return false;
         if (createCall.Callee.Name != "Create" || createCall.Arguments.Count != 1) return false;
         if (createCall.Callee.HasThis) return false;
 
@@ -95,120 +98,110 @@ public sealed class DynamicCallSitePass : IIrPass
         if (tArgDef == null || tArgDef.Assembly != TypeRef.CoreLibrary || tArgDef.Namespace != "System" || tArgDef.Name != "Func`3") return false;
         if (tArg.TypeArguments.Length != 3) return false;
 
+        var binderArgType = createCall.Callee.ParameterTypes[0];
+        if (binderArgType.Namespace != "System.Runtime.CompilerServices" || binderArgType.Name != "CallSiteBinder") return false;
+
         var binderCall = createCall.Arguments[0] as Call;
         if (binderCall == null) return false;
 
-        // Validate Binder.GetMember
         var callee = binderCall.Callee;
         var decl = callee.DeclaringType;
-        if (decl.Assembly != "Microsoft.CSharp" || decl.Namespace != "Microsoft.CSharp.RuntimeBinder" || decl.Name != "Binder") return false;
+        if (callee.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
+        if (decl.Namespace != "Microsoft.CSharp.RuntimeBinder" || decl.Name != "Binder") return false;
         if (callee.Name != "GetMember") return false;
-        if (callee.ReturnType.Namespace != "System.Runtime.CompilerServices" || callee.ReturnType.Name != "CallSiteBinder") return false;
-        var binderRetAssm = callee.ReturnType.Assembly;
-        if (binderRetAssm != "System.Linq.Expressions" && binderRetAssm != "System.Core" && binderRetAssm != "System.Dynamic.Runtime" && binderRetAssm != "netstandard") return false;
+        
+        if (!callee.ReturnType.Equals(binderArgType)) return false;
         if (callee.ParameterTypes.Length != 4) return false;
         if (callee.HasThis) return false;
+
+        var refKinds = callee.ParameterRefKinds;
+        if (refKinds.Any(rk => rk != ArgumentRefKind.Value)) return false;
+
+        if (callee.ParameterTypes[0].Namespace != "Microsoft.CSharp.RuntimeBinder" || callee.ParameterTypes[0].Name != "CSharpBinderFlags") return false;
+        if (callee.ParameterTypes[1].Assembly != TypeRef.CoreLibrary || callee.ParameterTypes[1].Name != "String") return false;
+        if (callee.ParameterTypes[2].Assembly != TypeRef.CoreLibrary || callee.ParameterTypes[2].Name != "Type") return false;
+        if (callee.ParameterTypes[3].ElementType?.Name != "IEnumerable`1") return false;
+
         if (binderCall.Arguments.Count != 4) return false;
 
-        // Argument 0: flags
         if (binderCall.Arguments[0] is not Constant flagsConst || flagsConst.Value is not int flags || flags != 0) return false;
-
-        // Argument 1: name
         if (binderCall.Arguments[1] is not Constant nameConst || nameConst.Value is not string propName) return false;
-        if (!CSharpNaming.IsEscapableIdentifier(propName)) return false; // Name must be escapable
+        if (!CSharpNaming.IsEscapableIdentifier(propName)) return false;
         propertyName = propName;
 
-        // Argument 2: context type
-        var contextTypeNode = binderCall.Arguments[2];
-        TypeRef? contextType = null;
-        if (contextTypeNode is TypeOf typeOfNode)
-            contextType = typeOfNode.Type;
-        else if (contextTypeNode is LoadStackSlot or LoadLocal)
+        var ledger = new List<IrNode>();
+        IrExpression? currentArrayDef = null;
+        IrExpression? currentContextDef = null;
+
+        for (int i = 0; i < children.Count - 1; i++)
         {
-            var def = FindDefinition(block, contextTypeNode);
-            if (def is TypeOf defTypeOf)
-                contextType = defTypeOf.Type;
-            else if (def is LoadToken lt2 && lt2.Kind == RuntimeTokenKind.Type)
-                contextType = lt2.Type;
-        }
-        else if (contextTypeNode is LoadToken lt && lt.Kind == RuntimeTokenKind.Type)
-            contextType = lt.Type;
-
-        if (contextType == null || !contextType.Equals(sourceContextType)) return false;
-
-        // Argument 3: CSharpArgumentInfo[]
-        var arg3Node = binderCall.Arguments[3];
-        IrExpression? arrayDef = null;
-        if (arg3Node is LoadStackSlot or LoadLocal)
-        {
-            arrayDef = FindDefinition(block, arg3Node);
-        }
-        if (arrayDef is not NewArray na || na.ElementType.Name != "CSharpArgumentInfo" || na.ElementType.Namespace != "Microsoft.CSharp.RuntimeBinder" || na.ElementType.Assembly != "Microsoft.CSharp") return false;
-        arrayArgDef = arrayDef;
-
-        // Ensure canonical owned statements and alias/dataflow graph
-        int storeElementCount = 0;
-        int newArrayCount = 0;
-        int storeSlotCount = 0;
-
-        for (int i = 0; i < block.Children.Count - 1; i++)
-        {
-            var child = block.Children[i];
+            var child = children[i];
             if (child is StoreStackSlot sss)
             {
-                storeSlotCount++;
-                if (sss.Value is NewArray) newArrayCount++;
-                else if (sss.Value is not LoadToken && sss.Value is not TypeOf) return false;
+                if (sss.Value is NewArray) { currentArrayDef = sss.Value; ledger.Add(child); }
+                else if (sss.Value is LoadToken or TypeOf) { currentContextDef = sss.Value; ledger.Add(child); }
+                else return false;
             }
             else if (child is StoreLocal sl)
             {
-                storeSlotCount++;
-                if (sl.Value is NewArray) newArrayCount++;
-                else if (sl.Value is not LoadToken && sl.Value is not TypeOf) return false;
+                if (sl.Value is NewArray) { currentArrayDef = sl.Value; ledger.Add(child); }
+                else if (sl.Value is LoadToken or TypeOf) { currentContextDef = sl.Value; ledger.Add(child); }
+                else return false;
             }
             else if (child is StoreElement se)
             {
-                storeElementCount++;
                 if (se.Index is not Constant idx || idx.Value is not int index || index != 0) return false;
-
-                IrExpression? arrayRefDef = null;
-                if (se.Array is LoadStackSlot or LoadLocal) arrayRefDef = FindDefinition(block, se.Array);
-                if (arrayRefDef != arrayDef) return false;
+                if (!AreSameDefinition(block, se.Array, currentArrayDef)) return false;
 
                 if (se.Value is not Call infoCreate) return false;
-                if (infoCreate.Callee.Name != "Create" || infoCreate.Callee.DeclaringType.Name != "CSharpArgumentInfo" || infoCreate.Callee.DeclaringType.Namespace != "Microsoft.CSharp.RuntimeBinder" || infoCreate.Callee.DeclaringType.Assembly != "Microsoft.CSharp") return false;
+                if (infoCreate.Callee.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
+                if (infoCreate.Callee.Name != "Create" || infoCreate.Callee.DeclaringType.Name != "CSharpArgumentInfo" || infoCreate.Callee.DeclaringType.Namespace != "Microsoft.CSharp.RuntimeBinder") return false;
                 if (infoCreate.Callee.HasThis) return false;
                 if (!infoCreate.Callee.ReturnType.Equals(infoCreate.Callee.DeclaringType)) return false;
                 if (infoCreate.Arguments.Count != 2) return false;
+                if (infoCreate.Callee.ParameterTypes.Length != 2) return false;
+                if (infoCreate.Callee.ParameterRefKinds.Any(rk => rk != ArgumentRefKind.Value)) return false;
+                if (infoCreate.Callee.ParameterTypes[0].Namespace != "Microsoft.CSharp.RuntimeBinder" || infoCreate.Callee.ParameterTypes[0].Name != "CSharpArgumentInfoFlags") return false;
+                if (infoCreate.Callee.ParameterTypes[1].Assembly != TypeRef.CoreLibrary || infoCreate.Callee.ParameterTypes[1].Name != "String") return false;
+
                 if (infoCreate.Arguments[0] is not Constant fConst || fConst.Value is not int f || f != 0) return false;
                 if (infoCreate.Arguments[1] is not Constant nConst || nConst.Value != null) return false;
+                
+                ledger.Add(child);
             }
             else
             {
-
-                return false; // Extraneous statement
+                return false;
             }
         }
 
-        if (storeElementCount != 1) return false;
-        if (newArrayCount != 1) return false;
+        if (currentArrayDef is not NewArray na) return false;
+        if (na.ElementType.Name != "CSharpArgumentInfo" || na.ElementType.Namespace != "Microsoft.CSharp.RuntimeBinder") return false;
+        if (na.Length is not Constant lenConst || lenConst.Value is not int len || len != 1) return false;
+        arrayArgDef = na;
+
+        if (currentContextDef == null) return false;
+        TypeRef? contextType = null;
+        if (currentContextDef is TypeOf typeOfNode) contextType = typeOfNode.Type;
+        else if (currentContextDef is LoadToken lt && lt.Kind == RuntimeTokenKind.Type) contextType = lt.Type;
+
+        if (contextType == null || !contextType.Equals(sourceContextType)) return false;
+
+        if (!AreSameDefinition(block, binderCall.Arguments[2], currentContextDef)) return false;
+        if (!AreSameDefinition(block, binderCall.Arguments[3], currentArrayDef)) return false;
+
+        if (ledger.Count != children.Count - 1) return false;
 
         return true;
     }
 
-    static IrExpression? FindDefinition(Block block, IrExpression loadNode)
+    static bool AreSameDefinition(Block block, IrExpression useNode, IrExpression? defNode)
     {
-        if (loadNode is LoadStackSlot lss)
-        {
-            var stores = block.Children.OfType<StoreStackSlot>().Where(s => s.Slot == lss.Slot).ToList();
-            if (stores.Count == 1) return stores[0].Value;
-        }
-        else if (loadNode is LoadLocal ll)
-        {
-            var stores = block.Children.OfType<StoreLocal>().Where(s => s.Index == ll.Index).ToList();
-            if (stores.Count == 1) return stores[0].Value;
-        }
-        return null;
+        if (defNode == null) return false;
+        if (useNode == defNode) return true;
+        if (useNode is LoadStackSlot lss && defNode.Parent is StoreStackSlot sss && sss.Slot == lss.Slot) return true;
+        if (useNode is LoadLocal ll && defNode.Parent is StoreLocal sl && sl.Index == ll.Index) return true;
+        return false;
     }
 
     static bool IsCanonicalInvoke(Call invokeCall, FieldRef cacheField, out IrExpression valueArg)
@@ -233,20 +226,28 @@ public sealed class DynamicCallSitePass : IIrPass
 
         if (invokeCall.Callee.ReturnType.Assembly != TypeRef.CoreLibrary || invokeCall.Callee.ReturnType.Namespace != "System" || invokeCall.Callee.ReturnType.Name != "Object") return false;
         if (invokeCall.Callee.ParameterTypes.Length != 2) return false;
-        if (!invokeCall.Callee.HasThis) return false;
+        if (!invokeCall.Callee.ParameterTypes[0].Equals(t0)) return false;
+        if (!invokeCall.Callee.ParameterTypes[1].Equals(t1)) return false;
+        if (invokeCall.Callee.ParameterRefKinds.Any(rk => rk != ArgumentRefKind.Value)) return false;
 
+        if (!invokeCall.Callee.HasThis) return false;
         if (invokeCall.Arguments.Count != 3) return false;
+
         var instanceArg = invokeCall.Arguments[0] as LoadField; // Target
         var callsiteArg = invokeCall.Arguments[1] as LoadField; // s_cache
 
-        if (instanceArg != null && instanceArg.Field.Name == "Target" && instanceArg.Field.DeclaringType.Kind == TypeRefKind.GenericInstance && instanceArg.Field.DeclaringType.ElementType?.Name.StartsWith("CallSite") == true && instanceArg.Instance is LoadField lf1 && lf1.Field == cacheField &&
-            callsiteArg != null && callsiteArg.Field == cacheField)
-        {
-            valueArg = invokeCall.Arguments[2];
-            return true;
-        }
+        if (instanceArg == null || instanceArg.Field.Name != "Target") return false;
+        var targetType = instanceArg.Field.Type;
+        if (!targetType.Equals(type)) return false;
 
+        var targetDecl = instanceArg.Field.DeclaringType;
+        if (targetDecl.Kind != TypeRefKind.GenericInstance || targetDecl.ElementType?.Namespace != "System.Runtime.CompilerServices" || targetDecl.ElementType?.Name != "CallSite`1") return false;
+        if (!targetDecl.Equals(cacheField.Type)) return false;
+        
+        if (instanceArg.Instance is not LoadField lf1 || lf1.Field != cacheField) return false;
+        if (callsiteArg == null || callsiteArg.Field != cacheField) return false;
 
-        return false;
+        valueArg = invokeCall.Arguments[2];
+        return true;
     }
 }

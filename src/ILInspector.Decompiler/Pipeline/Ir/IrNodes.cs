@@ -108,6 +108,21 @@ public sealed record MethodRef(
     public MetadataFactState DeclaringTypeIsDelegate { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// The callee's declaring type was reached through a <em>trusted-platform</em>
+    /// assembly reference — a reference whose public-key token is a framework token
+    /// (verified at import via <see cref="ILInspector.Metadata.PlatformKeys"/>),
+    /// covering both a direct platform reference and a framework forwarding facade.
+    /// The simple assembly name is forgeable, so a consumer that must not confuse a
+    /// planted lookalike (an unsigned assembly literally named
+    /// <c>System.Linq.Expressions</c> defining its own <c>Expression</c>) with the
+    /// real framework type keys off this token-anchored fact rather than the name.
+    /// <see cref="MetadataFactState.Yes"/> only for token-verified platform
+    /// MemberRefs; <see cref="MetadataFactState.Unknown"/> otherwise (a MethodDef,
+    /// MethodSpec, or a non-platform MemberRef never sets it).
+    /// </summary>
+    public MetadataFactState DeclaringTypeIsTrustedPlatform { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Metadata <c>[Extension]</c> evidence on this method: it is an extension
     /// method, so a static call <c>C.M(receiver, args)</c> can render as the
     /// instance form <c>receiver.M(args)</c> the source almost certainly used.

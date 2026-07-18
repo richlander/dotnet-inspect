@@ -2097,8 +2097,9 @@ public static class IrImporter
                 string memberName = reader.GetString(member.Name);
                 var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
                 var memberFacts = MemberReferenceDefinitionFacts(reader, member, memberName, signature.Header.IsInstance, parameterTypes);
+                bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
-                if (accessorKind == AccessorKind.Unknown && IsTrustedPlatformMemberReference(reader, member.Parent))
+                if (accessorKind == AccessorKind.Unknown && trustedPlatform)
                     accessorKind = AccessorKindFromName(memberName);
                 bool inferredSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
                     || memberName.StartsWith("set_", StringComparison.Ordinal)
@@ -2119,6 +2120,9 @@ public static class IrImporter
                     IsSpecialName = inferredSpecialName,
                     IsSpecialNameInferred = inferredSpecialName,
                     AccessorKind = accessorKind,
+                    DeclaringTypeIsTrustedPlatform = trustedPlatform
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.Unknown,
                     DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
                         ? MetadataFactState.Yes
                         : MetadataFactState.Unknown,
@@ -2294,7 +2298,7 @@ public static class IrImporter
         return (fallbackRefKinds, MetadataFactState.Unknown, MetadataFactState.Unknown, typeCompilerGenerated);
     }
 
-    static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch
+    internal static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch
     {
         HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)parent),
         HandleKind.TypeSpecification => IsTrustedPlatformTypeSpecification(reader, (TypeSpecificationHandle)parent),
@@ -2314,27 +2318,28 @@ public static class IrImporter
 
     static bool IsTrustedPlatformTypeSpecification(MetadataReader reader, TypeSpecificationHandle handle)
     {
-        var type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, handle, 0);
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
-        return definition is { Kind: TypeRefKind.Definition }
-            && (definition.Assembly == TypeRef.CoreLibrary || PlatformKeys.IsPlatform(PlatformToken(reader, definition.Assembly)));
+        // Preserve the exact declaring-type handle. Decoding the specification to a
+        // display-oriented TypeRef and then re-resolving by simple assembly name loses
+        // the original metadata handle: crafted IL can wrap the declaring type in a
+        // TypeSpecification (modopt/generic instance) and plant a second unsigned
+        // AssemblyReference with the same simple name, so a name lookup can bless the
+        // real signed reference while the member actually binds to the spoofed one.
+        // Strip modifiers and constructed-type wrappers down to the base
+        // TypeReference/TypeDefinition handle and route that exact handle through the
+        // public-key-token check.
+        var baseType = reader.GetTypeSpecification(handle)
+            .DecodeSignature(PlatformDeclaringTypeHandleProvider.Instance, (object?)null);
+        return baseType.Kind switch
+        {
+            HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)baseType),
+            _ => false,
+        };
     }
 
     static bool IsTrustedPlatformAssembly(MetadataReader reader, AssemblyReferenceHandle handle)
     {
         var reference = reader.GetAssemblyReference(handle);
         return PlatformKeys.IsPlatform(ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken)));
-    }
-
-    static string? PlatformToken(MetadataReader reader, string assemblyName)
-    {
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var reference = reader.GetAssemblyReference(handle);
-            if (reader.GetString(reference.Name) == assemblyName)
-                return ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken));
-        }
-        return null;
     }
 
     static string ToHex(byte[] bytes)
@@ -2684,4 +2689,32 @@ sealed class FieldDataSizeProvider : ISignatureTypeProvider<int, object?>
     public int GetModifiedType(int modifier, int unmodifiedType, bool isRequired) => unmodifiedType;
     public int GetPinnedType(int elementType) => elementType;
     public int GetFunctionPointerType(MethodSignature<int> signature) => 0;
+}
+
+/// <summary>
+/// Signature type provider that strips modifiers and constructed-type wrappers and
+/// returns the exact base declaring-type metadata handle (a <see cref="TypeReferenceHandle"/>
+/// or <see cref="TypeDefinitionHandle"/>). Used to route a TypeSpecification declaring
+/// type through the public-key-token trust check without losing handle identity to a
+/// simple-name assembly lookup.
+/// </summary>
+sealed class PlatformDeclaringTypeHandleProvider : ISignatureTypeProvider<EntityHandle, object?>
+{
+    public static readonly PlatformDeclaringTypeHandleProvider Instance = new();
+
+    public EntityHandle GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => handle;
+    public EntityHandle GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => handle;
+    public EntityHandle GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    public EntityHandle GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
+    public EntityHandle GetSZArrayType(EntityHandle elementType) => elementType;
+    public EntityHandle GetArrayType(EntityHandle elementType, ArrayShape shape) => elementType;
+    public EntityHandle GetByReferenceType(EntityHandle elementType) => elementType;
+    public EntityHandle GetPointerType(EntityHandle elementType) => elementType;
+    public EntityHandle GetGenericInstantiation(EntityHandle genericType, ImmutableArray<EntityHandle> typeArguments) => genericType;
+    public EntityHandle GetGenericMethodParameter(object? genericContext, int index) => default;
+    public EntityHandle GetGenericTypeParameter(object? genericContext, int index) => default;
+    public EntityHandle GetModifiedType(EntityHandle modifier, EntityHandle unmodifiedType, bool isRequired) => unmodifiedType;
+    public EntityHandle GetPinnedType(EntityHandle elementType) => elementType;
+    public EntityHandle GetFunctionPointerType(MethodSignature<EntityHandle> signature) => default;
 }
