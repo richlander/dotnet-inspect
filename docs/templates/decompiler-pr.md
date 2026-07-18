@@ -9,6 +9,11 @@ Every raise PR must keep Before, After, and Fully Raised. Before and After must
 each show a concrete C# example. After records this PR's output; Fully Raised
 records the intended endpoint.
 
+Adversarial review evidence belongs in a separate PR comment, not this
+description. Before marking the PR ready, post a comment that names each
+reviewer/model, the exact head reviewed, findings and their resolution commits
+or explicit non-actions, and each reviewer's final verdict.
+
 For focused invalid-Full / burndown row fixes, prefer
 `docs/templates/decompiler-burndown-fix-pr.md`.
 -->
@@ -114,15 +119,6 @@ For the full local delta, see
 
 </details>
 <!-- markdownlint-enable MD033 -->
-
-## Review
-
-| Reviewer | Result | Notes |
-| --- | --- | --- |
-| {model/reviewer} | No blocking findings / findings resolved | {short evidence} |
-| {model/reviewer} | No blocking findings / findings resolved | {short evidence} |
-
-**Review conclusion:** **PASS/REVIEW/BLOCKED** — {one-line reconciliation}.
 
 ## Validation
 
