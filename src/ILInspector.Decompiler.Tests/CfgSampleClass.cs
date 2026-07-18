@@ -325,6 +325,38 @@ public class CfgSampleClass
             p);
     }
 
+    // Near-miss: the canonical inline factory graph, but returned as the
+    // non-generic Expression. A bare lambda literal only converts to the generic
+    // Expression<TDelegate> (CS8917), so `return x => x + 1;` would be invalid here.
+    // The return-sink guard declines it, keeping the honest factory calls.
+    public static System.Linq.Expressions.Expression ManualCanonicalReturnedAsExpression()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
+    // Near-miss: the canonical inline factory graph, returned as the non-generic
+    // LambdaExpression — likewise not a lambda-literal conversion target (CS8917).
+    public static System.Linq.Expressions.LambdaExpression ManualCanonicalReturnedAsLambdaExpression()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
+    // Near-miss: the canonical inline factory graph, returned as object — again not
+    // a lambda-literal conversion target (CS8917). The return-sink guard declines it.
+    public static object ManualCanonicalReturnedAsObject()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.

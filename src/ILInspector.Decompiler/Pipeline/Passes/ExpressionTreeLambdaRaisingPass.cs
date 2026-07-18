@@ -64,6 +64,14 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
 
     static bool IsInt(TypeRef? type) => type is not null && type.Equals(TypeRef.CoreLib("System", "Int32"));
 
+    // The return type is exactly System.Linq.Expressions.Expression<TDelegate> whose
+    // single type argument is the lambda-call delegate. This is the only method sink
+    // a source lambda literal could convert to; the non-generic Expression /
+    // LambdaExpression, or object, would make `return p => e;` a CS8917 error.
+    static bool IsExpressionOf(TypeRef returnType, TypeRef delegateType)
+        => returnType is { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System.Linq.Expressions", Name: "Expression`1" }, TypeArguments: [var arg] }
+            && arg.Equals(delegateType);
+
     public void Run(IrFunction function, PassContext context)
     {
         if (function.Body.Blocks is not [{ } block]
@@ -76,6 +84,16 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
             || lambdaCall.Callee.TypeArguments is not [var delegateType]
             || lambdaCall.Arguments.Count != 2
             || !IsHomogeneousIntFunc(delegateType, out int arity))
+            return;
+
+        // The rewrite emits a bare lambda literal in the return position, which C#
+        // converts only to a generic Expression<TDelegate> target (CS8917). A
+        // source-authored canonical graph returned as the non-generic Expression /
+        // LambdaExpression, or as object, matches the same factory shape but must
+        // stay in factory form: recovering `return x => x + 1;` there is invalid C#.
+        // Gate on the enclosing method returning exactly Expression<TDelegate> for
+        // this same delegate, which is the only sink the source lambda could have had.
+        if (!IsExpressionOf(function.Signature.ReturnType, delegateType))
             return;
 
         // Resolve the body and parameter-array arguments through their single-use /

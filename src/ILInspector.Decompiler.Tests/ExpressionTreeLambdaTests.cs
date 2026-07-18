@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -12,6 +15,16 @@ public class ExpressionTreeLambdaTests
         IrPasses.Run(function!);
         function.CheckInvariant();
         return function!;
+    }
+
+    static void AssertStaysFactory(IrFunction function, string expectedLambdaGeneric)
+    {
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains(expectedLambdaGeneric, output);
+        Assert.DoesNotContain("=>", output);
     }
 
     [Fact]
@@ -87,4 +100,78 @@ public class ExpressionTreeLambdaTests
         Assert.Contains("Expression.Lambda<Func<int, int>>", output);
         Assert.DoesNotContain("=>", output);
     }
+
+    [Fact]
+    public void ManualCanonicalReturnedAsExpression_StaysFactoryCalls()
+    {
+        // The canonical graph returned as the non-generic Expression: recovering
+        // `return x => x + 1;` would be CS8917-invalid, so the return-sink guard
+        // keeps the honest factory calls.
+        AssertStaysFactory(
+            Raised(nameof(CfgSampleClass.ManualCanonicalReturnedAsExpression)),
+            "Expression.Lambda<Func<int, int>>");
+    }
+
+    [Fact]
+    public void ManualCanonicalReturnedAsLambdaExpression_StaysFactoryCalls()
+    {
+        AssertStaysFactory(
+            Raised(nameof(CfgSampleClass.ManualCanonicalReturnedAsLambdaExpression)),
+            "Expression.Lambda<Func<int, int>>");
+    }
+
+    [Fact]
+    public void ManualCanonicalReturnedAsObject_StaysFactoryCalls()
+    {
+        AssertStaysFactory(
+            Raised(nameof(CfgSampleClass.ManualCanonicalReturnedAsObject)),
+            "Expression.Lambda<Func<int, int>>");
+    }
+
+    // Direct compile-validity oracle for the return-sink gate: a bare lambda
+    // literal `x => x + 1` converts only to the generic Expression<Func<int,int>>
+    // (and delegate) targets. Returning it as Expression, LambdaExpression, or
+    // object is CS8917, which is exactly why recovery must gate on the return sink.
+    [Theory]
+    [InlineData("System.Linq.Expressions.Expression<System.Func<int, int>>", true)]
+    [InlineData("System.Linq.Expressions.Expression", false)]
+    [InlineData("System.Linq.Expressions.LambdaExpression", false)]
+    [InlineData("object", false)]
+    public void ReturnSink_LambdaLiteralConvertibility_MatchesGate(string returnType, bool compiles)
+    {
+        var errors = CompileReturnLambda(returnType);
+
+        if (compiles)
+            Assert.Empty(errors);
+        else
+            Assert.Contains("CS8917", errors);
+    }
+
+    static string[] CompileReturnLambda(string returnType)
+    {
+        string source = $$"""
+            using System;
+            using System.Linq.Expressions;
+
+            public static class ReturnSinkShell
+            {
+                public static {{returnType}} Make() => x => x + 1;
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "expression-tree-return-sink-shell",
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        return compilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.Id)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    static ImmutableArray<MetadataReference> RuntimeReferences()
+        => RoslynTestReferences.TrustedPlatform;
 }
