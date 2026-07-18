@@ -371,6 +371,38 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_DeduplicatesSystemUsing_WhenBodyAlreadyReferencesSystem()
+    {
+        // Issue #2848: the module Usings list unconditionally prepended "System" to
+        // MemberBodyFacts.ReferencedNamespaces(function). A body that already
+        // references a System-namespace type (Guid, here) produced two "System"
+        // entries in the generated using list.
+        var assemblyPath = CompileFixture("""
+            namespace Fixtures;
+
+            public class Class1
+            {
+                public string Method1 => System.Guid.NewGuid().ToString();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Equal(1, result.Plan.Module.Usings.Count(name => name == "System"));
+            Assert.DoesNotContain("using System;\r\nusing System;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("using System;\nusing System;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
     {
         // Issue #2527: base-class reconstruction restores same-assembly base classes,
@@ -4773,6 +4805,48 @@ public class ReturnToSenderPrototypeTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("public static unsafe int* GetPointer()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotDuplicateSelfRecursiveTargetMethodDuringClosureSurface()
+    {
+        // Guard for the rts-parity burndown row TypeResolver::GetTypeNameFromReference:
+        // a target method that calls itself recursively must not also be reconstructed
+        // as a hollow `throw null` closure stub (the self-reference resolves to the
+        // target method's own handle). Emitting both the body-backed method and a
+        // same-signature stub produced CS0111 (duplicate member) and forced the
+        // compile-back floor. A referenced sibling (Combine) must still be stubbed.
+        var assemblyPath = CompileFixture("""
+            public static class Class1
+            {
+                public static string Describe(int depth, string name)
+                {
+                    if (depth > 0)
+                        return Describe(depth - 1, name);
+                    return Combine(name, name);
+                }
+
+                public static string Combine(string left, string right) => left + right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Describe", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            // The recursive target keeps exactly one declaration (body-backed, not a
+            // hollow stub); the referenced sibling is the only `throw null` member.
+            Assert.Equal(1, result.Source.Split("string Describe(").Length - 1);
+            Assert.DoesNotContain("string Describe(int depth, string name) { throw null; }", result.Source);
+            Assert.Contains("public static string Combine(string left, string right) { throw null; }", result.Source);
         }
         finally
         {

@@ -10,6 +10,11 @@ output. [decompiler-quality.md](decompiler-quality.md) explains the quality
 strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
+For raising, typing, structuring, fidelity, or printer changes, continue to
+[raise-work discipline](decompiler-raise-discipline.md) and use the
+[decompiler PR template](templates/decompiler-pr.md). The harness command
+reference lives in [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
+
 The core idea is to stop treating the harness modes as a bag of independent
 tools. They should behave like a staged pipeline. Early stages are cheap, local,
 and should be green all the time. Later stages are broader, slower, and answer

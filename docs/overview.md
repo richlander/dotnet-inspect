@@ -21,17 +21,11 @@ It is built for both humans and agents. Markdown is the default output because h
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 
-## Agent contract
+## Engineering guidance
 
-Agents working in this repo should preserve these principles:
-
-1. Prefer factual inspection over guesses; keep `dotnet-inspect skill` guidance current with CLI behavior.
-2. Keep output section ownership clear: sectioned output should avoid duplicated rows across sections.
-3. Preserve behavior-safe defaults. Expensive network/source checks should stay explicit or capability-gated.
-4. Preserve the progressive-disclosure model: verbosity for curated defaults, `-D`/`-S` for query and backpressure, opt-in sections for expensive work, and `-S @All` only for intentional exhaustive output.
-5. Use built-in query/limiter concepts (`-D`, `-S`, `--columns`, `--fields`, `--count`, `--rows`) instead of shell-pipe workarounds when possible.
-6. Treat cache schema changes as versioned categories and invalidate/clean stale metadata caches deliberately.
-7. Preserve the R1/R2 boundary for method-body evidence: Analysis and ControlFlow stay SRM-only and decompiler-IR-free, while Research is the bridge that projects registered producers into user-visible annotation views.
+[AGENTS.md](../AGENTS.md) is the source of truth for repository-wide
+engineering and workflow rules. This document describes subsystem ownership;
+use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 ## Important systems
 
