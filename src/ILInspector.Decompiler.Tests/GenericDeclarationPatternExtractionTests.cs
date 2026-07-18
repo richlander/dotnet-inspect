@@ -449,6 +449,162 @@ public class GenericDeclarationPatternExtractionTests
         Assert.DoesNotContain("(object)", output);
     }
 
+    [Fact]
+    public void UnboxOfIsInstance_WithAddressTakenInlineLocalFunctionArgument_DoesNotBridge()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadArgument() => new LoadArgument(0, "value", objectType);
+
+        var thenBlock = new Block();
+        thenBlock.Add(new InitObject(
+            objectType,
+            new LoadArgumentAddress(0, "value", objectType)));
+        thenBlock.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadArgument())))));
+
+        var localFunctionBlock = new Block();
+        localFunctionBlock.Add(new IfStatement(
+            new IsInstance(generic, ReadArgument()),
+            thenBlock,
+            null));
+        var localFunctionBody = new BlockContainer();
+        localFunctionBody.Add(localFunctionBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            objectType,
+            [new Parameter("value", objectType)],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localFunctionBody);
+
+        var outer = new Block();
+        outer.Add(localFunction);
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 1),
+            [],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.DoesNotContain("(object)", output);
+    }
+
+    [Fact]
+    public void UnboxOfIsInstance_OuterAddressDoesNotBlockInlineLocalFunction()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadArgument() => new LoadArgument(0, "value", objectType);
+
+        var thenBlock = new Block();
+        thenBlock.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadArgument())))));
+
+        var localFunctionBlock = new Block();
+        localFunctionBlock.Add(new IfStatement(
+            new IsInstance(generic, ReadArgument()),
+            thenBlock,
+            null));
+        var localFunctionBody = new BlockContainer();
+        localFunctionBody.Add(localFunctionBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            objectType,
+            [new Parameter("value", objectType)],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localFunctionBody);
+
+        var outer = new Block();
+        outer.Add(new ExpressionStatement(
+            new LoadArgumentAddress(0, "outer", objectType)));
+        outer.Add(localFunction);
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("outer", objectType)],
+                HasThis: false,
+                GenericParameterCount: 1),
+            [],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("(T)(object)value", output);
+    }
+
+    [Fact]
+    public void UnboxOfIsInstance_FlatGuardInsideLoopRegion_Bridges()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var guardBlock = new Block(0);
+        guardBlock.Add(new ConditionalBranch(
+            new LogicalNot(new IsInstance(generic, ReadLocal())),
+            targetOffset: 100));
+        var siteBlock = new Block(10);
+        siteBlock.Add(new StoreLocal(
+            1,
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal()))));
+        var failBlock = new Block(100);
+        var guardedRegion = new BlockContainer();
+        guardedRegion.Add(guardBlock);
+        guardedRegion.Add(siteBlock);
+        guardedRegion.Add(failBlock);
+
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(200));
+        var loopBody = new Block();
+        loopBody.Add(new TryCatch(
+            guardedRegion,
+            [new CatchClause(TypeRef.CoreLib("System", "Exception"), catchBody)]));
+        var outer = new Block();
+        outer.Add(new WhileLoop(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            loopBody));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 1),
+            [objectType, generic],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("(T)(object)V_0", output);
+        Assert.DoesNotContain("as T", output);
+    }
+
     static void AssertBridgedLocal(string output, bool negatedGuard)
     {
         string condition = negatedGuard ? "is not T" : "is T";

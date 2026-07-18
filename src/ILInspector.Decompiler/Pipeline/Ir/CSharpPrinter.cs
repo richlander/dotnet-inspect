@@ -2563,9 +2563,9 @@ public sealed partial class CSharpPrinter
         for (var current = site.Parent; current is not null; current = current.Parent)
         {
             if (current is Lambda or LocalFunctionStatement)
-                return false;
+                break;
             if (current is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
-                return false;
+                break;
             if (current is not IfStatement ifStatement)
                 continue;
             if (ifStatement.Condition is not IsInstance guard
@@ -2751,11 +2751,7 @@ public sealed partial class CSharpPrinter
         if (locals.Count == 0 && arguments.Count == 0)
             return false;
 
-        IrNode root = site;
-        while (root.Parent is not null)
-            root = root.Parent;
-
-        foreach (var node in DescendantsAndSelfOutsideNestedFunctions(root))
+        foreach (var node in DescendantsAndSelfOutsideNestedFunctions(EnclosingFunctionBody(site)))
         {
             if (node is LoadLocalAddress address && locals.Contains(address.Index))
                 return true;
@@ -2763,6 +2759,23 @@ public sealed partial class CSharpPrinter
                 return true;
         }
         return false;
+    }
+
+    static IrNode EnclosingFunctionBody(IrNode site)
+    {
+        for (IrNode? current = site; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case Lambda lambda:
+                    return lambda.Body;
+                case LocalFunctionStatement localFunction:
+                    return localFunction.Body;
+                case IrFunction function:
+                    return function.Body;
+            }
+        }
+        return site;
     }
 
     static void CollectReadOnlyReferences(IrExpression value, List<int> locals, List<int> arguments)
