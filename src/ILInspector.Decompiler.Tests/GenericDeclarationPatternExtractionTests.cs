@@ -605,7 +605,48 @@ public class GenericDeclarationPatternExtractionTests
         Assert.Matches(@"\bV_\d+ = V_\d+;", output);
     }
 
-    // Synthetic (#2872 gate, Issue 1): the cache local's managed address is
+    // Synthetic (#2872 gate, Issue 1 re-review): the cache local's address is
+    // forwarded through a by-ref-returning receiver call — `p = ref c.Ref()` —
+    // and stored into a ref local that outlives the arm. The `LoadLocalAddress`
+    // sits directly under the `Call`, so a gate that only inspects the address's
+    // direct parent (Store/Return) would miss the escape and fold. The pointer
+    // still escapes once the binding narrows to the pattern's scope, so the fold
+    // must be rejected and the copy must survive. This exercises the
+    // in-place-receiver allow-list's non-by-ref-result clause: a by-ref-returning
+    // receiver call is not an in-place consumer.
+    [Fact]
+    public void CacheAddressForwardedThroughByRefReturningCall_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var byRef = TypeRef.ByRef(generic);
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        // A by-ref-returning instance method on the cache local; the returned
+        // reference forwards the receiver's address to the caller.
+        var refReturn = new MethodRef(generic, "Ref", byRef, [], HasThis: true);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(2, byRef,
+            new Call(refReturn, isVirtual: false, [new LoadLocalAddress(0, generic)])));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic, byRef],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
     // captured into a ref local (`ref T p = ref c;`) that outlives the guarded
     // arm. The address load sits inside the arm, so confinement alone is
     // satisfied, but re-pointing the binding narrows `c` to the pattern's scope

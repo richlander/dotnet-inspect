@@ -242,14 +242,21 @@ public sealed class IsPatternPass : IIrPass
             }
 
             // The cache local's managed address must not escape the guarded
-            // arm. An in-place consumer (a constrained call receiver such as
-            // `c.CompareTo(x)`) is safe, but capturing the address into storage
-            // that outlives the arm — a ref local `p = ref c`, a ref return, or
-            // a ref field / indirect store — would dangle once the binding
-            // narrows to the pattern's scope, so reject those.
+            // arm. The only escape-free consumer we admit is an in-place
+            // instance-call receiver whose result is not itself a managed
+            // reference (such as `c.CompareTo(x)` returning an int). Any other
+            // address use — storing the pointer into a wider-scoped
+            // local/slot/field, a ref return, an indirect store, passing the
+            // address as a by-ref argument, or a by-ref-returning receiver
+            // call that forwards the pointer onward — could outlive the arm
+            // once the binding narrows to the pattern's scope, so reject the
+            // fold. Checking only the direct parent is not enough: a
+            // by-ref-returning call forwards the pointer through a `Call` node,
+            // so the admitted shape is matched positively rather than
+            // denied by an incomplete escape-node list.
             if (function.Descendants.OfType<LoadLocalAddress>()
                 .Where(address => address.Index == cacheIndex)
-                .Any(address => address.Parent is StoreLocal or StoreStackSlot or StoreField or StoreIndirect or Return))
+                .Any(address => !IsInPlaceReceiver(address)))
             {
                 continue;
             }
@@ -262,6 +269,19 @@ public sealed class IsPatternPass : IIrPass
         }
         return false;
     }
+
+    // An address use is escape-free only when it is the receiver of an
+    // instance call whose result is not a managed reference. Such a call
+    // consumes the pointer in place (the struct receiver), so the pointer does
+    // not outlive the guarded arm. A by-ref-returning receiver call, a static
+    // call taking the address as a by-ref argument, or any non-call parent
+    // (store, indirect store, ref return) may forward the pointer onward and
+    // is therefore not admitted.
+    static bool IsInPlaceReceiver(LoadLocalAddress address)
+        => address.Parent is Call { Callee.HasThis: true } call
+            && call.Children.Count > 0
+            && ReferenceEquals(call.Children[0], address)
+            && call.ResultType is not { Kind: TypeRefKind.ByRef };
 
     static bool TransformOne(IrFunction function, Stepper stepper)
     {
