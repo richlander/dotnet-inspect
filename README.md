@@ -363,7 +363,11 @@ dotnet-inspect is [designed for LLM-driven development](docs/llm-design.md). The
 
 ## Contributor and agent docs
 
-Start with [docs/overview.md](docs/overview.md) for system context. `AGENTS.md` is the agent resolver for this repo, and [taste/skill-guidance.md](taste/skill-guidance.md) captures good and bad examples for maintaining the embedded skill.
+Start with [AGENTS.md](AGENTS.md) for repository-wide engineering and workflow
+rules. It routes each change to the focused documentation that must be read.
+Use [docs/overview.md](docs/overview.md) when a change crosses subsystem
+ownership boundaries, and [taste/skill-guidance.md](taste/skill-guidance.md)
+when maintaining the embedded skill.
 
 ## License
 
