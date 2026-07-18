@@ -106,6 +106,13 @@ public class Program
     {
         return point with { X = point.X + dx };
     }
+
+    // Multi-member nondestructive mutation over a positional record. Roslyn emits
+    // a dup between init-only setters for this shape.
+    public WithProbe MultiMemberWith(WithProbe r)
+    {
+        return r with { A = 1, B = 2 };
+    }
 }
 
 // Positional record with an extra init-only property: rung 5 "records/init where
@@ -116,6 +123,8 @@ public record Point(int X, int Y)
 {
     public int Magnitude { get; init; }
 }
+
+public record WithProbe(int A, int B);
 
 // C# 11 checked user-defined operators (#1706): a modern-syntax construct whose
 // USE must render with a checked(...) context, not an explicit op_Checked* method

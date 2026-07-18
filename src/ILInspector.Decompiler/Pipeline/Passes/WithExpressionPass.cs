@@ -3,8 +3,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Raises the compiler's record <c>with</c> lowering back into
 /// <c>receiver with { X = value, ... }</c>. The supported shape is a synthesized
-/// record clone stored to one stack slot, followed by member stores on that slot
-/// and exactly one downstream load of the mutated clone.
+/// record clone threaded through a stack-slot dup chain, followed by member
+/// stores on those slots and exactly one downstream load of the mutated clone.
 /// </summary>
 public sealed class WithExpressionPass : IIrPass
 {
@@ -37,13 +37,22 @@ public sealed class WithExpressionPass : IIrPass
             return null;
 
         var statements = seed.Parent!.Children;
+        var aliasSlots = new HashSet<int> { seed.Slot };
         var entries = new List<InitializerEntry>();
         var consumed = new List<IrNode> { seed };
 
         for (int i = seed.ChildIndex + 1; i < statements.Count; i++)
         {
             var statement = statements[i];
-            if (TryMemberStore(statement, seed.Slot) is { } member)
+
+            if (statement is StoreStackSlot { Value: LoadStackSlot source } copy && aliasSlots.Contains(source.Slot))
+            {
+                aliasSlots.Add(copy.Slot);
+                consumed.Add(copy);
+                continue;
+            }
+
+            if (TryMemberStore(statement, aliasSlots) is { } member)
             {
                 entries.Add(member);
                 consumed.Add(statement);
@@ -53,23 +62,23 @@ public sealed class WithExpressionPass : IIrPass
             break;
         }
 
-        if (ReferencesSlot(clone.Arguments[0], seed.Slot))
+        if (ReferencesAnySlot(clone.Arguments[0], aliasSlots))
             return null;
 
         if (entries.Count == 0 || HasDuplicateMembers(entries))
             return null;
 
         foreach (var entry in entries)
-            if (ReferencesSlot(entry.Arguments[0], seed.Slot))
+            if (ReferencesAnySlot(entry.Arguments[0], aliasSlots))
                 return null;
 
         var consumedSet = consumed.ToHashSet();
         foreach (var store in function.Descendants.OfType<StoreStackSlot>())
-            if (store.Slot == seed.Slot && !consumedSet.Contains(store) && !HasAncestorIn(store, consumedSet))
+            if (aliasSlots.Contains(store.Slot) && !ReferenceOwnership.IsInsideAny(store, consumed))
                 return null;
 
         var outsideUses = function.Descendants.OfType<LoadStackSlot>()
-            .Where(load => load.Slot == seed.Slot && !HasAncestorIn(load, consumedSet))
+            .Where(load => aliasSlots.Contains(load.Slot) && !ReferenceOwnership.IsInsideAny(load, consumed))
             .ToList();
         if (outsideUses.Count != 1)
             return null;
@@ -98,16 +107,16 @@ public sealed class WithExpressionPass : IIrPass
             && receiverType.Equals(clone.Callee.ReturnType);
     }
 
-    static InitializerEntry? TryMemberStore(IrNode statement, int slot) => statement switch
+    static InitializerEntry? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
     {
         StoreProperty { HasInstance: true, Instance: LoadStackSlot receiver } property
-            when receiver.Slot == slot
+            when aliasSlots.Contains(receiver.Slot)
                 && property.IndexArguments.Count == 0
                 && ObjectInitializerPass.IsInitializerSpellable(property)
             => new InitializerEntry(property.PropertyName, [property.Value], ConsumedMethod: property.Accessor),
 
         StoreField { Instance: LoadStackSlot receiver } field
-            when receiver.Slot == slot && CSharpNaming.IsUsableIdentifier(field.Field.Name)
+            when aliasSlots.Contains(receiver.Slot) && CSharpNaming.IsUsableIdentifier(field.Field.Name)
             => new InitializerEntry(field.Field.Name, [field.Value], ConsumedField: field.Field),
 
         _ => null,
@@ -122,17 +131,9 @@ public sealed class WithExpressionPass : IIrPass
         return false;
     }
 
-    static bool ReferencesSlot(IrNode node, int slot)
-        => (node is LoadStackSlot load && load.Slot == slot)
-            || node.Descendants.OfType<LoadStackSlot>().Any(descendant => descendant.Slot == slot);
-
-    static bool HasAncestorIn(IrNode node, HashSet<IrNode> set)
-    {
-        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
-            if (set.Contains(parent))
-                return true;
-        return false;
-    }
+    static bool ReferencesAnySlot(IrNode node, HashSet<int> slots)
+        => (node is LoadStackSlot load && slots.Contains(load.Slot))
+            || node.Descendants.OfType<LoadStackSlot>().Any(descendant => slots.Contains(descendant.Slot));
 
     static void Apply(Plan plan)
     {
