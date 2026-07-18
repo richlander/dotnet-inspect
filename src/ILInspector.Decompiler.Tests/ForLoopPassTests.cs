@@ -46,6 +46,49 @@ public class ForLoopPassTests
     }
 
     [Fact]
+    public void NestedFunctionJumpTarget_EqualOuterIncrementOffset_DoesNotBlockOuterForLoop()
+    {
+        var container = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreLocal(0, Int32, new Constant(0, Int32)));
+
+        var loopBody = new Block();
+
+        // Nested lambda with a Leave whose target offset deliberately equals the outer increment's SourceOffset
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Leave(targetOffset: 0x42));
+        lambdaBody.Add(lambdaBlock);
+
+        var lambdaFunc = new IrFunction("<>b__0", Owner, new MethodSignature(Int32, [], false, 0), [], lambdaBody);
+        var lambda = new Lambda(Bool, [], [], [], false, false, (BlockContainer)lambdaBody.Clone());
+        loopBody.Add(new ExpressionStatement(lambda));
+
+        var increment = Increment();
+        increment.SetSourceOffset(0x42);
+        loopBody.Add(increment);
+
+        block.Add(new WhileLoop(
+            new Comparison(ComparisonKind.LessThan, isUnsigned: false, new LoadLocal(0, Int32), new Constant(10, Int32)),
+            loopBody));
+        block.Add(new Return(new LoadLocal(0, Int32)));
+        container.Add(block);
+
+        var signature = new MethodSignature(
+            Int32,
+            [new Parameter("skip", Bool)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("Test", Owner, signature, [Int32], container);
+
+        new ForLoopPass().Run(function, PassContext.None);
+
+        var loop = Assert.Single(function.Descendants.OfType<ForLoop>());
+        Assert.IsType<StoreLocal>(loop.Initializer);
+        Assert.IsType<StoreLocal>(loop.Increment);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+    [Fact]
     public void CheckedUserIncrement_StaysWhileLoop()
     {
         var function = FunctionWithCheckedUserIncrement();

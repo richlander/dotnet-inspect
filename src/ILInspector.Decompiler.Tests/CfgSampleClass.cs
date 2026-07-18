@@ -1770,39 +1770,96 @@ public class CfgSampleClass
         return sum;
     }
 
-    public static void Issue2830_ForLoopLeave() {
-        for (int i = 0; i < 10; i++) {
-            try { if (i == 5) continue; System.Console.WriteLine(); } catch (System.Exception) { }
+    public static void Issue2830_ForLoopLeave()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 5)
+                    continue;
+                System.Console.WriteLine();
+            }
+            catch (System.Exception)
+            {
+            }
             System.Console.WriteLine();
         }
     }
-    public static void Issue2830_ForLoopLeaveToAnotherTarget() {
-        for (int i = 0; i < 10; i++) {
-            try { if (i == 5) goto Out; System.Console.WriteLine(); } catch (System.Exception) { }
+
+    public static void Issue2830_ForLoopLeaveToAnotherTarget()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 5)
+                    goto Out;
+                System.Console.WriteLine();
+            }
+            catch (System.Exception)
+            {
+            }
             System.Console.WriteLine();
         }
-        Out:;
+    Out:;
     }
-    public static void Issue2830_ForLoopEhCleanupContinue() {
-        for (int i = 0; i < 10; i++) {
-            try { if (i == 5) continue; System.Console.WriteLine(); } finally { System.Console.WriteLine(); }
+
+    public static void Issue2830_ForLoopEhCleanupContinue()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 5)
+                    continue;
+                System.Console.WriteLine();
+            }
+            finally
+            {
+                System.Console.WriteLine();
+            }
             System.Console.WriteLine();
         }
     }
-    public static void Issue2830_ForLoopWithNestedLambdaTargetConflict() {
-        for (int i = 0; i < 10; i++) {
-            System.Action a = () => {
-                for (int j = 0; j < 10; j++) {
-                    try { if (j == 5) continue; } catch (System.Exception) { }
+
+    public static void Issue2830_ForLoopWithNestedLambdaTargetConflict()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            System.Action a = () =>
+            {
+                for (int j = 0; j < 10; j++)
+                {
+                    try
+                    {
+                        if (j == 5)
+                            continue;
+                    }
+                    catch (System.Exception)
+                    {
+                    }
                 }
             };
             a();
         }
     }
-    public static void Issue2830_ForLoopNestedContinue() {
-        for (int i = 0; i < 10; i++) {
-            for (int j = 0; j < 10; j++) {
-                try { if (j == 5) continue; System.Console.WriteLine(); } catch (System.Exception) { }
+
+    public static void Issue2830_ForLoopNestedContinue()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            for (int j = 0; j < 10; j++)
+            {
+                try
+                {
+                    if (j == 5)
+                        continue;
+                    System.Console.WriteLine();
+                }
+                catch (System.Exception)
+                {
+                }
             }
         }
     }
