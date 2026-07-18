@@ -285,6 +285,113 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExplicitInterfaceProperty_ReconstructsExplicitDeclaration()
+    {
+        // #2827: an explicit interface property implementation, classified from the accessor
+        // MethodImpl evidence of a REAL compiled assembly, must reconstruct as a real explicit
+        // implementation (interface-qualified name, no access modifier), not a mangled `public`
+        // property whose name is dropped or underscored. (Whether the closure-minimized
+        // interface also carries the member so the whole shell recompiles is a separate
+        // interface-projection concern, #2777/#2780.)
+        var assemblyPath = CompileFixture("""
+            namespace Rts;
+
+            public interface ILineInfo
+            {
+                int LineNumber { get; }
+            }
+
+            public sealed class Reader : ILineInfo
+            {
+                int ILineInfo.LineNumber => 5;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Rts.Reader", "Rts.ILineInfo.get_LineNumber", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("int Rts.ILineInfo.LineNumber", result.Source);
+            Assert.DoesNotContain("public int Rts.ILineInfo.LineNumber", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExplicitStaticInterfaceProperty_KeepsStaticModifier()
+    {
+        // #2827 (concurrent-review finding): a static abstract interface member implemented
+        // explicitly must keep `static` while omitting the access modifier. Reconstructing it
+        // without `static` produces CS0106/CS0539.
+        var assemblyPath = CompileFixture("""
+            namespace Rts;
+
+            public interface ICounter
+            {
+                static abstract int Count { get; }
+            }
+
+            public sealed class Counter : ICounter
+            {
+                static int ICounter.Count => 7;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Rts.Counter", "Rts.ICounter.get_Count", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("static int Rts.ICounter.Count", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExplicitInterfaceIndexer_ReconstructsQualifiedThis()
+    {
+        // #2827: an explicit interface indexer must reconstruct as
+        // `int Interface.this[params]`, preserving the interface qualifier, not a mangled
+        // public indexer or a dropped-parameter property.
+        var assemblyPath = CompileFixture("""
+            namespace Rts;
+
+            public interface IIndexed
+            {
+                int this[int index] { get; }
+            }
+
+            public sealed class Indexed : IIndexed
+            {
+                int IIndexed.this[int index] => index;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Rts.Indexed", "Rts.IIndexed.get_Item", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("int Rts.IIndexed.this[int index]", result.Source);
+            Assert.DoesNotContain("public int Rts.IIndexed.this[", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_UsesDependencyReferencesAndNamespaces()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");

@@ -386,6 +386,14 @@ public class ApiMember
     public bool IsAsync { get; set; }
 
     /// <summary>
+    /// True when this member is an explicit interface implementation, derived from the
+    /// accessor MethodImpl relationship (typed evidence) rather than inferred from a dotted
+    /// display name. Explicit implementations render with the interface-qualified name and
+    /// no access modifier.
+    /// </summary>
+    public bool IsExplicitInterfaceImplementation { get; set; }
+
+    /// <summary>
     /// Access level for non-public members (e.g., "private", "protected", "internal").
     /// Null for public members.
     /// </summary>

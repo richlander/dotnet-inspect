@@ -254,6 +254,9 @@ public static class ApiSurfaceExtractor
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, prop.GetCustomAttributes(), out var obsoleteMessage);
 
                 var propertySignature = GetPropertySignature(reader, typeDef, prop, accessors, typeNullableContext, includeAll);
+                bool isExplicitInterfaceProperty =
+                    (!accessors.Getter.IsNil && explicitImplementationBodies.Contains(accessors.Getter))
+                    || (!accessors.Setter.IsNil && explicitImplementationBodies.Contains(accessors.Setter));
                 var member = new ApiMember
                 {
                     Name = reader.GetString(prop.Name),
@@ -269,6 +272,7 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
                     IsUnsafe = HasUnsafeSignature(propertySignature.Text),
+                    IsExplicitInterfaceImplementation = isExplicitInterfaceProperty,
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,

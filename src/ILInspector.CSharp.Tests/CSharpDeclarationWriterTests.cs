@@ -425,6 +425,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "Some.Text.ILineInfo.LineNumber",
             Kind = "property",
+            IsExplicitInterfaceImplementation = true,
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -449,6 +450,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "Some.Text.IValue.Payload",
             Kind = "property",
+            IsExplicitInterfaceImplementation = true,
             SignatureModel = new ApiSignature
             {
                 ReturnType = "string",
@@ -474,6 +476,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "event.class.Value",
             Kind = "property",
+            IsExplicitInterfaceImplementation = true,
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -554,10 +557,9 @@ public sealed class CSharpDeclarationWriterTests
     [Fact]
     public void IndexerDeclaration_WithDottedName_IsNotTreatedAsExplicitInterfaceProperty()
     {
-        // Explicit-interface indexers carry SignatureModel.MemberName "this[]" (the interface
-        // prefix is dropped by the reconstruction). Even if a stray dotted member.Name leaks
-        // in, the "this[]" model name must win: render an ordinary indexer, never route it
-        // through the dotted explicit-impl property branch (which would drop the parameters).
+        // Classification is by the typed IsExplicitInterfaceImplementation flag, not by a dot
+        // in the name. With the flag unset, a stray dotted member.Name must NOT route through
+        // the explicit-impl branch: render an ordinary indexer with its accessibility intact.
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
         var member = new ApiMember
         {
@@ -581,6 +583,96 @@ public sealed class CSharpDeclarationWriterTests
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("public string this[int index] { get; }", declaration);
+    }
+
+    [Fact]
+    public void PropertyDeclaration_WithDottedName_WithoutFlag_IsNotTreatedAsExplicit()
+    {
+        // A dotted metadata name is not sufficient to classify a member as an explicit
+        // interface implementation (foreign-language/obfuscated names can legally contain
+        // dots). Without the typed flag, the member keeps its accessibility and is never
+        // rendered as an explicit implementation.
+        var type = new ApiType { Namespace = "Samples", Name = "Reader", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.Ordinary.Name",
+            Kind = "property",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Some.Ordinary.Name",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        // The explicit-impl branch does not fire (no flag) and the ordinary-property branch
+        // rejects the dotted name, so no explicit `int Some.Ordinary.Name { get; }` is emitted.
+        Assert.DoesNotContain("Some.Ordinary.Name { get; }", declaration);
+    }
+
+    [Fact]
+    public void PropertyDeclaration_ExplicitStaticAbstract_KeepsStaticModifier()
+    {
+        // C# 11 static abstract interface members implemented explicitly must keep `static`
+        // while still omitting the access modifier.
+        var type = new ApiType { Namespace = "Samples", Name = "Reader", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.Text.IValue.Count",
+            Kind = "property",
+            IsExplicitInterfaceImplementation = true,
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Some.Text.IValue.Count",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("static int Some.Text.IValue.Count { get; }", declaration);
+    }
+
+    [Fact]
+    public void IndexerDeclaration_ExplicitInterface_RendersInterfaceQualifiedThis()
+    {
+        // Explicit interface indexers carry their interface-qualified name on member.Name
+        // (Namespace.IFoo.Item); render `int Namespace.IFoo.this[int index] { get; }`.
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.Text.IFoo.Item",
+            Kind = "property",
+            IsExplicitInterfaceImplementation = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int", Name = "index" }
+                ],
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal("int Some.Text.IFoo.this[int index] { get; }", declaration);
     }
 
     [Fact]

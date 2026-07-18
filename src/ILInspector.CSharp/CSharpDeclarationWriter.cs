@@ -283,31 +283,27 @@ internal static class CSharpDeclarationWriter
     static bool NeedsTerminator(string declaration)
         => !declaration.EndsWith(';') && !declaration.EndsWith('}');
 
-    static bool IsExplicitInterfaceMemberName(string? name)
-        => !string.IsNullOrWhiteSpace(name)
-           && name != "this[]"
-           && name.Contains('.', StringComparison.Ordinal);
-
     static string RenderMemberDeclarationCore(
         ApiType type,
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters = null)
     {
-        // A property whose member name is dotted is an explicit interface
-        // implementation (ordinary member names never contain '.'). When only the
-        // structured model is present (no compatibility Signature string), render it as a
-        // real explicit interface implementation: dotted Interface.Member name preserved
-        // and no access modifier, exactly like an explicit-interface-implementation method.
-        // When a compatibility Signature is supplied (the product's --all display surface),
-        // that authoritative display form is honored instead. Only properties are handled
-        // here because that is the shape RTS reconstructs and TryRenderSignatureModel
-        // structurally renders; explicit-interface events have no structural branch, so
-        // suppressing their modifier would drop the member name.
+        // Explicit interface implementations render with the interface-qualified name and no
+        // access modifier. Classification is by typed evidence (member.Kind for the product's
+        // structured extraction, or member.IsExplicitInterfaceImplementation for RTS-composed
+        // members carrying the accessor MethodImpl relationship) — never by inspecting a name
+        // for a dot, which would misclassify foreign-language/obfuscated dotted ordinary names.
+        // The structural property branch only fires when no compatibility Signature string is
+        // present; when a Signature is supplied (the product's --all display surface), that
+        // authoritative display form is honored instead. Only properties are handled
+        // structurally here because that is the shape RTS reconstructs and
+        // TryRenderSignatureModel structurally renders; explicit-interface events have no
+        // structural branch (tracked separately in #2850).
         bool isExplicitInterfaceMember = member.Kind == "explicit-interface-implementation"
             || (member.Kind == "property"
                 && string.IsNullOrEmpty(member.Signature)
-                && IsExplicitInterfaceMemberName(member.SignatureModel?.MemberName ?? member.Name));
+                && member.IsExplicitInterfaceImplementation);
 
         string signature;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
@@ -412,9 +408,15 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.IsUnsafe || options.ForceUnsafe)
+        else
         {
-            modifiers.Add("unsafe");
+            // Explicit interface implementations omit the access modifier but must still
+            // carry static (C# 11 static abstract interface members implemented explicitly)
+            // and unsafe. Order mirrors the .cctor branch: static then unsafe.
+            if (member.IsStatic)
+                modifiers.Add("static");
+            if (member.IsUnsafe || options.ForceUnsafe)
+                modifiers.Add("unsafe");
         }
 
         if ((options.ForceAsync || member.IsAsync)
@@ -837,13 +839,31 @@ internal static class CSharpDeclarationWriter
         }
         if (member.Kind == "property"
             && string.IsNullOrEmpty(member.Signature)
+            && member.IsExplicitInterfaceImplementation
             && model.ReturnType is { Length: > 0 } explicitPropertyType
-            && model.Accessors.Count > 0
-            && IsExplicitInterfaceMemberName(model.MemberName ?? member.Name))
+            && model.Accessors.Count > 0)
         {
-            var explicitMemberName = string.IsNullOrWhiteSpace(model.MemberName)
-                ? member.Name
-                : model.MemberName!;
+            // Explicit interface indexers carry their interface-qualified name on member.Name
+            // (Namespace.IFoo.Item); render it as `type Namespace.IFoo.this[params]`.
+            // Ordinary explicit properties render `type Namespace.IFoo.Member`, taking the
+            // dotted name from the structured MemberName (falling back to member.Name).
+            bool isExplicitIndexer = model.MemberName == "this[]" || model.Parameters.Count > 0;
+            string explicitMemberName;
+            if (isExplicitIndexer)
+            {
+                var dotted = member.Name ?? "";
+                int lastDot = dotted.LastIndexOf('.');
+                var qualifier = lastDot > 0 ? dotted[..lastDot] : "";
+                explicitMemberName = qualifier.Length > 0
+                    ? $"{qualifier}.this[{parameters}]"
+                    : $"this[{parameters}]";
+            }
+            else
+            {
+                explicitMemberName = string.IsNullOrWhiteSpace(model.MemberName)
+                    ? member.Name
+                    : model.MemberName!;
+            }
             signature = options.OmitPropertyAccessors
                 ? $"{explicitPropertyType} {explicitMemberName}"
                 : $"{explicitPropertyType} {explicitMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
@@ -1261,6 +1281,10 @@ internal static class CSharpDeclarationWriter
                 end++;
 
             string segment = signature[start..end];
+            // `this` in a qualified indexer name (Interface.this[...]) is the C# indexer
+            // keyword, not an identifier — it must never be escaped to @this.
+            if (segment == "this" && end < signature.Length && signature[end] == '[')
+                continue;
             string escaped = EscapeIdentifier(segment);
             if (escaped != segment)
             {

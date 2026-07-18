@@ -319,7 +319,8 @@ public sealed record CompileBackMemberRequirement(
     bool IsAsync = false,
     bool IsExtension = false,
     CompileBackAccessibility Accessibility = CompileBackAccessibility.Public,
-    string? ConstructorInitializer = null)
+    string? ConstructorInitializer = null,
+    bool IsExplicitInterface = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -713,7 +714,8 @@ public static class CompileBackSourceComposer
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var accessors = property.GetAccessors();
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
-        string propertyName = PropertyMemberName(reader.GetString(property.Name), signature.ParameterTypes.Length > 0);
+        bool isExplicitInterfaceProperty = ExplicitInterfaceAccessorBodies(reader, targetTypeDef).Contains(targetGetter);
+        string propertyName = PropertyMemberName(reader.GetString(property.Name), isExplicitInterfaceProperty);
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
         bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
@@ -748,7 +750,8 @@ public static class CompileBackSourceComposer
                     ]
                     : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
                 propertyDeclaration.Attributes,
-                MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes)
+                MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes,
+                IsExplicitInterface: isExplicitInterfaceProperty)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -891,7 +894,8 @@ public static class CompileBackSourceComposer
         var propertySignature = GuardedSignatureText.PropertyText(reader, property, GenericContext.ForType(reader, targetTypeDef));
         var propertyDeclaration = MetadataDeclarationQuery.GetProperty(reader, targetTypeDef, property);
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
-        string propertyName = PropertyMemberName(reader.GetString(property.Name), propertySignature.ParameterTypes.Length > 0);
+        bool isExplicitInterfaceProperty = ExplicitInterfaceAccessorBodies(reader, targetTypeDef).Contains(targetSetter);
+        string propertyName = PropertyMemberName(reader.GetString(property.Name), isExplicitInterfaceProperty);
         var returnType = CompileBackTypeSignature.Display(propertySignature.ReturnType);
         bool targetIsAutoProperty = IsAutoPropertySetter(reader, targetTypeDef, property, targetSetter, returnType.DisplayName);
 
@@ -925,7 +929,8 @@ public static class CompileBackSourceComposer
                         new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name)),
                         new CompileBackFact("metadata", "auto-property", propertyName)
                     ]
-                    : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))])
+                    : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))],
+                IsExplicitInterface: isExplicitInterfaceProperty)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -1211,6 +1216,7 @@ public static class CompileBackSourceComposer
             IsExtension = member.IsExtension,
             IsConst = member.Kind == CompileBackMemberKind.Field
                 && member.StubBody == CompileBackStubBodyKind.TargetBody,
+            IsExplicitInterfaceImplementation = member.IsExplicitInterface,
         };
         if (member.Kind != CompileBackMemberKind.Field)
         {
@@ -2322,16 +2328,29 @@ public static class CompileBackSourceComposer
     static string Identifier(string name) => CSharpIdentifier.Sanitize(name);
 
     // Explicit interface implementations carry a dotted metadata name
-    // (Namespace.Interface.Member); ordinary members never contain '.'. Preserve the
-    // dotted name so the seam can render it as a real explicit interface implementation
-    // instead of sanitizing the dots into a bogus underscore identifier (which would not
-    // satisfy the declared interface -> CS0535). Indexers are excluded: ToApiMember maps
-    // an indexer's member name to "this[]" (dropping the interface prefix), so preserving
-    // the dotted name would only desync member.Name from SignatureModel.MemberName and
-    // produce a malformed declaration. Explicit-interface indexers stay sanitized as
-    // before (still unsupported, but no regression).
-    static string PropertyMemberName(string rawName, bool isIndexer)
-        => !isIndexer && rawName.Contains('.', StringComparison.Ordinal) ? rawName : Identifier(rawName);
+    // (Namespace.Interface.Member); ordinary members never contain '.'. When the accessor is
+    // a typed explicit interface implementation (MethodImpl evidence), preserve the dotted
+    // name so the seam can render a real explicit interface implementation
+    // (Interface.Member, or Interface.this[...] for indexers). Otherwise sanitize as usual.
+    // Classification is by MethodImpl evidence, not by inspecting the name for a dot.
+    static string PropertyMemberName(string rawName, bool isExplicitInterface)
+        => isExplicitInterface ? rawName : Identifier(rawName);
+
+    // Accessor method handles that are the body of an explicit interface implementation
+    // (i.e. targets of a MethodImpl on the declaring type).
+    static HashSet<MethodDefinitionHandle> ExplicitInterfaceAccessorBodies(
+        MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<MethodDefinitionHandle> handles = [];
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
+                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+        }
+
+        return handles;
+    }
 
     sealed class TypeProducer
     {
