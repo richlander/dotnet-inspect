@@ -4637,7 +4637,7 @@ public class ForeachElementProbe
     }
 }
 
-// Fixtures for ConstructorBodyFactExtractorTests. The neutral constructor
+// Fixtures for MemberBodyFactsTests constructor cases. The neutral constructor
 // body-fact extractor pattern-matches decompiled IR, so these compiled
 // constructor shapes exercise the chain-call and primary-constructor-prologue
 // detections directly.

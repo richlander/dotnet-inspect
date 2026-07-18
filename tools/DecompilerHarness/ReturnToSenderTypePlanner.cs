@@ -778,7 +778,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: ReferencedNamespaceExtractor.Extract(function)
+            Usings: MemberBodyFacts.ReferencedNamespaces(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -954,7 +954,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: ReferencedNamespaceExtractor.Extract(function)
+            Usings: MemberBodyFacts.ReferencedNamespaces(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
@@ -991,7 +991,7 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string targetMethodName = Identifier(methodName);
         bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
-        var bodyFacts = isConstructor ? ConstructorBodyFactExtractor.Extract(function) : ConstructorBodyFacts.None;
+        var bodyFacts = isConstructor ? MemberBodyFacts.Constructor(function) : ConstructorBodyFacts.None;
         var primaryConstructor = isConstructor
             ? PrimaryConstructorFromPrologue(reader, method, bodyFacts.PrimaryConstructorPrologue, targetBody)
             : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
@@ -1156,7 +1156,7 @@ public static class CompileBackSourceComposer
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
-            Usings: ReferencedNamespaceExtractor.Extract(function)
+            Usings: MemberBodyFacts.ReferencedNamespaces(function)
                 .Prepend("System")
                 .ToArray(),
             AssemblyAttributes: [],
