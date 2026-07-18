@@ -57,6 +57,7 @@ public class PinnedLocalFidelityTests
                 _ => throw new InvalidOperationException("Expected a complete fidelity-cause inspection."),
             }).Payload;
         Assert.Equal(DiagnosticIds.UnraisedPinnedLocal, cause.Code);
+        Assert.Equal(DecompilerFidelityDiscriminators.PinnedLocal, cause.Discriminator);
         Assert.Equal(DecompilerFidelityLocationKind.Local, cause.Location.Kind);
         Assert.Equal(0, cause.Location.LocalIndex);
     }

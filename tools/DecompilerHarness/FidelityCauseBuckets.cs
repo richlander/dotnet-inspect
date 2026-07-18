@@ -72,15 +72,18 @@ internal static class FidelityCauseBuckets
     {
         if (!census.Succeeded)
             throw new InvalidOperationException("A failed or absent inspection has no fidelity-cause bucket.");
+        if (census.Causes.IsEmpty)
+            throw new InvalidOperationException("A complete inspection with no causes has no fidelity-cause bucket.");
 
-        return census.Causes.Length > 0
-            ? BucketFor(census.Causes[0])
-            : "(typed)";
+        return BucketFor(census.Causes[0]);
     }
 
     internal static string BucketFor(DecompilerFidelityCause cause)
     {
         ArgumentNullException.ThrowIfNull(cause);
+        if (cause.InventoryBucket is { } inventoryBucket)
+            return inventoryBucket;
+
         return cause.Code switch
         {
             DiagnosticIds.UnsupportedConstruct or DiagnosticIds.UnsupportedType =>

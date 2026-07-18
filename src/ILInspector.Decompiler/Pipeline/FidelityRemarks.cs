@@ -121,10 +121,16 @@ public static class FidelityRemarks
             if (unsupportedTypes is not null)
             {
                 string types = string.Join("; ", unsupportedTypes.Select(UnrepresentableTypeText));
-                string discriminator = string.Join(
+                string inventoryBucket = string.Join(
                     "; ",
                     unsupportedTypes
                         .SelectMany(static type => type.UnsupportedReasons())
+                        .Distinct(StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal));
+                string discriminator = string.Join(
+                    "; ",
+                    unsupportedTypes
+                        .SelectMany(static type => type.UnsupportedDiscriminators())
                         .Distinct(StringComparer.Ordinal)
                         .Order(StringComparer.Ordinal));
                 yield return Cause(
@@ -132,16 +138,18 @@ public static class FidelityRemarks
                     LocationOf(node),
                     node,
                     $"references an unrepresentable type ({types})",
-                    discriminator);
+                    discriminator,
+                    inventoryBucket);
             }
 
-            if (CSharpSpellability.UnrepresentableMetadataNameReason(node) is { } nameReason)
+            if (CSharpSpellability.InspectUnrepresentableMetadataName(node) is { } nameIssue)
             {
                 yield return Cause(
                     DiagnosticIds.UnrepresentableMetadataName,
                     LocationOf(node),
                     node,
-                    nameReason);
+                    nameIssue.Reason,
+                    nameIssue.Discriminator);
             }
 
             if (node is IrExpression { ResultType: null })
@@ -164,8 +172,8 @@ public static class FidelityRemarks
                 DecompilerFidelityLocation.AtLocal(localIndex),
                 "PinnedLocal",
                 $"Pinned local V_{localIndex}",
-                "referenced pinned local has no owning fixed statement and no faithful C# declaration",
-                function.Locals[localIndex].ToDisplayString());
+                $"referenced pinned local has no owning fixed statement and no faithful C# declaration ({function.Locals[localIndex].ToDisplayString()})",
+                DecompilerFidelityDiscriminators.PinnedLocal);
         }
     }
 
@@ -174,14 +182,16 @@ public static class FidelityRemarks
         DecompilerFidelityLocation location,
         IrNode node,
         string reason,
-        string? discriminator = null)
+        string? discriminator = null,
+        string? inventoryBucket = null)
         => new(
             code,
             location,
             node.GetType().Name,
             node.Describe(),
             reason,
-            discriminator);
+            discriminator,
+            inventoryBucket);
 
     static IEnumerable<int>? UnraisedPinnedLocals(IrFunction function)
     {
