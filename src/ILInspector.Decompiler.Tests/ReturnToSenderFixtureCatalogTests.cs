@@ -611,6 +611,38 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "ReadFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "WriteFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "RefFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PassFirstByRef",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "RefLocalFirstIncrement",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PointerLocalFirstValue",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PointerReturnFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+                        "PointerArgumentFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
                         "RefAt",
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
@@ -640,6 +672,38 @@ public class ReturnToSenderFixtureCatalogTests
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
                         "Sum",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "ReadFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "WriteFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "RefFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PassFirstByRef",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "RefLocalFirstIncrement",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PointerLocalFirstValue",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PointerReturnFirst",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+                        "PointerArgumentFirst",
                         Overload: 0),
                     new ReturnToSender.RequestedTarget(
                         "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",

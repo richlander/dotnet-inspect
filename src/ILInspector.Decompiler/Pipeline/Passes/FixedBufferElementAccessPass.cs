@@ -140,26 +140,77 @@ public sealed class FixedBufferElementAccessPass : IIrPass
     static bool TryCreate(IrExpression address, TypeRef expectedElement, AccessKind accessKind, out FixedBufferElementAddress access)
     {
         access = null!;
-        if (address is not Binary { Kind: BinaryKind.Add } add
-            || !TrySplitFixedElementAddress(add, out var elementFieldAddress, out var offset)
-            || elementFieldAddress.Instance is not LoadFieldAddress bufferFieldAddress
-            || bufferFieldAddress.Instance is null
-            || bufferFieldAddress.Field.FixedBuffer is not { } fixedBuffer
-            || !ElementAccessTypeMatches(expectedElement, fixedBuffer.ElementType, accessKind)
-            || !elementFieldAddress.Field.Type.Equals(fixedBuffer.ElementType)
-            || !elementFieldAddress.Field.DeclaringType.Equals(bufferFieldAddress.Field.Type)
-            || !TryScaledPointerIndex(offset, fixedBuffer.ElementType, out var index))
+        if (address is Binary { Kind: BinaryKind.Add } add
+            && TrySplitFixedElementAddress(add, out var elementFieldAddress, out var offset)
+            && TryCreateFromElementAddress(
+                elementFieldAddress,
+                expectedElement,
+                accessKind,
+                out var fixedBuffer,
+                out var bufferFieldAddress)
+            && TryScaledPointerIndex(offset, fixedBuffer.ElementType, out var index))
+        {
+            access = CreateAccess(bufferFieldAddress, fixedBuffer, index, add);
+            return true;
+        }
+
+        if (address is LoadFieldAddress bareElementFieldAddress
+            && IsFixedElementField(bareElementFieldAddress)
+            && TryCreateFromElementAddress(
+                bareElementFieldAddress,
+                expectedElement,
+                accessKind,
+                out var bareFixedBuffer,
+                out var bareBufferFieldAddress))
+        {
+            access = CreateAccess(
+                bareBufferFieldAddress,
+                bareFixedBuffer,
+                new Constant(0, TypeRef.CoreLib("System", "Int32")),
+                bareElementFieldAddress);
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool TryCreateFromElementAddress(
+        LoadFieldAddress elementFieldAddress,
+        TypeRef expectedElement,
+        AccessKind accessKind,
+        out FixedBufferFieldInfo fixedBuffer,
+        out LoadFieldAddress bufferFieldAddress)
+    {
+        fixedBuffer = null!;
+        bufferFieldAddress = null!;
+        if (elementFieldAddress.Instance is not LoadFieldAddress candidateBufferFieldAddress
+            || candidateBufferFieldAddress.Instance is null
+            || candidateBufferFieldAddress.Field.FixedBuffer is not { } candidateFixedBuffer
+            || !ElementAccessTypeMatches(expectedElement, candidateFixedBuffer.ElementType, accessKind)
+            || !elementFieldAddress.Field.Type.Equals(candidateFixedBuffer.ElementType)
+            || !elementFieldAddress.Field.DeclaringType.Equals(candidateBufferFieldAddress.Field.Type))
         {
             return false;
         }
 
-        access = new FixedBufferElementAddress(
+        fixedBuffer = candidateFixedBuffer;
+        bufferFieldAddress = candidateBufferFieldAddress;
+        return true;
+    }
+
+    static FixedBufferElementAddress CreateAccess(
+        LoadFieldAddress bufferFieldAddress,
+        FixedBufferFieldInfo fixedBuffer,
+        IrExpression index,
+        IrNode source)
+    {
+        var access = new FixedBufferElementAddress(
             bufferFieldAddress.Field,
             fixedBuffer.ElementType,
-            (IrExpression)bufferFieldAddress.Instance.Clone(),
+            (IrExpression)bufferFieldAddress.Instance!.Clone(),
             (IrExpression)index.Clone());
-        access.InheritSourceOffset(add);
-        return true;
+        access.InheritSourceOffset(source);
+        return access;
     }
 
     static bool TrySplitFixedElementAddress(Binary add, out LoadFieldAddress fieldAddress, out IrExpression offset)

@@ -37,6 +37,31 @@ public class FixedBufferElementAccessPassTests
         { LegacyUnsafePath, LegacyFixedBufferType },
     };
 
+    public static TheoryData<string, string, string, string> FixedBufferIndexZeroFixtures
+    {
+        get
+        {
+            var data = new TheoryData<string, string, string, string>();
+            foreach (var (assemblyPath, typeName) in new[]
+            {
+                (NewUnsafePath, NewFixedBufferType),
+                (LegacyUnsafePath, LegacyFixedBufferType),
+            })
+            {
+                data.Add(assemblyPath, typeName, "ReadFirst", "return Data[0];");
+                data.Add(assemblyPath, typeName, "WriteFirst", "Data[0] = value;");
+                data.Add(assemblyPath, typeName, "RefFirst", "return ref Data[0];");
+                data.Add(assemblyPath, typeName, "PassFirstByRef", "Increment(ref Data[0]);");
+                data.Add(assemblyPath, typeName, "RefLocalFirstIncrement", "ref int value = ref Data[0];");
+                data.Add(assemblyPath, typeName, "PointerLocalFirstValue", "&value.Data[0]");
+                data.Add(assemblyPath, typeName, "PointerReturnFirst", "return &value.Data[0];");
+                data.Add(assemblyPath, typeName, "PointerArgumentFirst", "ConsumePointer(&value.Data[0]);");
+            }
+
+            return data;
+        }
+    }
+
     public static TheoryData<string, string, string, string> PrimitiveFixedBufferFixtures
     {
         get
@@ -210,6 +235,24 @@ public class FixedBufferElementAccessPassTests
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
         Assert.Contains("ConsumePointer(&value.Data[index]);", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferIndexZeroFixtures))]
+    public void CompilerFixedBufferIndexZero_RendersBareElementAddressAsSourceIndexZero(
+        string assemblyPath,
+        string typeName,
+        string methodName,
+        string expected)
+    {
+        var function = Raised(assemblyPath, typeName, methodName);
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Contains(expected, output);
         Assert.DoesNotContain("FixedElementField", output);
         Assert.DoesNotContain("Unsafe.Add", output);
     }
@@ -471,6 +514,48 @@ public class FixedBufferElementAccessPassTests
     }
 
     [Fact]
+    public void BareGeneratedNameLookalikeWithoutFixedBufferAttribute_IsNotRaised()
+    {
+        var function = SyntheticBareRead(
+            BufferField(fixedBuffer: null),
+            ElementField(Backing, Int32));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void BareMismatchedBackingType_IsNotRaised()
+    {
+        var function = SyntheticBareRead(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(OtherBacking, Int32));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void BareMismatchedElementType_IsNotRaised()
+    {
+        var function = SyntheticBareRead(
+            BufferField(FixedBuffer(Int32)),
+            ElementField(Backing, Int64));
+
+        new FixedBufferElementAccessPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<FixedBufferElementAddress>());
+        Assert.Single(function.Descendants.OfType<LoadFieldAddress>(), a => a.Field.Name == "FixedElementField");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void PointerLocalElementMismatch_IsNotRaised()
     {
         var function = SyntheticPointerLocal(
@@ -723,6 +808,20 @@ public class FixedBufferElementAccessPassTests
             FixedElementOffset(scale),
             observedType);
 
+    static IrFunction SyntheticBareRead(FieldRef bufferField, FieldRef elementField, TypeRef? observedType = null)
+    {
+        var block = new Block();
+        block.Add(new Return(new LoadIndirect(observedType ?? Int32, BareFixedElementAddress(bufferField, elementField))));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Int32, [new Parameter("index", Int32)], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static IrFunction SyntheticReadWithOffset(
         FieldRef bufferField,
         FieldRef elementField,
@@ -940,6 +1039,12 @@ public class FixedBufferElementAccessPassTests
         var sourceFieldAddress = new LoadFieldAddress(bufferField, new LoadArgument(0, "this", Owner));
         var elementFieldAddress = new LoadFieldAddress(elementField, sourceFieldAddress);
         return new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, elementFieldAddress, offset);
+    }
+
+    static LoadFieldAddress BareFixedElementAddress(FieldRef bufferField, FieldRef elementField)
+    {
+        var sourceFieldAddress = new LoadFieldAddress(bufferField, new LoadArgument(0, "this", Owner));
+        return new LoadFieldAddress(elementField, sourceFieldAddress);
     }
 
     static Convert FixedElementPointerAddress(FieldRef bufferField, FieldRef elementField)

@@ -17,7 +17,11 @@ public unsafe struct FixedBufferResiduals
 
     public int ReadAt(int index) => Data[index];
 
+    public int ReadFirst() => Data[0];
+
     public void WriteAt(int index, int value) => Data[index] = value;
+
+    public void WriteFirst(int value) => Data[0] = value;
 
     public int ReadAtThroughFixedAddress(int index)
     {
@@ -27,11 +31,22 @@ public unsafe struct FixedBufferResiduals
 
     public ref int RefAt(int index) => ref Data[index];
 
+    public ref int RefFirst() => ref Data[0];
+
     public void PassByRef(int index) => Increment(ref Data[index]);
+
+    public void PassFirstByRef() => Increment(ref Data[0]);
 
     public int RefLocalIncrement(int index)
     {
         ref int value = ref Data[index];
+        value++;
+        return value;
+    }
+
+    public int RefLocalFirstIncrement()
+    {
+        ref int value = ref Data[0];
         value++;
         return value;
     }
@@ -45,16 +60,37 @@ public unsafe struct FixedBufferResiduals
         return *p;
     }
 
+    public static int PointerLocalFirstValue()
+    {
+        FixedBufferResiduals value = default;
+        int* p = null;
+        p = &value.Data[0];
+        *p = 42;
+        return *p;
+    }
+
     public static int* PointerReturn(int index)
     {
         FixedBufferResiduals value = default;
         return &value.Data[index];
     }
 
+    public static int* PointerReturnFirst()
+    {
+        FixedBufferResiduals value = default;
+        return &value.Data[0];
+    }
+
     public static void PointerArgument(int index)
     {
         FixedBufferResiduals value = default;
         ConsumePointer(&value.Data[index]);
+    }
+
+    public static void PointerArgumentFirst()
+    {
+        FixedBufferResiduals value = default;
+        ConsumePointer(&value.Data[0]);
     }
 
     static void Increment(ref int value) => value++;

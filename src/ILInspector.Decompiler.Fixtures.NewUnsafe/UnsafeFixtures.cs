@@ -28,11 +28,27 @@ public struct FixedBufferResiduals
         }
     }
 
+    public int ReadFirst()
+    {
+        unsafe
+        {
+            return Data[0];
+        }
+    }
+
     public void WriteAt(int index, int value)
     {
         unsafe
         {
             Data[index] = value;
+        }
+    }
+
+    public void WriteFirst(int value)
+    {
+        unsafe
+        {
+            Data[0] = value;
         }
     }
 
@@ -55,6 +71,14 @@ public struct FixedBufferResiduals
         }
     }
 
+    public ref int RefFirst()
+    {
+        unsafe
+        {
+            return ref Data[0];
+        }
+    }
+
     public void PassByRef(int index)
     {
         unsafe
@@ -63,11 +87,29 @@ public struct FixedBufferResiduals
         }
     }
 
+    public void PassFirstByRef()
+    {
+        unsafe
+        {
+            Increment(ref Data[0]);
+        }
+    }
+
     public int RefLocalIncrement(int index)
     {
         unsafe
         {
             ref int value = ref Data[index];
+            value++;
+            return value;
+        }
+    }
+
+    public int RefLocalFirstIncrement()
+    {
+        unsafe
+        {
+            ref int value = ref Data[0];
             value++;
             return value;
         }
@@ -85,6 +127,18 @@ public struct FixedBufferResiduals
         }
     }
 
+    public static int PointerLocalFirstValue()
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            int* p = null;
+            p = &value.Data[0];
+            *p = 42;
+            return *p;
+        }
+    }
+
     public static int* PointerReturn(int index)
     {
         unsafe
@@ -94,12 +148,30 @@ public struct FixedBufferResiduals
         }
     }
 
+    public static int* PointerReturnFirst()
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            return &value.Data[0];
+        }
+    }
+
     public static void PointerArgument(int index)
     {
         unsafe
         {
             FixedBufferResiduals value = default;
             ConsumePointer(&value.Data[index]);
+        }
+    }
+
+    public static void PointerArgumentFirst()
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            ConsumePointer(&value.Data[0]);
         }
     }
 
