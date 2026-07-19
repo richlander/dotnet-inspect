@@ -841,6 +841,39 @@ public class DynamicCallSitePassTests
         Assert.False(RunPass(f));
     }
 
+    [Fact]
+    public void InvertedGuardTruthyConditionSetupInThen_Declines()
+    {
+        // Malformed inverted guard `if (cache) { setup } else {}`: a truthy cache
+        // condition selects the then arm when the cache is already populated, so
+        // running setup there would re-init a live cache. The pass must decline
+        // rather than delete the guard.
+        var f = LoadCanonicalFunction();
+        var oldIf = CacheIf(f);
+        var innerLoad = GuardLoad(f);   // the LoadField inside the LogicalNot
+        var setupArm = oldIf.Then;
+        innerLoad.Detach();
+        setupArm.Detach();
+        oldIf.ReplaceWith(new IfStatement(innerLoad, setupArm, new Block()));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void InvertedGuardNegatedConditionSetupInElse_Declines()
+    {
+        // Malformed inverted guard `if (!cache) {} else { setup }`: the negated
+        // condition selects the then arm when the cache is null, but setup lives
+        // in the else arm (reached only when the cache is already populated).
+        var f = LoadCanonicalFunction();
+        var oldIf = CacheIf(f);
+        var condition = oldIf.Condition;   // LogicalNot(LoadField)
+        var setupArm = oldIf.Then;
+        condition.Detach();
+        setupArm.Detach();
+        oldIf.ReplaceWith(new IfStatement(condition, new Block(), setupArm));
+        Assert.False(RunPass(f));
+    }
+
     // ======================================================================
     // Canonical setup statement order (blocker #2)
     // ======================================================================
@@ -1050,5 +1083,62 @@ public class DynamicCallSitePassTests
         var type = ((TypeOf)context.Value).Type;
         context.Value.ReplaceWith(new LoadToken(RuntimeTokenKind.Type, type, type.ToDisplayString()));
         Assert.False(RunPass(f));
+    }
+
+    // ======================================================================
+    // Nested-function body scoping (blocker: per-body-scope rule)
+    // ======================================================================
+
+    [Fact]
+    public void NestedBodyShadowsSlotAndCacheReferences_RaisesOnlyOuter()
+    {
+        var f = LoadCanonicalFunction();
+
+        var arraySlot = ArrayDefStore(f).Slot;
+        var cacheField = GuardLoad(f).Field;
+        var infoElementType = ArrayNode(f).ElementType;
+
+        // A nested lambda whose independent slot pool reuses the outer info-array
+        // slot index and whose body reads a same-shaped cache field. Its storage
+        // is scoped separately (it receives its own pipeline run), so it must
+        // neither veto the outer candidate's slot/cache confinement nor be
+        // consumed or mutated by this pass.
+        var nestedArrayStore = new StoreStackSlot(arraySlot, new NewArray(infoElementType, new Constant(1, Int32Type)));
+        var nestedCacheLoad = new LoadField(cacheField, null);
+        var nestedBlock = new Block();
+        nestedBlock.Add(nestedArrayStore);
+        nestedBlock.Add(new Return(nestedCacheLoad));
+        var container = new BlockContainer();
+        container.Add(nestedBlock);
+        var lambda = new Lambda(
+            ObjectType,
+            ImmutableArray<Parameter>.Empty,
+            ImmutableArray<TypeRef>.Empty,
+            ImmutableArray<string?>.Empty,
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            container);
+
+        // Hold the lambda in an unrelated slot statement placed before the guard,
+        // inside the same outer block.
+        var guardIf = CacheIf(f);
+        var outerBlock = (Block)guardIf.Parent!;
+        var holder = new StoreStackSlot(500, lambda);
+        var ordered = outerBlock.Children.ToList();
+        int guardIndex = ordered.IndexOf(guardIf);
+        ordered.Insert(guardIndex, holder);
+        foreach (var c in outerBlock.Children.ToList())
+            c.Detach();
+        foreach (var c in ordered)
+            outerBlock.Add(c);
+
+        Assert.True(RunPass(f));
+        Assert.Single(f.Descendants.OfType<DynamicGetMember>());
+
+        // The nested body is untouched: its shadowing definitions survive and no
+        // raise happened inside it.
+        Assert.Contains(nestedArrayStore, lambda.Descendants);
+        Assert.Contains(nestedCacheLoad, lambda.Descendants);
+        Assert.Empty(lambda.Descendants.OfType<DynamicGetMember>());
     }
 }

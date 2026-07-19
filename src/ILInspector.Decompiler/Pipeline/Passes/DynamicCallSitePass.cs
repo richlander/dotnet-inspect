@@ -38,7 +38,14 @@ public sealed class DynamicCallSitePass : IIrPass
 
     static bool TransformOne(IrFunction function, Stepper stepper)
     {
-        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        // Only the root body's scope may be raised: the cache setup ledger and
+        // every slot/local confinement proof reason about this body's storage
+        // pool. A nested lambda or local function carries independent slot/local
+        // numbering and receives its own pipeline run, so its blocks and
+        // definitions must neither be transformed here nor contaminate a
+        // candidate's confinement. Walk with the nested-function boundary.
+        foreach (var block in GenericDeclarationPatternProof
+            .DescendantsOutsideNestedFunctions(function).OfType<Block>().ToList())
         {
             var children = block.Children;
             for (int i = 0; i + 1 < children.Count; i++)
@@ -85,12 +92,13 @@ public sealed class DynamicCallSitePass : IIrPass
     }
 
     /// <summary>
-    /// Identifies a cache lazy-init guard: a null/truthiness test on a
-    /// static cache field whose setup arm ends in the cache store. Works with
-    /// either structuring polarity — <c>if (cache == null) { setup }</c> (setup
-    /// in the then arm) or <c>if (cache != null) {} else { setup }</c> (setup in
-    /// the else arm) — by locating the arm that ends with the cache store, so
-    /// the opposite arm is always the one that must be empty.
+    /// Identifies a cache lazy-init guard and proves its polarity: the setup arm
+    /// must be the arm the runtime selects when the cache is still null.
+    /// <c>if (!cache) { setup } else {}</c> puts setup in the then arm;
+    /// <c>if (cache) {} else { setup }</c> puts it in the else arm. The mandated
+    /// setup arm must end in the cache store, so an inverted guard that would run
+    /// setup when the cache is already populated (or an empty mandated arm)
+    /// declines rather than deleting live behavior.
     /// </summary>
     static bool TryGetCacheGuard(IfStatement ifStmt, out LoadField guardLoad, out Block setupArm, out Block? oppositeArm)
     {
@@ -98,45 +106,57 @@ public sealed class DynamicCallSitePass : IIrPass
         setupArm = null!;
         oppositeArm = null;
 
-        if (!TryGuardCacheLoad(ifStmt.Condition, out var load))
+        if (!TryGuardCacheLoad(ifStmt.Condition, out var load, out var negated))
             return false;
 
-        var then = ifStmt.Then;
-        var els = ifStmt.Else;
-        bool thenIsSetup = EndsWithCacheStore(then, load.Field);
-        bool elseIsSetup = els is not null && EndsWithCacheStore(els, load.Field);
-
-        // Exactly one arm is the setup arm.
-        if (thenIsSetup == elseIsSetup)
-            return false;
-
-        guardLoad = load;
-        if (thenIsSetup)
+        // Polarity fixes which arm is the null-path setup arm.
+        Block mandatedSetup;
+        Block? opposite;
+        if (negated)
         {
-            setupArm = then;
-            oppositeArm = els;
+            // if (!cache) { setup } else {}
+            mandatedSetup = ifStmt.Then;
+            opposite = ifStmt.Else;
         }
         else
         {
-            setupArm = els!;
-            oppositeArm = then;
+            // if (cache) {} else { setup } — the else arm must exist to hold setup.
+            if (ifStmt.Else is null)
+                return false;
+            mandatedSetup = ifStmt.Else;
+            opposite = ifStmt.Then;
         }
+
+        // The null-path arm must be the one that ends in the cache store.
+        if (!EndsWithCacheStore(mandatedSetup, load.Field))
+            return false;
+
+        guardLoad = load;
+        setupArm = mandatedSetup;
+        oppositeArm = opposite;
         return true;
     }
 
-    /// <summary>The guard condition is a bare truthiness test on a static field: <c>cache</c> or <c>!cache</c>.</summary>
-    static bool TryGuardCacheLoad(IrExpression condition, out LoadField load)
+    /// <summary>
+    /// The guard condition is a bare truthiness test on a static field:
+    /// <c>cache</c> (<paramref name="negated"/> false) or <c>!cache</c>
+    /// (<paramref name="negated"/> true).
+    /// </summary>
+    static bool TryGuardCacheLoad(IrExpression condition, out LoadField load, out bool negated)
     {
         switch (condition)
         {
             case LogicalNot { Operand: LoadField { Instance: null } inner }:
                 load = inner;
+                negated = true;
                 return true;
             case LoadField { Instance: null } bare:
                 load = bare;
+                negated = false;
                 return true;
             default:
                 load = null!;
+                negated = false;
                 return false;
         }
     }
@@ -572,7 +592,11 @@ public sealed class DynamicCallSitePass : IIrPass
 
     static bool SlotConfined(IrFunction function, DefKey key, IrNode definition, IReadOnlyList<IrExpression> allowedLoads)
     {
-        foreach (var node in function.Descendants)
+        // Confinement is proven within this body's scope only: a nested
+        // lambda/local function's identically numbered slot or local belongs to a
+        // separate pool and must neither veto this candidate nor be treated as an
+        // extra definition/use of it.
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
@@ -605,7 +629,9 @@ public sealed class DynamicCallSitePass : IIrPass
 
     static bool CacheFieldConfined(IrFunction function, FieldRef cacheField, StoreField definition, IReadOnlyList<LoadField> allowedLoads)
     {
-        foreach (var node in function.Descendants)
+        // Scoped to this body: a nested function referencing a same-shaped cache
+        // field runs its own pipeline and must not veto or be consumed here.
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
         {
             switch (node)
             {
