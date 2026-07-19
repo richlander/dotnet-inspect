@@ -3603,6 +3603,31 @@ public sealed class SizeOf : IrExpression
     public override string Describe() => $"SizeOf {Type.ToDisplayString()}";
 }
 
+/// <summary>
+/// <c>default(T)</c>: the zero value of a type. csc lowers <c>default(T)</c> for
+/// an unconstrained or struct type parameter to a fresh temporary zero-inited by
+/// <c>initobj</c> and then loaded; the default-recovery pass folds that
+/// single-assignment temp back to this leaf so the value can inline into its use
+/// site as <c>default(T)</c> (reference-typed defaults are already <c>null</c>
+/// constants).
+/// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundDefaultExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundDefaultExpression / default(T)",
+    precondition: "result is the default-expression's type — the `initobj` type token of the recovered zero-initialized temporary",
+    witness: "generic default fixtures; corpus compile-back")]
+public sealed class DefaultValue : IrExpression
+{
+    public DefaultValue(TypeRef type) => Type = type;
+
+    public TypeRef Type { get; }
+    public override TypeRef? ResultType => Type;
+    public override IEnumerable<TypeRef> DirectTypes => [Type];
+
+    public override string Describe() => $"DefaultValue {Type.ToDisplayString()}";
+}
+
 /// <summary>The switch opcode: jump to Targets[value], else fall through.</summary>
 public sealed class SwitchBranch : IrNode
 {
