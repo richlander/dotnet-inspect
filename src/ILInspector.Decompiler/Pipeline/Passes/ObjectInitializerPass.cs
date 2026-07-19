@@ -422,7 +422,7 @@ public sealed class ObjectInitializerPass : IIrPass
     {
         LoadProperty { HasInstance: true, Instance: LoadStackSlot slot } property
             when aliasSlots.Contains(slot.Slot) && property.IndexArguments.Count == 0
-                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
+                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsEscapableIdentifier(property.PropertyName)
             => new OuterMember(property.PropertyName, property.Accessor, null),
         LoadField { Instance: LoadStackSlot slot } field
             when aliasSlots.Contains(slot.Slot)
@@ -434,7 +434,7 @@ public sealed class ObjectInitializerPass : IIrPass
     {
         LoadProperty { HasInstance: true, Instance: LoadLocal local } property
             when local.Index == localIndex && property.IndexArguments.Count == 0
-                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsUsableIdentifier(property.PropertyName)
+                && property.Accessor.TypeArguments.IsDefaultOrEmpty && CSharpNaming.IsEscapableIdentifier(property.PropertyName)
             => new OuterMember(property.PropertyName, property.Accessor, null),
         LoadField { Instance: LoadLocal local } field
             when local.Index == localIndex
@@ -447,8 +447,8 @@ public sealed class ObjectInitializerPass : IIrPass
     /// generic accessor (such as <c>set_Value&lt;T&gt;(T)</c>) has no <c>Value = …</c>
     /// initializer form; a real setter returns <c>void</c>; its parameter list is
     /// exactly the index arguments followed by the single by-value assigned value;
-    /// and a named member must have a usable C# identifier (a backing-field-style or
-    /// otherwise unspellable name has no <c>Name = …</c> form). Without this guard
+    /// and a named member must have an escapable C# identifier (a backing-field-style
+    /// or otherwise unspellable name has no <c>Name = …</c> form). Without this guard
     /// <see cref="ObjectInitializerPass"/> would emit invalid initializers such as
     /// <c>new Owner { Value = v }</c> from a generic accessor or
     /// <c>new Owner { bad-name = v }</c> from an unspellable accessor (#1416).
@@ -466,7 +466,7 @@ public sealed class ObjectInitializerPass : IIrPass
 
         // A named member entry prints `Name = value`; an indexer prints `[k] = value`,
         // so only the named form needs a spellable member identifier.
-        return property.IndexArguments.Count != 0 || CSharpNaming.IsUsableIdentifier(property.PropertyName);
+        return property.IndexArguments.Count != 0 || CSharpNaming.IsEscapableIdentifier(property.PropertyName);
     }
 
     static EntryPlan? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch

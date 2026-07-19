@@ -137,6 +137,11 @@ public static class IrPasses
         // Fold whole-method type-test / guard return dispatches once inner
         // return diamonds and isolated return tails are normalized.
         new ReturnDispatchPass(),
+        // Fold the exhaustive nested if/return comparison tree ReturnDispatchPass
+        // just built into a tuple relational-pattern switch expression, when every
+        // component and leaf value proves exhaustive, mutually exclusive, and
+        // side-effect-free (issue #2867).
+        new TupleSwitchExpressionPass(),
         // Fold the generic null-conditional invocation lowering (`recv?.M() ?? x`
         // over an unconstrained-generic receiver — csc's default(T)-box two-stage
         // null test with a reload, both guards sharing one call arm) into a single
@@ -204,6 +209,11 @@ public static class IrPasses
         // `&&` short-circuit operand are both formed; left flat it renders as
         // a separate `T t = value as T; if (t is not null)`.
         new IsPatternPass(),
+        // Fold a pattern-guarded diamond whose true arm compares the bound value
+        // to a compiler-spilled default(T) temp (then stores <rhs>, else stores
+        // false) into `target = pattern && rhs`, inlining that arm-local default
+        // temp as `default(T)` so the arm collapses to a single store.
+        new PatternGuardedShortCircuitPass(),
         // Raise the two-arm union switch-expression lowering (cached Value,
         // ordered type tests, value arms, and the compiler's unreachable throw
         // fallback) into `union switch { T t => ..., U => ... }`.
@@ -265,6 +275,9 @@ public static class IrPasses
         // clause — restoring a distinct catch variable plus the entry assignment
         // so the survivor does not shadow the outer local (CS0136, issue #2828).
         new CatchVariableScopePass(),
+        // Raise compiler-generated fixed-buffer backing-field element addresses
+        // before fixed-statement recovery consumes pinned byref initializers.
+        new FixedBufferElementAccessPass(),
         // Raise the csc pin lowering (a pinned managed-ref local + derived
         // pointer + optional unpin store) into fixed (T* p = &place) { ... }.
         // Runs after structuring and the second inlining so the pinned region's

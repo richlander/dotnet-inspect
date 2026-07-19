@@ -64,12 +64,11 @@ public static class ExtensionsOutputFormatter
                 var sourceDisplay = r.SourceVersion != null
                     ? $"{r.Source}@{r.SourceVersion}"
                     : r.Source ?? "";
-                var name = r.Overloads > 1
-                    ? $"{r.MethodName} ({r.Overloads} overloads)"
-                    : r.MethodName;
+                var name = r.MethodName;
+                var overloads = r.Overloads ?? 1;
                 var type = r.ReachableFromType ?? targetType;
                 var via = r.ReachablePath ?? "";
-                return new ExtensionRow(name, r.Kind, r.ExtensionClass ?? "", r.Assembly ?? "", sourceDisplay, type, via);
+                return new ExtensionRow(name, overloads, r.Kind, r.ExtensionClass ?? "", r.Assembly ?? "", sourceDisplay, type, via);
             })
             .ToList();
 

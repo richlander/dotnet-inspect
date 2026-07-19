@@ -171,15 +171,30 @@ public class AnonymousObjectPassTests
     }
 
     [Fact]
-    public void KeywordPropertyName_IsNotRaisedUntilPrinterEscapesAnonymousMembers()
+    public void KeywordPropertyName_RaisesAndEscapes()
     {
         var function = FunctionWithAnonymousMetadata(["int"], [new Constant(1, TypeRef.CoreLib("System", "Int32"))]);
 
         new AnonymousObjectPass().Run(function, PassContext.None);
 
-        Assert.Empty(function.Descendants.OfType<AnonymousObject>());
-        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<AnonymousObject>());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
         function.CheckInvariant();
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("new { @int = 1 }", output);
+    }
+
+    [Fact]
+    public void CompilerProducedKeywordProperty_RaisesAndEscapes()
+    {
+        var function = Raised(nameof(CfgSampleClass.AnonKeyword));
+
+        Assert.Single(function.Descendants.OfType<AnonymousObject>());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return new { @int = value };", output);
     }
 
     [Fact]

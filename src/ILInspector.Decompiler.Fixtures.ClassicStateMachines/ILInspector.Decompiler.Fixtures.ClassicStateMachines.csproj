@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Issue #2818 (classic async/iterator state-machine corpus lane, child of #2814).
+    Extends the classic-async axis (RuntimeAsync=off, see
+    ILInspector.Decompiler.Fixtures.ClassicAsync) to pin a representative matrix
+    of classic async builders, iterators, and async iterators in the same lowering
+    mode. No CI corpus contained a single classic async state machine before
+    #2818; iterators and async iterators were entirely absent. A plain switch
+    statement is included as a control. This current-compiler lane does not claim
+    exhaustive compiler-version or downlevel-TFM coverage.
+
+    Built by the normal solution graph and addressable through FixtureCatalog.
+    Point the harness at the built DLL with the classic-state-machines corpus
+    profile (see tools/DecompilerHarness/README.md).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <RuntimeAsync>off</RuntimeAsync>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

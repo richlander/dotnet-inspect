@@ -233,26 +233,23 @@ public class DecompilerFindingsTests
     }
 
     [Fact]
-    public void Inspect_FieldName_DistinguishesEscapableKeyword()
+    public void Inspect_FieldName_AcceptsEscapableKeywordAndRejectsInvalidName()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
         var keyword = new FieldRef(holder, "else", Int32);
         var invalid = new FieldRef(holder, "bad-name", Int32);
 
-        var keywordCause = Assert.Single(CompleteInspection(
-                DecompilerFindings.InspectFidelityCauses(
-                    Function(new Return(new LoadField(keyword, instance: null))),
-                    Subject))
-            .Findings).Payload;
+        var keywordInspection = CompleteInspection(
+            DecompilerFindings.InspectFidelityCauses(
+                Function(new Return(new LoadField(keyword, instance: null))),
+                Subject));
         var invalidCause = Assert.Single(CompleteInspection(
                 DecompilerFindings.InspectFidelityCauses(
                     Function(new Return(new LoadField(invalid, instance: null))),
                     Subject))
             .Findings).Payload;
 
-        Assert.Equal(
-            DecompilerFidelityDiscriminators.EscapableFieldName,
-            keywordCause.Discriminator);
+        Assert.Empty(keywordInspection.Findings);
         Assert.Equal(
             DecompilerFidelityDiscriminators.UnspellableFieldName,
             invalidCause.Discriminator);
