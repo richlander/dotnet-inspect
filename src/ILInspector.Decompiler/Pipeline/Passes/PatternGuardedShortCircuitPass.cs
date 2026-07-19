@@ -77,26 +77,28 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
             if (!TryRecoverArmDefaults(function, ifs.Then, thenStore.Store, rhs))
                 continue;
 
-            var patterns = ifs.Condition.Descendants.Prepend(ifs.Condition)
-                .OfType<IsPattern>()
-                .Where(pattern => !ReferenceOwnership.IsInsideNestedFunctionBody(pattern))
+            var binders = ifs.Condition.Descendants.Prepend(ifs.Condition)
+                .Where(node => !ReferenceOwnership.IsInsideNestedFunctionBody(node))
+                .SelectMany(node => ConditionBoundLocals(node).Select(local => (Binder: node, Local: local)))
                 .ToList();
 
-            // A bound pattern local is definitely assigned in the `&&` right
-            // operand only when the condition being true implies the pattern
-            // matched — i.e. the pattern sits on a pure `&&` spine. Under `||`
-            // or `!` the condition can be true without the pattern matching, so
-            // the local would be read unassigned (CS0165).
-            if (patterns.Any(pattern => !PatternRequiredForConditionTrue(pattern, ifs.Condition)))
+            // A bound condition local is definitely assigned in the `&&` right
+            // operand only when the condition being true implies the binder ran
+            // — i.e. every binder sits on a pure `&&` spine. Under `||`, `!`,
+            // `??`, `?:`, or any other conditional-evaluation ancestor the
+            // condition can be true without the binder having run, so the local
+            // would be read unassigned (CS0165). This gates every local-binding
+            // pattern in the condition (both `is` and recursive property
+            // declaration patterns), not just top-level `is` patterns.
+            if (binders.Any(binding => !BinderRequiredForConditionTrue(binding.Binder, ifs.Condition)))
                 continue;
 
-            var patternLocals = patterns.Select(pattern => pattern.LocalIndex).ToList();
-
-            // Every pattern local must be confined to this `if`; after the fold
-            // it is definitely assigned only inside the `&&` right operand, so a
-            // read anywhere else would be use-before-assignment (CS0165).
+            // Every bound condition local must be confined to this `if`; after
+            // the fold it is definitely assigned only inside the `&&` right
+            // operand, so a read anywhere else would be use-before-assignment
+            // (CS0165).
             IrNode[] allowed = [ifs];
-            if (patternLocals.Any(local => !ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, allowed)))
+            if (binders.Any(binding => !ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, binding.Local, allowed)))
                 continue;
 
             var condition = ifs.Condition;
@@ -133,27 +135,36 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
             if (statement is not InitObject init || init.Address is not LoadLocalAddress { Index: var index })
                 return false;
 
-            // The local must belong to this arm only. Nested lambda /
-            // local-function bodies carry their own local index space, so a
-            // same-index reference inside one is a different variable and must
-            // not be consulted (the per-body-scope rule).
-            if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, index, [thenArm]))
-                return false;
-            if (function.Descendants.OfType<StoreLocal>()
-                    .Any(store => store.Index == index && !ReferenceOwnership.IsInsideNestedFunctionBody(store)))
+            // A same-index reference or binding inside any nested lambda /
+            // local-function body means the temp cannot be proven arm-local.
+            // Nested bodies carry their own local index space (the
+            // per-body-scope rule), and a captured outer local surfaces there as
+            // a closure field, not a LoadLocal — so any same-index node inside a
+            // nested body is either a different variable or a shape we cannot
+            // reason about. Refuse recovery rather than guess: inlining the temp
+            // while leaving such a reference behind would emit invalid C#.
+            if (function.Descendants.Any(node =>
+                    ReferenceOwnership.IsInsideNestedFunctionBody(node)
+                    && ReferenceOwnership.ReferencesOrBindsLocal(node, index)))
             {
                 return false;
             }
+
+            // The local must belong to this arm only: single-assignment (this
+            // init alone), read once by value in the store value, never
+            // addressed elsewhere.
+            if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, index, [thenArm]))
+                return false;
+            if (function.Descendants.OfType<StoreLocal>().Any(store => store.Index == index))
+                return false;
             if (function.Descendants.OfType<LoadLocalAddress>()
-                    .Any(address => address.Index == index
-                        && !ReferenceEquals(address, init.Address)
-                        && !ReferenceOwnership.IsInsideNestedFunctionBody(address)))
+                    .Any(address => address.Index == index && !ReferenceEquals(address, init.Address)))
             {
                 return false;
             }
 
             var loads = rhs.Descendants.Prepend(rhs).OfType<LoadLocal>()
-                .Where(load => load.Index == index && !ReferenceOwnership.IsInsideNestedFunctionBody(load))
+                .Where(load => load.Index == index)
                 .ToList();
             if (loads.Count != 1)
                 return false;
@@ -170,22 +181,37 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
         return true;
     }
 
-    // Whether the pattern's success is necessary for the condition to evaluate
-    // true: every logical ancestor from the pattern up to the condition root is
-    // `&&` (And). An `||` (Or) or `!` (Not) ancestor means the condition can be
-    // true without the pattern matching, so the bound local is not definitely
-    // assigned in the `&&` right operand the fold would build.
-    static bool PatternRequiredForConditionTrue(IsPattern pattern, IrExpression condition)
+    // Whether the binder's success is necessary for the condition to evaluate
+    // true: every ancestor from the binder up to the condition root must be the
+    // right operand's `&&` (And) spine. This is an allowlist — only `&&`
+    // guarantees the language tracks definite assignment from the binder out to
+    // the folded `&&` right operand. Any other conditional-evaluation ancestor
+    // (`||`, `!`, `??`, `?:`, or an ordinary call/operator that may not run the
+    // binder) means the condition can be true without the binder having run, so
+    // the bound local is not definitely assigned in the right operand the fold
+    // would build.
+    static bool BinderRequiredForConditionTrue(IrNode binder, IrExpression condition)
     {
-        for (IrNode current = pattern; !ReferenceEquals(current, condition); current = current.Parent!)
+        for (IrNode current = binder; !ReferenceEquals(current, condition); current = current.Parent!)
         {
             if (current.Parent is null)
                 return false;
-            if (current.Parent is LogicalBinary { Kind: LogicalKind.Or } or LogicalNot)
+            if (current.Parent is not LogicalBinary { Kind: LogicalKind.And })
                 return false;
         }
         return true;
     }
+
+    // The condition-bound locals a binder node declares. Only pattern binders
+    // can appear in a foldable boolean condition; other binders
+    // (foreach/using/fixed/catch/deconstruction) are statements, not condition
+    // sub-expressions.
+    static IEnumerable<int> ConditionBoundLocals(IrNode node) => node switch
+    {
+        IsPattern pattern => [pattern.LocalIndex],
+        RecursivePropertyDeclarationPattern recursive => [recursive.LocalIndex],
+        _ => [],
+    };
 
     readonly record struct ArmStoreInfo(StoreTarget Target, IrExpression Value, TypeRef? LocalType, IrNode Store);
 
