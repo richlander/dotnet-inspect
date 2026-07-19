@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-16T21:37:45.1329979+00:00",
+  "generatedUtc": "2026-07-19T00:57:56.3712231+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -13,6 +13,8 @@
     "semanticDefectIncrease": 0,
     "passBugIncrease": 0,
     "fidelityOpcodeDiffIncrease": 0,
+    "fidelityOperandDiffIncrease": 0,
+    "fidelityUnavailableIncrease": 0,
     "fidelityRecompileFailIncrease": 0,
     "fidelityContextFailIncrease": 0
   },
@@ -62,6 +64,13 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "generated-type-name",
+          "sites": 2
+        }
+      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::Sum#0"
     },
     {
@@ -77,7 +86,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.PointerArithmeticFixtures::PointerArithmeticAndComparison#0"
     },
     {
@@ -93,7 +101,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.PointerArithmeticFixtures::PointerIncrement#0"
     },
     {
@@ -109,6 +116,12 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "cpblk"
+        }
+      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals::StackallocPointerInitializer#0"
     },
     {
@@ -124,6 +137,12 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "cpblk"
+        }
+      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals::StackallocSpanInitializer#0"
     },
     {
@@ -139,7 +158,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StringPinningResiduals::FixedStringFirstChar#0"
     },
     {
@@ -155,7 +173,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::CallRisky#0"
     },
     {
@@ -171,7 +188,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::ConsumePointer#0"
     },
     {
@@ -187,7 +203,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::DerefPointer#0"
     },
     {
@@ -203,7 +218,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::FreePointer#0"
     },
     {
@@ -219,7 +233,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::InvokeFunctionPointer#0"
     },
     {
@@ -235,7 +248,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::PassAddress#0"
     },
     {
@@ -251,7 +263,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::Risky#0"
     },
     {
@@ -267,7 +278,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::StackAllocDefault#0"
     },
     {
@@ -283,7 +293,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::StackAllocEventData#0"
     },
     {
@@ -299,7 +308,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::StackAllocSkipInit#0"
     },
     {
@@ -315,7 +323,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::SumPinned#0"
     },
     {
@@ -331,6 +338,13 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "generated-type-name",
+          "sites": 2
+        }
+      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals::Sum#0"
     },
     {
@@ -346,7 +360,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.PointerArithmeticFixtures::PointerArithmeticAndComparison#0"
     },
     {
@@ -362,7 +375,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.PointerArithmeticFixtures::PointerIncrement#0"
     },
     {
@@ -378,6 +390,12 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "cpblk"
+        }
+      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals::StackallocPointerInitializer#0"
     },
     {
@@ -393,6 +411,12 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "cpblk"
+        }
+      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals::StackallocSpanInitializer#0"
     },
     {
@@ -408,7 +432,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StringPinningResiduals::FixedStringFirstChar#0"
     },
     {
@@ -424,7 +447,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::CallRisky#0"
     },
     {
@@ -440,7 +462,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::ConsumePointer#0"
     },
     {
@@ -456,7 +477,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::DerefPointer#0"
     },
     {
@@ -472,7 +492,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::FreePointer#0"
     },
     {
@@ -488,7 +507,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::InvokeFunctionPointer#0"
     },
     {
@@ -504,7 +522,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::PassAddress#0"
     },
     {
@@ -520,7 +537,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::Risky#0"
     },
     {
@@ -536,7 +552,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::StackAllocDefault#0"
     },
     {
@@ -552,7 +567,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::StackAllocEventData#0"
     },
     {
@@ -568,7 +582,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::StackAllocSkipInit#0"
     },
     {
@@ -584,7 +597,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures::SumPinned#0"
     },
     {
@@ -615,7 +627,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.ClassPetUnion::.ctor#0"
     },
     {
@@ -631,7 +642,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.ClassPetUnion::.ctor#1"
     },
     {
@@ -647,7 +657,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.ClassPetUnion::get_Value#0"
     },
     {
@@ -693,7 +702,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.PetUnion::get_Value#0"
     },
     {
@@ -739,7 +747,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.ResultUnion\u00601::get_Value#0"
     },
     {
@@ -785,7 +792,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncAwaiterFixtures::YieldInBranch#0"
     },
     {
@@ -801,7 +807,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncAwaiterFixtures::YieldOnce#0"
     },
     {
@@ -832,7 +837,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncAwaiterFixtures::YieldTwice#0"
     },
     {
@@ -863,7 +867,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncClassAwaitable::GetAwaiter#0"
     },
     {
@@ -879,7 +882,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncClassAwaiter::.ctor#0"
     },
     {
@@ -895,7 +897,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncClassAwaiter::GetResult#0"
     },
     {
@@ -926,7 +927,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncClassAwaiter::UnsafeOnCompleted#0"
     },
     {
@@ -942,7 +942,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncClassAwaiter::get_IsCompleted#0"
     },
     {
@@ -958,7 +957,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncDisposableResource::.ctor#0"
     },
     {
@@ -974,7 +972,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncDisposableResource::DisposeAsync#0"
     },
     {
@@ -990,7 +987,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncDisposableResource::get_Value#0"
     },
     {
@@ -1006,7 +1002,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncExtensionAwaitableExtensions::GetAwaiter#0"
     },
     {
@@ -1022,7 +1017,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncExtensionAwaiter::GetResult#0"
     },
     {
@@ -1053,7 +1047,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncExtensionAwaiter::get_IsCompleted#0"
     },
     {
@@ -1084,7 +1077,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitForeach#0"
     },
     {
@@ -1115,7 +1107,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "OpcodeDiff",
-      "operandFidelity": "Divergent",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitInLoop#0"
     },
     {
@@ -1161,7 +1152,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitUsingResource#0"
     },
     {
@@ -1177,7 +1167,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::AwaitValueTask#0"
     },
     {
@@ -1223,7 +1212,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.RuntimeAsyncTaskFixtures::NestedAwaitUsingResources#0"
     },
     {
@@ -1239,7 +1227,6 @@
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "OpcodeDiff",
-      "operandFidelity": "Divergent",
       "displayMethod": "ILInspector.Decompiler.Fixtures.OptInNet11!ILInspector.Decompiler.Fixtures.OptInNet11.UnionCat::.ctor#0"
     },
     {
@@ -1345,7 +1332,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::ContractUnsafe#0"
     },
     {
@@ -1361,7 +1347,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::DelegatedUnsafe#0"
     },
     {
@@ -1377,7 +1362,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::EscapingStackPointer#0"
     },
     {
@@ -1393,7 +1377,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::HollowUnsafe#0"
     },
     {
@@ -1409,7 +1392,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "OpcodeDiff",
-      "operandFidelity": "Divergent",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::M1#0"
     },
     {
@@ -1425,7 +1407,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::RealUnsafePointer#0"
     },
     {
@@ -1441,7 +1422,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::Safe#0"
     },
     {
@@ -1457,7 +1437,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainA!ILInspector.Decompiler.Fixtures.UnsafeChainA.LibraryA::SignatureOnlyUnsafe#0"
     },
     {
@@ -1473,7 +1452,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainB!ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB::M2#0"
     },
     {
@@ -1489,7 +1467,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainC!ILInspector.Decompiler.Fixtures.UnsafeChainC.Program::CallChain#0"
     },
     {
@@ -1505,7 +1482,6 @@
       "passBug": null,
       "validity": "valid",
       "fidelityCheck": "Exact",
-      "operandFidelity": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.UnsafeChainC!ILInspector.Decompiler.Fixtures.UnsafeChainC.Program::Main#0"
     }
   ],
@@ -1534,19 +1510,15 @@
       "stopReasons": {}
     },
     "fidelity": {
+      "contractVersion": 1,
       "checkedMethods": 64,
       "exactMethods": 61,
       "opcodeDiffMethods": 3,
+      "operandDiffMethods": 0,
+      "fidelityUnavailableMethods": 0,
       "recompileFailMethods": 0,
       "contextFailMethods": 0,
-      "notFullMethods": 0,
-      "operandFidelity": {
-        "profile": "OperandFidelityV1",
-        "eligibleMethods": 61,
-        "exactMethods": 61,
-        "divergentMethods": 0,
-        "unavailableMethods": 0
-      }
+      "notFullMethods": 0
     }
   },
   "fidelityOracle": "compile-back",
