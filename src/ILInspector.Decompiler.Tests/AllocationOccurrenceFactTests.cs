@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Research;
@@ -39,6 +40,24 @@ public class AllocationOccurrenceFactTests
         Assert.Equal("int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once", box.Detail);
         Assert.True(box.SourceOffset >= 0, "the annotation should carry IL provenance");
         Assert.Equal(AnnotationCategory.Allocation, box.Descriptor.Category);
+    }
+
+    [Fact]
+    public void Box_CarriesItsTypedPayload_NotJustAFlattenedDetailString()
+    {
+        // The producer must hand back the Annotation<T> atom -- not the legacy
+        // string-only Annotation -- so a typed consumer (e.g. future identity
+        // diffing) can read the AllocationOccurrence directly instead of
+        // re-parsing Detail.
+        var annotations = Classify(nameof(AllocSampleClass.BoxInt));
+        var box = Assert.Single(annotations, a => a.Descriptor.Id == "alloc.box");
+
+        var typed = Assert.IsType<Annotation<AllocationOccurrence>>(box);
+        Assert.Equal(AllocationKind.Box, typed.Payload.Kind);
+        Assert.Equal(typed.SourceOffset, typed.Payload.ILOffset);
+        // Detail is a computed projection of Payload through Formatter, not a
+        // stored field independently settable from it.
+        Assert.Equal(typed.Formatter!(typed.Payload), typed.Detail);
     }
 
     [Fact]
