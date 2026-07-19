@@ -2,7 +2,7 @@
 
 This document describes the design and implementation of dotnet-inspect.
 
-## Design Philosophy
+## Design philosophy
 
 dotnet-inspect is designed for **LLM-driven .NET development**. The tool prioritizes:
 
@@ -11,7 +11,7 @@ dotnet-inspect is designed for **LLM-driven .NET development**. The tool priorit
 3. **Minimal tokens** - `--table`, `--tsv`, `--jsonl`, and `--compact` options reduce output size
 4. **Self-documenting** - `skill` command prints the SKILL.md; `--help` and `-v` show CLI structure
 
-## Command Structure
+## Command structure
 
 The tool is organized around source inspection, API lookup, relationship, and utility commands:
 
@@ -150,7 +150,7 @@ Searches for types across packages, platform libraries, projects, and local asse
 
 Resolves SourceLink URLs, source text, and MethodDef token + IL offset pairs to source locations.
 
-## LLM Integration
+## LLM integration
 
 ### SKILL.md
 
@@ -158,14 +158,14 @@ The tool includes an embedded SKILL.md that is distributed via the [dotnet/skill
 
 Run `dotnet-inspect skill` to print the embedded SKILL.md.
 
-### Output Designed for LLMs
+### Output designed for LLMs
 
 - **Markdown tables** - Structured, parseable format
 - **Consistent formatting** - Same structure across invocations
 - **Full signatures** - Parameter names included, not just types
 - **Minimal noise** - Hidden/obsolete members excluded by default
 
-## Analysis, Research, and Decompiler Evidence
+## Analysis, Research, and Decompiler evidence
 
 Method-body evidence is split by representation altitude, then joined by a
 single overlay layer:
@@ -231,7 +231,7 @@ Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or
 R1 facts should be new Analysis-backed producers registered through Research,
 not direct `Decompiler -> Analysis` calls and not parallel presentation paths.
 
-## Library Inspection
+## Library inspection
 
 The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecutable` for low-level assembly inspection without loading assemblies into the runtime.
 
@@ -256,7 +256,7 @@ each assembly is scanned once into Metadata's extension-member Finding census,
 then CLI target, reachability, overload, and display projections consume that
 shared inventory.
 
-### Metadata Extraction
+### Metadata extraction
 
 ```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -287,7 +287,7 @@ redirects to that portable `any` package (the framework-dependent build) at the 
 and inspects its managed assemblies. The redirect benefits every package-consuming command
 (`type`, `member`, `package`, `depends`).
 
-### Signature Decoding
+### Signature decoding
 
 Method and property signatures are decoded using `SignatureTypeProvider`, which implements `ISignatureTypeProvider<string, object?>`:
 
@@ -305,11 +305,11 @@ public string GetByReferenceType(string elementType) => $"ref {elementType}";
 
 Parameter names are extracted from the `Parameter` table in metadata, matching by sequence number.
 
-### Unsafe Code Detection
+### Unsafe code detection
 
 Unsafe code detection operates at two levels:
 
-#### Assembly-Level Detection
+#### Assembly-level detection
 
 Checks for `System.Security.UnverifiableCodeAttribute` on the assembly. This attribute is emitted by the C# compiler when `AllowUnsafeBlocks` is enabled, indicating the assembly contains unverifiable code.
 
@@ -327,7 +327,7 @@ private static bool CheckForUnsafeCode(MetadataReader reader)
 }
 ```
 
-#### Method-Level Detection (`--unsafe` filter)
+#### Method-level detection (`--unsafe` filter)
 
 The `--unsafe` filter identifies methods that require the caller to enter an
 unsafe context, from two metadata signals:
@@ -351,7 +351,7 @@ rules, so the check is self-gating and legacy assemblies are unaffected.
 
 This approach is intentionally **API-focused** - it surfaces methods that require the caller to use an unsafe context. Methods that use unsafe internally but expose a safe API are not included.
 
-#### What's Not Detected
+#### What's not detected
 
 For a **legacy** assembly (no `RequiresUnsafeAttribute`), a method declared with
 the `unsafe` keyword but without a pointer in its signature is not detected,
@@ -369,7 +369,7 @@ This method is `unsafe` but has a safe signature (`int StackAlloc()`), so for a
 legacy assembly `--unsafe` won't include it. Under the updated memory-safety
 rules the same member carries `RequiresUnsafeAttribute` and **is** detected.
 
-#### Fully Accurate Implementation
+#### Fully accurate implementation
 
 A complete implementation would require IL analysis to detect all unsafe constructs:
 
@@ -399,7 +399,7 @@ for (int i = 0; i < ilBytes.Length - 1; i++)
 
 This approach is significantly more expensive (requires reading IL for every method) and would slow down API extraction. The current signature-based approach is a pragmatic choice that covers the most common use case: finding methods that expose pointers in their public API.
 
-### Async Method Detection
+### Async method detection
 
 The **Async Methods** section lists public async methods and classifies each as one of two kinds:
 
@@ -435,7 +435,7 @@ extra scanning cost.
 > emits the `0x2000` flag regardless of body shape (loops, `try`/`catch`/`finally`,
 > `await using`, `await foreach`, `ConfigureAwait(false)` all classify as Runtime).
 
-### SourceLink Resolution
+### SourceLink resolution
 
 SourceLink information is embedded in PDBs (portable or embedded) as custom debug information with GUID `CC110556-A091-4D38-9FEC-25AB9A351A6A`.
 
@@ -457,7 +457,7 @@ The resolver:
 4. Applies URL pattern to generate raw source URL
 5. Converts to GitHub browse URL with line number
 
-### Determinism Audit
+### Determinism audit
 
 Determinism is detected via the `DebuggableAttribute` blob. Specifically, checking bit 0x100 in the debugging modes flags:
 
@@ -466,9 +466,9 @@ Determinism is detected via the `DebuggableAttribute` blob. Specifically, checki
 isDeterministic = (debuggingModes & 0x100) != 0;
 ```
 
-## Output Formatting
+## Output formatting
 
-### Serialization Architecture
+### Serialization architecture
 
 The tool supports two output formats — Markdown (via [Markout](https://github.com/richlander/markout)) and JSON — with a clean separation between data and presentation.
 
@@ -520,7 +520,7 @@ context.Serialize(view);
 
 This ensures data models never reference Markout, and presentation logic is fully contained in `Views/` and `Output/`.
 
-### Value Formatting
+### Value formatting
 
 Numeric and date formatting is handled declaratively through Markout attributes on view model properties:
 
@@ -533,7 +533,7 @@ Numeric and date formatting is handled declaratively through Markout attributes 
 
 Formatter implementations live in `Output/ValueFormatters.cs` (`ByteSizeFormatter`, `CompactNumberFormatter`).
 
-### Output Modes
+### Output modes
 
 | Mode | Flag | Description |
 | ---- | ---- | ----------- |
@@ -543,7 +543,7 @@ Formatter implementations live in `Output/ValueFormatters.cs` (`ByteSizeFormatte
 | JSON | `--json` | Full structured output |
 | Compact JSON | `--json --compact` | Minified, omits false/null values |
 
-### Verbosity Control
+### Verbosity control
 
 Output follows a **height × width** model:
 
@@ -561,7 +561,7 @@ Packages are resolved in order:
 
 `PackageCacheService` enforces this invariant: the app reads from both caches but only writes to the app cache. This prevents corrupting the shared NuGet cache.
 
-## Project Structure
+## Project structure
 
 The codebase is organized into domain providers, shared method-body engines, the
 Research overlay bridge, and the application layer:
@@ -622,7 +622,7 @@ Research overlay bridge, and the application layer:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Layer Rules
+### Layer rules
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
@@ -635,7 +635,7 @@ Research overlay bridge, and the application layer:
 - **Views** wrap models and own all Markout attributes, sections, field builders, and computed display properties. They are the only types registered in `MarkoutContext`.
 - **Commands** orchestrate: they call services, populate models, and hand off to `OutputFormatter`. Most commands should not import Markout directly.
 
-### Key Files
+### Key files
 
 ```text
 src/dotnet-inspect/
@@ -670,7 +670,7 @@ src/ILInspector.Decompiler/     # R2 per-method IR and source/IL projection
 src/ILInspector.Research/       # Registered fact overlay and annotated views
 ```
 
-## Key Design Decisions
+## Key design decisions
 
 1. **No assembly loading** — Uses `MetadataReader` to avoid loading assemblies into the runtime, enabling inspection of any .NET library regardless of target framework.
 
@@ -688,7 +688,7 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 
 8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
 
-9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence is load-bearing — it ships and evolves as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
+9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence lets it ship and evolve as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
 
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
 

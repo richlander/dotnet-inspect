@@ -1,4 +1,4 @@
-# Decompiler Correctness Pipeline
+# Decompiler correctness pipeline
 
 This document designs the decompiler test and harness stack as an intentionally
 staged correctness gauntlet. It is **not** just a catalog of today's harness
@@ -61,7 +61,7 @@ highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
 new raise or structuring change must go much higher.
 
-## Entry gate checklist (Stage 0)
+## Entry gate checklist (stage 0)
 
 The entry gate is the one stage that must be green for **every** decompiler PR
 before any higher boss is claimed. It proves only that the code builds and the

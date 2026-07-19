@@ -1,4 +1,4 @@
-# PDB Acquisition
+# PDB acquisition
 
 This document describes how dotnet-inspect locates and downloads PDB (Program Database) files to enable SourceLink resolution and source code navigation.
 
@@ -6,7 +6,7 @@ This document describes how dotnet-inspect locates and downloads PDB (Program Da
 
 PDBs contain debug information that maps compiled code back to source. For SourceLink to work, we need access to a **Portable PDB** that contains the SourceLink JSON document.
 
-## PDB Formats
+## PDB formats
 
 ### Portable PDB
 
@@ -24,7 +24,7 @@ PDBs contain debug information that maps compiled code back to source. For Sourc
 - Cannot be read by System.Reflection.Metadata
 - Still used for native image PDBs (`.ni.pdb`) in Windows R2R builds
 
-## PDB Location Strategy
+## PDB location strategy
 
 The tool searches for PDBs in this order:
 
@@ -36,14 +36,14 @@ Check if the library has an embedded PDB (stored inside the PE file itself). Thi
 
 Look for a `.pdb` file next to the library with the same base name. Common when debugging locally.
 
-### 3. Symbol Package (.snupkg)
+### 3. Symbol package (.snupkg)
 
 For NuGet packages, download the corresponding `.snupkg` from:
 
 - `https://globalcdn.nuget.org/symbol-packages/{id}.{version}.snupkg`
 - `https://api.nuget.org/v3-flatcontainer/{id}/{version}/{id}.{version}.snupkg`
 
-### 4. Symbol Servers
+### 4. Symbol servers
 
 Query symbol servers using the CodeView GUID and age:
 
@@ -55,7 +55,7 @@ The symbol key format differs by PDB type:
 - Portable PDB: `{GUID}FFFFFFFF`
 - Windows PDB: `{GUID}{age:x}`
 
-## CodeView Debug Directory
+## CodeView debug directory
 
 The PE file's debug directory contains CodeView entries that provide:
 
@@ -64,7 +64,7 @@ The PE file's debug directory contains CodeView entries that provide:
 - **Age**: Build counter (always 1 for Portable PDBs)
 - **MinorVersion**: `0x504d` indicates Portable PDB format
 
-### Multiple CodeView Entries
+### Multiple CodeView entries
 
 **Important**: Some libraries have multiple CodeView entries. Windows ReadyToRun (R2R) assemblies typically have two:
 
@@ -80,22 +80,22 @@ CodeView Entry 1: System.Text.Json.ni.pdb (MinorVersion: 0x0000, Windows PDB)
 CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) ← use this
 ```
 
-## Microsoft vs Third-Party Libraries
+## Microsoft vs third-party libraries
 
-### Microsoft Platform Libraries
+### Microsoft platform libraries
 
 - Built by Microsoft from dotnet/runtime
 - Published to MSDL symbol server
 - SourceLink URLs point to `raw.githubusercontent.com/dotnet/runtime/...`
 
-### Distro Builds (Canonical, Red Hat, etc.)
+### Distro builds (Canonical, Red Hat, etc.)
 
 - Rebuilt from source by Linux distributions
 - SourceLink typically disabled during rebuild
 - Same metadata (Company: "Microsoft Corporation") but no symbols on MSDL
 - Detected by: symbols not found on any server
 
-### Third-Party NuGet Packages
+### Third-party NuGet packages
 
 - May publish `.snupkg` to NuGet.org
 - May publish to NuGet symbol server
@@ -108,7 +108,7 @@ Downloaded PDBs are cached locally to avoid repeated downloads:
 - **Symbol packages**: `~/.dotnet-inspect/symbols/{package}/{version}/{filename}.pdb`
 - **Symbol server**: `~/.dotnet-inspect/symbols/{pdbname}/{key}/{pdbname}`
 
-## Error Handling
+## Error handling
 
 When PDB acquisition fails, we report the reason:
 
@@ -117,7 +117,7 @@ When PDB acquisition fails, we report the reason:
 - **"embedded"**: PDB is embedded in the library (success case)
 - **"msdl.microsoft.com"**: Downloaded from Microsoft symbol server (success case)
 
-## Related Resources
+## Related resources
 
 - [SourceLink Exposure](sourcelink-exposure.md)
 - [Portable PDB Specification](https://github.com/dotnet/runtime/blob/main/docs/design/specs/PortablePdb-Metadata.md)

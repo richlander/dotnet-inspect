@@ -1903,6 +1903,61 @@ public class CfgSampleClass
             }
         }
     }
+
+    public static void Issue2861_ForLoopTryAndCatchContinues()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                if (i == 2)
+                    continue;
+                if (i == 5)
+                    throw new System.InvalidOperationException();
+                System.Console.WriteLine();
+            }
+            catch (System.InvalidOperationException)
+            {
+                if (i == 5)
+                    continue;
+                System.Console.WriteLine();
+            }
+            System.Console.WriteLine();
+        }
+    }
+
+    public static void Issue2861_NestedProtectedLeaveToOuterIncrement()
+    {
+        int i = 0;
+        while (i < 10)
+        {
+            try
+            {
+                if (i == 2)
+                    goto Increment;
+                System.Console.WriteLine();
+            }
+            catch (System.Exception)
+            {
+            }
+            for (int j = 0; j < 3; j++)
+            {
+                try
+                {
+                    if (i == j)
+                        goto Increment;
+                    System.Console.WriteLine();
+                }
+                catch (System.Exception)
+                {
+                }
+            }
+            System.Console.WriteLine();
+        Increment:
+            i++;
+        }
+    }
+
     public static int LoopWithBreak(int[] values, int limit)
     {
         int sum = 0;
@@ -4826,6 +4881,16 @@ public static class NamespaceRefSample
     {
         _ = hpack.ToString();
         _ = headers.ToString();
+    }
+
+    // References FunctionPointerNamespaceFixtures only through a function pointer
+    // parameter's return type and argument type (delegate*<...>'s element/type
+    // arguments), never as an ordinary local, field, or parameter/return type. See
+    // FunctionPointerNamespaceFixtures.cs.
+    public static unsafe void ReferencesNamespacesOnlyThroughFunctionPointer(
+        delegate*<FunctionPointerNamespaceFixtures.ParameterMarker, FunctionPointerNamespaceFixtures.ReturnMarker> callback)
+    {
+        _ = callback;
     }
 }
 

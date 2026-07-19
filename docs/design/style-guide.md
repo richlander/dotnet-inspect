@@ -1,8 +1,8 @@
-# dotnet-inspect Output Style Guide
+# dotnet-inspect output style guide
 
 This document defines the output format conventions for `dotnet-inspect`. The primary goal is to produce output that is easily consumable by both humans and LLMs.
 
-## Document Structure
+## Document structure
 
 All markdown output follows a consistent four-part structure:
 
@@ -21,7 +21,7 @@ Optional description paragraph.
 | data   | data   |
 ```
 
-### 1. H1 Title
+### 1. H1 title
 
 Every output starts with a single H1 heading that names the **subject — and only the subject**:
 
@@ -40,7 +40,7 @@ that produced the metadata), and a field list scales to that and stays machine-e
 where a parenthetical can legibly hold only one item and is awkward to parse. The package view
 already follows this: `# System.Text.Json` with the rest in fields.
 
-### 2. Description Paragraph
+### 2. Description paragraph
 
 An optional plain-text paragraph immediately after the H1. This is where documentation summaries appear. No special formatting (not a blockquote, not italicized).
 
@@ -50,7 +50,7 @@ An optional plain-text paragraph immediately after the H1. This is where documen
 Provides functionality to serialize objects or value types to JSON and deserialize JSON into objects or value types.
 ```
 
-### 3. Key-Value Fields
+### 3. Key-value fields
 
 Structured metadata as `**Label:** value` pairs, one per line. These fields form the stable "header" that `--fields-only` preserves.
 
@@ -95,7 +95,7 @@ The `**Samples:**` field is a count indicator. Sample URL tables belong in a
 dedicated `Samples` section when package/docs metadata can provide trustworthy
 links.
 
-### 4. H2 Sections
+### 4. H2 sections
 
 Tables and structured content appear under H2 headings. Section visibility is controlled by verbosity level.
 
@@ -109,7 +109,7 @@ Tables and structured content appear under H2 headings. Section visibility is co
 
 When there is only a single table, the H2 heading may be omitted for brevity.
 
-## Verbosity Levels
+## Verbosity levels
 
 Verbosity controls which H2 sections appear, not which fields appear:
 
@@ -128,7 +128,7 @@ The H1, description, and fields are always present regardless of verbosity.
 
 Some views use the same layout at all verbosity levels because differentiation would not be meaningful. The **types listing** (full-library view) is verbosity-independent: it always shows per-kind sections (`## Classes`, `## Structs`, etc.) with `Type | Members` columns. The only variation is `--docs` adding a Description column. Verbosity differentiation is reserved for the **member view** (per-type), where quiet groups by name, minimal abbreviates signatures, and normal/detailed show full signatures.
 
-## Table Formatting
+## Table formatting
 
 Tables use pipe-delimited markdown:
 
@@ -151,7 +151,7 @@ Tables use pipe-delimited markdown:
 - Metadata tables: `| Property | Value |`
 - Audit tables: `| File | Deterministic | SourceLink |`
 
-## Code Formatting
+## Code formatting
 
 Signatures use inline backticks within tables:
 
@@ -171,7 +171,7 @@ All links in output should be **raw URLs**, not markdown-formatted links. This e
 - Users can copy/paste URLs without extraction
 - No ambiguity about what the link points to
 
-### GitHub Link Formats
+### GitHub link formats
 
 | Format | Example | Commit-Specific | Content | Redirect |
 | ------ | ------- | --------------- | ------- | -------- |
@@ -208,7 +208,7 @@ All links in output should be **raw URLs**, not markdown-formatted links. This e
 - ⚠️ 302 (temporary) redirect - not 301 (permanent), so caching behavior is appropriate
 - ✅ Trivial to convert to browsable URL: `raw` → `blob`
 
-### Preferred Format
+### Preferred format
 
 Use `github.com/.../raw/{sha}/path` format for all source links.
 
@@ -228,7 +228,7 @@ https://github.com/richlander/markout/raw/4bfea7c.../TreeNode.cs
 https://github.com/richlander/markout/blob/4bfea7c.../TreeNode.cs
 ```
 
-### Output Format
+### Output format
 
 Links should appear as raw URLs, not markdown links. Line numbers are omitted for type-level source URLs since they point to arbitrary members rather than the type declaration:
 
@@ -248,7 +248,7 @@ Not:
 - [Tree rendering](https://github.com/...)
 ```
 
-### Opting into Blob URLs
+### Opting into blob URLs
 
 Use `--blob` to switch from raw URLs to `/blob/` URLs for browser viewing:
 

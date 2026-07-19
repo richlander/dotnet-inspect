@@ -1,4 +1,4 @@
-# Instruction Substrate (`ILInspector.Instructions`)
+# Instruction substrate (`ILInspector.Instructions`)
 
 How one shared IL decode + EH-aware basic-block builder is factored out from the
 analyzer and the decompiler, why it is shaped the way it is, and how it is proven
@@ -90,9 +90,9 @@ Both carry the MIT "Ported from dotnet/runtime `<path>`" header.
 | `Internal.TypeSystem` `TypeDesc`/`MethodDesc` | SRM `MetadataReader` handles | **Not used** | stay SRM-only; never vendor the runtime type system |
 | RyuJIT `GenTree`/`typeInfo`, `ILStackHelper` heights | (none) | **Not used** | unlike consumers do not share an abstract interpretation |
 
-The last "not used" row is load-bearing: prior art runs three *separate* typed
-stacks over one shared reader, so we share decode + identity (Layer 0) and let
-each consumer build its own Layer 1.
+The last "not used" row keeps abstract interpretation consumer-owned: prior art
+runs three *separate* typed stacks over one shared reader, so we share decode +
+identity (Layer 0) and let each consumer build its own Layer 1.
 
 ### Port boundary: what the substrate does and doesn't validate
 

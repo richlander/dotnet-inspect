@@ -64,6 +64,7 @@ documentation.
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
 | Analysis, Findings, and Research | `docs/design/finding-adoption.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
+| IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler behavior or harnesses | `docs/decompiler-correctness-pipeline.md` |
 | Skills | `taste/skill-guidance.md` |
 | Release and publishing | `docs/release-workflow.md` |
@@ -189,14 +190,8 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | Metadata | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 
 Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
-`DotnetInspector.ILRoundtrip.Tests` is outside the default solution and requires
-the vendored managed ILAssembler. Run `eng/restore-ilassembler.sh` before:
-
-```bash
-dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- \
-  -trait- "Speed=Slow"
-dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
-```
+The IL round-trip project has separate dependency restore and fast/full test
+commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 
 Pack and publish flows remain separate and build `src/dotnet-inspect`
 directly.

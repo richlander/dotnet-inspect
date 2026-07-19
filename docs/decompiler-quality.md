@@ -1,4 +1,4 @@
-# Decompiler Quality
+# Decompiler quality
 
 How `ILInspector.Decompiler` stays correct, and how it stays correct as the
 raising passes evolve. The companion docs split the concern: [decompiler.md](decompiler.md)
@@ -893,9 +893,8 @@ the product emits:
   drills into the per-pass IR of a single method to find which pass introduced
   the divergence; `--steps` / `--step-limit` narrows to a single rewrite.
 
-The connection is load-bearing: the final stage `--dump` shows is byte-identical
-to what `--fidelity-check` grades, so there is no drift between what you inspect
-and what is measured.
+The final stage `--dump` shows is byte-identical to what `--fidelity-check`
+grades, so what you inspect and what is measured cannot drift.
 
 Two gotchas that save head-scratching when diagnosing:
 
