@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-19T00:57:56.3712231+00:00",
+  "generatedUtc": "2026-07-19T05:21:55.687964+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,

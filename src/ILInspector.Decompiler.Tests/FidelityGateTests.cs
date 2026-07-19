@@ -161,6 +161,13 @@ public class FidelityGateTests
         "StatementBodyLambda",
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
+        // The iterator raises added by #2884 recover the source bodies and retain
+        // the same outer factory opcodes, but recompiling the reconstructed large
+        // fixture type assigns different synthesized state-machine ordinals
+        // (d__600/601 -> d__575/576). Those constructor and field targets remain
+        // observable symbolic identities under contract V1.
+        "SwitchYield",
+        "WhileTrueYieldBreak",
         "TwoCaptureLambda",
         "ValidNestedIf",
         "YieldCollectionExpressionSpread",
@@ -351,19 +358,29 @@ public class FidelityGateTests
     [Fact]
     public void NoNewFidelityDiffsBeyondKnownDocket()
     {
-        var diffs = EvaluateFixtures()
+        var diffResults = EvaluateFixtures()
             .Where(r => r.Status is
                 FidelityCheck.CompileBackStatus.OpcodeDiff
                 or FidelityCheck.CompileBackStatus.OperandDiff)
-            .Select(r => r.Method)
-            .OrderBy(m => m, StringComparer.Ordinal)
+            .OrderBy(r => r.Method, StringComparer.Ordinal)
             .ToList();
 
-        var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
+        var unexpected = diffResults.Where(result => !KnownDiffs.Contains(result.Method)).ToList();
+        var details = unexpected.Select(result =>
+        {
+            string fidelityRows = result.FidelityDiff is { Rows.Length: > 0 } diff
+                ? "\n  fidelity:\n" + string.Join('\n', diff.Rows.Take(6).Select(row => $"    {row.Message}"))
+                : "";
+            return $"{result.Method} [{result.Status}]\n"
+                + $"  original : {result.OriginalOpcodes}\n"
+                + $"  recompiled: {result.RecompiledOpcodes}\n"
+                + $"  detail: {result.Detail}{fidelityRows}";
+        });
 
         Assert.True(unexpected.Count == 0,
-            $"New fidelity check contract V1 diffs (decompiled C# recompiles to different IL): " +
-            $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
+            "New fidelity check contract V1 diffs (decompiled C# recompiles to different IL):\n"
+            + string.Join("\n\n", details)
+            + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(result => result.Method))}");
     }
 
     [Fact]
