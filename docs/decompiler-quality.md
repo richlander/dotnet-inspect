@@ -43,7 +43,8 @@ what" legible:
 - **view** — shows you something with no verdict at all: `--gaps`, `--dump`,
   `--diff`, `--cfg`, `--facts`, `--remarks`, `--pass-impact`.
 - **gate** — a check or floor wired into CI to hold a line. **oracle** — the
-  reference of truth a check compares against (the original IL opcode stream).
+  reference of truth a check compares against (the original IL body under the
+  declared compile-back fidelity contract).
 
 ### The three checks
 
@@ -52,14 +53,14 @@ are not redundant:
 
 | Check | Question | Proves | Blind to |
 | --- | --- | --- | --- |
-| `--fidelity-check` | *Does it still mean the same thing?* | Semantic **fidelity**: decompile → recompile → compare the canonical opcode stream | Methods it cannot recompile (reported separately, not as diffs) |
+| `--fidelity-check` | *Does it still mean the same thing?* | **Compile-back fidelity**: decompile → recompile → compare the body under fidelity contract V1 | Methods it cannot recompile or compare (reported separately, never as exact) |
 | `--validity-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (fidelity's job) |
 | `--annotation-check` | *Do the IL annotations match the opcodes?* | **Annotation fidelity**: each allocation/unsafety/lifetime annotation agrees with the raw IL opcode at its offset (precision), and every unambiguous opcode produces its annotation (recall) | Whether the C# itself is right — only the annotations |
 
 The deepest is **fidelity**: a body that compiles and reads plausibly but
-recompiles to a different opcode stream changed the program — the worst failure
-class, invisible to every check that never runs the output back through a
-compiler. The supporting evidence:
+recompiles to a different contract V1 body changed the measured program shape —
+the worst failure class, invisible to every check that never runs the output
+back through a compiler. The supporting evidence:
 
 - **The IL round-trip oracle.** Our disassembly reassembles (vendored managed
   ILAssembler, native `ilasm`) to byte-identical IL — the ground truth fidelity
@@ -75,20 +76,21 @@ compiler. The supporting evidence:
 The real-world corpus card exposes compile-back fidelity coverage honestly, but
 coverage can be thin because many methods are not yet standalone-recompilable.
 Increasing the cap is only a measurement step: it characterizes how much useful
-opcode evidence exists today and buckets why the rest fails. The first expansion
-target is therefore the **checked population inside the fixed corpus**, not a
-larger random assembly set.
+compile-back evidence exists today and buckets why the rest fails. The first
+expansion target is therefore the **checked population inside the fixed
+corpus**, not a larger random assembly set.
 
 Use this order for risky decompiler work:
 
 1. Run the fixed corpus with multiple `--corpus-fidelity-cap` values and record
-   exact, opcode-diff, recompile-failed, and context-failed counts plus failure
-   buckets.
+   exact, opcode-diff, operand-diff, fidelity-unavailable, recompile-failed, and
+   context-failed counts plus failure buckets.
 2. For a risky raise/structuring PR, emit a per-method corpus delta and treat the
    changed methods as the fidelity population to cover. A bigger general sample
    is not enough if the changed methods remain unchecked.
 3. Improve harness context only where failure buckets show many methods can be
-   converted into useful opcode comparisons without changing the product path.
+   converted into useful contract V1 comparisons without changing the product
+   path.
    The product decompiler stays SRM-only, NativeAOT-friendly, Roslyn-free, and
    free of inspected-assembly loading.
 4. Add new corpus assemblies only when the current fixed corpus lacks enough
@@ -465,7 +467,7 @@ These keep a review fast and the proof legible:
   operands are hidden temps and which comparison consumes each one.
 - **Keep near-miss negatives out of `CfgSampleClass`.** The fidelity gate and the
   corpus floors scan `CfgSampleClass` by name, so probe methods added there
-  pollute the opcode-diff snapshots and surface as dozens of unrelated floor
+  pollute the fidelity-diff snapshots and surface as dozens of unrelated floor
   failures. Put pass-level negatives in the pass's own adversarial sample class
   (for example `TupleBinaryAdversarialSamples`), which those gates do not scan.
 - **Diff the corpus report against a clean baseline worktree, not the PR's quoted
@@ -564,7 +566,7 @@ Correctness coverage: validity sampled 350 / 87,907 (0.40%); fidelity sampled 6 
 | Forward-merge stops (-) | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
 | Full malformed (-) | 165 | 165 | 0 |
 | Semantic defects (-) | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
-| Fidelity diffs (-) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
+| Fidelity diffs (-) | opcode-diff 1/6, operand-diff 0/6, unavailable 0/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, operand-diff 0/6, unavailable 0/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
 | Pass bugs (-) | 0 | 0 | 0 |
 
 Verdict: corpus sensor matched baseline tolerances.
@@ -590,7 +592,7 @@ Read movement as correctness evidence, not a JIT-style tradeoff budget.
 Acceptable movement is: completeness improves while validity/fidelity stay flat,
 validity/fidelity defects shrink, or a Full -> Partial change is an explicit
 honesty correction that stops overclaiming. Do not normalize new pass bugs, new
-Full malformed/bound defects, new fidelity opcode diffs, or broad "correct but
+Full malformed/bound defects, new fidelity diffs, unavailable comparisons, or broad "correct but
 uglier" output without an explicit design approval and readability gate.
 
 For compiler/runtime expert review, optimize the code and tests for legible
@@ -752,11 +754,12 @@ form. So `CorpusSweepGateTests` enforces three thresholds: pass-safety, the
 The durable, blocking guard is the **fixture fidelity gate**:
 `FidelityGateTests` (and its lowered twin `LoweredFidelityGateTests`)
 decompile every method of `CfgSampleClass`, recompile each inside a reconstructed
-type skeleton, and fail CI when a method newly recompiles to a different opcode
-stream — a regression beyond the documented `KnownDiffs` docket — or when a
-`PinnedExact` method (a previously-fixed one) regresses. Shrinking `KnownDiffs`
-and growing `PinnedExact` is how fidelity progress ratchets forward and cannot
-slip back. The **annotation gate** (`AnnotationGateTests`) holds annotation
+type skeleton, and fail CI when a method newly recompiles to a different
+contract V1 body — a regression beyond the documented `KnownDiffs` docket —
+when the product body comparison is unavailable, or when a `PinnedExact`
+method (a previously-fixed one) regresses. Shrinking `KnownDiffs` and growing
+`PinnedExact` is how fidelity progress ratchets forward and cannot slip back.
+The **annotation gate** (`AnnotationGateTests`) holds annotation
 fidelity over the whole CoreLib corpus the same way — precision is absolute (a
 wrong fact always fails; it is never runtime drift), recall is held above a
 floor. The decompiler unit suite (`ILInspector.Decompiler.Tests`) and the IL
@@ -883,8 +886,8 @@ pattern-pivoted.
 The harness modes pair into a loop, both ends anchored on the **same final C#**
 the product emits:
 
-- **Detect at scale.** `--fidelity-check` finds *which* methods regressed (opcode
-  diffs across an assembly); `--gaps` finds which lost completeness;
+- **Detect at scale.** `--fidelity-check` finds *which* methods regressed
+  (contract V1 body diffs across an assembly); `--gaps` finds which lost completeness;
   `--pass-impact` shows a pass's blast radius before and after a change.
 - **Diagnose one.** `--dump` (with `--diff`, `--facts`, `--cfg`, `--remarks`)
   drills into the per-pass IR of a single method to find which pass introduced

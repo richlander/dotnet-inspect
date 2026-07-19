@@ -173,6 +173,19 @@ public class IlBodyDiffTests
     }
 
     [Fact]
+    public void Compare_WithScopeNormalization_CompiledFixtureCallTargetChange_IsNotExact()
+    {
+        var diff = DiffFixtureDiff(
+            "CallToken",
+            IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+            | IlBodyDiffOptions.NormalizePlatformAssemblyScopes);
+
+        Assert.False(diff.IsExact);
+        Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("::Abs(", StringComparison.Ordinal) == true);
+        Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("::Sign(", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public void Compare_CompiledFixtureFieldTokenChange_ReportsFieldOperandChanges()
     {
         var diff = DiffFixtureDiff("FieldToken");
@@ -774,7 +787,9 @@ public class IlBodyDiffTests
         int HandlerOffset,
         int HandlerLength);
 
-    static IlBodyDiffResult DiffFixtureDiff(string name)
+    static IlBodyDiffResult DiffFixtureDiff(
+        string name,
+        IlBodyDiffOptions options = IlBodyDiffOptions.None)
     {
         using var oldStream = File.OpenRead(FixtureCatalog.DiffPair.OldAssemblyPath());
         using var newStream = File.OpenRead(FixtureCatalog.DiffPair.NewAssemblyPath());
@@ -786,7 +801,8 @@ public class IlBodyDiffTests
             oldReader,
             DiffFixtureMethodBody(oldPe, oldReader, name),
             newReader,
-            DiffFixtureMethodBody(newPe, newReader, name));
+            DiffFixtureMethodBody(newPe, newReader, name),
+            options);
     }
 
     static MethodInstructions DiffFixtureMethod(FixtureDefinition fixture, string name)

@@ -1,4 +1,4 @@
-# IL Diff Canonicalization Boundary
+# IL diff canonicalization boundary
 
 `IlBodyDiff` is a low-level body-diff substrate in
 `ILInspector.Instructions`. It compares decoded IL operations after a small
@@ -20,6 +20,23 @@ resolved exact `MethodDefinitionHandle` values. It returns old/new
 `IlMemberDiffSubject` identity labels plus the underlying `IlBodyDiffResult`,
 so RTS, Research, and diagnostics can attach IL diff evidence to their own
 member identity without running an assembly-wide card.
+
+`IlBodyDiffOptions` exposes independent, domain-neutral normalization
+mechanics without defining a consumer's equality policy:
+
+- `NormalizeVariableLayout` folds `ldarg*`, `ldarga*`, `starg*`, `ldloc*`,
+  `ldloca*`, and `stloc*` encoding macros into their operation families and
+  omits their raw slot numbers.
+- `NormalizeCurrentAssemblyScope` gives types and members defined by either
+  compared assembly a shared `<current>` scope.
+- `NormalizePlatformAssemblyScopes` gives known platform references
+  (`System.*`, `mscorlib`, `netstandard`, `Microsoft.CSharp`, and
+  `Microsoft.VisualBasic*`) a shared `<platform>` scope while preserving the
+  current assembly and non-platform references.
+
+Values, symbolic targets, and branch topology remain observable under every
+option. Consumers own any named or versioned policy that composes these
+mechanics. Comparisons use no optional normalization by default.
 
 The boundary is intentionally narrow: the diff answers "which decoded IL
 operations changed?" It does not claim source equivalence, semantic equivalence,
@@ -103,8 +120,11 @@ rewrites, Debug/Release differences, or equivalent local reordering can produce
 slot noise.
 
 Some local macros currently surface as opcode-family changes (`ldloc.0`,
-`stloc.1`) rather than as `Slot` operands. That is part of the current boundary,
-not a stronger local identity contract.
+`stloc.1`) rather than as `Slot` operands. That is part of the default boundary,
+not a stronger local identity contract. The opt-in
+`IlBodyDiffOptions.NormalizeVariableLayout` option normalizes these families
+and ignores their slot operands when a consumer does not treat variable layout
+as observable.
 
 ### Exception-region shape
 
@@ -112,7 +132,8 @@ The body decoder is EH-aware, and malformed EH regions fail closed through
 `MethodInstructions`. `IlBodyDiff` does not currently emit producer-owned EH
 region rows. Catch/finally availability or protected-range changes surface only
 through operation-level rows unless a future substrate layer adds explicit EH
-row kinds.
+row kinds. No `IlBodyDiffOptions` value adds EH comparison, so consumers must
+not present an exact body result as a semantic-equivalence claim.
 
 ### Offset identity
 

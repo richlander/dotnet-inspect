@@ -4,6 +4,7 @@ using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -28,6 +29,29 @@ public class CorpusSensorComparisonTests
 
         Assert.Contains("\"schemaVersion\"", baseline);
         Assert.Contains("\"description\"", baseline);
+    }
+
+    [Theory]
+    [InlineData("pr-quick-baseline.json")]
+    [InlineData("real-world-baseline.json")]
+    [InlineData("opt-in-net11-baseline.json")]
+    public void CommittedCorpusBaseline_Deserializes(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus",
+            fileName);
+
+        var baseline = CorpusSensor.ReadBaselineForTesting(path);
+
+        Assert.True(baseline.SchemaVersion > 0);
     }
 
     [Fact]
@@ -636,6 +660,33 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void Compare_GatesOperandDiffsWhenPinnedSamplesMatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "OperandDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOperandDiffMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.StartsWith("fidelity operand diffs (pinned)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Compare_RejectsFidelityOracleMismatch()
     {
         var baseline = Snapshot(
@@ -666,6 +717,36 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void Compare_RejectsFidelityContractMismatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityContractVersion: 0);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression == "fidelity contract differs (baseline v0, current v1)");
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        Assert.Contains("Fidelity exact (contract differs)", report);
+    }
+
+    [Fact]
     public void AlignReturnToSenderResults_ReportsUnavailableTarget()
     {
         var target = new FidelityCheck.CompileBackResult(
@@ -693,24 +774,119 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void AlignReturnToSenderResults_PreservesFidelityContractEvidence()
+    {
+        var target = CompileBackResult("Method", FidelityCheck.CompileBackStatus.Exact);
+        var fidelityDiff = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []);
+        var rts = new ReturnToSender.Result(
+            MinimalReturnToSenderPlan("Method"),
+            Source: "",
+            FidelityCheck.CompileBackStatus.Exact,
+            OriginalOpcodes: "ldc.i4 ret",
+            RecompiledOpcodes: "ldc.i4 ret",
+            Detail: null,
+            FidelityDiff: fidelityDiff);
+
+        var aligned = Assert.Single(
+            CorpusSensor.AlignReturnToSenderResultsForTesting([target], [rts]));
+
+        Assert.Same(fidelityDiff, aligned.FidelityDiff);
+    }
+
+    [Fact]
+    public void FidelityContractV1_ComposesAllIlBodyNormalizations()
+    {
+        Assert.Equal(
+            IlBodyDiffOptions.NormalizeVariableLayout
+            | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+            | IlBodyDiffOptions.NormalizePlatformAssemblyScopes,
+            FidelityCheck.ContractV1BodyDiffOptions);
+    }
+
+    [Fact]
+    public void ClassifyStatus_RequiresV1BodyEqualityForExact()
+    {
+        var exact = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []);
+        var divergent = new IlBodyDiffResult(
+            IsExact: false,
+            Failure: null,
+            Rows:
+            [
+                new IlDiffRow(
+                    0,
+                    IlDiffKind.Remove,
+                    new CanonicalIlOperation(0, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "5")),
+                    "Removed IL operation 'ldc.i4 5'"),
+            ]);
+        var unavailable = new IlBodyDiffResult(
+            IsExact: false,
+            Failure: "body decode failed",
+            Rows: []);
+
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.Exact,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: exact));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.OperandDiff,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: divergent));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: false, fidelityDiff: divergent));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.NotFull,
+            FidelityCheck.ClassifyStatus(isFull: false, opcodesExact: true, fidelityDiff: divergent));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.FidelityUnavailable,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: null));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.FidelityUnavailable,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: unavailable));
+    }
+
+    [Fact]
+    public void CorpusSchemaV4_DeserializesAsUnversionedFidelityContract()
+    {
+        var v4 = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null) with
+        {
+            SchemaVersion = 4,
+        };
+
+        string json = JsonSerializer.Serialize(v4)
+            .Replace("\"ContractVersion\":1,", "", StringComparison.Ordinal);
+        var restored = JsonSerializer.Deserialize<CorpusSensorSnapshot>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(4, restored.SchemaVersion);
+        Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
+        Assert.Equal(5, CorpusSensor.CurrentSchemaVersion);
+        Assert.Equal(1, CorpusSensor.CurrentFidelityContractVersion);
+    }
+
+    [Fact]
     public void SummarizeReturnToSenderParity_ClassifiesRescuedSameAndWorse()
     {
         var exact = CompileBackResult("Exact", FidelityCheck.CompileBackStatus.Exact);
         var rescued = CompileBackResult("Rescued", FidelityCheck.CompileBackStatus.OpcodeDiff);
+        var unavailable = CompileBackResult("Unavailable", FidelityCheck.CompileBackStatus.FidelityUnavailable);
         var worse = CompileBackResult("Worse", FidelityCheck.CompileBackStatus.Exact);
 
         var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting(
-            [exact, rescued, worse],
+            [exact, rescued, unavailable, worse],
             [
                 exact,
                 rescued with { Status = FidelityCheck.CompileBackStatus.Exact },
+                unavailable with { Status = FidelityCheck.CompileBackStatus.Exact },
                 worse with { Status = FidelityCheck.CompileBackStatus.OpcodeDiff },
             ]);
 
-        Assert.Equal(1, parity.RescuedMethods);
+        Assert.Equal(2, parity.RescuedMethods);
         Assert.Equal(1, parity.SameMethods);
         Assert.Equal(1, parity.WorseMethods);
-        Assert.Equal(3, parity.ComparedMethods);
+        Assert.Equal(4, parity.ComparedMethods);
     }
 
     [Fact]
@@ -975,6 +1151,8 @@ public class CorpusSensorComparisonTests
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
         Assert.Contains("Fidelity opcode diffs (sampling differs)", report);
+        Assert.Contains("Fidelity operand diffs (sampling differs)", report);
+        Assert.Contains("Fidelity unavailable comparisons (sampling differs)", report);
         Assert.Contains("Fidelity exact (sampling differs)", report);
         Assert.DoesNotContain("Fidelity opcode diffs (-)", report);
         Assert.DoesNotContain("(bad)", report);
@@ -996,6 +1174,8 @@ public class CorpusSensorComparisonTests
             fidelityCheckedMethods: 64,
             fidelityExactMethods: 45,
             fidelityOpcodeDiffMethods: 10,
+            fidelityOperandDiffMethods: 2,
+            fidelityUnavailableMethods: 1,
             fidelityRecompileFailMethods: 5,
             fidelityContextFailMethods: 4,
             passBugs: 1);
@@ -1006,6 +1186,8 @@ public class CorpusSensorComparisonTests
             "6 methods with detected lowering residue; 1 malformed Full method; "
             + "2 semantic defects among 64 checked; "
             + "10 fidelity opcode diffs among 64 checked; "
+            + "2 fidelity operand diffs among 64 checked; "
+            + "1 unavailable fidelity comparison among 64 checked; "
             + "5 fidelity recompile failures among 64 checked; "
             + "4 fidelity context failures among 64 checked; 1 pass bug.",
             summary);
@@ -1154,8 +1336,11 @@ public class CorpusSensorComparisonTests
         int fidelityCheckedMethods = 0,
         int fidelityExactMethods = 0,
         int fidelityOpcodeDiffMethods = 0,
+        int fidelityOperandDiffMethods = 0,
+        int fidelityUnavailableMethods = 0,
         int fidelityRecompileFailMethods = 0,
         int fidelityContextFailMethods = 0,
+        int fidelityContractVersion = CorpusSensor.CurrentFidelityContractVersion,
         int passBugs = 0,
         CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
         ReturnToSenderParityMetrics? returnToSenderParity = null,
@@ -1188,9 +1373,12 @@ public class CorpusSensorComparisonTests
                 ResidualBuckets: ImmutableDictionary<string, int>.Empty,
                 Structuring: new StructuringSensorMetrics(0, 0, 0, 0, 0, ImmutableDictionary<string, int>.Empty),
                 Fidelity: new FidelitySensorMetrics(
-                    fidelityCheckedMethods,
-                    fidelityExactMethods,
-                    fidelityOpcodeDiffMethods,
+                    ContractVersion: fidelityContractVersion,
+                    CheckedMethods: fidelityCheckedMethods,
+                    ExactMethods: fidelityExactMethods,
+                    OpcodeDiffMethods: fidelityOpcodeDiffMethods,
+                    OperandDiffMethods: fidelityOperandDiffMethods,
+                    FidelityUnavailableMethods: fidelityUnavailableMethods,
                     RecompileFailMethods: fidelityRecompileFailMethods,
                     ContextFailMethods: fidelityContextFailMethods,
                     NotFullMethods: 0,
@@ -1254,6 +1442,19 @@ public class CorpusSensorComparisonTests
             "ldc.i4.0 ret",
             "ldc.i4.0 ret",
             Detail: null);
+
+    static CompileBackReconstructionPlan MinimalReturnToSenderPlan(string method)
+        => new(
+            AssemblyPath: "",
+            TargetMethod: new CompileBackMethodIdentity(
+                Type: "Fixture",
+                Method: method,
+                Overload: 0,
+                Signature: "() -> corelib:System.Int32"),
+            Module: new CompileBackModuleRequirement([], [], []),
+            Types: [],
+            PrintRequests: [],
+            Diagnostics: []);
 
     static IReadOnlyList<CorpusMethodSnapshot> PinnedMethods(int fullyRaised, int conditional)
     {

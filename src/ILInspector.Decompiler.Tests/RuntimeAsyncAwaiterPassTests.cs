@@ -52,7 +52,8 @@ public class RuntimeAsyncAwaiterPassTests
 
         Assert.True(
             result.Status is FidelityCheck.CompileBackStatus.Exact
-                or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
             $"Expected compile-checkable runtime-async source, got {result.Status}: {result.Detail}");
     }
 
@@ -72,7 +73,8 @@ public class RuntimeAsyncAwaiterPassTests
         Assert.Contains(nameof(RuntimeAsyncAwaiterFixtures.YieldOnce), result.Source);
         Assert.True(
             result.Status is FidelityCheck.CompileBackStatus.Exact
-                or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
             $"Expected compile-checkable runtime-async source, got {result.Status}: {result.Detail}");
     }
 
