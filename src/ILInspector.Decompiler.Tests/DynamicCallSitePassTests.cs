@@ -75,18 +75,66 @@ public class DynamicCallSitePassTests
         return CSharpPrinter.Print(function).Output ?? string.Empty;
     }
 
-    // ---- node finders (canonical shape) -----------------------------------
+    // ---- node finders (polarity-agnostic canonical shape) -----------------
+    //
+    // csc may emit the lazy-init guard in either polarity:
+    //   if (!cache) { setup } else {}       (negated condition, setup in Then)
+    //   if (cache)  {}       else { setup }  (bare condition,   setup in Else)
+    // These finders select the guard and its real setup arm exactly as the pass
+    // does, so every mutation targets the actual setup regardless of the
+    // structure a given SDK's compiler produces (rather than hard-coding the
+    // negated form and throwing during setup on the other).
 
-    static IfStatement CacheIf(IrFunction f)
-        => f.Descendants.OfType<IfStatement>()
-            .Single(s => s.Condition is LogicalNot { Operand: LoadField { Instance: null } });
+    static bool TryGuardLoad(IrExpression condition, out LoadField load, out bool negated)
+    {
+        switch (condition)
+        {
+            case LogicalNot { Operand: LoadField { Instance: null } inner }:
+                load = inner;
+                negated = true;
+                return true;
+            case LoadField { Instance: null } bare:
+                load = bare;
+                negated = false;
+                return true;
+            default:
+                load = null!;
+                negated = false;
+                return false;
+        }
+    }
 
-    static LoadField GuardLoad(IrFunction f)
-        => (LoadField)((LogicalNot)CacheIf(f).Condition).Operand;
+    static bool EndsWithCacheStoreShape(Block block)
+        => block.Children.Count > 0
+            && block.Children[^1] is StoreField { HasInstance: false };
 
-    static Block ThenBlock(IrFunction f) => CacheIf(f).Then;
+    /// <summary>The cache lazy-init guard with its load, polarity, and real setup/opposite arms — selected exactly as the pass selects them.</summary>
+    static (IfStatement If, LoadField Load, bool Negated, Block Setup, Block? Opposite) CacheGuard(IrFunction f)
+    {
+        foreach (var ifStmt in f.Descendants.OfType<IfStatement>())
+        {
+            if (!TryGuardLoad(ifStmt.Condition, out var load, out var negated))
+                continue;
+            var setup = negated ? ifStmt.Then : ifStmt.Else;
+            var opposite = negated ? ifStmt.Else : ifStmt.Then;
+            // The setup arm is the null-path arm that ends in the cache store; the
+            // opposite arm is empty. Shape (a parameterless field store) is enough
+            // to pick the setup arm in either polarity, without requiring the
+            // store's field to equal the guard load's — tests may retype the load
+            // and store in separate steps.
+            if (setup is not null && EndsWithCacheStoreShape(setup))
+                return (ifStmt, load, negated, setup, opposite);
+        }
+        throw new InvalidOperationException("canonical cache guard not found");
+    }
 
-    static StoreField CacheStore(IrFunction f) => (StoreField)ThenBlock(f).Children[^1];
+    static IfStatement CacheIf(IrFunction f) => CacheGuard(f).If;
+
+    static LoadField GuardLoad(IrFunction f) => CacheGuard(f).Load;
+
+    static Block SetupArm(IrFunction f) => CacheGuard(f).Setup;
+
+    static StoreField CacheStore(IrFunction f) => (StoreField)SetupArm(f).Children[^1];
 
     static Call CreateCall(IrFunction f)
         => f.Descendants.OfType<Call>()
@@ -647,7 +695,7 @@ public class DynamicCallSitePassTests
     public void ExtraSetupStatement_Declines()
     {
         var f = LoadCanonicalFunction();
-        var thenBlock = ThenBlock(f);
+        var thenBlock = SetupArm(f);
         var dummy = new StoreLocal(100, Int32Type, new Constant(1, Int32Type));
 
         var ordered = thenBlock.Children.ToList();
@@ -824,19 +872,19 @@ public class DynamicCallSitePassTests
     public void OppositeArmNotEmpty_Declines()
     {
         var f = LoadCanonicalFunction();
-        var oldIf = CacheIf(f);
+        var g = CacheGuard(f);
 
-        // Rebuild the guard as `if (!cache) { setup } else { <extra work> }`.
-        // Deleting the guard would drop the non-empty opposite arm, so the pass
-        // must decline rather than silently discarding real statements.
-        var condition = oldIf.Condition;
-        var setupArm = oldIf.Then;
-        condition.Detach();
-        setupArm.Detach();
-
-        var elseArm = new Block();
-        elseArm.Add(new StoreLocal(101, Int32Type, new Constant(0, Int32Type)));
-        oldIf.ReplaceWith(new IfStatement(condition, setupArm, elseArm));
+        // Give the opposite (currently empty) arm a real statement, preserving
+        // the guard's polarity. Deleting the guard would drop that work, so the
+        // pass must decline rather than silently discarding real statements.
+        var condition = Detach(g.If.Condition);
+        var setup = Detach(g.Setup);
+        var extra = new Block();
+        extra.Add(new StoreLocal(101, Int32Type, new Constant(0, Int32Type)));
+        var rebuilt = g.Negated
+            ? new IfStatement(condition, setup, extra)    // if (!cache) { setup } else { extra }
+            : new IfStatement(condition, extra, setup);   // if (cache) { extra } else { setup }
+        g.If.ReplaceWith(rebuilt);
 
         Assert.False(RunPass(f));
     }
@@ -847,14 +895,13 @@ public class DynamicCallSitePassTests
         // Malformed inverted guard `if (cache) { setup } else {}`: a truthy cache
         // condition selects the then arm when the cache is already populated, so
         // running setup there would re-init a live cache. The pass must decline
-        // rather than delete the guard.
+        // rather than delete the guard. Built from the real guard load and setup
+        // arm regardless of the canonical fixture's polarity.
         var f = LoadCanonicalFunction();
-        var oldIf = CacheIf(f);
-        var innerLoad = GuardLoad(f);   // the LoadField inside the LogicalNot
-        var setupArm = oldIf.Then;
-        innerLoad.Detach();
-        setupArm.Detach();
-        oldIf.ReplaceWith(new IfStatement(innerLoad, setupArm, new Block()));
+        var g = CacheGuard(f);
+        var load = Detach(g.Load);
+        var setup = Detach(g.Setup);
+        g.If.ReplaceWith(new IfStatement(load, setup, new Block()));
         Assert.False(RunPass(f));
     }
 
@@ -865,28 +912,41 @@ public class DynamicCallSitePassTests
         // condition selects the then arm when the cache is null, but setup lives
         // in the else arm (reached only when the cache is already populated).
         var f = LoadCanonicalFunction();
-        var oldIf = CacheIf(f);
-        var condition = oldIf.Condition;   // LogicalNot(LoadField)
-        var setupArm = oldIf.Then;
-        condition.Detach();
-        setupArm.Detach();
-        oldIf.ReplaceWith(new IfStatement(condition, new Block(), setupArm));
+        var g = CacheGuard(f);
+        var load = Detach(g.Load);
+        var setup = Detach(g.Setup);
+        g.If.ReplaceWith(new IfStatement(new LogicalNot(load), new Block(), setup));
         Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void CanonicalSetupInElsePolarity_Raises()
+    {
+        // The well-formed bare-condition polarity `if (cache) {} else { setup }`
+        // (setup in the else arm) is the shape some SDKs' csc emit. It must raise
+        // exactly like the negated `if (!cache) { setup } else {}` form — the
+        // pass and these helpers are polarity-agnostic.
+        var f = LoadCanonicalFunction();
+        var g = CacheGuard(f);
+        var load = Detach(g.Load);
+        var setup = Detach(g.Setup);
+        g.If.ReplaceWith(new IfStatement(load, new Block(), setup));
+        Assert.True(RunPass(f));
     }
 
     // ======================================================================
     // Canonical setup statement order (blocker #2)
     // ======================================================================
 
-    static void ReorderThen(IrFunction f, params int[] order)
+    static void ReorderSetup(IrFunction f, params int[] order)
     {
-        var then = ThenBlock(f);
-        var original = then.Children.ToList();
+        var setup = SetupArm(f);
+        var original = setup.Children.ToList();
         var reordered = order.Select(i => original[i]).ToList();
         foreach (var c in original)
             c.Detach();
         foreach (var c in reordered)
-            then.Add(c);
+            setup.Add(c);
     }
 
     [Fact]
@@ -895,7 +955,7 @@ public class DynamicCallSitePassTests
         // Canonical order is [array, context, element, cache]; swap the array
         // and context definitions so statement[0] is no longer the NewArray def.
         var f = LoadCanonicalFunction();
-        ReorderThen(f, 1, 0, 2, 3);
+        ReorderSetup(f, 1, 0, 2, 3);
         Assert.False(RunPass(f));
     }
 
@@ -905,7 +965,7 @@ public class DynamicCallSitePassTests
         // Move the element store ahead of the context definition so statement[1]
         // is no longer a context definition.
         var f = LoadCanonicalFunction();
-        ReorderThen(f, 0, 2, 1, 3);
+        ReorderSetup(f, 0, 2, 1, 3);
         Assert.False(RunPass(f));
     }
 
