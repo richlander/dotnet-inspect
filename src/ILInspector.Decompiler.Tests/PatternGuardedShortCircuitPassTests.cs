@@ -128,6 +128,27 @@ public class PatternGuardedShortCircuitPassTests
         Assert.NotEmpty(Descendants(function).OfType<IfStatement>());
     }
 
+    // A diamond whose store target is not boolean (the else arm merely stores
+    // the integer 0) must not be read as a `&&`: folding would produce the
+    // invalid `t = cond && <int>`.
+    [Fact]
+    public void NonBooleanArm_DoesNotFold()
+    {
+        // if (arg0 is T V_1) S_256 = arg1; else S_256 = 0;  (int target)
+        var pattern = new IsPattern(new LoadArgument(0, "arg", ObjectType), Int, localIndex: 1);
+        var then = new Block();
+        then.Add(new StoreStackSlot(256, new LoadArgument(1, "n", Int)));
+        var elseArm = new Block();
+        elseArm.Add(new StoreStackSlot(256, new Constant(0, Int)));
+        var ifs = new IfStatement(pattern, then, elseArm);
+
+        var function = Function(WithStatement(ifs));
+        new PatternGuardedShortCircuitPass().Run(function, PassContext.None);
+
+        Assert.NotEmpty(Descendants(function).OfType<IfStatement>());
+        Assert.Empty(Descendants(function).OfType<LogicalBinary>());
+    }
+
     static Block WithStatement(IrNode statement)
     {
         var block = new Block();

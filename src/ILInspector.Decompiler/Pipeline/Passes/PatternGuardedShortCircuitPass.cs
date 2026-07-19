@@ -64,6 +64,13 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
 
             var rhs = thenStore.Value;
 
+            // The `&&` right operand must be boolean. Without this a non-bool
+            // single-store diamond whose else arm happens to store 0/false (for
+            // example `if (cond) t = someInt; else t = 0;`) would fold to the
+            // invalid `t = cond && someInt`.
+            if (!TypeFamilies.IsBoolean(rhs.ResultType))
+                continue;
+
             // Recover each arm-local default temp before folding; if any preamble
             // statement is not a recoverable default init, the arm has other
             // effects and must not collapse to a single `&&` operand.
