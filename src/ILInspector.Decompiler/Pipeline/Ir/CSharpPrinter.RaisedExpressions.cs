@@ -320,7 +320,7 @@ public sealed partial class CSharpPrinter
     {
         LoadField field => NullConditionalFieldSuffix(field.Field),
         LoadProperty property when property.IndexArguments.Count > 0 => $"[{Arguments(property.IndexArguments)}]",
-        LoadProperty property => $".{property.PropertyName}",
+        LoadProperty property => $".{CSharpNaming.EscapeIdentifier(property.PropertyName)}",
         Call call => NullConditionalCallSuffix(call),
         _ => $".{member.Describe()}",
     };

@@ -95,6 +95,46 @@ public class KeywordIdentifierTests
     }
 
     [Fact]
+    public void RaisedNullConditionalKeywordPropertyRead_IsEscaped()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var value = new LoadArgument(0, "value", holder);
+        var getter = new MethodRef(holder, "get_else", stringType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var (function, output) = RenderExpression(
+            stringType,
+            new NullConditional(new LoadProperty(getter, value, [])));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("value?.@else", output);
+        Assert.DoesNotContain("value?.else", output);
+    }
+
+    [Fact]
+    public void RaisedNullConditionalUnspellableProperty_PreservesIdentity()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var value = new LoadArgument(0, "value", holder);
+        var getter = new MethodRef(holder, "get_bad-name", stringType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        var (function, output) = RenderExpression(
+            stringType,
+            new NullConditional(new LoadProperty(getter, value, [])));
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("value?.bad-name", output);
+        Assert.DoesNotContain("value?._bad_name", output);
+    }
+
+    [Fact]
     public void KeywordObjectInitializerMember_IsEscaped()
     {
         var output = Render(nameof(CfgSampleClass.InitializeKeywordField));
@@ -158,6 +198,42 @@ public class KeywordIdentifierTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Contains("new { @else = 1 }", output);
+    }
+
+    [Fact]
+    public void RaisedRecursivePatternKeywordProperty_IsEscaped()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var getter = new MethodRef(holder, "get_else", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var pattern = new RecursivePropertyDeclarationPattern(
+            new LoadArgument(0, "value", holder),
+            getter,
+            intType,
+            localIndex: 0);
+        var body = new BlockContainer();
+        var block = new Block();
+        body.Add(block);
+        block.Add(new Return(pattern));
+        var function = new IrFunction(
+            "M",
+            holder,
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Boolean"),
+                [new Parameter("value", holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intType],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("value is { @else: int V_0 }", output);
+        Assert.DoesNotContain("{ else: int V_0 }", output);
     }
 
     [Fact]

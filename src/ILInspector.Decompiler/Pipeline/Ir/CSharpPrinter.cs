@@ -2210,7 +2210,7 @@ public sealed partial class CSharpPrinter
         Box b => CoerceText(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
-        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
+        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {CSharpNaming.EscapeIdentifier(p.PropertyName)}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         PositionalPattern p => PositionalPatternText(p),
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
@@ -3009,7 +3009,7 @@ public sealed partial class CSharpPrinter
 
         string designation = pattern.PreserveLocalInPropertyPattern ? $" {LocalName(pattern.LocalIndex)}" : "";
         string not = negated ? " not" : "";
-        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}{designation}";
+        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{CSharpNaming.EscapeIdentifier(p.PropertyName)}: {p.Subpattern}"))} }}{designation}";
     }
 
     static void CollectConjuncts(IrExpression expression, List<IrExpression> conjuncts)

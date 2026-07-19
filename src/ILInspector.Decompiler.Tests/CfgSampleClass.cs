@@ -1416,6 +1416,7 @@ public class CfgSampleClass
     {
         public int X { get; init; }
         public int Y { get; init; }
+        public int @else { get; init; }
     }
 
     public sealed class RecursivePatternSource
@@ -1475,6 +1476,8 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    public static bool IsPatternKeywordProperty(object o) => o is PatternPoint { @else: 1 };
 
     public static bool PositionalPattern(PositionalPatternNode? node) => node is ("ok", > 0);
 
