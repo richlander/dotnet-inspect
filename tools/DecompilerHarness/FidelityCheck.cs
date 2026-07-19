@@ -303,7 +303,7 @@ static class FidelityCheck
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
     /// per rendered method, without printing. This is the testable entry point the
-    /// xunit gate uses to assert the green set stays opcode-exact; <see cref="Run"/>
+    /// xunit gate uses to assert the green set stays contract-exact; <see cref="Run"/>
     /// is the console-reporting entry point. Shares all of the skeleton-emission and
     /// opcode-comparison machinery so the two paths can never drift.
     /// </summary>
