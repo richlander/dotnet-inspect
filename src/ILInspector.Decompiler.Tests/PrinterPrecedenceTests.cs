@@ -353,7 +353,8 @@ public class PrinterPrecedenceTests
     {
         var tupleSwitch = MakeTupleSwitch(s_int, s_int, firstValue: 1, defaultValue: 2);
 
-        var output = PrintReturn(tupleSwitch, s_int, [new Parameter("x", s_int), new Parameter("y", s_int)]);
+        var output = PrintReturn(tupleSwitch, s_int, [new Parameter("x", s_int), new Parameter("y", s_int)])
+            .ReplaceLineEndings("\n");
 
         Assert.Contains("return (x, y) switch\n{\n    (> 0, > 0) => 1,\n    _ => 2,\n};", output);
         Assert.DoesNotContain("return ((x, y) switch", output);
