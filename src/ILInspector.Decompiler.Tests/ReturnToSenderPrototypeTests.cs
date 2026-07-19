@@ -375,6 +375,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackEventAccessor_PreservesOrdinaryFieldLikeEventHandling()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class OrdinaryEventFixture
+            {
+                public event Action Changed;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OrdinaryEventFixture",
+                    "add_Changed",
+                    0)]));
+
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("public void add_Changed(Action value)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("event Action Changed", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
     {
         var assemblyPath = CompileFixture("""

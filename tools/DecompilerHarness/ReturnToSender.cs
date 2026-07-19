@@ -696,12 +696,43 @@ static class ReturnToSender
         }
 
         if (TryFindMethod(reader, typeDef, target) is { } accessorHandle
-            && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle))
+            && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle)
+            && IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle))
         {
             return (foundEventHandle, accessorHandle);
         }
 
         return null;
+    }
+
+    static bool IsExplicitInterfaceEventAccessor(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle accessorHandle)
+    {
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != accessorHandle
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var interfaceDef = reader.GetTypeDefinition(declaration.GetDeclaringType());
+            if (!interfaceDef.Attributes.HasFlag(TypeAttributes.Interface))
+                continue;
+            foreach (var eventHandle in interfaceDef.GetEvents())
+            {
+                var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+                if (accessors.Adder == declarationHandle || accessors.Remover == declarationHandle)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
