@@ -45,6 +45,24 @@ public class CfgSampleClass
         _ => "axis",
     };
 
+    // A tuple relational-pattern switch over `char` components (issue #2867
+    // printing follow-up: Gemini's adversarial review found char anchors were
+    // spelled as bare `int` literals). csc lowers a char comparison as a signed
+    // int32 compare against the char's numeric value, so the anchor Constant is
+    // an in-range Int32 that ConstantFits admits — but a relational pattern
+    // against a char input rejects a bare int literal (CS0266, no implicit
+    // constant-expression conversion in patterns). The recovered switch must
+    // spell the anchor as a char literal (`> 'A'`) so it recompiles, which the
+    // fidelity gate exercises by roundtripping this method's IL.
+    public static string CharQuadrant(char x, char y) => (x, y) switch
+    {
+        (> 'A', > 'A') => "I",
+        (> 'A', < 'A') => "IV",
+        (< 'A', > 'A') => "II",
+        (< 'A', < 'A') => "III",
+        _ => "axis",
+    };
+
     // Two independent, non-capturing (static) local functions, each with its
     // own full tuple relational-pattern quadrant switch (issue #2867
     // completeness follow-up: Gemini's adversarial review of 23c34bae found
