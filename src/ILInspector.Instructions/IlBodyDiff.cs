@@ -591,10 +591,7 @@ public static class IlBodyDiff
                 if (reader.IsAssembly && instruction.Operand != OperandKind.InlineString)
                 {
                     string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
-                    if ((options & IlBodyDiffOptions.NormalizeCurrentAssemblyScope) != 0)
-                        value = value.Replace($"[{assembly}]", "[<current>]", StringComparison.Ordinal);
-                    if ((options & IlBodyDiffOptions.NormalizePlatformAssemblyScopes) != 0)
-                        value = NormalizePlatformScopes(value, assembly);
+                    value = NormalizeAssemblyScopes(value, assembly);
                 }
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
                 failure = null;
@@ -868,8 +865,13 @@ public static class IlBodyDiff
         static string Escape(string value)
             => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
-        static string NormalizePlatformScopes(string value, string currentAssembly)
+        string NormalizeAssemblyScopes(string value, string currentAssembly)
         {
+            bool normalizeCurrent = (options & IlBodyDiffOptions.NormalizeCurrentAssemblyScope) != 0;
+            bool normalizePlatform = (options & IlBodyDiffOptions.NormalizePlatformAssemblyScopes) != 0;
+            if (!normalizeCurrent && !normalizePlatform)
+                return value;
+
             StringBuilder? normalized = null;
             int copied = 0;
             int open = value.IndexOf('[', StringComparison.Ordinal);
@@ -882,12 +884,17 @@ public static class IlBodyDiff
                 ReadOnlySpan<char> identity = value.AsSpan(open + 1, close - open - 1);
                 int comma = identity.IndexOf(',');
                 ReadOnlySpan<char> name = comma >= 0 ? identity[..comma] : identity;
-                if (!identity.Equals(currentAssembly, StringComparison.Ordinal)
-                    && IsPlatformAssembly(name))
+                string? normalizedScope = normalizeCurrent && name.Equals(currentAssembly, StringComparison.Ordinal)
+                    ? "<current>"
+                    : normalizePlatform && !name.Equals(currentAssembly, StringComparison.Ordinal)
+                        && IsPlatformAssembly(name)
+                            ? "<platform>"
+                            : null;
+                if (normalizedScope is not null)
                 {
                     normalized ??= new StringBuilder(value.Length);
                     normalized.Append(value, copied, open - copied);
-                    normalized.Append("[<platform>]");
+                    normalized.Append('[').Append(normalizedScope).Append(']');
                     copied = close + 1;
                 }
 

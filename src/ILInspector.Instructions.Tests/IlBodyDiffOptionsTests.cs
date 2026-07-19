@@ -126,14 +126,24 @@ public class IlBodyDiffOptionsTests
     }
 
     [Fact]
-    public void AllOptions_PreservePlatformNormalizationForSelfReferences()
+    public void NormalizeCurrentAssemblyScope_ToleratesDirectAndAssemblyRefSelfReferences()
     {
-        var diff = CompareImages(
-            BuildCallImage("System.Runtime", "System.Runtime"),
-            BuildCallImage("System.Private.CoreLib", "System.Private.CoreLib"),
-            AllNormalizationOptions);
+        var directImage = BuildCallImage("System.Runtime");
+        var assemblyRefImage = BuildCallImage("System.Runtime", "System.Runtime");
 
-        Assert.True(diff.IsExact);
+        Assert.False(CompareImages(directImage, assemblyRefImage).IsExact);
+        Assert.False(CompareImages(
+            directImage,
+            assemblyRefImage,
+            IlBodyDiffOptions.NormalizePlatformAssemblyScopes).IsExact);
+        Assert.True(CompareImages(
+            directImage,
+            assemblyRefImage,
+            IlBodyDiffOptions.NormalizeCurrentAssemblyScope).IsExact);
+        Assert.True(CompareImages(
+            directImage,
+            assemblyRefImage,
+            AllNormalizationOptions).IsExact);
     }
 
     [Fact]
@@ -201,6 +211,7 @@ public class IlBodyDiffOptionsTests
         }
         else
         {
+            bool selfReference = referenceAssemblyName == assemblyName;
             var reference = metadata.AddAssemblyReference(
                 metadata.GetOrAddString(referenceAssemblyName),
                 new Version(1, 0, 0, 0),
@@ -210,11 +221,11 @@ public class IlBodyDiffOptionsTests
                 default);
             var type = metadata.AddTypeReference(
                 reference,
-                metadata.GetOrAddString("System"),
-                metadata.GetOrAddString("Probe"));
+                selfReference ? default : metadata.GetOrAddString("System"),
+                metadata.GetOrAddString(selfReference ? "C" : "Probe"));
             target = metadata.AddMemberReference(
                 type,
-                metadata.GetOrAddString("Target"),
+                metadata.GetOrAddString(selfReference ? "Caller" : "Target"),
                 metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
         }
 
