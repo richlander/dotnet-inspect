@@ -14,7 +14,7 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["unsafe.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
         if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)

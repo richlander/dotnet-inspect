@@ -15,7 +15,7 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["cost.method"];
     public IReadOnlyList<string> DependsOn { get; } = [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context) => [];
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [];
 
     public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
     {

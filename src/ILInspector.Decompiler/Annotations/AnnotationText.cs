@@ -12,7 +12,7 @@ namespace ILInspector.Decompiler.Annotations;
 /// </summary>
 public static class AnnotationText
 {
-    public static string Format(Annotation fact)
+    public static string Format(IAnnotation fact)
     {
         var sb = new StringBuilder(fact.Descriptor.Id);
         if (!string.IsNullOrEmpty(fact.Detail))
@@ -22,7 +22,7 @@ public static class AnnotationText
         return sb.ToString();
     }
 
-    public static string Format(IReadOnlyList<Annotation> facts)
+    public static string Format(IReadOnlyList<IAnnotation> facts)
         => string.Join("; ", facts.Select(Format));
 
     static string Kebab(AnnotationConditionality conditionality) => conditionality switch

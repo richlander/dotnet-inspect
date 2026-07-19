@@ -7,10 +7,10 @@ namespace ILInspector.Decompiler.Tests;
 
 public class AllocationOccurrenceFactTests
 {
-    static IReadOnlyList<Annotation> Classify(string methodName)
+    static IReadOnlyList<IAnnotation> Classify(string methodName)
         => Classify(methodName, resolver: null);
 
-    static IReadOnlyList<Annotation> Classify(string methodName, ILInspector.Metadata.IAssemblyReferenceResolver? resolver)
+    static IReadOnlyList<IAnnotation> Classify(string methodName, ILInspector.Metadata.IAssemblyReferenceResolver? resolver)
     {
         var source = resolver is null
             ? MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location)
@@ -25,7 +25,7 @@ public class AllocationOccurrenceFactTests
     // default sibling resolver cannot find corelib beside the test assembly.
     static readonly ILInspector.Metadata.IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.RuntimeAssemblies();
 
-    static IReadOnlyList<string> Ids(IReadOnlyList<Annotation> annotations)
+    static IReadOnlyList<string> Ids(IReadOnlyList<IAnnotation> annotations)
         => annotations.Select(a => a.Descriptor.Id).ToList();
 
     [Fact]

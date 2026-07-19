@@ -6,7 +6,7 @@ namespace ILInspector.Decompiler.Tests;
 
 public class UnsafetyMixedTests
 {
-    static IReadOnlyList<Annotation> Classify(string methodName)
+    static IReadOnlyList<IAnnotation> Classify(string methodName)
     {
         var source = MetadataSource.Open(typeof(MixedSampleClass).Assembly.Location);
         return ResearchViews.CollectFacts(source, typeof(MixedSampleClass).FullName!, methodName)
