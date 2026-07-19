@@ -13,10 +13,17 @@ public static class PackageMetadataService
     /// <summary>
     /// Gets the published date for a specific package version.
     /// </summary>
-    public static async Task<DateTimeOffset?> GetPublishedDateAsync(HttpClient client, string packageName, string version, Action<string>? log)
+    public static async Task<DateTimeOffset?> GetPublishedDateAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{version}";
+        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
+            return null;
         PackageMetadata? cached;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
         {
@@ -50,7 +57,7 @@ public static class PackageMetadataService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not NetworkPolicyException)
         {
             log?.Invoke($"Error fetching publish date: {ex.Message}");
         }
@@ -63,10 +70,17 @@ public static class PackageMetadataService
     /// Results are cached on disk; use <paramref name="forceLatest"/> to bypass the cache.
     /// </summary>
     public static async Task<PackageMetadata> FetchAllMetadataAsync(
-        HttpClient client, string packageName, string version, Action<string>? log, bool forceLatest = false)
+        HttpClient client,
+        string packageName,
+        string version,
+        Action<string>? log,
+        bool forceLatest = false,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
         string cacheKey = $"{normalizedName}@{version}";
+        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
+            return new PackageMetadata();
 
         // Try cache first (unless @latest forces refresh)
         if (!forceLatest)
@@ -92,6 +106,23 @@ public static class PackageMetadataService
         }
 
         return metadata;
+    }
+
+    internal static bool SupportsNuGetOrgMetadata(
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log = null)
+    {
+        bool supported = NuGetSourceResolver.ResolveSources(sourceOptions).Any(source =>
+            Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
+            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase));
+        if (!supported)
+        {
+            log?.Invoke(
+                "NuGet.org aggregate metadata is unavailable because the configured package sources do not include api.nuget.org.");
+        }
+        return supported;
     }
 
     private static async Task<PackageMetadata> FetchAllMetadataFromNetworkAsync(
@@ -129,7 +160,7 @@ public static class PackageMetadataService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not NetworkPolicyException)
         {
             log?.Invoke($"Error fetching registration metadata: {ex.Message}");
         }
@@ -156,7 +187,7 @@ public static class PackageMetadataService
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not NetworkPolicyException)
             {
                 log?.Invoke($"Error fetching catalog entry: {ex.Message}");
             }
@@ -225,7 +256,7 @@ public static class PackageMetadataService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not NetworkPolicyException)
         {
             log?.Invoke($"Error fetching search metadata: {ex.Message}");
         }
@@ -239,7 +270,7 @@ public static class PackageMetadataService
                 metadata.Vulnerabilities = vulnerabilities;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not NetworkPolicyException)
         {
             log?.Invoke($"Error fetching vulnerability data: {ex.Message}");
         }
@@ -258,7 +289,7 @@ public static class PackageMetadataService
                 metadata.PackageSize = contentLength;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not NetworkPolicyException)
         {
             log?.Invoke($"Error fetching package size: {ex.Message}");
         }
@@ -404,7 +435,7 @@ public static class PackageMetadataService
                     vuln.Severity = char.ToUpper(sev[0]) + sev[1..].ToLower();
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not NetworkPolicyException)
         {
             log?.Invoke($"Error fetching GitHub advisory: {ex.Message}");
         }

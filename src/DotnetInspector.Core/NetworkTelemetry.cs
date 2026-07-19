@@ -144,7 +144,7 @@ public static class NetworkTelemetry
         return new Subscription(observer);
     }
 
-    internal static void RecordRequestStarting(
+    internal static bool RecordRequestStarting(
         HttpRequestMessage request,
         string clientKind)
     {
@@ -167,6 +167,8 @@ public static class NetworkTelemetry
 
         foreach (var subscriber in subscribers)
             subscriber.OnNext(observation);
+
+        return observation.IsAllowedByPolicy;
     }
 
     private sealed class Subscription(IObserver<NetworkRequestObservation> observer) : IDisposable
@@ -193,8 +195,10 @@ public static class NetworkTelemetry
     private static bool IsAllowedByPolicy(NetworkTrafficKind kind) =>
         kind switch
         {
-            // Package load/search traffic is always allowed; vulnerability traffic is view-gated.
-            NetworkTrafficKind.VulnerabilityData => AllowedKinds.Value?.Contains(kind) == true,
+            // Package load/search traffic is always allowed. NuGet and GitHub
+            // vulnerability enrichment share one view-gated capability.
+            NetworkTrafficKind.VulnerabilityData or NetworkTrafficKind.AdvisoryData =>
+                AllowedKinds.Value?.Contains(NetworkTrafficKind.VulnerabilityData) == true,
             _ => true
         };
 }

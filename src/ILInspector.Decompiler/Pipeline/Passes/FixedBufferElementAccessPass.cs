@@ -19,7 +19,10 @@ public sealed class FixedBufferElementAccessPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        foreach (var node in function.Descendants.ToList())
+        // Raise inner accesses before their parents. Creating an outer access
+        // clones its index expression, so a top-down snapshot would leave any
+        // nested fixed-buffer access only partially raised in the live clone.
+        foreach (var node in function.Descendants.Reverse().ToList())
         {
             switch (node)
             {

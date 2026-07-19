@@ -83,14 +83,25 @@ Required for every raise PR. Choose one:
 
 ## Evidence
 
-| Check | Result |
-| --- | --- |
-| Product build | Pass |
-| Focused tests | `{test class}` passed |
-| Decompiler fast suite | Pass |
-| Reduced fixture validity | Pass / not applicable |
-| Reduced fixture fidelity | Pass / not currently checkable |
-| Real witness | `{Type::Method}` fixed / not applicable |
+<!--
+Report Baseline (base commit, unbuilt PR changes) alongside Head (this PR) for
+every check that has a pass/fail or count outcome. A Head-only "Pass" or
+"{n} passed" hides regressions: it cannot show whether failures are
+pre-existing (same on Baseline) or newly introduced by this PR, and total
+counts can rise even while some previously-passing test starts failing.
+-->
+
+| Check | Baseline | Head |
+| --- | --- | --- |
+| Product build | Pass | Pass |
+| Focused tests | `{test class}`: {n} passed | `{test class}`: {n} passed |
+| Decompiler fast suite | {total}, {failed} failed | {total}, {failed} failed |
+| Reduced fixture validity | Pass / not applicable | Pass / not applicable |
+| Reduced fixture fidelity | Pass / not currently checkable | Pass / not currently checkable |
+| Real witness | `{Type::Method}` broken / not applicable | `{Type::Method}` fixed / not applicable |
+
+If Baseline shows any failures, name them and confirm they are unchanged by
+this PR (same tests, same reason) rather than omitting them.
 
 ## Decompiler quality
 

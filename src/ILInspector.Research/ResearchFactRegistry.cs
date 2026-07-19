@@ -62,7 +62,7 @@ public interface IResearchFactProducer
     string Name { get; }
     IReadOnlyList<string> Produces { get; }
     IReadOnlyList<string> DependsOn { get; }
-    IReadOnlyList<Annotation> Produce(ResearchFactContext context);
+    IReadOnlyList<IAnnotation> Produce(ResearchFactContext context);
     IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context) => [];
 }
 
@@ -87,7 +87,7 @@ public sealed class ResearchFactRegistry
         new MethodHeaderLeverageFactProducer(),
         new DecompilerLifetimeFactProducer());
 
-    public IReadOnlyList<Annotation> Collect(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Collect(ResearchFactContext context)
         => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
 
     public IReadOnlyList<ResearchHeaderFact> CollectHeaderFacts(ResearchFactContext context)
@@ -126,6 +126,6 @@ sealed class DecompilerLifetimeFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["lifetime.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
         => new Decompiler.Annotations.LifetimeClassifier().Classify(context.Imported);
 }

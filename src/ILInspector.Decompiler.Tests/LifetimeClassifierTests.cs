@@ -6,7 +6,7 @@ namespace ILInspector.Decompiler.Tests;
 
 public class LifetimeClassifierTests
 {
-    static IReadOnlyList<Annotation> Classify(string methodName)
+    static IReadOnlyList<IAnnotation> Classify(string methodName)
     {
         var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
         return ResearchViews.CollectFacts(source, typeof(LifetimeSampleClass).FullName!, methodName)

@@ -240,6 +240,84 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void FullExplicitInterfaceEventRendersTypedAccessorBodies()
+    {
+        var explicitEvent = new ApiMember
+        {
+            Name = "Samples.IEvents.Changed",
+            Kind = "explicit-interface-implementation",
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Samples.IEvents.Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(explicitEvent);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    explicitEvent,
+                    CSharpBodyPolicy.Full,
+                    new CSharpEventBody(
+                        CSharpAccessorBody.Block("_changed += value;"),
+                        CSharpAccessorBody.Block("_changed -= value;")))
+            ]));
+
+        Assert.Contains(
+            """
+                static event EventHandler Samples.IEvents.Changed
+                {
+                    add
+                    {
+                        _changed += value;
+                    }
+                    remove
+                    {
+                        _changed -= value;
+                    }
+                }
+            """,
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceEventSkeletonFailsClosed()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Samples.IEvents.Changed",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Samples.IEvents.Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("requires add/remove bodies", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StubFieldFailsClosed()
     {
         var type = CreateEmptyType("Samples", "Widget");

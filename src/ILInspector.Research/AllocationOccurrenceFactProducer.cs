@@ -18,7 +18,7 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["alloc.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
         if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
@@ -43,7 +43,7 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
         return new FindingSubject(subject.Id, subject.Display);
     }
 
-    static Annotation ToAnnotation(AllocationOccurrence occurrence)
+    static Annotation<AllocationOccurrence> ToAnnotation(AllocationOccurrence occurrence)
     {
         var descriptor = occurrence.Kind switch
         {
@@ -61,7 +61,12 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             AllocationFrequency.PerIteration => AnnotationConditionality.PerIteration,
             _ => AnnotationConditionality.Always,
         };
-        return new Annotation(descriptor, occurrence.ILOffset, Detail(occurrence), conditionality, Node: null);
+        return new Annotation<AllocationOccurrence>(
+            descriptor,
+            occurrence.ILOffset,
+            occurrence,
+            conditionality,
+            Detail);
     }
 
     static string? Detail(AllocationOccurrence occurrence)

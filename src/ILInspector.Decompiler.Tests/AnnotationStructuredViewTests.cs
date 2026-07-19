@@ -13,7 +13,7 @@ public class AnnotationStructuredViewTests
         return IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName)!;
     }
 
-    static IReadOnlyList<Annotation> Collect(string methodName)
+    static IReadOnlyList<IAnnotation> Collect(string methodName)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
         return ResearchViews.CollectFacts(source, typeof(AllocSampleClass).FullName!, methodName);

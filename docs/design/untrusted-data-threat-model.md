@@ -163,6 +163,12 @@ exceeding any one produces a visible rejection rather than a partial identity.
 
 ### Network and caches
 
+Network capability policy is enforced in the shared HTTP handler after the
+attempt is recorded for diagnostics and before it reaches the transport.
+Traffic families that require explicit authorization, currently vulnerability
+data, must run inside their matching `NetworkTelemetry.Allow` scope. Offline
+mode remains the broader prohibition over every traffic family.
+
 Network access derived from inspected content must be explicit in the command
 surface, use the untrusted-fetch client, have a timeout, and retain provenance.
 Cache paths must be hashed or use validated single components. Downloads should

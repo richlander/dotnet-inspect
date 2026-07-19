@@ -333,7 +333,8 @@ internal static class CSharpDeclarationWriter
         {
             signature = FormatOperatorSignature(signature, member.Name);
         }
-        else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+        else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
+            && !IsExplicitInterfaceEvent(member))
         {
             if (methodParameters is { Count: > 0 })
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
@@ -341,11 +342,11 @@ internal static class CSharpDeclarationWriter
                 signature = AddExtensionThisModifier(signature);
             signature = EscapeMemberNameInSignature(signature, member.Name);
         }
-        else if (member.Kind == "event" && !signature.StartsWith("event ", StringComparison.Ordinal))
+        else if (IsEvent(member) && !signature.StartsWith("event ", StringComparison.Ordinal))
         {
             signature = $"event {signature}";
         }
-        if (member.Kind is "property" or "field" or "event")
+        if (member.Kind is "property" or "field" or "event" || IsExplicitInterfaceEvent(member))
         {
             signature = EscapeMemberNameInSignature(signature, member.Name);
         }
@@ -789,7 +790,7 @@ internal static class CSharpDeclarationWriter
                     i++;
                 string token = text[start..i];
                 bool alreadyEscaped = start > 0 && text[start - 1] == '@';
-                sb.Append(!alreadyEscaped && s_csharpReservedKeywords.Contains(token) ? EscapeIdentifier(token) : token);
+                sb.Append(!alreadyEscaped && CSharpKeywords.RequiresDeclarationEscape(token) ? EscapeIdentifier(token) : token);
                 continue;
             }
             sb.Append(text[i++]);
@@ -860,10 +861,11 @@ internal static class CSharpDeclarationWriter
                 : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
             return true;
         }
-        if (member.Kind == "event"
+        if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
             && model.ReturnType is { Length: > 0 } eventType
-            && IsOrdinaryPropertyName(member.Name)
-            && IsOrdinaryPropertyName(model.MemberName))
+            && (IsExplicitInterfaceEvent(member)
+                || IsOrdinaryPropertyName(member.Name)
+                    && IsOrdinaryPropertyName(model.MemberName)))
         {
             var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
                 ? member.Name
@@ -904,7 +906,19 @@ internal static class CSharpDeclarationWriter
     static bool IsExplicitInterfaceProperty(ApiMember member)
         => member.Kind == "explicit-interface-implementation"
             && member.Name.Contains('.', StringComparison.Ordinal)
-            && member.SignatureModel?.Accessors.Count > 0;
+            && HasOnlyAccessors(member, "get", "set");
+
+    static bool IsExplicitInterfaceEvent(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            && member.Name.Contains('.', StringComparison.Ordinal)
+            && HasOnlyAccessors(member, "add", "remove");
+
+    static bool IsEvent(ApiMember member)
+        => member.Kind == "event" || IsExplicitInterfaceEvent(member);
+
+    static bool HasOnlyAccessors(ApiMember member, string first, string second)
+        => member.SignatureModel?.Accessors is { Count: > 0 } accessors
+            && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
 
     internal static string FormatParameter(ApiParameter parameter)
     {
@@ -1362,7 +1376,7 @@ internal static class CSharpDeclarationWriter
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
     public static string EscapeIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) ? "@" + name : name;
+        => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -1692,7 +1706,7 @@ internal static class CSharpDeclarationWriter
                 return null;
             var ns = value[..lastDot];
             var simple = StripArity(value[(lastDot + 1)..]);
-            if (s_csharpReservedKeywords.Contains(simple))
+            if (CSharpKeywords.RequiresDeclarationEscape(simple))
                 return null;
             return new TypeRef(value, ns, simple);
         }
@@ -1713,17 +1727,4 @@ internal static class CSharpDeclarationWriter
         "class", "class?", "struct", "unmanaged", "notnull", "new()", "default", "allows ref struct",
     };
 
-    // Keep synchronized with MetadataDeclarationQuery's legacy compatibility escaper.
-    static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while", "await", "record", "required", "init", "file", "scoped",
-    };
 }

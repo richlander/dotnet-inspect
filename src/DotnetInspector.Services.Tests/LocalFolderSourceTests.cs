@@ -118,6 +118,31 @@ public class LocalFolderSourceTests : IDisposable
             && l.Contains("non-HTTP", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task TryGetNuspec_UsesConfiguredServiceIndex()
+    {
+        var handler = new StubHandler();
+        handler.Add(
+            "feed.example.test/v3/index.json",
+            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+        handler.Add(
+            "content.example.test/flat/testpackage/1.0.0/testpackage.nuspec",
+            """<?xml version="1.0"?><package><metadata><id>TestPackage</id><version>1.0.0</version></metadata></package>""");
+        using var client = new HttpClient(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = ["https://feed.example.test/v3/index.json"]
+        };
+
+        string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+            client,
+            "TestPackage",
+            "1.0.0",
+            sourceOptions: sourceOptions);
+
+        Assert.Contains("<id>TestPackage</id>", nuspec);
+    }
+
     /// <summary>
     /// HTTP handler that throws on any request — proves no network call was attempted.
     /// </summary>

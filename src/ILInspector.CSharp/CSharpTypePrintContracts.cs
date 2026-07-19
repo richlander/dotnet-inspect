@@ -78,6 +78,10 @@ public sealed record CSharpPropertyBody(
     CSharpAccessorBody? Getter,
     CSharpAccessorBody? Setter) : CSharpMemberBody;
 
+public sealed record CSharpEventBody(
+    CSharpAccessorBody Adder,
+    CSharpAccessorBody Remover) : CSharpMemberBody;
+
 public sealed record CSharpMemberPolicy(
     ApiMember Member,
     CSharpBodyPolicy BodyPolicy,
@@ -182,6 +186,12 @@ public sealed class CSharpTypePrintRequest
             case CSharpPropertyBody property:
                 ValidateAccessor(property.Getter, parameterName);
                 ValidateAccessor(property.Setter, parameterName);
+                return;
+            case CSharpEventBody { Adder: null } or CSharpEventBody { Remover: null }:
+                throw new ArgumentException("Event bodies require add and remove accessors.", parameterName);
+            case CSharpEventBody eventBody:
+                ValidateAccessor(eventBody.Adder, parameterName);
+                ValidateAccessor(eventBody.Remover, parameterName);
                 return;
             case CSharpBlockBody:
             case CSharpFieldInitializer:
