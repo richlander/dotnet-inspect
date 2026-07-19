@@ -1034,6 +1034,17 @@ public class DynamicCallSitePassTests
         Assert.False(RunPass(f));
     }
 
+    [Fact]
+    public void ReceiverIsUnmanagedPointerValue_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        // A pointer-valued receiver (`int*`) has no conversion to `dynamic`
+        // (CS0030); the receiver gate rejects it on its ResultType even though it
+        // is a plain value load that aliases no owned storage.
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadLocal(300, TypeRef.Pointer(Int32Type)));
+        Assert.False(RunPass(f));
+    }
+
     // ======================================================================
     // By-value signature ref-kind facts (blocker #4)
     // ======================================================================

@@ -181,6 +181,23 @@ public class TypeRefDecoderRecursionTests
     }
 
     [Fact]
+    public void PlatformTrust_SelfReferentialTypeReference_DoesNotStackOverflow()
+    {
+        var reader = BuildMetadata(metadata =>
+            // A TypeReference whose ResolutionScope points back at its own row (a
+            // nested-type scope cycle). The platform-trust walk must bound the
+            // chain and fail closed rather than recurse to StackOverflow.
+            metadata.AddTypeReference(
+                MetadataTokens.TypeReferenceHandle(1),
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Loop")));
+
+        Assert.False(IrImporter.IsTrustedPlatformMemberReference(
+            reader,
+            MetadataTokens.TypeReferenceHandle(1)));
+    }
+
+    [Fact]
     public void SelfReferentialModreqUnderBlobCap_DoesNotStackOverflow()
     {
         var reader = BuildMetadata(metadata =>

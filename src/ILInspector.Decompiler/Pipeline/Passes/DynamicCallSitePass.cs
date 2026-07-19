@@ -279,11 +279,12 @@ public sealed class DynamicCallSitePass : IIrPass
         }
 
         // The delegate receiver is the boxed object the runtime consumes. csc
-        // only ever passes a value expression here; a managed-pointer / address
-        // expression in the object-typed receiver slot is unverifiable IL that
-        // would render as `((dynamic)ref x).Member` (invalid C#), so decline the
-        // malformed shape rather than raise it.
-        if (IsAddressReceiver(receiver))
+        // only ever passes a value expression here; an address / managed-pointer
+        // expression or an unmanaged-pointer value in the object-typed receiver
+        // slot is unverifiable IL that would render as `((dynamic)ref x).Member`
+        // or `((dynamic)p).Member` (invalid C#), so decline the malformed shape
+        // rather than raise it.
+        if (IsUnraisableReceiver(receiver))
         {
             receiver = null!;
             memberName = null!;
@@ -703,12 +704,21 @@ public sealed class DynamicCallSitePass : IIrPass
         return true;
     }
 
-    // An address / managed-pointer expression the printer would spell with a
-    // leading `ref`. Such a shape is never a valid object-typed dynamic-get
-    // receiver, so raising it would emit invalid C#.
-    static bool IsAddressReceiver(IrExpression expr) =>
+    // A receiver the printer cannot spell as a value cast to `dynamic`:
+    //  - address / managed-pointer expressions the printer spells with a leading
+    //    `ref` (`ref x`, `ref buf[i]`),
+    //  - a raw function-pointer load (rendered as an `ldftn` comment), or
+    //  - any expression whose value is an unmanaged pointer or function pointer
+    //    (`int*`, `delegate*<...>`), which has no conversion to `dynamic`
+    //    (CS0030).
+    // A `ByRef`-valued receiver (a ref local or ref-returning call) is a value
+    // for these purposes: C# implicitly dereferences it, so `((dynamic)r).Member`
+    // is valid and is not declined here.
+    static bool IsUnraisableReceiver(IrExpression expr) =>
         expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
-            or LoadElementAddress or Unbox;
+            or LoadElementAddress or FixedBufferElementAddress
+            or LoadFunctionPointer or Unbox
+        || expr.ResultType?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
 
     static bool ContainsReference<T>(IReadOnlyList<T> nodes, T node) where T : class
     {
