@@ -1022,6 +1022,18 @@ public class DynamicCallSitePassTests
         Assert.False(RunPass(f));
     }
 
+    [Fact]
+    public void ReceiverIsUnrelatedAddressExpression_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        // A managed-pointer / address expression as the object-typed dynamic-get
+        // receiver is unverifiable IL that would render as `((dynamic)ref x).M`.
+        // It aliases no owned slot/field, so neither slot nor cache-field
+        // confinement fires; only the receiver value-expression gate rejects it.
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadLocalAddress(300, ObjectType));
+        Assert.False(RunPass(f));
+    }
+
     // ======================================================================
     // By-value signature ref-kind facts (blocker #4)
     // ======================================================================

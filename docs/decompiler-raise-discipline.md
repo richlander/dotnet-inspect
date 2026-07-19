@@ -70,11 +70,32 @@ work inside it without re-buying the lessons.
   anywhere, grep for its siblings** — the printer knew
   `DescendantsOutsideNestedFunctions` while two passes walked `Descendants`
   into nested bodies (#2143 round 1, #2204 round 2).
-- **Nested bodies are separate scopes.** `Lambda` and
-  `LocalFunctionStatement` bodies carry their own return types and their own
-  slot numbering. `function.Descendants` crossing them has produced three
+- **Nested bodies are separate scopes — for *body-local* storage.** `Lambda`
+  and `LocalFunctionStatement` bodies carry their own return types and their
+  own slot numbering. `function.Descendants` crossing them has produced three
   independent bugs (lambda returns coerced to the outer signature, twice; slot
-  maps unified across bodies). Walk body scopes.
+  maps unified across bodies). Walk body scopes
+  (`DescendantsOutsideNestedFunctions`) when the fact is body-local: locals,
+  stack slots, catch/loop/pattern variables, return types. **But scope by
+  storage class, not by habit.** A *globally visible* reference — a static
+  field, most notably a dynamic call-site cache — is not body-local: a nested
+  body reads the *same* storage. Confining such a reference must walk the whole
+  function (`function.Descendants`), or a nested alias escapes the proof.
+  Honest code never shares one static call-site field across bodies (each site
+  owns a unique field), so the wider walk cannot false-decline real code; it
+  only vetoes the malformed alias. `CacheFieldConfined` first walked
+  outside-nested like its `SlotConfined` sibling and would have deleted the sole
+  initializer of a field a nested body still read (#2866) — the partial-sibling
+  species again, this time split along storage class rather than render context.
+- **Pretty-but-wrong loses to ugly-but-correct — and it is usually free.** When
+  a raise would emit prettier source but the shape is not *provably* the exact
+  pattern, decline to the honest lowered scaffolding. On honest input the proof
+  succeeds and the pretty form still lands, so the decline costs nothing there;
+  it changes output only on shapes that cannot occur in compiler output
+  (malformed or adversarial IL), where the pretty form would be plainly wrong.
+  Every gate in `DynamicCallSitePass` works this way — an address-taking
+  receiver that would print `((dynamic)ref x).Member`, a nested static-field
+  alias — decline over a plausible-but-wrong spelling (#2866).
 - **Decisions have owners; do not preempt a sibling lane.** Bool joins belong
   to `BooleanFoldingPass`; slot C# types belong to the unifier until instance
   2 materializes locals; merge-node rendering belongs to `CoerceText`'s

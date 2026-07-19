@@ -278,6 +278,18 @@ public sealed class DynamicCallSitePass : IIrPass
             return false;
         }
 
+        // The delegate receiver is the boxed object the runtime consumes. csc
+        // only ever passes a value expression here; a managed-pointer / address
+        // expression in the object-typed receiver slot is unverifiable IL that
+        // would render as `((dynamic)ref x).Member` (invalid C#), so decline the
+        // malformed shape rather than raise it.
+        if (IsAddressReceiver(receiver))
+        {
+            receiver = null!;
+            memberName = null!;
+            return false;
+        }
+
         // --- Dataflow confinement across the whole function scope ---
         // Each owned slot/local has exactly one definition (the ledger store) and
         // is loaded only by its proven uses; nothing aliases, escapes, or takes
@@ -690,6 +702,13 @@ public sealed class DynamicCallSitePass : IIrPass
 
         return true;
     }
+
+    // An address / managed-pointer expression the printer would spell with a
+    // leading `ref`. Such a shape is never a valid object-typed dynamic-get
+    // receiver, so raising it would emit invalid C#.
+    static bool IsAddressReceiver(IrExpression expr) =>
+        expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
+            or LoadElementAddress or Unbox;
 
     static bool ContainsReference<T>(IReadOnlyList<T> nodes, T node) where T : class
     {
