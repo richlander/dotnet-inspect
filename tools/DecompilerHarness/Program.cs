@@ -73,6 +73,7 @@ static class Program
         bool returnToSenderMarkout = false;
         bool returnToSenderSourceProbe = false;
         bool authoredRebuildFidelity = false;
+        bool authoredSourceCensus = false;
         string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
@@ -192,6 +193,7 @@ static class Program
                     case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
                     case "--source-correspondence-census": returnToSenderSourceProbe = true; break;
                     case "--authored-rebuild-fidelity": authoredRebuildFidelity = true; break;
+                    case "--authored-source-census": authoredSourceCensus = true; break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
                         returnToSenderCatalog = true;
@@ -314,7 +316,7 @@ static class Program
         }
 
         if (returnToSenderFixtureGroup is not null
-            && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe || authoredRebuildFidelity))
+            && !(returnToSender || returnToSenderAb || returnToSenderSourceProbe || authoredRebuildFidelity || authoredSourceCensus))
         {
             return Fail("--return-to-sender-fixtures requires a ReturnToSender or authored rebuild operation.");
         }
@@ -405,6 +407,9 @@ static class Program
 
         if (authoredRebuildFidelity)
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
+
+        if (authoredSourceCensus)
+            return AuthoredSourceCensus.Run(assemblies, cap, maxExamples, json);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1763,6 +1768,14 @@ static class Program
                                 each in the same RTS shell, and compare authored
                                 A->IL beside the independent decompiled B->IL lane;
                                 reports determinism and build-context drift separately.
+          --authored-source-census
+                                run the same source-correspondence bucket classifier
+                                as --source-correspondence-census, but over real
+                                (non-fixture) corpus assemblies using real SourceLink
+                                acquisition instead of the fixture-only source index;
+                                reports the same valid_match, valid_different,
+                                invalid, source_unavailable, and unsupported_target
+                                buckets. Use --json for machine-readable row output.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for

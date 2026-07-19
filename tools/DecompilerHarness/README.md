@@ -210,6 +210,22 @@ reports deterministic-build and portable-PDB option/reference context
 separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
 or integrity failure.
 
+`--authored-source-census` runs the same source-correspondence bucket
+classifier as `--source-correspondence-census`/`--return-to-sender-source-probe`
+(`valid_match`, `valid_different`, `invalid`, `source_unavailable`,
+`unsupported_target`), but over real, non-fixture corpus assemblies using real
+SourceLink acquisition instead of the fixture-only source index. The fixture
+probe selects zero targets for any assembly that is not registered in
+`FixtureCatalog`; this mode closes that gap by reusing
+`--authored-rebuild-fidelity`'s real acquisition and body-extraction lane and
+feeding the checksum-verified authored body straight into the probe's
+comparison and reporting logic instead of RTS-recompiling it. It is a peer of
+the RTS compile-back oracle and the authored-rebuild fidelity oracle, not a
+replacement for either: `Absent`/`Failed`/`SourceUnavailable` outcomes are
+reported distinctly and never blended into the other oracles' verdicts. Use
+`--json` for the same machine-readable rows and `source_correspondence_findings`
+projection as the fixture-based census.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |

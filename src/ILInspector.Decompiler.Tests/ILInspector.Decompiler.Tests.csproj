@@ -89,6 +89,8 @@
              Link="ReturnToSenderSourceProbe.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredRebuildFidelity.cs"
              Link="AuthoredRebuildFidelity.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredSourceCensus.cs"
+             Link="AuthoredSourceCensus.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CSharpSourceIdentity.cs"
              Link="CSharpSourceIdentity.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\SignatureIdentity.cs"

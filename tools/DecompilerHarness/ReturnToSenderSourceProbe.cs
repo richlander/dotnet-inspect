@@ -63,8 +63,17 @@ static partial class ReturnToSenderSourceProbe
     internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json)
+        => Report(Evaluate(assemblies, cap), maxExamples, json);
+
+    /// <summary>
+    /// Renders the same summary/bucket/finding report as <see cref="Run"/>, for
+    /// callers that produce <see cref="ReturnToSenderSourceProbeResult"/> rows from
+    /// a different acquisition lane (for example real, network-acquired SourceLink
+    /// source in <c>AuthoredSourceCensus</c> rather than the fixture-only source
+    /// index). The bucket taxonomy and finding shape stay identical across lanes.
+    /// </summary>
+    public static int Report(IReadOnlyList<ReturnToSenderSourceProbeResult> results, int maxExamples, bool json)
     {
-        var results = Evaluate(assemblies, cap);
         int passed = results.Count(result => result.Passed);
         int different = results.Count(result => result.Different);
         int failed = results.Count(result => result.Failed);
@@ -400,7 +409,7 @@ static partial class ReturnToSenderSourceProbe
     static string TargetDisplay(ReturnToSender.RequestedTarget target)
         => $"{target.Type}.{target.Method}#{target.Overload}";
 
-    static OpcodeDiffEvidence? OpcodeEvidence(ReturnToSender.Result result)
+    internal static OpcodeDiffEvidence? OpcodeEvidence(ReturnToSender.Result result)
     {
         if (result.Status != FidelityCheck.CompileBackStatus.OpcodeDiff)
             return null;
@@ -417,7 +426,7 @@ static partial class ReturnToSenderSourceProbe
     static string? NullIfWhiteSpace(string value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    sealed record OpcodeDiffEvidence(
+    internal sealed record OpcodeDiffEvidence(
         string? OriginalOpcodes,
         string? RecompiledOpcodes,
         IReadOnlyList<string> IlDiffLines);
@@ -949,7 +958,7 @@ static partial class ReturnToSenderSourceProbe
     static string StatementsText(BlockSyntax body)
         => string.Join(Environment.NewLine, body.Statements.Select(statement => statement.ToString()));
 
-    static string NormalizeBody(string text)
+    internal static string NormalizeBody(string text)
         => Regex.Replace(text, @"\s+", "");
 
     static bool TryKnownTasteDifference(
@@ -1285,7 +1294,7 @@ static partial class ReturnToSenderSourceProbe
         return match.Success ? match.Value : "recompile-fail";
     }
 
-    static string FailureReason(ReturnToSender.Result result)
+    internal static string FailureReason(ReturnToSender.Result result)
         => result.Status switch
         {
             FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
