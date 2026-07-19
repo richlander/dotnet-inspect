@@ -262,7 +262,72 @@ public class ExtensionsCommandTests
 
         // Should produce a single row, not 3 duplicate rows
         Assert.Single(tableRows);
-        Assert.Contains("3 overloads", tableRows[0]);
+        Assert.Contains("ToDictionary", tableRows[0]);
+        // Overload count now lives in a dedicated numeric column, not baked into the name.
+        Assert.DoesNotContain("3 overloads", tableRows[0]);
+        Assert.Contains("Overloads", output);
+        var cells = tableRows[0].Split('|').Select(c => c.Trim()).ToList();
+        Assert.Contains("3", cells);
+    }
+
+    [Fact]
+    public void FormatResults_DirectOnly_HidesRedundantColumns()
+    {
+        // All direct, single-overload extensions: Overloads, Type, and Via columns
+        // carry no distinguishing information and should be dropped.
+        var results = new List<ExtensionMethodResult>
+        {
+            new() { MethodName = "Where", Kind = "method", ExtensionClass = "System.Linq.Enumerable", Assembly = "System.Linq" },
+            new() { MethodName = "Select", Kind = "method", ExtensionClass = "System.Linq.Enumerable", Assembly = "System.Linq" },
+        };
+
+        var view = ExtensionsOutputFormatter.BuildView("IEnumerable<T>", results);
+        var output = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
+
+        Assert.Contains("| Name ", output);
+        Assert.Contains("| Class ", output);
+        Assert.DoesNotContain("| Overloads ", output);
+        Assert.DoesNotContain("| Type ", output);
+        Assert.DoesNotContain("| Via ", output);
+    }
+
+    [Fact]
+    public void FormatResults_ReachableExtensions_ShowTypeAndViaColumns()
+    {
+        // A reachable (indirect) extension gives a distinct Type and a Via path,
+        // so those columns must remain visible.
+        var results = new List<ExtensionMethodResult>
+        {
+            new() { MethodName = "Where", Kind = "method", ExtensionClass = "System.Linq.Enumerable", Assembly = "System.Linq" },
+            new() { MethodName = "CopyToAsync", Kind = "method", ExtensionClass = "StreamExt", Assembly = "System.IO", ReachablePath = ".GetStreamAsync()", ReachableFromType = "Stream" },
+        };
+
+        var view = ExtensionsOutputFormatter.BuildView("HttpClient", results);
+        var output = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
+
+        Assert.Contains("| Type ", output);
+        Assert.Contains("| Via ", output);
+        Assert.Contains(".GetStreamAsync()", output);
+        Assert.Contains("Stream", output);
+    }
+
+    [Fact]
+    public void FormatResults_ReachableUniformType_KeepsTypeColumn()
+    {
+        // All rows are reachable via the same intermediate type. Type is uniform but
+        // differs from the queried type, so the column must stay visible.
+        var results = new List<ExtensionMethodResult>
+        {
+            new() { MethodName = "ReadFromJsonAsync", Kind = "method", ExtensionClass = "HttpContentJsonExtensions", Assembly = "System.Net.Http.Json", ReachablePath = ".Content", ReachableFromType = "System.Net.Http.HttpContent" },
+            new() { MethodName = "ReadFromJsonAsAsyncEnumerable", Kind = "method", ExtensionClass = "HttpContentJsonExtensions", Assembly = "System.Net.Http.Json", ReachablePath = ".Content", ReachableFromType = "System.Net.Http.HttpContent" },
+        };
+
+        var view = ExtensionsOutputFormatter.BuildView("HttpResponseMessage", results);
+        var output = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
+
+        Assert.Contains("| Type ", output);
+        Assert.Contains("System.Net.Http.HttpContent", output);
+        Assert.Contains("| Via ", output);
     }
 
     [Fact]
