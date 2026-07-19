@@ -131,6 +131,7 @@ internal static class AssertionScan
         new("Conditional", [AssertionCoverageFixture]),
         new("Constant", [AssertionCoverageFixture]),
         new("Convert", [AssertionCoverageFixture]),
+        new("DefaultValue", [AssertionCoverageFixture]),
         new("DelegateCreation", [AssertionCoverageFixture]),
         new("IncrementDecrement", [AssertionCoverageFixture]),
         new("IndexFromEnd", [AssertionCoverageFixture]),

@@ -1875,6 +1875,9 @@ internal static class GeneratedFixtureCatalog
 
             public static string Interpolate(int value, string name)
                 => $"{name}: {value:X4}";
+
+            public static bool BePositive<T>(object subject) where T : struct, System.IComparable<T>
+                => subject is T value && value.CompareTo(default) > 0;
         }
         """,
         [],

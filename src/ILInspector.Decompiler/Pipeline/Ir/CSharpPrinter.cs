@@ -2236,6 +2236,7 @@ public sealed partial class CSharpPrinter
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
+        DefaultValue d => $"default({TypeText(d.Type)})",
         TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
             ? $"typeof({TypeOfTypeText(t.Type)})"
@@ -2598,7 +2599,7 @@ public sealed partial class CSharpPrinter
         // any other binary/unary — otherwise an enclosing `!`/`-`/binary
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
-            or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
+            or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or DefaultValue or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or WithExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
             || node is Call call && !IsOperatorCall(call)

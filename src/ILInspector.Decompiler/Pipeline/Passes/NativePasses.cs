@@ -85,6 +85,8 @@ internal static class NativePasses
     public static RuntimeAsyncAwaiterPass RuntimeAsyncAwaiter => new();
     [Native(NativeCategory.EmitArtifact, "record with-expression clone/member-set scaffold reconstructed to receiver with { ... }")]
     public static WithExpressionPass WithExpression => new();
+    [Native(NativeCategory.EmitArtifact, "a pattern-guarded bool diamond whose true arm compares the bound value to a compiler-spilled default(T) temp (then stores rhs, else stores false) folded back to `target = pattern && rhs`, inlining the arm-local default temp as an inline default(T)")]
+    public static PatternGuardedShortCircuitPass PatternGuardedShortCircuit => new();
     [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
     public static CatchVariableScopePass CatchVariableScope => new();
 
