@@ -52,7 +52,7 @@ public sealed class StackAllocInitializerPass : IIrPass
             {
                 if (IsTrustedSpanGetItem(callItem.Callee, out elementType, out expectedSourceType))
                 {
-                    if (callItem.Arguments.Count == 2 && callItem.Arguments[1] is Constant { Value: 0 })
+                    if (callItem.Arguments.Count == 2 && callItem.Arguments[1] is Constant { Value: 0 } cIdx && cIdx.Type is TypeRef cIdxType && cIdxType.Assembly == TypeRef.CoreLibrary && cIdxType.Namespace == "System" && cIdxType.Name == "Int32")
                         instance = callItem.Arguments[0];
                 }
                 else if (IsTrustedSpanGetPinnableReference(callItem.Callee, out elementType, out expectedSourceType))
@@ -64,22 +64,23 @@ public sealed class StackAllocInitializerPass : IIrPass
                     if (callItem.Arguments.Count == 1) instance = callItem.Arguments[0];
                 }
             }
+
+
             else if (copyBlock.Source is LoadProperty loadProp)
             {
                 if (IsTrustedSpanGetItem(loadProp.Accessor, out elementType, out expectedSourceType))
                 {
-                    if (loadProp.IndexArguments.Count == 1 && loadProp.IndexArguments[0] is Constant { Value: 0 })
+                    if (loadProp.IndexArguments.Count == 1 && loadProp.IndexArguments[0] is Constant { Value: 0 } cIdx && cIdx.Type is TypeRef cIdxType && cIdxType.Assembly == TypeRef.CoreLibrary && cIdxType.Namespace == "System" && cIdxType.Name == "Int32")
                         instance = loadProp.Instance;
                 }
             }
-
             StoreLocal? spanSetupStore = null;
             if (instance != null)
             {
                 if (instance is LoadLocalAddress lla && localStores.TryGetValue(lla.Index, out var stores) && stores.Count == 1)
                 {
                     spanSetupStore = stores[0];
-                    if (!expectedSourceType!.Equals(spanSetupStore.Type) || spanSetupStore.Type.Kind != TypeRefKind.GenericInstance)
+                    if (!expectedSourceType!.Equals(spanSetupStore.Type) || spanSetupStore.Type.Kind != TypeRefKind.GenericInstance || !expectedSourceType.Equals(lla.Type))
                     {
                         spanSetupStore = null;
                     }
@@ -125,8 +126,8 @@ public sealed class StackAllocInitializerPass : IIrPass
                 if (spanSetupStore.Value is SpanLiteral spanLit)
                 {
                     var lla = (LoadLocalAddress)instance!;
-                    var sourceUsages = function.Descendants.OfType<LoadLocalAddress>().Where(l => l.Index == lla.Index).ToList();
-                    if (sourceUsages.Count == 1) // Exclusive source ownership
+                    var allowedRefs = new List<IrNode> { spanSetupStore, lla };
+                    if (ReferenceOwnership.LocalReferencesOnlyWithin(function, lla.Index, allowedRefs)) // Exclusive source ownership
                     {
                         if (elementType == null || elementType.Equals(spanLit.ElementType))
                         {
@@ -184,9 +185,22 @@ public sealed class StackAllocInitializerPass : IIrPass
                                 && ctor.ParameterTypes[1].Assembly == TypeRef.CoreLibrary
                                 && ctor.ParameterTypes[1].Namespace == "System"
                                 && ctor.ParameterTypes[1].Name == "Int32"
-                                && ctor.ParameterRefKindsFacts == ParameterRefKindFacts.NotRequired)
+                                && ctor.ParameterRefKindsFacts == ParameterRefKindFacts.NotRequired && ctor.ParameterRefKinds.IsEmpty)
                             {
-                                if (no.Arguments.Count == 2 && no.Arguments[0] is LoadStackSlot destSlot && destSlot.Slot == loadDest.Slot && no.Arguments[1] is Constant { Value: int len } && len == copySize / (GetSizeOf(ctor.DeclaringType.TypeArguments[0]) ?? 1))
+                                if (no.Arguments.Count == 2 
+                                    && no.Arguments[0] is LoadStackSlot destSlot 
+                                    && destSlot.Slot == loadDest.Slot 
+                                    && destSlot.Type != null && destSlot.Type.Kind == TypeRefKind.Pointer 
+                                    && destSlot.Type.ElementType is TypeRef destElType 
+                                    && destElType.Assembly == TypeRef.CoreLibrary 
+                                    && destElType.Namespace == "System" 
+                                    && destElType.Name == "Void"
+                                    && no.Arguments[1] is Constant { Value: int len } cLen 
+                                    && cLen.Type is TypeRef lenType 
+                                    && lenType.Assembly == TypeRef.CoreLibrary 
+                                    && lenType.Namespace == "System" 
+                                    && lenType.Name == "Int32"
+                                    && len == copySize / (GetSizeOf(ctor.DeclaringType.TypeArguments[0]) ?? 1))
                                 {
                                     elementType = ctor.DeclaringType.TypeArguments[0];
                                     if (!TypeRef.Pointer(elementType).Equals(loadDest.Type))
@@ -245,7 +259,7 @@ public sealed class StackAllocInitializerPass : IIrPass
         if (method.ReturnType.Kind != TypeRefKind.ByRef) return false;
         if (method.ParameterTypes[0].Kind != TypeRefKind.GenericInstance) return false;
         if (method.TypeArguments.Length != 1) return false;
-        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired) return false;
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired || !method.ParameterRefKinds.IsEmpty) return false;
 
         var typeArg = method.TypeArguments[0];
         if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
@@ -271,7 +285,7 @@ public sealed class StackAllocInitializerPass : IIrPass
         var declDef = method.DeclaringType.ElementType!;
         if ((declDef.Assembly != TypeRef.CoreLibrary && declDef.Assembly != "System.Memory") || declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
         if (method.DeclaringType.TypeArguments.Length != 1) return false;
-        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired) return false;
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired || !method.ParameterRefKinds.IsEmpty) return false;
 
         if (method.Name != "get_Item") return false;
         if (method.ParameterTypes.Length != 1) return false;
@@ -298,7 +312,7 @@ public sealed class StackAllocInitializerPass : IIrPass
         var declDef = method.DeclaringType.ElementType!;
         if ((declDef.Assembly != TypeRef.CoreLibrary && declDef.Assembly != "System.Memory") || declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
         if (method.DeclaringType.TypeArguments.Length != 1) return false;
-        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired) return false;
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired || !method.ParameterRefKinds.IsEmpty) return false;
 
         if (method.Name != "GetPinnableReference") return false;
         if (method.ParameterTypes.Length != 0) return false;

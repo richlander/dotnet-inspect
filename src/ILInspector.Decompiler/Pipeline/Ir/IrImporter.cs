@@ -2311,7 +2311,7 @@ public static class IrImporter
         return (fallbackRefKinds, MetadataFactState.Unknown, MetadataFactState.Unknown, typeCompilerGenerated);
     }
 
-    static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch
+    internal static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch
     {
         HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)parent),
         HandleKind.TypeSpecification => IsTrustedPlatformTypeSpecification(reader, (TypeSpecificationHandle)parent),

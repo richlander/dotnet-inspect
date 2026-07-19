@@ -38,7 +38,8 @@ public class StackAllocInitializerPassTests
     [Fact]
     public void MismatchedSize_Declines()
     {
-        var function = BuildCanonicalRva(mutate: b => {
+        var function = BuildCanonicalRva(mutate: b =>
+        {
             b.AllocSize = 16;
         });
         new StackAllocInitializerPass().Run(function, PassContext.None);
@@ -186,11 +187,20 @@ public class StackAllocInitializerPassTests
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
 
-
     [Fact]
     public void SpanGetItemPositive_Raises()
     {
         var function = BuildCanonicalSpan(mutate: b => b.UseGetItem = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(12, ((Constant)raised.Count).Value);
+    }
+
+    [Fact]
+    public void SpanGetItemPropertyPositive_Raises()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.UseGetItemProperty = true);
         new StackAllocInitializerPass().Run(function, PassContext.None);
         function.CheckInvariant();
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
@@ -237,7 +247,8 @@ public class StackAllocInitializerPassTests
     [Fact]
     public void RvaMisalignment_Declines()
     {
-        var function = BuildCanonicalRva(mutate: b => {
+        var function = BuildCanonicalRva(mutate: b =>
+        {
             b.AllocSize = 13;
             b.CopySize = 13;
             b.RvaMisaligned = true;
@@ -257,7 +268,6 @@ public class StackAllocInitializerPassTests
         function.CheckInvariant();
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
-
 
     [Fact]
     public void WrongRefKind_Declines()
@@ -315,7 +325,6 @@ public class StackAllocInitializerPassTests
         function.CheckInvariant();
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
-
 
     [Fact]
     public void CtorZeroDeclaringArgs_Declines()
@@ -401,6 +410,7 @@ public class StackAllocInitializerPassTests
         public bool FinalSpanCtor;
         public bool SpoofedFinalSpanCtor;
         public bool UseGetItem;
+        public bool UseGetItemProperty;
         public bool UseGetPinnableReference;
         public bool MismatchedSpanElement;
         public bool WrongHasThis;
@@ -459,7 +469,7 @@ public class StackAllocInitializerPassTests
                 var spanType = TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [Byte]);
                 var getRefDecl = marshalType;
 
-                if (UseGetItem)
+                if (UseGetItem || UseGetItemProperty)
                 {
                     var getItem = new MethodRef(spanType, "get_Item", returnType, [Int32], HasThis: !WrongHasThis)
                     {
@@ -467,8 +477,16 @@ public class StackAllocInitializerPassTests
                         ParameterRefKindsFacts = WrongRefKind ? ParameterRefKindFacts.Unknown : ParameterRefKindFacts.NotRequired,
                         TypeArguments = MethodGenericArgMismatch ? [Byte] : []
                     };
-                    var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType) } : new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(NonZeroGetItem ? 1 : 0, Int32) };
-                    copySource = new Call(getItem, isVirtual: false, args);
+                    if (UseGetItemProperty)
+                    {
+                        var indexArgs = MalformedArgumentCounts ? System.Array.Empty<IrExpression>() : new IrExpression[] { new Constant(NonZeroGetItem ? 1 : 0, Int32) };
+                        copySource = new LoadProperty(getItem, new LoadLocalAddress(2, spanType), indexArgs);
+                    }
+                    else
+                    {
+                        var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType) } : new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(NonZeroGetItem ? 1 : 0, Int32) };
+                        copySource = new Call(getItem, isVirtual: false, args);
+                    }
                 }
                 else if (UseGetPinnableReference)
                 {
@@ -553,9 +571,9 @@ public class StackAllocInitializerPassTests
 
                 IrExpression[] args;
                 if (MalformedFinalSpanCtor) args = [new Constant(0, Int32), new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32)];
-                else if (CtorWrongArgCount) args = [new LoadStackSlot(0, BytePointer)];
-                else if (CtorWrongArgOrder) args = [new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32), new LoadStackSlot(0, BytePointer)];
-                else args = [new LoadStackSlot(0, BytePointer), new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32)];
+                else if (CtorWrongArgCount) args = [new LoadStackSlot(0, VoidPointer)];
+                else if (CtorWrongArgOrder) args = [new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32), new LoadStackSlot(0, VoidPointer)];
+                else args = [new LoadStackSlot(0, VoidPointer), new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32)];
 
                 finalUsage = new StoreLocal(1, spanCtorType, new NewObject(ctor, args));
             }
