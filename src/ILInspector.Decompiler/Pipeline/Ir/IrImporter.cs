@@ -2327,8 +2327,19 @@ public static class IrImporter
         // Strip modifiers and constructed-type wrappers down to the base
         // TypeReference/TypeDefinition handle and route that exact handle through the
         // public-key-token check.
-        var baseType = reader.GetTypeSpecification(handle)
-            .DecodeSignature(PlatformDeclaringTypeHandleProvider.Instance, (object?)null);
+        //
+        // Route the top-level decode through the provider's own guarded
+        // GetTypeFromSpecification (not a raw DecodeSignature): SRM recurses on the
+        // native stack for every nested element before the first provider callback,
+        // so an over-long/over-deep blob (e.g. 100k nested SZARRAY) would overflow
+        // here uncatchably. TypeSpecGuard's prescan and cross-blob modreq-cycle
+        // accounting bound both this entry and the nested TypeSpec re-entry, so a
+        // self-referential modreq cycle fails closed to a nil handle instead of
+        // recursing forever.
+        var baseType = PlatformDeclaringTypeHandleProvider.Instance
+            .GetTypeFromSpecification(reader, (object?)null, handle, rawTypeKind: 0);
+        if (baseType.IsNil)
+            return false;
         return baseType.Kind switch
         {
             HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)baseType),
@@ -2703,7 +2714,19 @@ sealed class PlatformDeclaringTypeHandleProvider : ISignatureTypeProvider<Entity
     public EntityHandle GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => handle;
     public EntityHandle GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => handle;
     public EntityHandle GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        // Bound cross-handle TypeSpec re-entry with the shared TypeSpecGuard (the
+        // same depth / blob-length / cumulative-byte budget every other provider in
+        // the repo uses). A self-referential modreq cycle or an over-long/over-deep
+        // blob fails closed to a nil handle rather than overflowing the native stack
+        // inside SRM's recursive DecodeSignature.
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return default;
+        using (scope)
+        {
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        }
+    }
     public EntityHandle GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
     public EntityHandle GetSZArrayType(EntityHandle elementType) => elementType;
     public EntityHandle GetArrayType(EntityHandle elementType, ArrayShape shape) => elementType;

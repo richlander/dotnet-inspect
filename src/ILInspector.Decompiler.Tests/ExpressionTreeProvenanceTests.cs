@@ -130,6 +130,43 @@ public sealed class ExpressionTreeProvenanceTests
         Assert.False(IsTrusted(image, spec));
     }
 
+    [Fact]
+    public void SelfReferentialModreqTypeSpecification_DeclinesWithoutCrash()
+    {
+        // A TypeSpec whose required custom modifier resolves back to its own row
+        // (the `1F 06 08` self-cycle: CMOD_REQD -> TypeSpec #1 -> I4). SRM re-enters
+        // GetTypeFromSpecification on that same handle, so an unguarded decode
+        // recurses forever and aborts. The shared TypeSpecGuard depth/cycle budget
+        // must fail the decode closed to a nil handle and return false.
+        var image = BuildRawSpecImage(out var spec, sig =>
+        {
+            var encoder = new BlobEncoder(sig).TypeSpecificationSignature();
+            encoder.CustomModifiers()
+                .AddModifier(MetadataTokens.TypeSpecificationHandle(1), isOptional: false);
+            encoder.Int32();
+        });
+
+        Assert.False(IsTrusted(image, spec));
+    }
+
+    [Fact]
+    public void OverlongNestedTypeSpecification_DeclinesWithoutCrash()
+    {
+        // 100,000 nested SZARRAY prefixes: SRM's DecodeSignature recurses on the
+        // native stack for every element before it invokes the first provider
+        // callback, so an unguarded top-level decode overflows the stack (SIGABRT).
+        // The guard's blob-length / cumulative-byte budget must reject the blob up
+        // front and return false.
+        var image = BuildRawSpecImage(out var spec, sig =>
+        {
+            for (int i = 0; i < 100_000; i++)
+                sig.WriteByte(0x1D); // ELEMENT_TYPE_SZARRAY
+            sig.WriteByte(0x08);     // ELEMENT_TYPE_I4
+        });
+
+        Assert.False(IsTrusted(image, spec));
+    }
+
     static bool IsTrusted(ImmutableArray<byte> image, TypeSpecificationHandle spec)
     {
         using var provider = MetadataReaderProvider.FromMetadataImage(image);
@@ -198,4 +235,29 @@ public sealed class ExpressionTreeProvenanceTests
             token is null ? default : mb.GetOrAddBlob(token),
             flags: 0,
             hashValue: default);
+
+    // Authors a minimal image with a single TypeSpecification whose raw signature
+    // blob is written by the caller — used for adversarial shapes (self-cycle,
+    // over-deep nesting) that the fluent BuildImage helper cannot express.
+    static ImmutableArray<byte> BuildRawSpecImage(
+        out TypeSpecificationHandle spec,
+        Action<BlobBuilder> writeSignature)
+    {
+        var mb = new MetadataBuilder();
+        mb.AddModule(
+            generation: 0,
+            mb.GetOrAddString("provenance.dll"),
+            mb.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+
+        var sig = new BlobBuilder();
+        writeSignature(sig);
+        spec = mb.AddTypeSpecification(mb.GetOrAddBlob(sig));
+
+        var root = new MetadataRootBuilder(mb);
+        var image = new BlobBuilder();
+        root.Serialize(image, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        return image.ToImmutableArray();
+    }
 }
