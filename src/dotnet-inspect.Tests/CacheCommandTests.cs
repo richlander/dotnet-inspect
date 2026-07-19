@@ -3,6 +3,8 @@ using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -26,6 +28,26 @@ public class CacheCommandTests : IDisposable
     {
         if (Directory.Exists(_cacheBasePath))
             Directory.Delete(_cacheBasePath, recursive: true);
+    }
+
+    [Fact]
+    public void CacheInfoView_DefaultFormat_RendersMarkdownTable()
+    {
+        var view = new CacheInfoView
+        {
+            Location = "/tmp/cache",
+            Total = "1.0 MB",
+            Categories = [new CacheCategoryRow("Packages", "1.0 MB", "3 packages")]
+        };
+
+        var output = MarkoutSerializer.Serialize(view, CacheInfoContext.Default);
+
+        // Finding 9: cache should render markdown tables, not dashed plaintext.
+        Assert.Contains("| Field | Value |", output);
+        Assert.Contains("| Location |", output);
+        Assert.Contains("## Categories", output);
+        Assert.Contains("| Packages | 1.0 MB | 3 packages |", output);
+        Assert.DoesNotContain("----------", output);
     }
 
     [Fact]

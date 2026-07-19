@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -20,10 +21,10 @@ public class CacheCommand
             return Task.FromResult(CleanCache());
         }
 
-        return Task.FromResult(ShowCacheInfo());
+        return Task.FromResult(ShowCacheInfo(options));
     }
 
-    private static int ShowCacheInfo()
+    private static int ShowCacheInfo(CacheOptions options)
     {
         var info = PackageCacheService.GetCacheInfo();
 
@@ -33,19 +34,51 @@ public class CacheCommand
             return 0;
         }
 
+        var categories = info.Categories.Select(c =>
+        {
+            var label = c.Name == "Packages" ? "packages" : "files";
+            return new CacheCategoryRow(c.Name, CacheOutputFormatter.FormatSize(c.Size), $"{c.Count} {label}");
+        }).ToList();
+        var total = CacheOutputFormatter.FormatSize(info.TotalSize);
+
+        if (options.Format == OutputFormat.Json)
+        {
+            var json = new CacheInfoJson(
+                info.Location,
+                total,
+                categories.Select(c => new CacheCategoryJson(c.Name, c.Size, c.Items)).ToList());
+            Console.WriteLine(JsonSerializer.Serialize(json, CacheInfoJsonContext.Default.CacheInfoJson));
+            return 0;
+        }
+
         var view = new CacheInfoView
         {
             Location = info.Location,
-            Categories = info.Categories.Select(c =>
-            {
-                var label = c.Name == "Packages" ? "packages" : "files";
-                return new CacheCategoryRow(c.Name, CacheOutputFormatter.FormatSize(c.Size), $"{c.Count} {label}");
-            }).ToList(),
-            Total = CacheOutputFormatter.FormatSize(info.TotalSize)
+            Categories = categories,
+            Total = total
         };
 
-        MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
-        Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
+        switch (options.Format)
+        {
+            case OutputFormat.Table:
+            case OutputFormat.Tsv:
+            case OutputFormat.Jsonl:
+                var writerOptions = OutputFormatter.CreateTableWriterOptions(
+                    tsv: options.Format == OutputFormat.Tsv,
+                    jsonl: options.Format == OutputFormat.Jsonl);
+                MarkoutSerializer.Serialize(
+                    view, Console.Out, new TableFormatter(!options.NoHeader), CacheInfoContext.Default, writerOptions);
+                break;
+            case OutputFormat.PlainText:
+                MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
+                Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
+                break;
+            default:
+                MarkoutSerializer.Serialize(view, Console.Out, CacheInfoContext.Default);
+                Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
+                break;
+        }
+
         return 0;
     }
 
