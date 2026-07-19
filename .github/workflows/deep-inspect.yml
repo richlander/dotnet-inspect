@@ -126,6 +126,20 @@ jobs:
             --corpus-fidelity-cap 50 \
             --max-examples 3
 
+      - name: Build classic state-machine corpus fixture
+        run: dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+
+      - name: Run classic state-machine corpus sensor
+        shell: bash
+        run: |
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release -- \
+            artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
+            --corpus-profile classic-state-machines \
+            --emit-corpus-snapshot artifacts/deep-inspect/classic-state-machines-snapshot.json \
+            --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+            --max-examples 10
+
       - name: Run return-address equivalence census
         shell: bash
         run: |

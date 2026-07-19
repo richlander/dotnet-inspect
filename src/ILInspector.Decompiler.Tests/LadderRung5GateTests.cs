@@ -164,17 +164,22 @@ public class LadderRung5GateTests
         Assert.Contains("\"positive int\"", describe);
         Assert.Contains("\"null\"", describe);
 
+        // The nested if/return comparison tree Roslyn lowers this method's
+        // tuple relational pattern into is now fully raised back to a tuple
+        // switch expression (issue #2867) — no goto, no nested if/return, and
+        // no leftover ladder-style comparisons.
         var quadrant = Body("Quadrant");
         Assert.DoesNotContain("goto", quadrant);
-        Assert.Contains("if (x > 0)", quadrant);
-        Assert.Contains("if (x < 0)", quadrant);
-        Assert.Contains("if (y > 0)", quadrant);
-        Assert.Contains("if (y < 0)", quadrant);
-        Assert.Contains("return \"I\";", quadrant);
-        Assert.Contains("return \"II\";", quadrant);
-        Assert.Contains("return \"III\";", quadrant);
-        Assert.Contains("return \"IV\";", quadrant);
-        Assert.Contains("return \"axis\";", quadrant);
+        Assert.DoesNotContain("if (x > 0)", quadrant);
+        Assert.DoesNotContain("if (x < 0)", quadrant);
+        Assert.DoesNotContain("if (y > 0)", quadrant);
+        Assert.DoesNotContain("if (y < 0)", quadrant);
+        Assert.Contains("return (x, y) switch", quadrant);
+        Assert.Contains("(> 0, > 0) => \"I\",", quadrant);
+        Assert.Contains("(< 0, > 0) => \"II\",", quadrant);
+        Assert.Contains("(< 0, < 0) => \"III\",", quadrant);
+        Assert.Contains("(> 0, < 0) => \"IV\",", quadrant);
+        Assert.Contains("_ => \"axis\",", quadrant);
 
         // using declaration over a disposable local.
         Assert.Contains("using (MemoryStream stream = new MemoryStream(bytes))", Body("UsingDeclaration"));

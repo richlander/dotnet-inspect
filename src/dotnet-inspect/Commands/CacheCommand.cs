@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -20,32 +21,70 @@ public class CacheCommand
             return Task.FromResult(CleanCache());
         }
 
-        return Task.FromResult(ShowCacheInfo());
+        return Task.FromResult(ShowCacheInfo(options));
     }
 
-    private static int ShowCacheInfo()
+    private static int ShowCacheInfo(CacheOptions options)
     {
         var info = PackageCacheService.GetCacheInfo();
+        bool isEmpty = info.Categories.Count == 0;
 
-        if (info.Categories.Count == 0)
+        var categories = info.Categories.Select(c =>
         {
-            Console.WriteLine("Cache is empty.");
+            var label = c.Name == "Packages" ? "packages" : "files";
+            return new CacheCategoryRow(c.Name, CacheOutputFormatter.FormatSize(c.Size), $"{c.Count} {label}");
+        }).ToList();
+        var total = CacheOutputFormatter.FormatSize(info.TotalSize);
+
+        // JSON and JSONL always emit a single structured record, even for an empty
+        // cache, so machine consumers never receive the plaintext fallback.
+        if (options.Format is OutputFormat.Json or OutputFormat.Jsonl)
+        {
+            var json = new CacheInfoJson(
+                info.Location,
+                total,
+                categories.Select(c => new CacheCategoryJson(c.Name, c.Size, c.Items)).ToList());
+            Console.WriteLine(JsonSerializer.Serialize(json, CacheInfoJsonContext.Default.CacheInfoJson));
             return 0;
         }
 
         var view = new CacheInfoView
         {
             Location = info.Location,
-            Categories = info.Categories.Select(c =>
-            {
-                var label = c.Name == "Packages" ? "packages" : "files";
-                return new CacheCategoryRow(c.Name, CacheOutputFormatter.FormatSize(c.Size), $"{c.Count} {label}");
-            }).ToList(),
-            Total = CacheOutputFormatter.FormatSize(info.TotalSize)
+            Categories = categories.Count > 0 ? categories : null,
+            Total = total
         };
 
-        MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
-        Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
+        switch (options.Format)
+        {
+            case OutputFormat.Table:
+            case OutputFormat.Tsv:
+                var writerOptions = OutputFormatter.CreateTableWriterOptions(
+                    tsv: options.Format == OutputFormat.Tsv,
+                    jsonl: false);
+                MarkoutSerializer.Serialize(
+                    view, Console.Out, new TableFormatter(!options.NoHeader), CacheInfoContext.Default, writerOptions);
+                break;
+            case OutputFormat.PlainText:
+                if (isEmpty)
+                {
+                    Console.WriteLine("Cache is empty.");
+                    break;
+                }
+                MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
+                Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
+                break;
+            default:
+                if (isEmpty)
+                {
+                    Console.WriteLine("Cache is empty.");
+                    break;
+                }
+                MarkoutSerializer.Serialize(view, Console.Out, CacheInfoContext.Default);
+                Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
+                break;
+        }
+
         return 0;
     }
 

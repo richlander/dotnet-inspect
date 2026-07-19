@@ -183,6 +183,9 @@ public sealed record MethodRef(
     }
 }
 
+/// <summary>Compiler fixed-buffer source-field metadata decoded from <c>FixedBufferAttribute</c>.</summary>
+public sealed record FixedBufferFieldInfo(TypeRef ElementType, int Length);
+
 /// <summary>A materialized field reference.</summary>
 public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
 {
@@ -192,6 +195,12 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     /// </summary>
     public string? BackingPropertyName { get; init; }
     public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// Positive metadata evidence that this field is a C# fixed buffer source
+    /// field. Null means no proof, not proof of absence.
+    /// </summary>
+    public FixedBufferFieldInfo? FixedBuffer { get; init; }
 }
 
 /// <summary>The C# method kind decoded from a reserved metadata method name: an ordinary method, an instance constructor (<c>.ctor</c>), or a static constructor (<c>.cctor</c>).</summary>
@@ -748,6 +757,75 @@ public sealed class UnionSwitchExpressionArm : IrNode
     public override string Describe() => LocalIndex is { } index
         ? $"arm {PatternType.ToDisplayString()} V_{index}"
         : $"arm {PatternType.ToDisplayString()}";
+}
+
+/// <summary>
+/// A raised tuple relational-pattern switch expression over independent
+/// side-effect-free places: <c>(x, y) switch { (&gt; 0, &gt; 0) =&gt; "I", ...,
+/// _ =&gt; "axis" }</c>. Produced by <see cref="TupleSwitchExpressionPass"/> from
+/// the exhaustive nested if/return comparison tree <see cref="ReturnDispatchPass"/>
+/// already folds; each component is a distinct <c>LoadArgument</c>/<c>LoadLocal</c>
+/// read (no tuple is materialized), and arms reuse <see cref="PositionalPatternSubpattern"/>
+/// exactly as <see cref="PositionalPattern"/> does.
+/// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConvertedSwitchExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConvertedSwitchExpression (tuple relational-pattern arms over independent places)",
+    precondition: "components are independent side-effect-free LoadArgument/LoadLocal reads sharing one integer-like anchor constant per component; arms are mutually exclusive positional relational/equality patterns proven exhaustive by intersecting per-component constraints along the compiler's nested if/return comparison tree; exactly one trailing default arm merges the remaining structurally-identical constant leaves",
+    witness: "TupleSwitchExpressionPassTests, LadderRung5 Quadrant fixture, corpus compile-back")]
+public sealed class TupleSwitchExpression : IrExpression
+{
+    public TupleSwitchExpression(IReadOnlyList<IrExpression> components, IEnumerable<TupleSwitchExpressionArm> arms)
+    {
+        if (components.Count < 2)
+            throw new ArgumentException("A tuple switch expression needs at least two components.", nameof(components));
+
+        ComponentCount = components.Count;
+        foreach (var component in components)
+            AddChild(component);
+        foreach (var arm in arms)
+            AddChild(arm);
+    }
+
+    /// <summary>How many leading children are components (the rest are arms).</summary>
+    public int ComponentCount { get; }
+
+    /// <summary>The independent switch-governing places, e.g. <c>x</c> and <c>y</c> in <c>(x, y) switch</c>.</summary>
+    public IReadOnlyList<IrExpression> Components => Children.Take(ComponentCount).Cast<IrExpression>().ToList();
+
+    public IReadOnlyList<TupleSwitchExpressionArm> Arms => Children.Skip(ComponentCount).Cast<TupleSwitchExpressionArm>().ToList();
+
+    public override TypeRef? ResultType => Arms.Select(a => a.Value.ResultType).FirstOrDefault(t => t is not null);
+
+    public override string Describe() => $"TupleSwitchExpression ({ComponentCount} components, {Arms.Count} arms)";
+}
+
+/// <summary>One arm of a <see cref="TupleSwitchExpression"/>: one relational/equality sub-pattern per component (empty for the default arm) and the value it yields.</summary>
+public sealed class TupleSwitchExpressionArm : IrNode
+{
+    public TupleSwitchExpressionArm(IReadOnlyList<PositionalPatternSubpattern> subpatterns, IReadOnlyList<Constant> constants, IrExpression value)
+    {
+        if (subpatterns.Count != constants.Count)
+            throw new ArgumentException("A tuple switch arm needs one constant per sub-pattern.", nameof(constants));
+
+        Subpatterns = [.. subpatterns];
+        AddChild(value);
+        foreach (var constant in constants)
+            AddChild(constant);
+    }
+
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The per-component sub-pattern kinds, parallel to <see cref="Constants"/>; empty means the default arm.</summary>
+    public ImmutableArray<PositionalPatternSubpattern> Subpatterns { get; }
+
+    /// <summary>The per-component anchor constants used by the relational/equality sub-patterns.</summary>
+    public IReadOnlyList<Constant> Constants => Children.Skip(1).Cast<Constant>().ToList();
+
+    public bool IsDefault => Subpatterns.Length == 0;
+
+    public override string Describe() => IsDefault ? "default arm" : $"arm ({Subpatterns.Length} components)";
 }
 
 /// <summary>
@@ -3479,6 +3557,38 @@ public sealed class LoadElementAddress : IrExpression
     public override IEnumerable<TypeRef> DirectTypes => [ElementType];
 
     public override string Describe() => $"LoadElementAddress {ElementType.ToDisplayString()}{(IsReadOnly ? " readonly" : "")}";
+}
+
+/// <summary>
+/// Source fixed-buffer element place (<c>buffer[index]</c>) recovered from the
+/// compiler-generated backing field's <c>FixedElementField</c> address plus a
+/// proven element-scaled offset.
+/// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundArrayAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "fixed-buffer element access / FixedElementField address plus scaled offset",
+    precondition: "source field carries FixedBufferAttribute; generated element field identity, element type, receiver, and offset scale all match the fixed-buffer metadata",
+    witness: "new/legacy unsafe fixed-buffer fixtures and close negative tests")]
+public sealed class FixedBufferElementAddress : IrExpression
+{
+    public FixedBufferElementAddress(FieldRef bufferField, TypeRef elementType, IrExpression instance, IrExpression index)
+    {
+        BufferField = bufferField;
+        ElementType = elementType;
+        AddChild(instance);
+        AddChild(index);
+    }
+
+    public FieldRef BufferField { get; }
+    public TypeRef ElementType { get; }
+    public IrExpression Instance => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override TypeRef? ResultType => TypeRef.ByRef(ElementType);
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe()
+        => $"FixedBufferElementAddress {BufferField.DeclaringType.ToDisplayString()}.{BufferField.Name}[...]";
 }
 
 /// <summary>Load through an address (ldobj and the ldind.* family). A null type means the opcode does not encode one (ldind.ref).</summary>

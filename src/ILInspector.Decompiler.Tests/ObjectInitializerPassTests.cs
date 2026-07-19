@@ -365,6 +365,23 @@ public class ObjectInitializerPassTests
     }
 
     [Fact]
+    public void KeywordPropertyName_FoldsIntoEscapedInitializer()
+    {
+        var function = FunctionWithSetter(generic: false, propertyName: "set_else");
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["else"], initializer.Members);
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+        function.CheckInvariant();
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("new Owner { @else = \"fallback\" }", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
     public void UnspellablePropertyName_IsNotFoldedIntoInvalidInitializer()
     {
         // set_bad-name has a usable accessor shape but no `bad-name = v` C# spelling.
@@ -418,6 +435,14 @@ public class ObjectInitializerPassTests
         Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
         Assert.Single(function.Descendants.OfType<StoreProperty>());
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedKeywordPropertyRoot_RaisesAndEscapes()
+    {
+        var output = Print(nameof(CfgSampleClass.MakeNestedKeywordProperty));
+
+        Assert.Contains("return new InitContainer { @else = { X = value } };", output);
     }
 
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
