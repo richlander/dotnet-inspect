@@ -2327,13 +2327,18 @@ public static class IrImporter
         // Strip modifiers and constructed-type wrappers down to the base
         // TypeReference/TypeDefinition handle and route that exact handle through the
         // public-key-token check.
-        var baseType = reader.GetTypeSpecification(handle)
-            .DecodeSignature(PlatformDeclaringTypeHandleProvider.Instance, (object?)null);
-        return baseType.Kind switch
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return false;
+        using (scope)
         {
-            HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)baseType),
-            _ => false,
-        };
+            var baseType = reader.GetTypeSpecification(handle)
+                .DecodeSignature(PlatformDeclaringTypeHandleProvider.Instance, (object?)null);
+            return baseType.Kind switch
+            {
+                HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)baseType),
+                _ => false,
+            };
+        }
     }
 
     static bool IsTrustedPlatformAssembly(MetadataReader reader, AssemblyReferenceHandle handle)
@@ -2733,7 +2738,12 @@ sealed class PlatformDeclaringTypeHandleProvider : ISignatureTypeProvider<Entity
     public EntityHandle GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => handle;
     public EntityHandle GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => handle;
     public EntityHandle GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return default;
+        using (scope)
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    }
     public EntityHandle GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
     public EntityHandle GetSZArrayType(EntityHandle elementType) => elementType;
     public EntityHandle GetArrayType(EntityHandle elementType, ArrayShape shape) => elementType;
