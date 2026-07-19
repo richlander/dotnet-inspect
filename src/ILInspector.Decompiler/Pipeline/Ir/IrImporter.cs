@@ -2496,6 +2496,7 @@ public static class IrImporter
                 return new FieldRef(declaring, name, GuardedDecode.FieldType(reader, field, typeScope))
                 {
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
+                    FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
                 };
             }
             case HandleKind.MemberReference:
@@ -2518,6 +2519,33 @@ public static class IrImporter
 
     static FieldRef ResolveField(MetadataSource source, EntityHandle handle, GenericScope callerScope)
         => source.CrossAssembly.Upgrade(ResolveField(source.Reader, handle, callerScope));
+
+    static FixedBufferFieldInfo? FixedBufferFieldInfo(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => FixedBufferMetadata.Read(reader, attributes) is { } metadata
+            && FixedBufferElementType(metadata.ElementTypeFullName) is { } elementType
+            ? new FixedBufferFieldInfo(elementType, metadata.Length)
+            : null;
+
+    static TypeRef? FixedBufferElementType(string? assemblyQualifiedName)
+    {
+        string? name = FixedBufferMetadata.ElementTypeFullName(assemblyQualifiedName);
+        return name switch
+        {
+            "System.Boolean" => TypeRef.CoreLib("System", "Boolean"),
+            "System.Byte" => TypeRef.CoreLib("System", "Byte"),
+            "System.SByte" => TypeRef.CoreLib("System", "SByte"),
+            "System.Char" => TypeRef.CoreLib("System", "Char"),
+            "System.Int16" => TypeRef.CoreLib("System", "Int16"),
+            "System.UInt16" => TypeRef.CoreLib("System", "UInt16"),
+            "System.Int32" => TypeRef.CoreLib("System", "Int32"),
+            "System.UInt32" => TypeRef.CoreLib("System", "UInt32"),
+            "System.Int64" => TypeRef.CoreLib("System", "Int64"),
+            "System.UInt64" => TypeRef.CoreLib("System", "UInt64"),
+            "System.Single" => TypeRef.CoreLib("System", "Single"),
+            "System.Double" => TypeRef.CoreLib("System", "Double"),
+            _ => null,
+        };
+    }
 
     static IrMethodKind ClassifyMethodKind(string methodName)
         => methodName switch

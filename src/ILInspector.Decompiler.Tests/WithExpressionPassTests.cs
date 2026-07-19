@@ -29,6 +29,36 @@ public class WithExpressionPassTests
     }
 
     [Fact]
+    public void CompilerGeneratedCloneWithKeywordField_RaisesToWithExpression()
+    {
+        var function = FunctionWithField("else");
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        var withExpression = Assert.Single(function.Descendants.OfType<WithExpression>());
+        Assert.Equal(["else"], withExpression.Members);
+        Assert.Empty(function.Descendants.OfType<StoreField>());
+        function.CheckInvariant();
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return point with { @else = dx };", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
+    public void CompilerGeneratedCloneWithInvalidFieldName_DoesNotRaise()
+    {
+        var function = FunctionWithField("bad-name");
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<WithExpression>());
+        Assert.Single(function.Descendants.OfType<StoreField>());
+        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "<Clone>$");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void MultipleContiguousMutations_RaiseInSourceOrder()
     {
         var function = FunctionWithClone(compilerGenerated: true, secondMember: true);
@@ -234,6 +264,38 @@ public class WithExpressionPassTests
             "Shift",
             TypeRef.Definition("SyntheticAssembly", "Synthetic", "Owner"),
             new MethodSignature(Point, [new Parameter("point", Point), new Parameter("dx", Int32), new Parameter("dy", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static IrFunction FunctionWithField(string fieldName)
+    {
+        var clone = new MethodRef(Point, "<Clone>$", Point, [], HasThis: true)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var field = new FieldRef(Point, fieldName, Int32);
+        const int slot = 256;
+        var block = new Block();
+        block.Add(new StoreStackSlot(
+            slot,
+            new Call(clone, isVirtual: true, [new LoadArgument(0, "point", Point)])));
+        block.Add(new StoreField(
+            field,
+            new LoadStackSlot(slot, Point),
+            new LoadArgument(1, "dx", Int32)));
+        block.Add(new Return(new LoadStackSlot(slot, Point)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "Shift",
+            TypeRef.Definition("SyntheticAssembly", "Synthetic", "Owner"),
+            new MethodSignature(
+                Point,
+                [new Parameter("point", Point), new Parameter("dx", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
             [],
             body);
     }

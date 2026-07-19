@@ -18,6 +18,10 @@ public static class UtilityCommandDefinitions
         var cleanOption = new Option<bool>("--clean", "--clear") { Hidden = true };
 
         cacheCommand.Options.Add(cleanOption);
+        cacheCommand.Options.Add(opts.Json);
+        cacheCommand.Options.Add(opts.Markdown);
+        cacheCommand.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(cacheCommand);
         opts.AddOutputOptionsTo(cacheCommand, supportsRowWindows: false);
 
         // Subcommand: clear
@@ -43,7 +47,9 @@ public static class UtilityCommandDefinitions
             var verbosity = OptionParsers.ParseVerbosity(parseResult.GetValue(opts.Verbosity));
             var options = new CacheOptions(
                 Clean: clean,
-                Verbose: parseResult.GetValue(opts.Verbose) || verbosity >= Verbosity.Detailed);
+                Verbose: parseResult.GetValue(opts.Verbose) || verbosity >= Verbosity.Detailed,
+                Format: opts.ResolveFormat(parseResult),
+                NoHeader: parseResult.GetValue(opts.NoHeaders));
 
             return await CacheCommand.ExecuteAsync(options);
         });

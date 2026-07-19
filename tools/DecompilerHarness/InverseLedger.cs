@@ -37,6 +37,7 @@ public static class InverseLedger
         "IncrementDecrement",
         "IndexFromEnd",
         "InitializerBlock",
+        "FixedBufferElementAddress",
         "InlineArraySpanConversion",
         "InterpolatedStringExpression",
         "IsPattern",

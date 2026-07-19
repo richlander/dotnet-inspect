@@ -194,6 +194,98 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_ToolWrapperRedirectAtHopLimitReturnsPayload()
+    {
+        const int MaxRedirectHops = 8;
+        const string PackagePrefix = "Wrapper.Bounded";
+        const string Version = "1.0.0";
+        byte[][] responses = Enumerable.Range(0, MaxRedirectHops)
+            .Select(index => CreateToolWrapperArchive(
+                $"{PackagePrefix}.{index}",
+                Version,
+                redirectPackageName: $"{PackagePrefix}.{index + 1}"))
+            .Append(CreatePackageArchive($"{PackagePrefix}.{MaxRedirectHops}", Version))
+            .ToArray();
+        var handler = new QueuePackageHandler(responses);
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                $"{PackagePrefix}.0",
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.True(outcome.IsSuccess);
+        Assert.Equal($"{PackagePrefix}.{MaxRedirectHops}", outcome.Result!.PackageName);
+        Assert.Equal(MaxRedirectHops + 1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_ToolWrapperRedirectBeyondHopLimitReturnsErrorBeforeNextDownload()
+    {
+        const int MaxRedirectHops = 8;
+        const string PackagePrefix = "Wrapper.Unbounded";
+        const string Version = "1.0.0";
+        byte[][] responses = Enumerable.Range(0, MaxRedirectHops + 1)
+            .Select(index => CreateToolWrapperArchive(
+                $"{PackagePrefix}.{index}",
+                Version,
+                redirectPackageName: $"{PackagePrefix}.{index + 1}"))
+            .ToArray();
+        var handler = new QueuePackageHandler(responses);
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                $"{PackagePrefix}.0",
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(
+            $"Tool wrapper redirect limit of {MaxRedirectHops} exceeded: " +
+            $"{string.Join(" -> ", Enumerable.Range(0, MaxRedirectHops + 1).Select(index => $"{PackagePrefix}.{index}"))}" +
+            $" -> {PackagePrefix}.{MaxRedirectHops + 1}.",
+            outcome.ErrorMessage);
+        Assert.Equal(MaxRedirectHops + 1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_CycleAtHopLimitReturnsSpecificCycleError()
+    {
+        const int MaxRedirectHops = 8;
+        const string PackagePrefix = "Wrapper.CycleAtLimit";
+        const string Version = "1.0.0";
+        byte[][] responses = Enumerable.Range(0, MaxRedirectHops + 1)
+            .Select(index => CreateToolWrapperArchive(
+                $"{PackagePrefix}.{index}",
+                Version,
+                redirectPackageName: index == MaxRedirectHops
+                    ? $"{PackagePrefix}.0"
+                    : $"{PackagePrefix}.{index + 1}"))
+            .ToArray();
+        var handler = new QueuePackageHandler(responses);
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                $"{PackagePrefix}.0",
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(
+            $"Tool wrapper redirect cycle detected: " +
+            $"{string.Join(" -> ", Enumerable.Range(0, MaxRedirectHops + 1).Select(index => $"{PackagePrefix}.{index}"))}" +
+            $" -> {PackagePrefix}.0.",
+            outcome.ErrorMessage);
+        Assert.Equal(MaxRedirectHops + 1, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task CommitPackage_ConcurrentPublishersConvergeOnOneCompleteTree()
     {
         string packageName = $"publisher.test.{Guid.NewGuid():N}";

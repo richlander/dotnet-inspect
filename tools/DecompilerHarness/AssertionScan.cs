@@ -133,6 +133,7 @@ internal static class AssertionScan
         new("Convert", [AssertionCoverageFixture]),
         new("DefaultValue", [AssertionCoverageFixture]),
         new("DelegateCreation", [AssertionCoverageFixture]),
+        new("FixedBufferElementAddress", [AssertionCoverageFixture]),
         new("IncrementDecrement", [AssertionCoverageFixture]),
         new("IndexFromEnd", [AssertionCoverageFixture]),
         new("InitializerBlock", [AssertionCoverageFixture]),
