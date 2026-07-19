@@ -61,6 +61,14 @@ public struct FixedBufferResiduals
         }
     }
 
+    public void WriteAtNestedZeroIndex()
+    {
+        unsafe
+        {
+            Data[Data[0]] = 1;
+        }
+    }
+
     public int ReadAtThroughFixedAddress(int index)
     {
         unsafe
