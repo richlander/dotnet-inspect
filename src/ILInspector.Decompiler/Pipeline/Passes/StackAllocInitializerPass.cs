@@ -65,7 +65,6 @@ public sealed class StackAllocInitializerPass : IIrPass
                 }
             }
 
-
             else if (copyBlock.Source is LoadProperty loadProp)
             {
                 if (IsTrustedSpanGetItem(loadProp.Accessor, out elementType, out expectedSourceType))

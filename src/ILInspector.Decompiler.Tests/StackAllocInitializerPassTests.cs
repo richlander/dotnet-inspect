@@ -198,16 +198,6 @@ public class StackAllocInitializerPassTests
     }
 
     [Fact]
-    public void SpanGetItemPropertyPositive_Raises()
-    {
-        var function = BuildCanonicalSpan(mutate: b => b.UseGetItemProperty = true);
-        new StackAllocInitializerPass().Run(function, PassContext.None);
-        function.CheckInvariant();
-        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
-        Assert.Equal(12, ((Constant)raised.Count).Value);
-    }
-
-    [Fact]
     public void SpanGetPinnableReferencePositive_Raises()
     {
         var function = BuildCanonicalSpan(mutate: b => b.UseGetPinnableReference = true);
@@ -389,6 +379,167 @@ public class StackAllocInitializerPassTests
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
 
+    
+
+    [Fact]
+    public void VolatileCpblk_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.VolatileCpblk = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void SharedSpanLiteralValueMutation_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b => b.SharedSpanLiteralValue = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void WrongTypedZeroGetItem_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b => { b.UseGetItem = true; b.WrongTypedZeroGetItem = true; });
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void EffectfulGetItem_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b => { b.UseGetItem = true; b.EffectfulGetItem = true; });
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void CtorMultipleDeclaringArgs_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.CtorMultipleDeclaringArgs = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void CtorMethodGenericArgs_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.CtorMethodGenericArgs = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void WrongLengthConstantType_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.WrongLengthConstantType = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void CtorWrongDestType_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.CtorWrongDestType = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void CtorWrongRefKind_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.CtorWrongRefKind = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void WrongCopySizeType_Declines()
+    {
+        var function = BuildCanonicalRva(mutate: b => b.WrongCopySizeType = true);
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void NestedFunctionScope_Untouched()
+    {
+        var function = BuildCanonicalRva();
+        var innerFunction = BuildCanonicalRva();
+        var innerBody = innerFunction.Body;
+        innerBody.Detach();
+        var localFunc = new LocalFunctionStatement("L", Void, System.Collections.Immutable.ImmutableArray<Parameter>.Empty, false, System.Collections.Immutable.ImmutableArray<TypeRef>.Empty, System.Collections.Immutable.ImmutableArray<string?>.Empty, false, false, innerBody);
+        
+        function.Descendants.OfType<Block>().First().Add(localFunc);
+
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        
+        int outerArrays = 0;
+        int innerArrays = 0;
+        foreach (var s in function.Descendants.OfType<StackAllocArray>())
+        {
+            bool inLocalFunc = false;
+            IrNode? parent = s.Parent;
+            while (parent != null) {
+                if (parent == localFunc) { inLocalFunc = true; break; }
+                parent = parent.Parent;
+            }
+            if (inLocalFunc) innerArrays++;
+            else outerArrays++;
+        }
+        Assert.Equal(1, outerArrays);
+        Assert.Equal(0, innerArrays);
+
+        int innerAllocs = 0;
+        foreach (var s in function.Descendants.OfType<StackAllocate>())
+        {
+            bool inLocalFunc = false;
+            IrNode? parent = s.Parent;
+            while (parent != null) {
+                if (parent == localFunc) { inLocalFunc = true; break; }
+                parent = parent.Parent;
+            }
+            if (inLocalFunc) innerAllocs++;
+        }
+        Assert.True(innerAllocs > 0);
+    }
+
+    [Fact]
+    public void LoadProperty_CompilerBacked_FoldsSuccessfully()
+    {
+        using var source = ILInspector.Decompiler.Pipeline.MetadataSource.Open(DotnetInspector.Fixtures.FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        var function = ILInspector.Decompiler.Pipeline.IrImporter.Import(source, "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals", "StackallocPointerInitializer");
+
+        var context = PassContext.None;
+        foreach (var pass in ILInspector.Decompiler.Pipeline.IrPasses.Default)
+        {
+            if (pass is StackAllocInitializerPass)
+                break;
+            pass.Run(function!, context);
+        }
+
+        var copyBlock = function!.Descendants.OfType<CopyBlock>().First();
+        var loadProp = Assert.IsType<LoadProperty>(copyBlock.Source);
+        Assert.Equal(0, ((Constant)loadProp.IndexArguments[0]).Value);
+
+        new StackAllocInitializerPass().Run(function, context);
+        
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(3, ((Constant)raised.Count).Value);
+    }
+
+
     public class Builder
     {
         public bool IsRva;
@@ -430,6 +581,17 @@ public class StackAllocInitializerPassTests
         public bool CtorWrongArgCount;
         public bool CtorWrongArgOrder;
         public bool CtorMismatchedDeclaringT;
+        public bool VolatileCpblk;
+        public bool SharedSpanLiteralValue;
+        public bool WrongTypedZeroGetItem;
+        public bool EffectfulGetItem;
+        public bool CtorMultipleDeclaringArgs;
+        public bool CtorMethodGenericArgs;
+        public bool WrongLengthConstantType;
+        public bool CtorWrongDestType;
+        public bool CtorWrongRefKind;
+        public bool WrongCopySizeType;
+
 
         public IrFunction Build()
         {
@@ -474,7 +636,8 @@ public class StackAllocInitializerPassTests
                     var getItem = new MethodRef(spanType, "get_Item", returnType, [Int32], HasThis: !WrongHasThis)
                     {
                         DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes,
-                        ParameterRefKindsFacts = WrongRefKind ? ParameterRefKindFacts.Unknown : ParameterRefKindFacts.NotRequired,
+                        ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired,
+                        ParameterRefKinds = WrongRefKind ? System.Collections.Immutable.ImmutableArray.Create(ArgumentRefKind.Ref) : System.Collections.Immutable.ImmutableArray<ArgumentRefKind>.Empty,
                         TypeArguments = MethodGenericArgMismatch ? [Byte] : []
                     };
                     if (UseGetItemProperty)
@@ -484,7 +647,7 @@ public class StackAllocInitializerPassTests
                     }
                     else
                     {
-                        var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType) } : new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(NonZeroGetItem ? 1 : 0, Int32) };
+                        var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType) } : new IrExpression[] { new LoadLocalAddress(2, spanType), EffectfulGetItem ? new Call(new MethodRef(Holder, "GetIndex", Int32, [], HasThis: false), isVirtual: false, []) : new Constant(NonZeroGetItem ? 1 : 0, WrongTypedZeroGetItem ? Byte : Int32) };
                         copySource = new Call(getItem, isVirtual: false, args);
                     }
                 }
@@ -493,7 +656,8 @@ public class StackAllocInitializerPassTests
                     var getPin = new MethodRef(DeclaringGenericArgMismatch ? TypeRef.GenericInstance(TypeRef.CoreLib("System", "ReadOnlySpan`1"), [Int32]) : spanType, "GetPinnableReference", returnType, [], HasThis: !WrongHasThis)
                     {
                         DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes,
-                        ParameterRefKindsFacts = WrongRefKind ? ParameterRefKindFacts.Unknown : ParameterRefKindFacts.NotRequired,
+                        ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired,
+                        ParameterRefKinds = WrongRefKind ? System.Collections.Immutable.ImmutableArray.Create(ArgumentRefKind.Ref) : System.Collections.Immutable.ImmutableArray<ArgumentRefKind>.Empty,
                         TypeArguments = MethodGenericArgMismatch ? [Byte] : []
                     };
                     var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(0, Int32) } : new IrExpression[] { new LoadLocalAddress(2, spanType) };
@@ -513,7 +677,7 @@ public class StackAllocInitializerPassTests
                 }
             }
 
-            var copyBlock = new CopyBlock(loadDest, copySource, new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32));
+            var copyBlock = new CopyBlock(loadDest, copySource, new Constant(WrongCopySizeType ? CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1) : CopySize, WrongCopySizeType ? Byte : Int32)) { IsVolatile = VolatileCpblk };
 
             var block0 = new Block(0);
             var block1 = new Block(1);
@@ -556,24 +720,26 @@ public class StackAllocInitializerPassTests
             activeBlock.Add(copyBlock);
 
             IrNode finalUsage;
-            if (FinalSpanCtor || MalformedFinalSpanCtor || CtorZeroDeclaringArgs || CtorWrongHasThis || CtorWrongReturn || CtorWrongPointer || CtorWrongArgCount || CtorWrongArgOrder || CtorMismatchedDeclaringT)
+            if (FinalSpanCtor || MalformedFinalSpanCtor || CtorZeroDeclaringArgs || CtorWrongHasThis || CtorWrongReturn || CtorWrongPointer || CtorWrongArgCount || CtorWrongArgOrder || CtorMismatchedDeclaringT || CtorMultipleDeclaringArgs || CtorMethodGenericArgs || CtorWrongDestType || CtorWrongRefKind || WrongLengthConstantType || WrongCopySizeType)
             {
                 var spanCtorType = SpoofedFinalSpanCtor ? TypeRef.Definition("System.Memory", "System", "Span`1", ValueTypeHint.ValueType) : TypeRef.CoreLib("System", "Span`1");
-                var typeArgs = CtorZeroDeclaringArgs ? System.Array.Empty<TypeRef>() : new[] { CtorMismatchedDeclaringT ? Int32 : (Int32Element ? Int32 : Byte) };
+                var typeArgs = CtorZeroDeclaringArgs ? System.Array.Empty<TypeRef>() : (CtorMultipleDeclaringArgs ? new[] { Byte, Int32 } : new[] { CtorMismatchedDeclaringT ? Int32 : (Int32Element ? Int32 : Byte) });
                 spanCtorType = TypeRef.GenericInstance(spanCtorType, System.Collections.Immutable.ImmutableArray.Create(typeArgs));
                 var paramType = MalformedFinalSpanCtor ? Int32 : (CtorWrongPointer ? TypeRef.Pointer(Int32) : VoidPointer);
                 var retType = CtorWrongReturn ? Int32 : Void;
                 var ctor = new MethodRef(spanCtorType, ".ctor", retType, [paramType, Int32], HasThis: !CtorWrongHasThis)
                 {
+                    TypeArguments = CtorMethodGenericArgs ? [Int32] : [],
                     DeclaringTypeIsTrustedPlatform = SpoofedFinalSpanCtor ? MetadataFactState.Unknown : MetadataFactState.Yes,
-                    ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired
+                    ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired,
+                    ParameterRefKinds = CtorWrongRefKind ? System.Collections.Immutable.ImmutableArray.Create(ArgumentRefKind.Ref) : System.Collections.Immutable.ImmutableArray<ArgumentRefKind>.Empty
                 };
 
                 IrExpression[] args;
-                if (MalformedFinalSpanCtor) args = [new Constant(0, Int32), new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32)];
+                if (MalformedFinalSpanCtor) args = [new Constant(0, Int32), new Constant(WrongLengthConstantType ? CopySize : (CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1)), WrongLengthConstantType ? Byte : Int32)];
                 else if (CtorWrongArgCount) args = [new LoadStackSlot(0, VoidPointer)];
                 else if (CtorWrongArgOrder) args = [new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32), new LoadStackSlot(0, VoidPointer)];
-                else args = [new LoadStackSlot(0, VoidPointer), new Constant(CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1), Int32)];
+                else args = [new LoadStackSlot(0, CtorWrongDestType ? Int32 : VoidPointer), new Constant(WrongLengthConstantType ? CopySize : (CopySize / (Int32Element || CtorMismatchedDeclaringT ? 4 : 1)), WrongLengthConstantType ? Byte : Int32)];
 
                 finalUsage = new StoreLocal(1, spanCtorType, new NewObject(ctor, args));
             }
@@ -588,6 +754,10 @@ public class StackAllocInitializerPassTests
                 activeBlock.Add(new StoreLocal(6, BytePointer, new LoadStackSlot(0, BytePointer)));
             }
 
+            if (SharedSpanLiteralValue)
+            {
+                activeBlock.Add(new Call(new MethodRef(Holder, "PrintVal", Void, [ReadOnlySpanByte], HasThis: false), isVirtual: false, [new LoadLocal(2, ReadOnlySpanByte)]));
+            }
             if (SharedSpanLiteral)
             {
                 activeBlock.Add(new Call(new MethodRef(Holder, "Print", Void, [ReadOnlySpanByte], HasThis: false), isVirtual: false, [new LoadLocalAddress(2, ReadOnlySpanByte)]));
