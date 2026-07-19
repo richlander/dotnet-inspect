@@ -279,11 +279,10 @@ public sealed class DynamicCallSitePass : IIrPass
         }
 
         // The delegate receiver is the boxed object the runtime consumes. csc
-        // only ever passes a value expression here; a managed-pointer / address
-        // expression in the object-typed receiver slot is unverifiable IL that
-        // would render as `((dynamic)ref x).Member` (invalid C#), so decline the
-        // malformed shape rather than raise it.
-        if (ContainsAddressReceiver(function, receiver))
+        // only ever passes a value expression here; decline any address or
+        // pointer value that the printer cannot spell as a dynamic receiver,
+        // including one hidden behind a conversion, merge, or spill.
+        if (ContainsUnraisableReceiver(function, receiver))
         {
             receiver = null!;
             memberName = null!;
@@ -705,13 +704,11 @@ public sealed class DynamicCallSitePass : IIrPass
 
     enum ReceiverPlaceKind { Argument, Local, StackSlot }
 
-    // An address / managed-pointer value the printer would carry through into
-    // the dynamic receiver. Conversion and merge wrappers cannot legally turn
-    // a managed pointer into the object value expected by this call-site shape.
-    // Follow body-local definitions too: deleting the cache guard can make a
-    // preceding spill adjacent to the raised use, and the later inliner would
-    // otherwise expose an address hidden behind that load.
-    static bool ContainsAddressReceiver(IrFunction function, IrExpression receiver)
+    // Follow transparent conversions, merge expressions, and body-local
+    // definitions to find a receiver value the printer cannot cast to dynamic.
+    // Deleting the cache guard can make a preceding spill adjacent to the raised
+    // use, so this proof must account for values a later inliner would expose.
+    static bool ContainsUnraisableReceiver(IrFunction function, IrExpression receiver)
     {
         var pending = new Stack<IrExpression>();
         var seenPlaces = new HashSet<(ReceiverPlaceKind Kind, int Index)>();
@@ -722,7 +719,7 @@ public sealed class DynamicCallSitePass : IIrPass
         while (pending.Count > 0)
         {
             var expr = pending.Pop();
-            if (expr.ResultType?.Kind == TypeRefKind.ByRef)
+            if (IsUnraisableReceiver(expr))
                 return true;
 
             switch (expr)
@@ -747,8 +744,14 @@ public sealed class DynamicCallSitePass : IIrPass
                     break;
                 case Conditional conditional:
                     pending.Push(conditional.Condition);
-                    pending.Push(conditional.WhenTrue);
-                    pending.Push(conditional.WhenFalse);
+                    // A ref conditional is a legal value expression: C#
+                    // implicitly dereferences the selected arm. Non-ref merges
+                    // cannot legally hide an address-valued arm.
+                    if (conditional.ResultType?.Kind != TypeRefKind.ByRef)
+                    {
+                        pending.Push(conditional.WhenTrue);
+                        pending.Push(conditional.WhenFalse);
+                    }
                     break;
                 case Coalesce coalesce:
                     pending.Push(coalesce.Left);
@@ -800,6 +803,32 @@ public sealed class DynamicCallSitePass : IIrPass
         }
 
         return false;
+    }
+
+    // A receiver the printer cannot spell as a value cast to `dynamic`:
+    //  - address / managed-pointer expressions the printer spells with a leading
+    //    `ref` (`ref x`, `ref buf[i]`),
+    //  - a raw function-pointer load (rendered as an `ldftn` comment), or
+    //  - any expression whose value is an unmanaged pointer or function pointer
+    //    (`int*`, `delegate*<...>`), which has no conversion to `dynamic`
+    //    (CS0030).
+    // A `ByRef` receiver is implicitly dereferenced by C#, so it is raisable when
+    // its element is a value/reference type (`((dynamic)r).Member` is valid) but
+    // unraisable when the element is itself a pointer/function pointer (`ref int*`
+    // still yields `int*`), so look through `ByRef` and local-signature `Pinned`
+    // wrappers before the pointer check. The peel is a bounded loop over the
+    // finite result-type tree so no crafted shape can slip a pointer through.
+    static bool IsUnraisableReceiver(IrExpression expr)
+    {
+        if (expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
+            or LoadElementAddress or FixedBufferElementAddress
+            or LoadFunctionPointer or Unbox)
+            return true;
+
+        var type = expr.ResultType;
+        while (type?.Kind is TypeRefKind.ByRef or TypeRefKind.Pinned)
+            type = type.ElementType;
+        return type?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
     }
 
     static bool ContainsReference<T>(IReadOnlyList<T> nodes, T node) where T : class

@@ -1044,14 +1044,16 @@ public class DynamicCallSitePassTests
     }
 
     [Fact]
-    public void ReceiverIsConditionalAddressExpression_Declines()
+    public void ReceiverRefConditional_StillRaises()
     {
         var f = LoadCanonicalFunction();
         InvokeCall(f).Arguments[2].ReplaceWith(new Conditional(
             new Constant(true, TypeRef.CoreLib("System", "Boolean")),
             new LoadLocalAddress(300, ObjectType),
             new LoadLocalAddress(301, ObjectType)));
-        Assert.False(RunPass(f));
+        // A ref conditional is a legal value expression; C# implicitly
+        // dereferences the selected arm when it is used as the dynamic value.
+        Assert.True(RunPass(f));
     }
 
     [Fact]
@@ -1099,6 +1101,54 @@ public class DynamicCallSitePassTests
             isVirtual: false,
             [new LoadLocalAddress(300, ObjectType)]);
         InvokeCall(f).Arguments[2].ReplaceWith(receiver);
+        Assert.True(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverIsUnmanagedPointerValue_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        // A pointer-valued receiver (`int*`) has no conversion to `dynamic`
+        // (CS0030); the receiver gate rejects it on its ResultType even though it
+        // is a plain value load that aliases no owned storage.
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadLocal(300, TypeRef.Pointer(Int32Type)));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverIsByRefToPointer_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        // A `ByRef` receiver is implicitly dereferenced, so `ref int*` still
+        // yields `int*` — no `dynamic` conversion (CS0030). The gate must look
+        // through `ByRef` wrappers to the pointer element (real IL cannot nest
+        // `ByRef`, but the peel loop closes the synthetic case as well).
+        InvokeCall(f).Arguments[2].ReplaceWith(
+            new LoadArgument(0, "p", TypeRef.ByRef(TypeRef.Pointer(Int32Type))));
+        Assert.False(RunPass(f));
+
+        var g = LoadCanonicalFunction();
+        InvokeCall(g).Arguments[2].ReplaceWith(
+            new LoadArgument(0, "p", TypeRef.ByRef(TypeRef.ByRef(TypeRef.Pointer(Int32Type)))));
+        Assert.False(RunPass(g));
+    }
+
+    [Fact]
+    public void ReceiverIsPinnedPointer_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadLocal(
+            300,
+            TypeRef.Pinned(TypeRef.ByRef(TypeRef.Pointer(Int32Type)))));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverIsPinnedObject_StillRaises()
+    {
+        var f = LoadCanonicalFunction();
+        InvokeCall(f).Arguments[2].ReplaceWith(
+            new LoadLocal(300, TypeRef.Pinned(ObjectType)));
         Assert.True(RunPass(f));
     }
 

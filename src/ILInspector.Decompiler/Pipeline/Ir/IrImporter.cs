@@ -2305,15 +2305,33 @@ public static class IrImporter
         _ => false,
     };
 
+    // A nested-type TypeReference resolution-scope chain is shallow in real
+    // metadata; this bounds a malformed cyclic or unbounded chain.
+    const int MaxTypeReferenceScopeHops = 256;
+
     static bool IsTrustedPlatformTypeReference(MetadataReader reader, TypeReferenceHandle handle)
     {
-        var typeRef = reader.GetTypeReference(handle);
-        return typeRef.ResolutionScope.Kind switch
+        // A nested type's TypeReference chains to its enclosing type through the
+        // ResolutionScope, terminating at an AssemblyReference. Malformed metadata
+        // can form a cycle (a row whose scope resolves back to itself or an
+        // ancestor) or an unbounded chain, so walk iteratively with a hop budget
+        // and fail closed rather than recurse to StackOverflow.
+        for (int hop = 0; hop < MaxTypeReferenceScopeHops; hop++)
         {
-            HandleKind.AssemblyReference => IsTrustedPlatformAssembly(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope),
-            HandleKind.TypeReference => IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)typeRef.ResolutionScope),
-            _ => false,
-        };
+            var typeRef = reader.GetTypeReference(handle);
+            switch (typeRef.ResolutionScope.Kind)
+            {
+                case HandleKind.AssemblyReference:
+                    return IsTrustedPlatformAssembly(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope);
+                case HandleKind.TypeReference:
+                    handle = (TypeReferenceHandle)typeRef.ResolutionScope;
+                    continue;
+                default:
+                    return false;
+            }
+        }
+
+        return false;
     }
 
     static bool IsTrustedPlatformTypeSpecification(MetadataReader reader, TypeSpecificationHandle handle)
