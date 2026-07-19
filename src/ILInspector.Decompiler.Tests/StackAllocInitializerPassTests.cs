@@ -245,6 +245,21 @@ public class StackAllocInitializerPassTests
             b.Int32Element = true;
             b.FinalSpanCtor = true;
         });
+
+        var copyBlock = function.Descendants.OfType<CopyBlock>().Single();
+        var loadDest = (LoadStackSlot)copyBlock.Destination;
+        var alloc = function.Descendants.OfType<StackAllocate>().Single();
+        var rvaLength = ((LoadFieldAddress)copyBlock.Source).FieldRvaData!.Length;
+        var newObj = function.Descendants.OfType<NewObject>().Single();
+
+        Assert.Equal(13, ((Constant)alloc.Size).Value);
+        Assert.Equal(13, ((Constant)copyBlock.Size).Value);
+        Assert.Equal(13, rvaLength);
+        Assert.Equal("Int32", newObj.Constructor.DeclaringType.TypeArguments[0].Name);
+        Assert.Equal(TypeRefKind.Pointer, loadDest.Type!.Kind);
+        Assert.Equal("Int32", loadDest.Type!.ElementType!.Name);
+        Assert.Equal(3, ((Constant)newObj.Arguments[1]).Value);
+
         new StackAllocInitializerPass().Run(function, PassContext.None);
         function.CheckInvariant();
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
@@ -265,6 +280,31 @@ public class StackAllocInitializerPassTests
         var function = BuildCanonicalSpan(mutate: b =>
         {
             b.UseGetItem = true;
+            b.WrongRefKind = true;
+        });
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void MemoryMarshal_WrongRefKind_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b =>
+        {
+            b.WrongRefKind = true;
+        });
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
+    public void GetPinnableReference_WrongRefKind_Declines()
+    {
+        var function = BuildCanonicalSpan(mutate: b =>
+        {
+            b.UseGetPinnableReference = true;
             b.WrongRefKind = true;
         });
         new StackAllocInitializerPass().Run(function, PassContext.None);
@@ -379,8 +419,6 @@ public class StackAllocInitializerPassTests
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
 
-
-
     [Fact]
     public void VolatileCpblk_Declines()
     {
@@ -402,7 +440,11 @@ public class StackAllocInitializerPassTests
     [Fact]
     public void WrongTypedZeroGetItem_Declines()
     {
-        var function = BuildCanonicalSpan(mutate: b => { b.UseGetItem = true; b.WrongTypedZeroGetItem = true; });
+        var function = BuildCanonicalSpan(mutate: b =>
+        {
+            b.UseGetItem = true;
+            b.WrongTypedZeroGetItem = true;
+        });
         new StackAllocInitializerPass().Run(function, PassContext.None);
         function.CheckInvariant();
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
@@ -411,7 +453,11 @@ public class StackAllocInitializerPassTests
     [Fact]
     public void EffectfulGetItem_Declines()
     {
-        var function = BuildCanonicalSpan(mutate: b => { b.UseGetItem = true; b.EffectfulGetItem = true; });
+        var function = BuildCanonicalSpan(mutate: b =>
+        {
+            b.UseGetItem = true;
+            b.EffectfulGetItem = true;
+        });
         new StackAllocInitializerPass().Run(function, PassContext.None);
         function.CheckInvariant();
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
@@ -491,7 +537,8 @@ public class StackAllocInitializerPassTests
         {
             bool inLocalFunc = false;
             IrNode? parent = s.Parent;
-            while (parent != null) {
+            while (parent != null)
+            {
                 if (parent == localFunc) { inLocalFunc = true; break; }
                 parent = parent.Parent;
             }
@@ -506,7 +553,54 @@ public class StackAllocInitializerPassTests
         {
             bool inLocalFunc = false;
             IrNode? parent = s.Parent;
-            while (parent != null) {
+            while (parent != null)
+            {
+                if (parent == localFunc) { inLocalFunc = true; break; }
+                parent = parent.Parent;
+            }
+            if (inLocalFunc) innerAllocs++;
+        }
+        Assert.True(innerAllocs > 0);
+    }
+
+    [Fact]
+    public void NestedFunctionScope_Span_Untouched()
+    {
+        var function = BuildCanonicalSpan();
+        var innerFunction = BuildCanonicalSpan();
+        var innerBody = innerFunction.Body;
+        innerBody.Detach();
+        var localFunc = new LocalFunctionStatement("L", Void, System.Collections.Immutable.ImmutableArray<Parameter>.Empty, false, System.Collections.Immutable.ImmutableArray<TypeRef>.Empty, System.Collections.Immutable.ImmutableArray<string?>.Empty, false, false, innerBody);
+
+        function.Descendants.OfType<Block>().First().Add(localFunc);
+
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        int outerArrays = 0;
+        int innerArrays = 0;
+        foreach (var s in function.Descendants.OfType<StackAllocArray>())
+        {
+            bool inLocalFunc = false;
+            IrNode? parent = s.Parent;
+            while (parent != null)
+            {
+                if (parent == localFunc) { inLocalFunc = true; break; }
+                parent = parent.Parent;
+            }
+            if (inLocalFunc) innerArrays++;
+            else outerArrays++;
+        }
+        Assert.Equal(1, outerArrays);
+        Assert.Equal(0, innerArrays);
+
+        int innerAllocs = 0;
+        foreach (var s in function.Descendants.OfType<StackAllocate>())
+        {
+            bool inLocalFunc = false;
+            IrNode? parent = s.Parent;
+            while (parent != null)
+            {
                 if (parent == localFunc) { inLocalFunc = true; break; }
                 parent = parent.Parent;
             }
@@ -538,7 +632,6 @@ public class StackAllocInitializerPassTests
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.Equal(3, ((Constant)raised.Count).Value);
     }
-
 
     public class Builder
     {
@@ -592,13 +685,12 @@ public class StackAllocInitializerPassTests
         public bool CtorWrongRefKind;
         public bool WrongCopySizeType;
 
-
         public IrFunction Build()
         {
             var stackAlloc = new StackAllocate(new Constant(AllocSize, Int32));
             var storeSlot = new StoreStackSlot(0, stackAlloc);
 
-            var loadDest = new LoadStackSlot(0, BytePointer);
+            var loadDest = new LoadStackSlot(0, Int32Element ? TypeRef.Pointer(Int32) : BytePointer);
 
             IrExpression copySource;
             IrNode? setup = null;
@@ -669,7 +761,8 @@ public class StackAllocInitializerPassTests
                     {
                         DeclaringTypeIsTrustedPlatform = SpoofedAssembly ? MetadataFactState.Unknown : MetadataFactState.Yes,
                         TypeArguments = [MismatchedSpanElement ? Int32 : Byte],
-                        ParameterRefKindsFacts = WrongRefKind ? ParameterRefKindFacts.Unknown : ParameterRefKindFacts.NotRequired
+                        ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired,
+                        ParameterRefKinds = WrongRefKind ? System.Collections.Immutable.ImmutableArray.Create(ArgumentRefKind.Ref) : System.Collections.Immutable.ImmutableArray<ArgumentRefKind>.Empty
                     };
                     if (MethodGenericArgMismatch) getRef = getRef with { TypeArguments = [Byte, Int32] };
                     var args = MalformedArgumentCounts ? new IrExpression[] { new LoadLocalAddress(2, spanType), new Constant(0, Int32) } : new IrExpression[] { new LoadLocalAddress(2, spanType) };

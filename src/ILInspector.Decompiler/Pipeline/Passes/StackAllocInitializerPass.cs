@@ -126,7 +126,7 @@ public sealed class StackAllocInitializerPass : IIrPass
                 {
                     var lla = (LoadLocalAddress)instance!;
                     var allowedRefs = new List<IrNode> { spanSetupStore, lla };
-                    if (ReferenceOwnership.LocalReferencesOnlyWithin(function, lla.Index, allowedRefs)) // Exclusive source ownership
+                    if (LocalReferencesOnlyWithinCurrentBody(function, lla.Index, allowedRefs)) // Exclusive source ownership
                     {
                         if (elementType == null || elementType.Equals(spanLit.ElementType))
                         {
@@ -178,9 +178,11 @@ public sealed class StackAllocInitializerPass : IIrPass
                         {
                             if (ctor.ParameterTypes.Length == 2
                                 && ctor.ParameterTypes[0].Kind == TypeRefKind.Pointer
+                                && ctor.ParameterTypes[0].ElementType!.Kind == TypeRefKind.Definition
                                 && ctor.ParameterTypes[0].ElementType!.Assembly == TypeRef.CoreLibrary
                                 && ctor.ParameterTypes[0].ElementType!.Namespace == "System"
                                 && ctor.ParameterTypes[0].ElementType!.Name == "Void"
+                                && ctor.ParameterTypes[1].Kind == TypeRefKind.Definition
                                 && ctor.ParameterTypes[1].Assembly == TypeRef.CoreLibrary
                                 && ctor.ParameterTypes[1].Namespace == "System"
                                 && ctor.ParameterTypes[1].Name == "Int32"
@@ -189,11 +191,7 @@ public sealed class StackAllocInitializerPass : IIrPass
                                 if (no.Arguments.Count == 2
                                     && no.Arguments[0] is LoadStackSlot destSlot
                                     && destSlot.Slot == loadDest.Slot
-                                    && destSlot.Type != null && destSlot.Type.Kind == TypeRefKind.Pointer
-                                    && destSlot.Type.ElementType is TypeRef destElType
-                                    && destElType.Assembly == TypeRef.CoreLibrary
-                                    && destElType.Namespace == "System"
-                                    && destElType.Name == "Void"
+                                    && destSlot.Type != null && destSlot.Type.Equals(ctor.ParameterTypes[0])
                                     && no.Arguments[1] is Constant { Value: int len } cLen
                                     && cLen.Type is TypeRef lenType
                                     && lenType.Kind == TypeRefKind.Definition
@@ -247,6 +245,26 @@ public sealed class StackAllocInitializerPass : IIrPass
         }
     }
 
+    static bool LocalReferencesOnlyWithinCurrentBody(IrFunction function, int localIndex, List<IrNode> allowedReferences)
+    {
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
+        {
+            if (node is LoadLocal ll && ll.Index == localIndex)
+            {
+                if (!allowedReferences.Contains(ll)) return false;
+            }
+            else if (node is LoadLocalAddress lla && lla.Index == localIndex)
+            {
+                if (!allowedReferences.Contains(lla)) return false;
+            }
+            else if (node is StoreLocal sl && sl.Index == localIndex)
+            {
+                if (!allowedReferences.Contains(sl)) return false;
+            }
+        }
+        return true;
+    }
+
     static bool IsTrustedMemoryMarshalGetReference(MethodRef method, out TypeRef? elementType, out TypeRef? expectedSourceType)
     {
         elementType = null; expectedSourceType = null;
@@ -290,7 +308,7 @@ public sealed class StackAllocInitializerPass : IIrPass
         if (method.Name != "get_Item") return false;
         if (method.ParameterTypes.Length != 1) return false;
         var p0 = method.ParameterTypes[0];
-        if (p0.Assembly != TypeRef.CoreLibrary || p0.Namespace != "System" || p0.Name != "Int32") return false;
+        if (p0.Kind != TypeRefKind.Definition || p0.Assembly != TypeRef.CoreLibrary || p0.Namespace != "System" || p0.Name != "Int32") return false;
 
         if (method.ReturnType.Kind != TypeRefKind.ByRef) return false;
         var typeArg = method.DeclaringType.TypeArguments[0];
