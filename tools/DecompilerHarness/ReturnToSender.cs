@@ -1068,6 +1068,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             accessorHandle,
