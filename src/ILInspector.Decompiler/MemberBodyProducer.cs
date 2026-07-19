@@ -291,6 +291,7 @@ public static class MemberBodyProducer
                 FieldAttributes.FamANDAssem => "private protected",
                 _ => "private",
             };
+            var fixedBuffer = TypeShellProducer.FixedBufferField(reader, field);
             string fieldType;
             try
             {
@@ -309,7 +310,7 @@ public static class MemberBodyProducer
                 sb.AppendLine($"    [{attribute}]");
 
             var decl = new StringBuilder($"    {access} ");
-            if (fieldType.Contains('*', StringComparison.Ordinal))
+            if (fixedBuffer is not null || fieldType.Contains('*', StringComparison.Ordinal))
                 decl.Append("unsafe ");
             if (field.Attributes.HasFlag(FieldAttributes.Literal))
                 decl.Append("const ");
@@ -326,8 +327,11 @@ public static class MemberBodyProducer
             // primary-constructor capture field renders under the parameter's
             // source name (displayName), and is assigned in the constructor body,
             // so it never carries a lifted initializer.
-            string typeAndName = $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)}";
+            string typeAndName = fixedBuffer is null
+                ? $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)}"
+                : fixedBuffer.DeclarationSignature(EscapeIdentifier(displayName));
             decl.Append(!field.Attributes.HasFlag(FieldAttributes.Literal)
+                    && fixedBuffer is null
                     && fieldInitializers.TryGetValue(name, out var initializer)
                 ? $"{typeAndName} = {initializer};"
                 : $"{typeAndName};");

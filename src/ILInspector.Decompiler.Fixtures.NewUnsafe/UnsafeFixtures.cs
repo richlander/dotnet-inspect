@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 public struct FixedBufferResiduals
 {
     public fixed int Data[4];
+    public fixed int Values[4];
 
     public int Sum()
     {
@@ -18,6 +19,347 @@ public struct FixedBufferResiduals
             }
         }
         return sum;
+    }
+
+    public int ReadAt(int index)
+    {
+        unsafe
+        {
+            return Data[index];
+        }
+    }
+
+    public int ReadFirst()
+    {
+        unsafe
+        {
+            return Data[0];
+        }
+    }
+
+    public void WriteAt(int index, int value)
+    {
+        unsafe
+        {
+            Data[index] = value;
+        }
+    }
+
+    public void WriteFirst(int value)
+    {
+        unsafe
+        {
+            Data[0] = value;
+        }
+    }
+
+    public int ReadAtThroughFixedAddress(int index)
+    {
+        unsafe
+        {
+            fixed (int* p = &Data[index])
+            {
+                return *p;
+            }
+        }
+    }
+
+    public ref int RefAt(int index)
+    {
+        unsafe
+        {
+            return ref Data[index];
+        }
+    }
+
+    public ref int RefFirst()
+    {
+        unsafe
+        {
+            return ref Data[0];
+        }
+    }
+
+    public void PassByRef(int index)
+    {
+        unsafe
+        {
+            Increment(ref Data[index]);
+        }
+    }
+
+    public void PassFirstByRef()
+    {
+        unsafe
+        {
+            Increment(ref Data[0]);
+        }
+    }
+
+    public int RefLocalIncrement(int index)
+    {
+        unsafe
+        {
+            ref int value = ref Data[index];
+            value++;
+            return value;
+        }
+    }
+
+    public int RefLocalFirstIncrement()
+    {
+        unsafe
+        {
+            ref int value = ref Data[0];
+            value++;
+            return value;
+        }
+    }
+
+    public static int PointerLocalValue(int index)
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            int* p = null;
+            p = &value.Data[index];
+            *p = 42;
+            return *p;
+        }
+    }
+
+    public static int PointerLocalFirstValue()
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            int* p = null;
+            p = &value.Data[0];
+            *p = 42;
+            return *p;
+        }
+    }
+
+    public static int* PointerReturn(int index)
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            return &value.Data[index];
+        }
+    }
+
+    public static int* PointerReturnFirst()
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            return &value.Data[0];
+        }
+    }
+
+    public static void PointerArgument(int index)
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            ConsumePointer(&value.Data[index]);
+        }
+    }
+
+    public static void PointerArgumentFirst()
+    {
+        unsafe
+        {
+            FixedBufferResiduals value = default;
+            ConsumePointer(&value.Data[0]);
+        }
+    }
+
+    public string FormatValue(int index)
+    {
+        unsafe
+        {
+            return Values[index].ToString();
+        }
+    }
+
+    public int FirstValueHashCode()
+    {
+        unsafe
+        {
+            return Values[0].GetHashCode();
+        }
+    }
+
+    static void Increment(ref int value) => value++;
+
+    static unsafe void ConsumePointer(int* value) => _ = value;
+}
+
+public struct FixedBufferPrimitiveResiduals
+{
+    public fixed bool Bools[4];
+    public fixed byte Bytes[4];
+    public fixed sbyte SBytes[4];
+    public fixed char Chars[4];
+    public fixed short Shorts[4];
+    public fixed ushort UShorts[4];
+    public fixed int Ints[4];
+    public fixed uint UInts[4];
+    public fixed long Longs[4];
+    public fixed ulong ULongs[4];
+    public fixed float Floats[4];
+    public fixed double Doubles[4];
+
+    public bool ReadBool(int index)
+    {
+        unsafe { return Bools[index]; }
+    }
+
+    public void WriteBool(int index, bool value)
+    {
+        unsafe { Bools[index] = value; }
+    }
+
+    public byte ReadByte(int index)
+    {
+        unsafe { return Bytes[index]; }
+    }
+
+    public void WriteByte(int index, byte value)
+    {
+        unsafe { Bytes[index] = value; }
+    }
+
+    public sbyte ReadSByte(int index)
+    {
+        unsafe { return SBytes[index]; }
+    }
+
+    public void WriteSByte(int index, sbyte value)
+    {
+        unsafe { SBytes[index] = value; }
+    }
+
+    public char ReadChar(int index)
+    {
+        unsafe { return Chars[index]; }
+    }
+
+    public void WriteChar(int index, char value)
+    {
+        unsafe { Chars[index] = value; }
+    }
+
+    public short ReadShort(int index)
+    {
+        unsafe { return Shorts[index]; }
+    }
+
+    public void WriteShort(int index, short value)
+    {
+        unsafe { Shorts[index] = value; }
+    }
+
+    public ushort ReadUShort(int index)
+    {
+        unsafe { return UShorts[index]; }
+    }
+
+    public void WriteUShort(int index, ushort value)
+    {
+        unsafe { UShorts[index] = value; }
+    }
+
+    public int ReadInt(int index)
+    {
+        unsafe { return Ints[index]; }
+    }
+
+    public void WriteInt(int index, int value)
+    {
+        unsafe { Ints[index] = value; }
+    }
+
+    public uint ReadUInt(int index)
+    {
+        unsafe { return UInts[index]; }
+    }
+
+    public void WriteUInt(int index, uint value)
+    {
+        unsafe { UInts[index] = value; }
+    }
+
+    public long ReadLong(int index)
+    {
+        unsafe { return Longs[index]; }
+    }
+
+    public void WriteLong(int index, long value)
+    {
+        unsafe { Longs[index] = value; }
+    }
+
+    public ulong ReadULong(int index)
+    {
+        unsafe { return ULongs[index]; }
+    }
+
+    public void WriteULong(int index, ulong value)
+    {
+        unsafe { ULongs[index] = value; }
+    }
+
+    public float ReadFloat(int index)
+    {
+        unsafe { return Floats[index]; }
+    }
+
+    public void WriteFloat(int index, float value)
+    {
+        unsafe { Floats[index] = value; }
+    }
+
+    public double ReadDouble(int index)
+    {
+        unsafe { return Doubles[index]; }
+    }
+
+    public void WriteDouble(int index, double value)
+    {
+        unsafe { Doubles[index] = value; }
+    }
+
+    public int ReadIntAtLong(long index)
+    {
+        unsafe { return Ints[index]; }
+    }
+
+    public int ReadIntAtUInt(uint index)
+    {
+        unsafe { return Ints[index]; }
+    }
+
+    public int ReadIntAtULong(ulong index)
+    {
+        unsafe { return Ints[index]; }
+    }
+
+    public void WriteIntAtLong(long index, int value)
+    {
+        unsafe { Ints[index] = value; }
+    }
+
+    public void WriteIntAtUInt(uint index, int value)
+    {
+        unsafe { Ints[index] = value; }
+    }
+
+    public void WriteIntAtULong(ulong index, int value)
+    {
+        unsafe { Ints[index] = value; }
     }
 }
 

@@ -36,6 +36,7 @@ internal static class CSharpSpellability
             LoadField load => FieldIssue(load.Field),
             StoreField store => FieldIssue(store.Field),
             LoadFieldAddress address => FieldIssue(address.Field),
+            FixedBufferElementAddress address => FieldIssue(address.BufferField),
             LoadProperty load => PropertyIssue(load.PropertyName),
             StoreProperty store => PropertyIssue(store.PropertyName),
             NullCoalescingFieldAssignment assignment => FieldIssue(assignment.Field),
