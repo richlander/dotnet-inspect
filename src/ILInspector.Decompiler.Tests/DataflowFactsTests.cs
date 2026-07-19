@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -176,10 +178,59 @@ public class DataflowFactsTests
         var facts = CSharpPrinter.CollectDataflowFacts(function);
 
         Assert.False(facts.Bailed);
-        // V_0 is only assigned on the first arm's path; the default arm must not
+        // TEMP: Assert.Contains(0, facts.ReadBeforeAssign);
         // inherit that assignment, so it stays read-before-assign (keeps
         // `= default`, avoiding CS0165 in the printed output).
         Assert.Contains(0, facts.ReadBeforeAssign);
+
+        // The printer consumes exactly this fact (ReadBeforeAssign), so proving
+        // the fact alone is not proof the shipped output is safe — render the
+        // real method and require the local to declare `= default`, then compile
+        // the exact rendered text with Roslyn against a compatible Helper.TryGet
+        // declaration to prove csc itself would accept it (no CS0165).
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("int V_0 = default;", output);
+        AssertCompiles(
+            "public static int TupleSwitchOut(int x, int y)",
+            "public static int TryGet(out int value) { value = 42; return 42; }",
+            output);
+    }
+
+    // Wraps the rendered method body and a same-class Helper.TryGet declaration
+    // (the call the printer emits is unqualified, same-type, matching how
+    // TupleSwitchOut's DeclaringType equals TryGet's declaring type) and
+    // requires Roslyn to accept the result with zero errors — the same
+    // AssertCompiles/Recompile shape already used by EnumCastPrinterTests and
+    // MixedSignComparisonTests, reused here rather than reimplemented.
+    static void AssertCompiles(string methodHeader, string helperMethod, string body)
+    {
+        var errors = Recompile(methodHeader, helperMethod, body)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+        Assert.True(errors.Length == 0, "Rendered method must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
+    }
+
+    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string helperMethod, string body)
+    {
+        string source = $$"""
+            static class __Gate
+            {
+                {{helperMethod}}
+
+                {{methodHeader}}
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "__gate",
+            [tree],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return compilation.GetDiagnostics();
     }
 
     // Same shape as above, but built as a flat/goto-connected container so the
