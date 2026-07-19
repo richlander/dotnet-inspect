@@ -51,6 +51,8 @@ public sealed record PackageReferenceTarget(
 /// </summary>
 public static class PackageExtractor
 {
+    private const int MaxToolWrapperRedirectHops = 8;
+
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
         s_packageRequests = new();
 
@@ -130,6 +132,13 @@ public static class PackageExtractor
             redirectChain.Add(result.PackageName);
             if (visitedPackageIds.Contains(redirectId))
                 return ToolWrapperRedirectCycle(redirectChain, redirectId);
+
+            if (redirectChain.Count > MaxToolWrapperRedirectHops)
+            {
+                return PackageExtractionOutcome.Error(
+                    $"Tool wrapper redirect limit of {MaxToolWrapperRedirectHops} exceeded: " +
+                    $"{string.Join(" -> ", redirectChain)} -> {redirectId}.");
+            }
 
             log?.Invoke(
                 $"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{redirectId}' instead.");

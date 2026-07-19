@@ -186,8 +186,9 @@ note is about. It turns the hypothesis into evidence:
   produces display **strings** and cannot answer "is there a pointer in this
   signature." `Analysis`'s own `TypeRefDecoder → TypeRef` is what makes the check
   possible. A shared model would have forced `Analysis` to keep its own anyway.
-- **`Analysis`'s independence is load-bearing.** The whole detector shipped
-  SRM-direct with no dependency negotiation. That is the property step 4 spends.
+- **`Analysis`'s independence is a product boundary.** The whole detector
+  shipped SRM-direct with no dependency negotiation. That is the property step
+  4 spends.
 - **The real duplication is tiny and stable.** `Analysis` hand-rolled
   `AttributeTypeName` (ctor → declaring-type namespace+name, `MemberReference`
   vs `MethodDefinition`) — the same SRM walk as

@@ -66,7 +66,8 @@ public sealed class IsPatternPass : IIrPass
             || FoldPositionalPatternReturnOne(function, context.Stepper)
             || FoldUnionValueReceiverCopy(function, context.Stepper)
             || RaiseGenericDeclarationPattern(function, context.Stepper)
-            || InlineGenericPatternSubject(function, context.Stepper))
+            || InlineGenericPatternSubject(function, context.Stepper)
+            || BindGenericPatternToCacheLocal(function, context.Stepper))
         {
         }
     }
@@ -186,6 +187,101 @@ public sealed class IsPatternPass : IIrPass
         }
         return false;
     }
+
+    // #2862 slice (#2872): bind a multi-use generic declaration pattern directly
+    // to csc's cache local and drop the redundant copy. When the binding is read
+    // more than once, csc caches the single `isinst` extraction in a real,
+    // source-named local, so RaiseGenericDeclarationPattern binds a synthesized
+    // `V_N` and leaves `cacheLocal = V_N;` at the top of the guarded arm. When
+    // that minted local feeds only the copy, and the cache local is assigned only
+    // there and read only inside the guarded arm, re-point the pattern to the
+    // cache local (recovering its name) and elide the copy — turning
+    // `if (x is T V_N) { c = V_N; ... c ... }` into `if (x is T c) { ... c ... }`.
+    static bool BindGenericPatternToCacheLocal(IrFunction function, Stepper stepper)
+    {
+        // Only root-scope guards: re-pointing the binding rewrites references in
+        // the root local pool, so a nested-function guard (separate pool) is out.
+        foreach (var ifStatement in GenericDeclarationPatternProof
+            .DescendantsOutsideNestedFunctions(function).OfType<IfStatement>().ToList())
+        {
+            if (ifStatement.Condition is not IsPattern pattern)
+                continue;
+
+            // The copy must be the guarded arm's first statement, so the cache
+            // local is bound before any read — exactly the pattern's own scope.
+            if (ifStatement.Then.Children is not [StoreLocal copy, ..]
+                || copy.Value is not LoadLocal { Index: var boundIndex }
+                || boundIndex != pattern.LocalIndex
+                || copy.Index == pattern.LocalIndex)
+            {
+                continue;
+            }
+
+            int cacheIndex = copy.Index;
+
+            // The minted binding must feed only this copy: its single reference is
+            // the `LoadLocal` inside `copy` (the pattern's LocalIndex is a slot
+            // designation, not a Load/Store reference, so it is not counted here).
+            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, pattern.LocalIndex, [copy]))
+                continue;
+
+            // The cache local must be a single-assignment temp whose every use
+            // is inside this guarded arm, so binding it in the pattern covers
+            // all reads with the exact value the copy provided. The pattern's
+            // tested value must not read it. Reference/binding checks count
+            // every designation that carries a local index (pattern bindings,
+            // foreach/using/fixed headers, deconstruction targets, catch
+            // variables, null-coalescing targets), not just explicit
+            // Load/Store, so an out-of-arm use expressed through one of those
+            // node kinds cannot slip past and reference an undeclared local.
+            if (function.Descendants.OfType<StoreLocal>().Count(s => s.Index == cacheIndex) != 1
+                || ReferenceOwnership.SubtreeReferencesOrBindsLocal(pattern.Value, cacheIndex)
+                || !ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, cacheIndex, [ifStatement.Then]))
+            {
+                continue;
+            }
+
+            // The cache local's managed address must not escape the guarded
+            // arm. The only escape-free consumer we admit is an in-place
+            // instance-call receiver whose result is not itself a managed
+            // reference (such as `c.CompareTo(x)` returning an int). Any other
+            // address use — storing the pointer into a wider-scoped
+            // local/slot/field, a ref return, an indirect store, passing the
+            // address as a by-ref argument, or a by-ref-returning receiver
+            // call that forwards the pointer onward — could outlive the arm
+            // once the binding narrows to the pattern's scope, so reject the
+            // fold. Checking only the direct parent is not enough: a
+            // by-ref-returning call forwards the pointer through a `Call` node,
+            // so the admitted shape is matched positively rather than
+            // denied by an incomplete escape-node list.
+            if (function.Descendants.OfType<LoadLocalAddress>()
+                .Where(address => address.Index == cacheIndex)
+                .Any(address => !IsInPlaceReceiver(address)))
+            {
+                continue;
+            }
+
+            stepper.StepOver("bind generic declaration pattern to cache local", ifStatement);
+            pattern.ReplaceWith(new IsPattern(
+                (IrExpression)pattern.Value.Clone(), pattern.Type, cacheIndex));
+            copy.Detach();
+            return true;
+        }
+        return false;
+    }
+
+    // An address use is escape-free only when it is the receiver of an
+    // instance call whose result is not a managed reference. Such a call
+    // consumes the pointer in place (the struct receiver), so the pointer does
+    // not outlive the guarded arm. A by-ref-returning receiver call, a static
+    // call taking the address as a by-ref argument, or any non-call parent
+    // (store, indirect store, ref return) may forward the pointer onward and
+    // is therefore not admitted.
+    static bool IsInPlaceReceiver(LoadLocalAddress address)
+        => address.Parent is Call { Callee.HasThis: true } call
+            && call.Children.Count > 0
+            && ReferenceEquals(call.Children[0], address)
+            && call.ResultType is not { Kind: TypeRefKind.ByRef };
 
     static bool TransformOne(IrFunction function, Stepper stepper)
     {

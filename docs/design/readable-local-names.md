@@ -1,4 +1,4 @@
-# Readable Local Names (opt-in)
+# Readable local names (opt-in)
 
 Design note for the #998 "Local naming and declaration placement" row. Scope is
 deliberately narrow: an **opt-in** mode that gives synthesized, readable names to
@@ -13,7 +13,7 @@ back to `V_index`. With no PDB — the common case for shipped/stripped assembli
 and the deterministic `--skip-pdb` reading path — every local is `V_0`, `V_1`, …,
 which is the single largest readability gap in otherwise-structured output.
 
-## Constraint: default output is load-bearing
+## Constraint: default output must remain stable
 
 `V_n` is not just cosmetic to leave alone — three things depend on it:
 

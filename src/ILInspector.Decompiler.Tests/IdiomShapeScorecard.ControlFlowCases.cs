@@ -23,11 +23,13 @@ internal sealed class ControlFlowScorecardCases : IdiomShapeScorecardTests.ICase
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachString), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachRectangularArray), SyntaxKind.ForEachStatement, [SyntaxKind.ForStatement]),
         new("ForeachStatementPass", nameof(CfgSampleClass.ForeachPatternEnumerable), SyntaxKind.ForEachStatement, [SyntaxKind.WhileStatement]),
-        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopLeave), SyntaxKind.WhileStatement, [SyntaxKind.ForStatement]),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopLeave), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
         new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopLeaveToAnotherTarget), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
-        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopEhCleanupContinue), SyntaxKind.WhileStatement, [SyntaxKind.ForStatement]),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopEhCleanupContinue), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
         new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopWithNestedLambdaTargetConflict), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
-        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopNestedContinue), SyntaxKind.ForStatement, []),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2830_ForLoopNestedContinue), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2861_ForLoopTryAndCatchContinues), SyntaxKind.ForStatement, [SyntaxKind.WhileStatement]),
+        new("ForLoopPass", nameof(CfgSampleClass.Issue2861_NestedProtectedLeaveToOuterIncrement), SyntaxKind.WhileStatement, []),
         new("FixedStatementPass", nameof(CfgSampleClass.SumPinnedArray), SyntaxKind.FixedStatement, []),
     ];
 }

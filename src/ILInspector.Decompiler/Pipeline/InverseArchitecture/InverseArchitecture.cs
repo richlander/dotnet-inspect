@@ -130,6 +130,9 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundInterpolatedString</c> (an <c>$"..."</c> interpolated string).</summary>
     RoslynBoundInterpolatedString,
+
+    /// <summary>Roslyn's <c>BoundDefaultExpression</c> (a <c>default</c> / <c>default(T)</c> expression).</summary>
+    RoslynBoundDefaultExpression,
 }
 
 /// <summary>

@@ -698,7 +698,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
-    public void Rung6FixedBufferResiduals_DegradeHonestlyAndStringPinningRecovers()
+    public void Rung6FixedBufferAndStringPinningRecover()
     {
         AssertFixedBufferResidual(NewUnsafePath, FixedBufferType);
         AssertFixedBufferResidual(LegacyUnsafePath, LegacyFixedBufferType);
@@ -711,9 +711,10 @@ public class LadderRung6GateTests
     {
         var member = LoadRaisedMembers(assemblyPath, typeName)
             .Single(m => m.Name == "Sum");
-        Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-        Assert.Contains(FidelityRemarks.Collect(member.Function), r => r.Code == DiagnosticIds.UnrepresentableMetadataName);
-        Assert.Contains("FixedElementField", member.Body);
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(member.Function));
+        Assert.Contains("Data[i]", member.Body);
+        Assert.DoesNotContain("FixedElementField", member.Body);
     }
 
     static void AssertStringPinningResidual(string assemblyPath, string typeName)

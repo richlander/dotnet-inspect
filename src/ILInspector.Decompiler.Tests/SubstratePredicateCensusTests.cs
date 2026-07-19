@@ -30,8 +30,6 @@ public class SubstratePredicateCensusTests
             "FieldRef equality paired with pass-owned receiver/index-shape checks for null-coalescing assignment.",
         [new("NullCoalescingAssignmentPass.cs", "SameReceiver")] =
             "Pass-local receiver admissibility: null static receiver or PlaceIdentity.SameVariable only.",
-        [new("StructuringPass.cs", "IsInsideFinallyBody")] =
-            "Structuring-specific leave-target guard for finally bodies, not a general ancestor/location helper.",
         [new("UnionSwitchExpressionPass.cs", "SameTailExpression")] =
             "Union switch store-tail folding compares a pass-owned duplicated tail shape; this is not a reusable re-evaluable-place atom and declines on unlisted expression kinds.",
         [new("UnionSwitchExpressionPass.cs", "SameTailExpressions")] =

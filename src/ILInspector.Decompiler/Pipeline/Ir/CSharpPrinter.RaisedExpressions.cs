@@ -25,7 +25,7 @@ public sealed partial class CSharpPrinter
         => $"{Operand(node.Receiver)} with {{ {string.Join(", ", node.Entries.Select(WithExpressionEntryText))} }}";
 
     string WithExpressionEntryText(InitializerEntry entry)
-        => $"{entry.Member} = {Expression(entry.Arguments[0])}";
+        => $"{CSharpNaming.EscapeIdentifier(entry.Member!)} = {Expression(entry.Arguments[0])}";
 
     /// <summary>Renders the brace body shared by a top-level initializer and a nested <see cref="InitializerBlock"/>.</summary>
     string InitializerBodyText(bool isCollection, IReadOnlyList<InitializerEntry> entries)
@@ -51,7 +51,7 @@ public sealed partial class CSharpPrinter
             : Expression(value);
 
         if (entry.Member is { } member)
-            return $"{member} = {valueText}";
+            return $"{CSharpNaming.EscapeIdentifier(member)} = {valueText}";
 
         // An indexer member: the trailing argument is the value, the rest are keys.
         var keys = entry.Arguments.Take(entry.Arguments.Count - 1).Select(Expression);
@@ -75,11 +75,12 @@ public sealed partial class CSharpPrinter
         {
             var value = anonymous.Values[i];
             string name = anonymous.PropertyNames[i];
+            string escapedName = CSharpNaming.EscapeIdentifier(name);
             string text = Expression(value);
-            bool shorthand = text == name
-                || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + name, StringComparison.Ordinal))
-                || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + name, StringComparison.Ordinal));
-            parts.Add(shorthand ? text : $"{name} = {text}");
+            bool shorthand = text == escapedName
+                || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + escapedName, StringComparison.Ordinal))
+                || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + escapedName, StringComparison.Ordinal));
+            parts.Add(shorthand ? text : $"{escapedName} = {text}");
         }
         return $"new {{ {string.Join(", ", parts)} }}";
     }
@@ -250,6 +251,32 @@ public sealed partial class CSharpPrinter
     string UnionSwitchReceiverText(IrExpression value)
         => UnionValueReceiverText(value) ?? Operand(value);
 
+    /// <summary>The single-line form of a tuple relational-pattern switch expression, used when it is nested inside another expression.</summary>
+    string TupleSwitchExpressionInline(TupleSwitchExpression node, TypeRef? target = null)
+    {
+        var componentTypes = TupleSwitchComponentTypes(node);
+        return $"{TupleSwitchGoverningValueText(node)} switch {{ {string.Join(", ", node.Arms.Select(arm => TupleSwitchArmText(arm, componentTypes, target)))} }}";
+    }
+
+    string TupleSwitchGoverningValueText(TupleSwitchExpression node)
+        => $"({string.Join(", ", node.Components.Select(Operand))})";
+
+    /// <summary>The declared type of each governing component, so a subpattern anchor can be spelled in the component's type (e.g. a <c>char</c> literal, not a bare <c>int</c>).</summary>
+    static IReadOnlyList<TypeRef?> TupleSwitchComponentTypes(TupleSwitchExpression node)
+        => node.Components.Select(component => component.ResultType).ToList();
+
+    /// <summary>The text of one tuple switch arm: its positional pattern (or <c>_</c> for the default) and the value it yields.</summary>
+    string TupleSwitchArmText(TupleSwitchExpressionArm arm, IReadOnlyList<TypeRef?> componentTypes, TypeRef? target = null)
+        => $"{TupleSwitchArmLabelText(arm, componentTypes)} => {SwitchArmValueText(arm.Value, target)}";
+
+    static string TupleSwitchArmLabelText(TupleSwitchExpressionArm arm, IReadOnlyList<TypeRef?> componentTypes)
+    {
+        if (arm.IsDefault)
+            return "_";
+        var constants = arm.Constants;
+        return $"({string.Join(", ", arm.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i], componentTypes[i])))})";
+    }
+
     string InterpolatedStringText(InterpolatedStringExpression node)
     {
         var sb = new StringBuilder().Append("$\"");
@@ -342,12 +369,21 @@ public sealed partial class CSharpPrinter
 
     string NullConditionalSuffix(IrExpression member) => member switch
     {
-        LoadField field => $".{field.Field.Name}",
+        LoadField field => NullConditionalFieldSuffix(field.Field),
         LoadProperty property when property.IndexArguments.Count > 0 => $"[{Arguments(property.IndexArguments)}]",
-        LoadProperty property => $".{property.PropertyName}",
+        LoadProperty property => $".{CSharpNaming.EscapeIdentifier(property.PropertyName)}",
         Call call => NullConditionalCallSuffix(call),
         _ => $".{member.Describe()}",
     };
+
+    static string NullConditionalFieldSuffix(FieldRef field)
+    {
+        if (field.BackingPropertyName is { } property)
+            return $".{CSharpNaming.EscapeIdentifier(property)}";
+        if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
+            return $".{CSharpNaming.EscapeIdentifier(capture)}";
+        return $".{CSharpNaming.SafeIdentifier(field.Name)}";
+    }
 
     string NullConditionalCallSuffix(Call call)
     {

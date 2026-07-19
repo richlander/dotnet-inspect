@@ -17,6 +17,11 @@ public enum CSharpTypeShellKind
     Delegate,
 }
 
+public sealed record CSharpFixedBufferField(string ElementType, int Length)
+{
+    public string DeclarationSignature(string fieldName) => $"fixed {ElementType} {fieldName}[{Length}]";
+}
+
 /// <summary>
 /// A neutral, IR- and planner-free description of a type shell to compose into a
 /// <see cref="CSharpTypePrintRequest"/>. The consumer (for example the ReturnToSender
