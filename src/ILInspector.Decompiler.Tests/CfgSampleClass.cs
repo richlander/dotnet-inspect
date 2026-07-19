@@ -145,6 +145,31 @@ public class CfgSampleClass
 
     public static int ContextualKeywordParam(int @await) => @await + 1;
 
+    // Field metadata stores the bare keyword; reads, writes, and raised member
+    // suffixes must all restore the source escape.
+    public string? @else;
+
+    public static string? ReadKeywordField(CfgSampleClass value) => value.@else;
+
+    public static void WriteKeywordField(CfgSampleClass value, string? input) => value.@else = input;
+
+    public static string? ReadKeywordFieldNullConditional(CfgSampleClass? value) => value?.@else;
+
+    public static CfgSampleClass InitializeKeywordField(string? value)
+        => new() { @else = value };
+
+    public sealed record KeywordFieldRecord
+    {
+        public string? @else;
+        public string? @event { get; init; }
+    }
+
+    public static KeywordFieldRecord WithKeywordField(KeywordFieldRecord value, string? input)
+        => value with { @else = input };
+
+    public static KeywordFieldRecord WithKeywordProperty(KeywordFieldRecord value, string? input)
+        => value with { @event = input };
+
     public static int @return(int value) => value + 1;
 
     public static int CallsKeywordStaticMethod(int value) => @return(value);
@@ -1471,6 +1496,7 @@ public class CfgSampleClass
     {
         public int X { get; init; }
         public int Y { get; init; }
+        public int @else { get; init; }
     }
 
     public sealed class RecursivePatternSource
@@ -1530,6 +1556,8 @@ public class CfgSampleClass
     public static bool IsPatternMultiProperty(object o) => o is PatternPoint { X: 1, Y: 2 };
 
     public static bool IsPatternMultiPropertyMixed(object o) => o is PatternPoint { X: > 0, Y: 2 };
+
+    public static bool IsPatternKeywordProperty(object o) => o is PatternPoint { @else: 1 };
 
     public static bool PositionalPattern(PositionalPatternNode? node) => node is ("ok", > 0);
 
@@ -2419,6 +2447,7 @@ public class CfgSampleClass
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
 
     public static object AnonSingle(int a) => new { a };
+    public static object AnonKeyword(int value) => new { @int = value };
     public static object AnonMemberShorthand(InitTarget t) => new { t.X, t.Y };
     public static object AnonNested(int a, int b) => new { a, Inner = new { b } };
     public static object AnonDeepNested(int a, int b, int c) => new { Outer = new { a, Mid = new { b, c } } };
@@ -2433,6 +2462,7 @@ public class CfgSampleClass
     {
         public int X { get; set; }
         public int Y { get; set; }
+        public int @else { get; set; }
         public int Z;
     }
 
@@ -2440,6 +2470,7 @@ public class CfgSampleClass
     {
         public int Tag { get; set; }
         public InitTarget Inner { get; set; } = new();
+        public InitTarget @else { get; set; } = new();
         public System.Collections.Generic.List<int> Items { get; } = new();
     }
 
@@ -2452,6 +2483,12 @@ public class CfgSampleClass
 
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };
+
+    public static InitTarget InitializeKeywordProperty(int value)
+        => new InitTarget { @else = value };
+
+    public static InitContainer MakeNestedKeywordProperty(int value)
+        => new InitContainer { @else = { X = value } };
 
     public static InitContainer MakeNestedCollection(int a, int b)
         => new InitContainer { Items = { a, b } };

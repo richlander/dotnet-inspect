@@ -39,7 +39,7 @@ public sealed class AnonymousObjectPass : IIrPass
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in names)
         {
-            if (!CSharpNaming.IsUsableIdentifier(name))
+            if (!CSharpNaming.IsEscapableIdentifier(name))
                 return true;
             if (!seen.Add(name))
                 return true;

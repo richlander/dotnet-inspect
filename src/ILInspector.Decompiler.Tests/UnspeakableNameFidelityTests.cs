@@ -209,6 +209,9 @@ public class UnspeakableNameFidelityTests
         var function = Function(Boolean, [new Parameter("value", Target)], [Int32], Container(new Return(pattern)));
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("value is { bad-name: int V_0 }", output);
+        Assert.DoesNotContain("{ _bad_name:", output);
     }
 
     [Fact]

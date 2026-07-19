@@ -107,14 +107,8 @@ internal static class CSharpSpellability
     static NameIssue? FieldIssue(FieldRef field)
     {
         string name = field.BackingPropertyName ?? field.Name;
-        if (CSharpNaming.IsUsableIdentifier(name))
-            return null;
         if (CSharpNaming.IsEscapableIdentifier(name))
-        {
-            return Issue(
-                DecompilerFidelityDiscriminators.EscapableFieldName,
-                $"field name '{field.Name}' requires C# @ escaping");
-        }
+            return null;
         return Issue(
             GeneratedCodeIdentity.IsGeneratedFieldName(name)
                 ? DecompilerFidelityDiscriminators.GeneratedFieldName
@@ -169,11 +163,7 @@ internal static class CSharpSpellability
             if (!CSharpNaming.IsUsableIdentifier(member))
             {
                 if (CSharpNaming.IsEscapableIdentifier(member))
-                {
-                    return Issue(
-                        DecompilerFidelityDiscriminators.EscapableInitializerMemberName,
-                        $"initializer member name '{member}' requires C# @ escaping");
-                }
+                    continue;
                 return Issue(
                     IsGeneratedNameShape(member)
                         ? DecompilerFidelityDiscriminators.GeneratedInitializerMemberName
