@@ -9,10 +9,10 @@ public sealed class StackAllocInitializerPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var stackSlots = function.Descendants.OfType<StoreStackSlot>().GroupBy(s => s.Slot).ToDictionary(g => g.Key, g => g.ToList());
-        var localStores = function.Descendants.OfType<StoreLocal>().GroupBy(s => s.Index).ToDictionary(g => g.Key, g => g.ToList());
+        var stackSlots = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<StoreStackSlot>().GroupBy(s => s.Slot).ToDictionary(g => g.Key, g => g.ToList());
+        var localStores = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<StoreLocal>().GroupBy(s => s.Index).ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var copyBlock in function.Descendants.OfType<CopyBlock>().ToList())
+        foreach (var copyBlock in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<CopyBlock>().ToList())
         {
             if (copyBlock.Parent is not Block parentBlock) continue;
 
@@ -26,10 +26,10 @@ public sealed class StackAllocInitializerPass : IIrPass
 
             int allocIndex = storeDest.ChildIndex;
             int copyIndex = copyBlock.ChildIndex;
-            if (allocIndex >= copyIndex) continue;
+            if (allocIndex >= copyIndex || copyBlock.IsVolatile) continue;
 
             // Prove destination alias/use ownership
-            var usages = function.Descendants.OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot).ToList();
+            var usages = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).OfType<LoadStackSlot>().Where(l => l.Slot == loadDest.Slot).ToList();
             if (usages.Count != 2) continue; // One is the CopyBlock, the other is the actual usage.
 
             var finalUsage = usages.First(u => u != loadDest);
@@ -39,7 +39,7 @@ public sealed class StackAllocInitializerPass : IIrPass
                 continue; // Escaped or reordered destination
             }
 
-            if (copyBlock.Size is not Constant { Value: int copySize } || stackAlloc.Size is not Constant { Value: int allocSize } || copySize != allocSize)
+            if (copyBlock.Size is not Constant { Value: int copySize } cSize || cSize.Type is not TypeRef cSizeType || cSizeType.Kind != TypeRefKind.Definition || cSizeType.Assembly != TypeRef.CoreLibrary || cSizeType.Namespace != "System" || cSizeType.Name != "Int32" || stackAlloc.Size is not Constant { Value: int allocSize } aSize || aSize.Type is not TypeRef aSizeType || aSizeType.Kind != TypeRefKind.Definition || aSizeType.Assembly != TypeRef.CoreLibrary || aSizeType.Namespace != "System" || aSizeType.Name != "Int32" || copySize != allocSize)
             {
                 continue;
             }
@@ -52,7 +52,7 @@ public sealed class StackAllocInitializerPass : IIrPass
             {
                 if (IsTrustedSpanGetItem(callItem.Callee, out elementType, out expectedSourceType))
                 {
-                    if (callItem.Arguments.Count == 2 && callItem.Arguments[1] is Constant { Value: 0 } cIdx && cIdx.Type is TypeRef cIdxType && cIdxType.Assembly == TypeRef.CoreLibrary && cIdxType.Namespace == "System" && cIdxType.Name == "Int32")
+                    if (callItem.Arguments.Count == 2 && callItem.Arguments[1] is Constant { Value: 0 } cIdx && cIdx.Type is TypeRef cIdxType && cIdxType.Kind == TypeRefKind.Definition && cIdxType.Assembly == TypeRef.CoreLibrary && cIdxType.Namespace == "System" && cIdxType.Name == "Int32")
                         instance = callItem.Arguments[0];
                 }
                 else if (IsTrustedSpanGetPinnableReference(callItem.Callee, out elementType, out expectedSourceType))
@@ -70,7 +70,7 @@ public sealed class StackAllocInitializerPass : IIrPass
             {
                 if (IsTrustedSpanGetItem(loadProp.Accessor, out elementType, out expectedSourceType))
                 {
-                    if (loadProp.IndexArguments.Count == 1 && loadProp.IndexArguments[0] is Constant { Value: 0 } cIdx && cIdx.Type is TypeRef cIdxType && cIdxType.Assembly == TypeRef.CoreLibrary && cIdxType.Namespace == "System" && cIdxType.Name == "Int32")
+                    if (loadProp.IndexArguments.Count == 1 && loadProp.IndexArguments[0] is Constant { Value: 0 } cIdx && cIdx.Type is TypeRef cIdxType && cIdxType.Kind == TypeRefKind.Definition && cIdxType.Assembly == TypeRef.CoreLibrary && cIdxType.Namespace == "System" && cIdxType.Name == "Int32")
                         instance = loadProp.Instance;
                 }
             }
@@ -169,7 +169,7 @@ public sealed class StackAllocInitializerPass : IIrPass
                     if (ctor.DeclaringTypeIsTrustedPlatform == MetadataFactState.Yes
                         && ctor.HasThis
                         && ctor.Name == ".ctor"
-                        && ctor.ReturnType.Assembly == TypeRef.CoreLibrary && ctor.ReturnType.Name == "Void"
+                        && ctor.ReturnType.Kind == TypeRefKind.Definition && ctor.ReturnType.Assembly == TypeRef.CoreLibrary && ctor.ReturnType.Namespace == "System" && ctor.ReturnType.Name == "Void"
                         && ctor.DeclaringType.Kind == TypeRefKind.GenericInstance
                         && ctor.DeclaringType.TypeArguments.Length == 1
                         && ctor.TypeArguments.Length == 0)
@@ -187,18 +187,19 @@ public sealed class StackAllocInitializerPass : IIrPass
                                 && ctor.ParameterTypes[1].Name == "Int32"
                                 && ctor.ParameterRefKindsFacts == ParameterRefKindFacts.NotRequired && ctor.ParameterRefKinds.IsEmpty)
                             {
-                                if (no.Arguments.Count == 2 
-                                    && no.Arguments[0] is LoadStackSlot destSlot 
-                                    && destSlot.Slot == loadDest.Slot 
-                                    && destSlot.Type != null && destSlot.Type.Kind == TypeRefKind.Pointer 
-                                    && destSlot.Type.ElementType is TypeRef destElType 
-                                    && destElType.Assembly == TypeRef.CoreLibrary 
-                                    && destElType.Namespace == "System" 
+                                if (no.Arguments.Count == 2
+                                    && no.Arguments[0] is LoadStackSlot destSlot
+                                    && destSlot.Slot == loadDest.Slot
+                                    && destSlot.Type != null && destSlot.Type.Kind == TypeRefKind.Pointer
+                                    && destSlot.Type.ElementType is TypeRef destElType
+                                    && destElType.Assembly == TypeRef.CoreLibrary
+                                    && destElType.Namespace == "System"
                                     && destElType.Name == "Void"
-                                    && no.Arguments[1] is Constant { Value: int len } cLen 
-                                    && cLen.Type is TypeRef lenType 
-                                    && lenType.Assembly == TypeRef.CoreLibrary 
-                                    && lenType.Namespace == "System" 
+                                    && no.Arguments[1] is Constant { Value: int len } cLen
+                                    && cLen.Type is TypeRef lenType
+                                    && lenType.Kind == TypeRefKind.Definition
+                                    && lenType.Assembly == TypeRef.CoreLibrary
+                                    && lenType.Namespace == "System"
                                     && lenType.Name == "Int32"
                                     && len == copySize / (GetSizeOf(ctor.DeclaringType.TypeArguments[0]) ?? 1))
                                 {

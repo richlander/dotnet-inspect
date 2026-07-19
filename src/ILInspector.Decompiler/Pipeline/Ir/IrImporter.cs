@@ -1146,7 +1146,6 @@ public static class IrImporter
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
 
-
                     var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments) { ConstrainedTo = constrainedTo };
                     constrainedTo = null;
                     if (callee.ReturnType is { Name: "Void", Namespace: "System" })
@@ -2687,7 +2686,6 @@ sealed class FieldDataSizeProvider : ISignatureTypeProvider<int, object?>
     public int GetPinnedType(int elementType) => elementType;
     public int GetFunctionPointerType(MethodSignature<int> signature) => 0;
 }
-
 
 /// <summary>
 /// Signature type provider that strips modifiers and constructed-type wrappers and

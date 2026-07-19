@@ -120,7 +120,8 @@ public class LadderRung6GateTests
 
         Assert.All(newRules.Concat(legacy), member =>
         {
-            Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             Assert.Null(Completeness.Residual(member.Function));
             Assert.True(member.Result.Succeeded, $"{member.Name} did not print.");
         });
@@ -720,7 +721,8 @@ public class LadderRung6GateTests
     {
         var member = LoadRaisedMembers(assemblyPath, typeName)
             .Single(m => m.Name == "FixedStringFirstChar");
-        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
         Assert.Contains("fixed (char* ", member.Body);
         Assert.Contains(" = value)", member.Body);
         Assert.DoesNotContain("pinned", member.Body);
@@ -842,7 +844,8 @@ public class LadderRung6GateTests
         foreach (var name in new[] { "StackallocPointerInitializer", "StackallocSpanInitializer" })
         {
             var member = members.Single(m => m.Name == name);
-            Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             Assert.Contains("stackalloc int[] { 1, 2, 3 }", member.Body);
             Assert.DoesNotContain("CopyBlock", member.Body);
         }
@@ -873,7 +876,8 @@ public class LadderRung6GateTests
             else
             {
                 Assert.Contains("Unsafe.CopyBlock", member.Body);
-                Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+                foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             }
 
             string methodHeader = name switch

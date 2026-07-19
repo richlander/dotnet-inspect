@@ -77,7 +77,7 @@ public sealed class MetadataProvenanceTests
     {
         // A signed platform reference and an unsigned lookalike share the simple name.
         // The type binds to the UNSIGNED reference through a modopt-wrapped TypeSpecification.
-        // A simple-name token lookup would find the signed decoy (added first) and wrongly bless it; 
+        // A simple-name token lookup would find the signed decoy (added first) and wrongly bless it;
         // the exact-handle check must read the unsigned scope's (missing) token and decline.
         var image = BuildImage(
             out var spec,
@@ -131,7 +131,7 @@ public sealed class MetadataProvenanceTests
     {
         using var provider = MetadataReaderProvider.FromMetadataImage(image);
         var reader = provider.GetMetadataReader();
-        // Since IrImporter isn't a public static class with this method exposed directly, 
+        // Since IrImporter isn't a public static class with this method exposed directly,
         // we use IsTrustedPlatformMemberReference which delegates to the underlying provider.
         return IrImporter.IsTrustedPlatformMemberReference(reader, spec);
     }
