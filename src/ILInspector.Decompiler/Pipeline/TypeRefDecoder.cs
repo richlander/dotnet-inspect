@@ -104,7 +104,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 ns,
                 name,
                 HintFrom(rawTypeKind),
-                InlineArrayFact(reader, leaf));
+                InlineArrayFact(reader, leaf),
+                EnclosingTypeFrom(reader, chain, assembly, ns));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -165,6 +166,29 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
         }
         return name;
+    }
+
+    /// <summary>
+    /// The immediately-enclosing type for a nested type-definition chain
+    /// (<paramref name="chain"/>, root-to-leaf per
+    /// <see cref="MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain"/>),
+    /// built from the metadata nesting relationship the chain already proved —
+    /// never by parsing the leaf's <c>+</c>-joined <see cref="TypeRef.Name"/>.
+    /// Null when the leaf is not nested (a chain of length 1).
+    /// </summary>
+    static TypeRef? EnclosingTypeFrom(
+        MetadataReader reader,
+        ReadOnlySpan<TypeDefinitionHandle> chain,
+        string assembly,
+        string ns)
+    {
+        if (chain.Length <= 1)
+            return null;
+
+        var ancestors = chain[..^1];
+        string name = TypeDefinitionName(reader, ancestors);
+        var enclosing = EnclosingTypeFrom(reader, ancestors, assembly, ns);
+        return TypeRef.Definition(assembly, ns, name, enclosingType: enclosing);
     }
 
     static string TypeReferenceName(

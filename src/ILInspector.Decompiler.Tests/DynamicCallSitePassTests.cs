@@ -1452,15 +1452,13 @@ public class DynamicCallSitePassTests
     }
 
     [Fact]
-    public void NestedContext_LambdaDisplayClass_RemainsPartial()
+    public void NestedContext_LambdaDisplayClass_Raises()
     {
-        // Boundary (tracked): csc lowers the lambda body into a display-class
-        // method whose declaring type is the generated environment, while the
-        // GetMember context typeof is the authored enclosing type. No typed
-        // enclosing-authored-type fact exists to bridge them without parsing the
-        // display-class name (prohibited), so the exact context check declines
-        // and the site honestly stays explicit rather than raising via a fuzzy
-        // heuristic.
+        // csc lowers the lambda body into a display-class method whose
+        // declaring type is the generated environment, while the GetMember
+        // context typeof is the authored enclosing type. The declaring type's
+        // metadata-decoded EnclosingType chain (TypeRef.EnclosingType) bridges
+        // the two without parsing the display-class name, so the site raises.
         var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
         using var source = MetadataSource.Open(path);
         string? displayClassOutput = null;
@@ -1473,8 +1471,90 @@ public class DynamicCallSitePassTests
             }
         }
         Assert.NotNull(displayClassOutput);
-        Assert.Contains("Binder.GetMember", displayClassOutput);
-        Assert.DoesNotContain("(dynamic)", displayClassOutput);
+        Assert.Contains("((dynamic)value).Length", displayClassOutput);
+        Assert.DoesNotContain("Binder.GetMember", displayClassOutput);
+    }
+
+    [Fact]
+    public void NestedContext_IteratorStateMachine_Raises()
+    {
+        // csc lowers the iterator body into a MoveNext method whose declaring
+        // type is the generated state machine (matched by
+        // GeneratedCodeIdentity.IsIteratorStateMachineTypeName), while the
+        // GetMember context typeof is the authored enclosing type — the same
+        // EnclosingType bridge as the lambda display-class case, but through
+        // the state-machine predicate instead of the display-class predicate.
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        string? moveNextOutput = null;
+        foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName == "MoveNext" && typeName.Contains("InIterator"))
+            {
+                moveNextOutput = CSharpPrinter.PrintRaised(function, mr => IrImporter.Import(source, mr)).Output;
+                break;
+            }
+        }
+        Assert.NotNull(moveNextOutput);
+        Assert.Contains("((dynamic)value).Length", moveNextOutput);
+        Assert.DoesNotContain("Binder.GetMember", moveNextOutput);
+    }
+
+    /// <summary>Imports the InLambda display-class method, running every pass up to (not including) dynamic-callsite, so tests can mutate the tree before proving the pass's own decision.</summary>
+    static IrFunction LoadLambdaDisplayClassFunction()
+    {
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        IrFunction? found = null;
+        foreach (var (_, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName.Contains("InLambda") && methodName.Contains("b__"))
+            {
+                found = function;
+                break;
+            }
+        }
+        Assert.NotNull(found);
+
+        var context = new PassContext(new Stepper(enabled: false));
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass.Name == "dynamic-callsite")
+                break;
+            pass.Run(found!, context);
+        }
+        return found!;
+    }
+
+    [Fact]
+    public void NestedContext_MismatchedEnclosingType_Declines()
+    {
+        // The display-class method's own metadata evidence is real (name,
+        // attribute, EnclosingType), but the binder context typeof is neither
+        // the declaring type nor its true enclosing type — a spoofed/foreign
+        // context must decline rather than raise.
+        var f = LoadLambdaDisplayClassFunction();
+        var context = ContextDefStore(f);
+        context.Value.ReplaceWith(new TypeOf(ObjectType));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void NestedContext_MissingCompilerGeneratedEvidence_Declines()
+    {
+        // A hand-authored (or otherwise unverified) nested type that merely
+        // matches the "<>c__DisplayClass" name pattern must not benefit from
+        // the enclosing-type bridge without the declaring type's own
+        // [CompilerGenerated] attribute evidence — attribute evidence is
+        // required before generated-name patterns are trusted.
+        var f = LoadLambdaDisplayClassFunction();
+        var body = (BlockContainer)Detach(f.Children.Single());
+        var mutated = new IrFunction(f.Name, f.DeclaringType, f.Signature, f.Locals, body)
+        {
+            DeclaringTypeCompilerGenerated = MetadataFactState.No,
+            CompilerGenerated = f.CompilerGenerated,
+        };
+        Assert.False(RunPass(mutated));
     }
 
     [Fact]

@@ -138,12 +138,25 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public MetadataFactState DeclaredInlineArray =>
         Kind == TypeRefKind.GenericInstance ? ElementType?.InlineArray ?? MetadataFactState.Unknown : InlineArray;
 
+    /// <summary>
+    /// The immediately-enclosing type for a nested type definition, decoded from
+    /// the metadata nested-type relationship (<c>TypeDef.GetDeclaringType</c>)
+    /// — never parsed from <see cref="Name"/>'s <c>+</c>-joined spelling, which
+    /// cannot be trusted to identify a real type (docs/design/untrusted-data-threat-model.md).
+    /// Null for a non-nested definition and for every kind other than
+    /// <see cref="TypeRefKind.Definition"/>. Like <see cref="ValueTypeHint"/>,
+    /// this is provenance rather than identity and is intentionally excluded
+    /// from equality.
+    /// </summary>
+    public TypeRef? EnclosingType { get; private init; }
+
     public static TypeRef Definition(
         string assembly,
         string ns,
         string name,
         ValueTypeHint valueTypeHint = ValueTypeHint.Unknown,
-        MetadataFactState inlineArray = MetadataFactState.Unknown)
+        MetadataFactState inlineArray = MetadataFactState.Unknown,
+        TypeRef? enclosingType = null)
         => new(TypeRefKind.Definition)
         {
             Assembly = assembly,
@@ -151,6 +164,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             Name = name,
             ValueTypeHint = valueTypeHint,
             InlineArray = inlineArray,
+            EnclosingType = enclosingType,
         };
 
     /// <summary>
@@ -161,10 +175,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// returned unchanged.
     /// </summary>
     public TypeRef WithValueTypeHint(ValueTypeHint hint)
-        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, hint, InlineArray) : this;
+        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, hint, InlineArray, EnclosingType) : this;
 
     public TypeRef WithInlineArrayFact(MetadataFactState fact)
-        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, ValueTypeHint, fact) : this;
+        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, ValueTypeHint, fact, EnclosingType) : this;
 
     public static TypeRef CoreLib(string ns, string name)
         => Definition(CoreLibrary, ns, name);
@@ -306,6 +320,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
             ValueTypeHint = ValueTypeHint,
             InlineArray = InlineArray,
+            EnclosingType = EnclosingType,
             CustomModifiers = customModifiers ?? CustomModifiers,
         };
 

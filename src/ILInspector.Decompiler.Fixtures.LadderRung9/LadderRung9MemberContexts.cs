@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace LadderRung9;
 
@@ -47,7 +48,17 @@ public class DynamicMemberContexts
         return Get();
     }
 
+    // Iterator state-machine body: csc lowers this to a MoveNext method whose
+    // declaring type is the generated iterator state machine, while the
+    // GetMember context remains the authored enclosing type (same bridge as
+    // InLambda, but through the iterator predicate).
+    public IEnumerable<object> InIterator(dynamic value)
+    {
+        yield return value.Length;
+    }
+
     static object Identity(object value) => value;
 
     public object Last => _last;
 }
+
