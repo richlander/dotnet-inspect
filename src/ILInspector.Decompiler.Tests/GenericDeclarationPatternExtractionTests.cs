@@ -4,17 +4,22 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Coverage for #2831: csc's unconstrained/struct-constrained generic
+/// Coverage for #2831/#2862: csc's unconstrained/struct-constrained generic
 /// declaration-pattern extraction (<c>if (Subject is T t)</c>) cannot store the
 /// <c>isinst</c> result through an <c>as T</c> local, so it re-tests the value
 /// inline — <c>UnboxAny T(IsInstance T(...))</c> — instead of the usual
 /// <c>StoreLocal(IsInstance) + null-test</c> shape <c>IsPatternPass</c>
-/// already recovers. <c>CSharpPrinter.UnboxAnyOperand</c> must recognize
-/// the exact same-target test/extract relationship and bridge it through the
-/// same <c>(object)</c> intermediary the box+unbox.any generic-math idiom uses,
+/// already recovers.
+///
+/// <para>#2862 raises the structured, provable shape back to a declaration-pattern
+/// binding: <c>IsPatternPass</c> mints the pattern local and inlines the
+/// lowering-only subject temp, recovering <c>if (Subject is T t)</c>. When the
+/// guard is negated/flat (e.g. <c>is not T</c> feeding a <c>goto</c>), no legal
+/// binding exists, so <c>CSharpPrinter.UnboxAnyOperand</c>'s <c>(object)</c>
+/// bridge (the box+unbox.any generic-math intermediary) remains the fallback,
 /// rather than routing the nested test through the general <c>is</c>/<c>as</c>
 /// expression rule (invalid for a non-class-constrained <c>T</c> either way —
-/// CS0030 for <c>is</c>, CS0413 for <c>as</c>).
+/// CS0030 for <c>is</c>, CS0413 for <c>as</c>).</para>
 /// </summary>
 public class GenericDeclarationPatternExtractionTests
 {
@@ -28,25 +33,70 @@ public class GenericDeclarationPatternExtractionTests
         return CSharpPrinter.Print(function!).Output!;
     }
 
+    // #2862 slice 1+2: a structured `if (Subject is T t)` whose extractions are
+    // all proven by #2856's boundary is raised back to a declaration-pattern
+    // binding, and the lowering-only subject temp is inlined, recovering the
+    // original source rather than exposing csc's re-test/unbox lowering.
     [Fact]
-    public void UnconstrainedDeclarationPattern_BridgesExtractionThroughObject()
+    public void UnconstrainedDeclarationPattern_RaisesToDeclarationBinding()
     {
         var output = Print(
             typeof(GenericDeclarationPatternSpecimens<,>),
             nameof(GenericDeclarationPatternSpecimens<object, object>.Unconstrained));
 
-        AssertBridgedLocal(output, negatedGuard: false);
-        Assert.DoesNotContain("as T", output);
+        AssertRaisedBinding(output);
     }
 
     [Fact]
-    public void StructConstrainedDeclarationPattern_BridgesExtractionThroughObject()
+    public void StructConstrainedDeclarationPattern_RaisesToDeclarationBinding()
     {
         var output = Print(
             typeof(GenericDeclarationPatternSpecimensStruct<,>),
             nameof(GenericDeclarationPatternSpecimensStruct<int, object>.StructConstrained));
 
-        AssertBridgedLocal(output, negatedGuard: false);
+        AssertRaisedBinding(output);
+    }
+
+    // #2872: when the binding is read more than once csc caches the single
+    // extraction in a real, source-named local; the pattern binds that local
+    // directly (recovering its name) with no redundant copy and no `(object)`
+    // bridge left behind.
+    [Fact]
+    public void MultipleUsesDeclarationPattern_RaisesBinding()
+    {
+        var output = Print(
+            typeof(GenericDeclarationPatternSpecimens<,>),
+            nameof(GenericDeclarationPatternSpecimens<object, object>.MultipleUses));
+
+        Assert.Matches(@"if \(Subject is T t\)", output);
+        Assert.Equal(2, Regex.Matches(output, @"Console\.WriteLine\(t\)").Count);
+        // No redundant `t = V_N;` copy and no stray up-front declaration of the
+        // cache local — the pattern binding owns it.
+        Assert.DoesNotMatch(@"t = V_\d+", output);
+        Assert.DoesNotMatch(@"(?m)^\s*T t;\s*$", output);
+        Assert.DoesNotContain("(object)", output);
+        Assert.DoesNotContain("as T", output);
+    }
+
+    // #2862 slice-2 boundary: the subject cache is reused after the guard, so the
+    // binding is raised but the lowering-only subject temp must be retained (not
+    // inlined into the pattern).
+    [Fact]
+    public void ReusedSubjectDeclarationPattern_RaisesBindingButRetainsTemp()
+    {
+        var output = Print(
+            typeof(SubjectReusedDeclarationPatternSpecimens<,>),
+            nameof(SubjectReusedDeclarationPatternSpecimens<object, object>.ReusedSubject));
+
+        var match = Regex.Match(output, @"if \((\w+) is T (V_\d+)\)");
+        Assert.True(match.Success, output);
+        var subject = match.Groups[1].Value;
+        // The subject temp survives (assigned once, read by the pattern and the
+        // trailing use) rather than being inlined.
+        Assert.Contains($"{subject} = Subject;", output);
+        Assert.Contains($"Console.WriteLine({subject})", output);
+        Assert.Contains($"Console.WriteLine({match.Groups[2].Value})", output);
+        Assert.DoesNotContain("(object)", output);
         Assert.DoesNotContain("as T", output);
     }
 
@@ -338,7 +388,304 @@ public class GenericDeclarationPatternExtractionTests
         Assert.DoesNotContain("as T", output);
     }
 
-    // Synthetic (#2831 proof-boundary, flat-guard positive): the
+    // Synthetic (#2862 pass-level positive): a provable single-guard extraction,
+    // run through the full pipeline, is raised by IsPatternPass to a
+    // declaration-pattern binding rather than left on the printer's bridge.
+    [Fact]
+    public void ProvenGuard_RaisesThroughPipeline()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var then = new Block();
+        then.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+        var outer = new Block();
+        outer.Add(new IfStatement(new IsInstance(generic, ReadLocal()), then, null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"V_0 is T V_\d+", output);
+        Assert.DoesNotContain("(object)", output);
+        Assert.DoesNotContain("as T", output);
+    }
+
+    // Synthetic (#2862 pass-level negative): a write to the tested local between
+    // the guard and the extraction breaks the "same unmutated value" invariant,
+    // so IsPatternPass must not raise a binding (one bound value cannot faithfully
+    // stand in for a re-read that may have changed); the bridge is retained.
+    [Fact]
+    public void InterveningWrite_DoesNotRaiseThroughPipeline()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var generic = TypeRef.GenericParameter(0, "T");
+        IrExpression ReadLocal() => new LoadLocal(0, objectType);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, objectType, new Constant(null, objectType)));
+        then.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, ReadLocal())))));
+        var outer = new Block();
+        outer.Add(new IfStatement(new IsInstance(generic, ReadLocal()), then, null));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [objectType],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        // The guard is left as a bare type test with no binding: the pass must
+        // not mint a pattern local when the tested value may have changed.
+        Assert.Contains("if (V_0 is T)", output);
+        Assert.DoesNotMatch(@"is T V_\d+", output);
+    }
+
+    // Synthetic (#2862 cross-guard soundness): an outer guard tests the value,
+    // then the tested local is REASSIGNED, then an inner guard re-tests and an
+    // extraction reads the post-write value. The extraction is proven only by
+    // the inner guard. The outer guard must NOT be raised to bind the pre-write
+    // value and steal the inner extraction (that would return the stale value);
+    // only a guard with no intervening write to the site may bind it.
+    [Fact]
+    public void CrossGuardInterveningWrite_DoesNotRaiseStaleOuterBinding()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        IrExpression ReadLocal() => new LoadLocal(0, generic);
+        IrExpression TestLocal() => new IsInstance(generic, new Box(generic, ReadLocal()));
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, new Box(generic, ReadLocal()))))));
+        var outerThen = new Block();
+        outerThen.Add(new StoreLocal(0, generic, new LoadArgument(0, "newValue", generic)));
+        outerThen.Add(new IfStatement(TestLocal(), innerThen, null));
+        var outer = new Block();
+        outer.Add(new IfStatement(TestLocal(), outerThen, null));
+        outer.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(outer);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("newValue", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        // The outer guard (before the `V_0 = newValue` write) must not bind a local
+        // that is then returned across the write; that would return the stale value.
+        Assert.DoesNotMatch(
+            new Regex(@"is T (V_\d+)\).*V_0 = newValue.*return \1", RegexOptions.Singleline),
+            output);
+    }
+
+    // Synthetic (#2862 nested-scope soundness, Gemini review): a provable generic
+    // declaration-pattern guard inside a nested lambda must NOT be raised. The
+    // pattern local is minted on the ROOT function, but the printer scopes the
+    // lambda with its own (smaller) local pool — a root-allocated index would
+    // dangle and crash LocalName. The guard must stay on the #2856 object-bridge.
+    [Fact]
+    public void GuardInsideNestedLambda_IsNotRaised_AndDoesNotCrash()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var funcType = TypeRef.Definition("System.Private.CoreLib", "System", "Func`1");
+        IrExpression Test() => new IsInstance(generic, new Box(generic, new LoadLocal(0, generic)));
+
+        var lambdaThen = new Block();
+        lambdaThen.Add(new Return(new Box(
+            generic,
+            new UnboxAny(generic, new IsInstance(generic, new Box(generic, new LoadLocal(0, generic)))))));
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new IfStatement(Test(), lambdaThen, null));
+        lambdaBlock.Add(new Return(new Constant(null, objectType)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(funcType, [], [generic], [null], false, false, lambdaBody);
+
+        var block = new Block();
+        block.Add(new StoreLocal(0, funcType, lambda));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [], HasThis: false, GenericParameterCount: 1),
+            [generic],
+            body);
+
+        // Must not throw (a dangling root-scoped pattern local would crash the
+        // lambda's independent printer scope) and must leave the guard bridged.
+        var output = RunPipelineAndPrint(function);
+
+        Assert.DoesNotMatch(@"is T V_\d+", output);
+    }
+
+    // Synthetic (#2872 gate): the cache local is read AFTER the guard, so binding
+    // it in the pattern (which scopes it to the guarded arm) would leave the
+    // trailing read referencing an out-of-scope variable. The copy must survive.
+    [Fact]
+    public void CacheReadAfterGuard_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new Return(new Box(generic, new LoadLocal(0, generic))));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Box(generic, new LoadLocal(0, generic))));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        // The pattern keeps its synthesized binding and the local-to-local copy
+        // survives, because the cache local escapes the guarded arm.
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+
+    // Synthetic (#2872 gate): the cache local is assigned twice inside the guarded
+    // arm, so it is not a single-assignment temp; re-pointing the pattern to it
+    // would drop the second assignment's value. The copy must survive.
+    [Fact]
+    public void CacheAssignedTwice_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(0, generic, new LoadArgument(0, "other", generic)));
+        then.Add(new Return(new Box(generic, new LoadLocal(0, generic))));
+        var block = new Block();
+        block.Add(new IfStatement(
+            new IsPattern(new LoadArgument(0, "other", generic), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("other", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+
+    // Synthetic (#2872 gate, Issue 1 re-review): the cache local's address is
+    // forwarded through a by-ref-returning receiver call — `p = ref c.Ref()` —
+    // and stored into a ref local that outlives the arm. The `LoadLocalAddress`
+    // sits directly under the `Call`, so a gate that only inspects the address's
+    // direct parent (Store/Return) would miss the escape and fold. The pointer
+    // still escapes once the binding narrows to the pattern's scope, so the fold
+    // must be rejected and the copy must survive. This exercises the
+    // in-place-receiver allow-list's non-by-ref-result clause: a by-ref-returning
+    // receiver call is not an in-place consumer.
+    [Fact]
+    public void CacheAddressForwardedThroughByRefReturningCall_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var byRef = TypeRef.ByRef(generic);
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        // A by-ref-returning instance method on the cache local; the returned
+        // reference forwards the receiver's address to the caller.
+        var refReturn = new MethodRef(generic, "Ref", byRef, [], HasThis: true);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(2, byRef,
+            new Call(refReturn, isVirtual: false, [new LoadLocalAddress(0, generic)])));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic, byRef],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+    // captured into a ref local (`ref T p = ref c;`) that outlives the guarded
+    // arm. The address load sits inside the arm, so confinement alone is
+    // satisfied, but re-pointing the binding narrows `c` to the pattern's scope
+    // and leaves the escaped reference dangling. The copy must survive.
+    [Fact]
+    public void CacheAddressCapturedToRefLocal_DoesNotBindToCacheLocal()
+    {
+        var generic = TypeRef.GenericParameter(0, "T");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var byRef = TypeRef.ByRef(generic);
+        IrExpression Subject() => new LoadArgument(0, "subject", generic);
+
+        var then = new Block();
+        then.Add(new StoreLocal(0, generic, new LoadLocal(1, generic)));
+        then.Add(new StoreLocal(2, byRef, new LoadLocalAddress(0, generic)));
+        var block = new Block();
+        block.Add(new IfStatement(new IsPattern(Subject(), generic, 1), then, null));
+        block.Add(new Return(new Constant(null, objectType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(objectType, [new Parameter("subject", generic)], HasThis: false, GenericParameterCount: 1),
+            [generic, generic, byRef],
+            body);
+
+        var output = RunPipelineAndPrint(function);
+
+        Assert.Matches(@"is T V_\d+", output);
+        Assert.Matches(@"\bV_\d+ = V_\d+;", output);
+    }
+
+    static string RunPipelineAndPrint(IrFunction function)
+    {
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        return CSharpPrinter.Print(function).Output!;
+    }
     // "jump-target-is-the-success-path" polarity — `if (x is T) goto Success;`
     // — that IsProvenByFlatGuard's non-negated case handles, exercised directly
     // since it does not arise in any compiled fixture in this file. A single
@@ -691,6 +1038,19 @@ public class GenericDeclarationPatternExtractionTests
         Assert.True(guardedLocal.Success, output);
         Assert.Contains($"(T)(object)({guardedLocal.Groups[1].Value})", output);
     }
+
+    // #2862: a raised generic declaration pattern binds a local in the guard and
+    // uses only that binding in the guarded body, with the subject inlined (no
+    // `(object)` bridge, no `as T`, no lowering-only subject temp store).
+    static void AssertRaisedBinding(string output)
+    {
+        var match = Regex.Match(output, @"if \(Subject is T (V_\d+)\)");
+        Assert.True(match.Success, output);
+        Assert.Contains($"Console.WriteLine({match.Groups[1].Value})", output);
+        Assert.DoesNotContain("(object)", output);
+        Assert.DoesNotContain("as T", output);
+        Assert.DoesNotContain("= Subject;", output);
+    }
 }
 
 public class GenericDeclarationPatternSpecimens<T, TSubject>
@@ -705,6 +1065,38 @@ public class GenericDeclarationPatternSpecimens<T, TSubject>
         {
             System.Console.WriteLine(t);
         }
+    }
+
+    // #2862 robustness: the binding is read at two dominated sites; csc re-tests
+    // and unboxes at each, so both extractions must collapse onto one raised
+    // pattern local.
+    public void MultipleUses()
+    {
+        if (Subject is T t)
+        {
+            System.Console.WriteLine(t);
+            System.Console.WriteLine(t);
+        }
+    }
+}
+
+// #2862 slice-2 boundary: the subject cache is read again after the guard, so
+// the lowering-only temp cannot be inlined into the pattern (it is not
+// single-use). The binding is still raised, but the `TSubject V = Subject;`
+// store must survive.
+public class SubjectReusedDeclarationPatternSpecimens<T, TSubject>
+{
+    public TSubject Subject { get; set; } = default!;
+
+    public void ReusedSubject()
+    {
+        TSubject subject = Subject;
+        if (subject is T t)
+        {
+            System.Console.WriteLine(t);
+        }
+
+        System.Console.WriteLine(subject);
     }
 }
 

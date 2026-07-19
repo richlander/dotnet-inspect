@@ -1,4 +1,4 @@
-# Member Body Substrate
+# Member body substrate
 
 How the product renders a type and its member bodies through **one producer
 contract** repeated at each layer, so that skeleton source, full source, the
@@ -78,8 +78,8 @@ absent from the surface: `Metadata` and `CSharp` reach neither `ControlFlow` nor
 `Instructions`, which is exactly what lets the surface scenarios (signatures,
 shells) avoid the decode graph — the property this note's payoff rests on.
 
-`ControlFlow` is the one leaf drawn above, because *where* it is consumed is
-load-bearing for that payoff (decode/body side only). The other two leaves are
+`ControlFlow` is the one leaf drawn above because consuming it only on the
+decode/body side is what delivers that payoff. The other two leaves are
 pervasive and carry no layering argument, so their edges are omitted:
 `MetadataPrimitives` (low SRM helpers) is consumed by `Metadata`, `Instructions`,
 and `CSharp.Decompiler`; `Findings` (the shared finding/diagnostic type) is

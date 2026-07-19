@@ -98,6 +98,20 @@ public class DecompilerFindingsTests
     }
 
     [Fact]
+    public void Inspect_ProvenProtectedForContinue_HasNoResidualCause()
+    {
+        var function = Function(
+            new Continue(ContinueOrigin.ProtectedRegionLeaveToForIncrement),
+            blockOffset: 0x20);
+
+        var inspection = CompleteInspection(
+            DecompilerFindings.InspectFidelityCauses(function, Subject));
+
+        Assert.Empty(inspection.Findings);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Fact]
     public void Inspect_CauseInSyntheticBlock_HasUnknownLocation()
     {
         var function = Function(new Continue(), blockOffset: -10);

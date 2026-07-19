@@ -53,6 +53,40 @@ public static class IteratorSamples
         }
     }
 
+    public static IEnumerable<int> SwitchYield(int k)
+    {
+        switch (k)
+        {
+            case 0:
+                yield return 10;
+                break;
+            case 1:
+                yield return 20;
+                yield return 21;
+                break;
+            default:
+                yield return 99;
+                break;
+        }
+
+        yield return 100;
+    }
+
+    public static IEnumerable<int> WhileTrueYieldBreak(int n)
+    {
+        int i = 0;
+        while (true)
+        {
+            if (i >= n)
+            {
+                yield break;
+            }
+
+            yield return i;
+            i++;
+        }
+    }
+
     public static IEnumerable<int> NestedLoops()
     {
         for (int i = 0; i < 2; i++)

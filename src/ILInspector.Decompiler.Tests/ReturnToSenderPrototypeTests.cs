@@ -234,6 +234,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackFirstPropertyGetter_KeepsStaticOnExplicitInterfaceProperty()
+    {
+        // #2875: a C# 11 static-abstract interface member implemented explicitly must keep
+        // `static` (while omitting the access modifier). Dropping `static` reconstructs an
+        // instance member and fails the interface contract (CS0106/CS0539).
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitStaticFixture : ICounter
+            {
+                static int ICounter.Count => 7;
+            }
+
+            public interface ICounter
+            {
+                static abstract int Count { get; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticFixture",
+                    "ICounter.get_Count",
+                    0)]));
+
+            Assert.Contains("static int ICounter.Count", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public int ICounter.Count", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public static int ICounter.Count", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
     {
         var assemblyPath = CompileFixture("""
@@ -363,6 +399,38 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("System", result.Plan.Module.Usings);
             Assert.Empty(result.Plan.Module.AssemblyAttributes);
             Assert.Empty(result.Plan.Module.ModuleAttributes);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackFirstPropertyGetter_DeduplicatesSystemUsing_WhenBodyAlreadyReferencesSystem()
+    {
+        // Issue #2848: the module Usings list unconditionally prepended "System" to
+        // MemberBodyFacts.ReferencedNamespaces(function). A body that already
+        // references a System-namespace type (Guid, here) produced two "System"
+        // entries in the generated using list.
+        var assemblyPath = CompileFixture("""
+            namespace Fixtures;
+
+            public class Class1
+            {
+                public string Method1 => System.Guid.NewGuid().ToString();
+            }
+            """);
+        try
+        {
+            var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Equal(1, result.Plan.Module.Usings.Count(name => name == "System"));
+            Assert.DoesNotContain("using System;\r\nusing System;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("using System;\nusing System;", result.Source, StringComparison.Ordinal);
         }
         finally
         {
@@ -4773,6 +4841,130 @@ public class ReturnToSenderPrototypeTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("public static unsafe int* GetPointer()", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotDuplicateSelfRecursiveTargetMethodDuringClosureSurface()
+    {
+        // Guard for the rts-parity burndown row TypeResolver::GetTypeNameFromReference:
+        // a target method that calls itself recursively must not also be reconstructed
+        // as a hollow `throw null` closure stub (the self-reference resolves to the
+        // target method's own handle). Emitting both the body-backed method and a
+        // same-signature stub produced CS0111 (duplicate member) and forced the
+        // compile-back floor. A referenced sibling (Combine) must still be stubbed.
+        var assemblyPath = CompileFixture("""
+            public static class Class1
+            {
+                public static string Describe(int depth, string name)
+                {
+                    if (depth > 0)
+                        return Describe(depth - 1, name);
+                    return Combine(name, name);
+                }
+
+                public static string Combine(string left, string right) => left + right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Class1", "Describe", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            // The recursive target keeps exactly one declaration (body-backed, not a
+            // hollow stub); the referenced sibling is the only `throw null` member.
+            Assert.Equal(1, result.Source.Split("string Describe(").Length - 1);
+            Assert.DoesNotContain("string Describe(int depth, string name) { throw null; }", result.Source);
+            Assert.Contains("public static string Combine(string left, string right) { throw null; }", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PopulatesEnumMembersWhenTargetReferencesThemByName()
+    {
+        // A target method that returns a nested enum and references several of its
+        // members by name forces the enum to be reconstructed as a closure supporting
+        // type. A member-less `enum { }` shell cannot bind those references (CS0117)
+        // and drops the row to the compile-back floor; the reconstructed enum surface
+        // must carry its named members with their constant values.
+        var assemblyPath = CompileFixture("""
+            public class Host
+            {
+                public enum Kind { Unknown, First, Second }
+
+                public static Kind Classify(int value)
+                {
+                    if (value == 1)
+                        return Kind.First;
+                    if (value == 2)
+                        return Kind.Second;
+                    return Kind.Unknown;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Host", "Classify", 0)]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.NotNull(result.Source);
+            Assert.Contains("enum Kind", result.Source);
+            Assert.Contains("Unknown = 0", result.Source);
+            Assert.Contains("First = 1", result.Source);
+            Assert.Contains("Second = 2", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsNonIntEnumUnderlyingTypeForMemberValues()
+    {
+        // A reconstructed enum that names members whose constant values do not fit
+        // `int` (long/ulong/uint, negative, or byte-backed) must reproduce the enum's
+        // underlying type. Otherwise the shell defaults to `int` and the emitted
+        // members fail to bind (CS0266), dropping the row to the compile-back floor.
+        var assemblyPath = CompileFixture("""
+            public class Host
+            {
+                public enum ELong : long { A = 0, B = 2147483648L, C = -1L }
+                public enum EULong : ulong { None = 0, All = 18446744073709551615UL }
+                public enum EUInt : uint { Z = 0, Top = 2147483648 }
+                public enum EByte : byte { Lo = 0, Hi = 255 }
+
+                public static ELong GetL(long v) => v == 0 ? ELong.A : (v == 1 ? ELong.B : ELong.C);
+                public static EULong GetUL(int v) => v == 0 ? EULong.None : EULong.All;
+                public static EUInt GetUI(int v) => v == 0 ? EUInt.Z : EUInt.Top;
+                public static EByte GetB(int v) => v == 0 ? EByte.Lo : EByte.Hi;
+            }
+            """);
+        try
+        {
+            foreach (var method in new[] { "GetL", "GetUL", "GetUI", "GetB" })
+            {
+                var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("Host", method, 0)]));
+
+                Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+                Assert.False(result.UsedCompileBackFloor, $"{method}: {result.Detail}");
+            }
         }
         finally
         {

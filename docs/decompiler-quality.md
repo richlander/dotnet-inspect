@@ -1,4 +1,4 @@
-# Decompiler Quality
+# Decompiler quality
 
 How `ILInspector.Decompiler` stays correct, and how it stays correct as the
 raising passes evolve. The companion docs split the concern: [decompiler.md](decompiler.md)
@@ -421,7 +421,9 @@ touches the same hotspots as raise work (`LoweringCoverage`, `IrPasses`,
 `CfgSampleClass`, the sidecar fact providers, and the scorecard), so two rows
 sharing a tree will collide. A per-row worktree keeps each review isolated,
 lets reviews proceed in parallel, and makes the upstream sync in the pass loop
-below clean. Tear the worktree down once the row's PR merges.
+below clean. Tear the development and review worktrees down as soon as both
+fixed-head reviews are clean. If later work is needed, recreate a worktree for
+the branch.
 
 #### Useful tool patterns
 
@@ -888,9 +890,8 @@ the product emits:
   drills into the per-pass IR of a single method to find which pass introduced
   the divergence; `--steps` / `--step-limit` narrows to a single rewrite.
 
-The connection is load-bearing: the final stage `--dump` shows is byte-identical
-to what `--fidelity-check` grades, so there is no drift between what you inspect
-and what is measured.
+The final stage `--dump` shows is byte-identical to what `--fidelity-check`
+grades, so what you inspect and what is measured cannot drift.
 
 Two gotchas that save head-scratching when diagnosing:
 
