@@ -77,10 +77,20 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
             if (!TryRecoverArmDefaults(function, ifs.Then, thenStore.Store, rhs))
                 continue;
 
-            var patternLocals = ifs.Condition.Descendants.Prepend(ifs.Condition)
+            var patterns = ifs.Condition.Descendants.Prepend(ifs.Condition)
                 .OfType<IsPattern>()
-                .Select(pattern => pattern.LocalIndex)
+                .Where(pattern => !ReferenceOwnership.IsInsideNestedFunctionBody(pattern))
                 .ToList();
+
+            // A bound pattern local is definitely assigned in the `&&` right
+            // operand only when the condition being true implies the pattern
+            // matched — i.e. the pattern sits on a pure `&&` spine. Under `||`
+            // or `!` the condition can be true without the pattern matching, so
+            // the local would be read unassigned (CS0165).
+            if (patterns.Any(pattern => !PatternRequiredForConditionTrue(pattern, ifs.Condition)))
+                continue;
+
+            var patternLocals = patterns.Select(pattern => pattern.LocalIndex).ToList();
 
             // Every pattern local must be confined to this `if`; after the fold
             // it is definitely assigned only inside the `&&` right operand, so a
@@ -123,18 +133,28 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
             if (statement is not InitObject init || init.Address is not LoadLocalAddress { Index: var index })
                 return false;
 
-            // The local must belong to this arm only.
+            // The local must belong to this arm only. Nested lambda /
+            // local-function bodies carry their own local index space, so a
+            // same-index reference inside one is a different variable and must
+            // not be consulted (the per-body-scope rule).
             if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, index, [thenArm]))
                 return false;
-            if (function.Descendants.OfType<StoreLocal>().Any(store => store.Index == index))
+            if (function.Descendants.OfType<StoreLocal>()
+                    .Any(store => store.Index == index && !ReferenceOwnership.IsInsideNestedFunctionBody(store)))
+            {
                 return false;
+            }
             if (function.Descendants.OfType<LoadLocalAddress>()
-                    .Any(address => address.Index == index && !ReferenceEquals(address, init.Address)))
+                    .Any(address => address.Index == index
+                        && !ReferenceEquals(address, init.Address)
+                        && !ReferenceOwnership.IsInsideNestedFunctionBody(address)))
             {
                 return false;
             }
 
-            var loads = rhs.Descendants.Prepend(rhs).OfType<LoadLocal>().Where(load => load.Index == index).ToList();
+            var loads = rhs.Descendants.Prepend(rhs).OfType<LoadLocal>()
+                .Where(load => load.Index == index && !ReferenceOwnership.IsInsideNestedFunctionBody(load))
+                .ToList();
             if (loads.Count != 1)
                 return false;
 
@@ -147,6 +167,23 @@ public sealed class PatternGuardedShortCircuitPass : IIrPass
             init.Detach();
         }
 
+        return true;
+    }
+
+    // Whether the pattern's success is necessary for the condition to evaluate
+    // true: every logical ancestor from the pattern up to the condition root is
+    // `&&` (And). An `||` (Or) or `!` (Not) ancestor means the condition can be
+    // true without the pattern matching, so the bound local is not definitely
+    // assigned in the `&&` right operand the fold would build.
+    static bool PatternRequiredForConditionTrue(IsPattern pattern, IrExpression condition)
+    {
+        for (IrNode current = pattern; !ReferenceEquals(current, condition); current = current.Parent!)
+        {
+            if (current.Parent is null)
+                return false;
+            if (current.Parent is LogicalBinary { Kind: LogicalKind.Or } or LogicalNot)
+                return false;
+        }
         return true;
     }
 
