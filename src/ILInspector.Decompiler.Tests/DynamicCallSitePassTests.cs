@@ -815,4 +815,240 @@ public class DynamicCallSitePassTests
         cacheArg.ReplaceWith(new LoadField(otherField, null));
         Assert.False(RunPass(f));
     }
+
+    // ======================================================================
+    // Lazy-init guard opposite arm (blocker #1)
+    // ======================================================================
+
+    [Fact]
+    public void OppositeArmNotEmpty_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var oldIf = CacheIf(f);
+
+        // Rebuild the guard as `if (!cache) { setup } else { <extra work> }`.
+        // Deleting the guard would drop the non-empty opposite arm, so the pass
+        // must decline rather than silently discarding real statements.
+        var condition = oldIf.Condition;
+        var setupArm = oldIf.Then;
+        condition.Detach();
+        setupArm.Detach();
+
+        var elseArm = new Block();
+        elseArm.Add(new StoreLocal(101, Int32Type, new Constant(0, Int32Type)));
+        oldIf.ReplaceWith(new IfStatement(condition, setupArm, elseArm));
+
+        Assert.False(RunPass(f));
+    }
+
+    // ======================================================================
+    // Canonical setup statement order (blocker #2)
+    // ======================================================================
+
+    static void ReorderThen(IrFunction f, params int[] order)
+    {
+        var then = ThenBlock(f);
+        var original = then.Children.ToList();
+        var reordered = order.Select(i => original[i]).ToList();
+        foreach (var c in original)
+            c.Detach();
+        foreach (var c in reordered)
+            then.Add(c);
+    }
+
+    [Fact]
+    public void SetupArrayContextSwapped_Declines()
+    {
+        // Canonical order is [array, context, element, cache]; swap the array
+        // and context definitions so statement[0] is no longer the NewArray def.
+        var f = LoadCanonicalFunction();
+        ReorderThen(f, 1, 0, 2, 3);
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void SetupElementBeforeContext_Declines()
+    {
+        // Move the element store ahead of the context definition so statement[1]
+        // is no longer a context definition.
+        var f = LoadCanonicalFunction();
+        ReorderThen(f, 0, 2, 1, 3);
+        Assert.False(RunPass(f));
+    }
+
+    // ======================================================================
+    // Address-of escapes (blocker #3)
+    // ======================================================================
+
+    [Fact]
+    public void CacheFieldAddressTaken_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var cacheField = GuardLoad(f).Field;
+        // An extra by-ref use of the cache field (its address) aliases it out of
+        // the proven load set, so the cache-field confinement check rejects it.
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadFieldAddress(cacheField, null));
+        Assert.False(RunPass(f));
+    }
+
+    /// <summary>
+    /// Rewrites the context definition (and its single binder use) from a stack
+    /// slot to a local, exercising the pass's local-storage acceptance so the
+    /// local-address escape guard can be isolated.
+    /// </summary>
+    static (int Index, TypeRef Type) ConvertContextToLocal(IrFunction f)
+    {
+        var store = ContextDefStore(f);
+        var typeType = TypeRef.CoreLib("System", "Type");
+        const int localIndex = 200;
+
+        var typeOf = Detach(store.Value);
+        store.ReplaceWith(new StoreLocal(localIndex, typeType, typeOf));
+
+        // The binder's source-context argument is the single load of that slot.
+        BinderCall(f).Arguments[2].ReplaceWith(new LoadLocal(localIndex, typeType));
+        return (localIndex, typeType);
+    }
+
+    [Fact]
+    public void ContextStoredInLocal_StillRaises()
+    {
+        var f = LoadCanonicalFunction();
+        ConvertContextToLocal(f);
+        Assert.True(RunPass(f));
+    }
+
+    [Fact]
+    public void ContextLocalAddressTaken_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var (index, type) = ConvertContextToLocal(f);
+        // Take the address of the owned context local — an escape the local-slot
+        // confinement check must reject.
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadLocalAddress(index, type));
+        Assert.False(RunPass(f));
+    }
+
+    // ======================================================================
+    // By-value signature ref-kind facts (blocker #4)
+    // ======================================================================
+
+    [Fact]
+    public void CreateRefKindFactsKnownEmpty_Declines()
+    {
+        // Known (rather than the canonical NotRequired) is not positive evidence
+        // of a by-value signature even with no ref-kind entries.
+        var f = LoadCanonicalFunction();
+        var create = CreateCall(f);
+        ReplaceCallee(create, create.Callee with
+        {
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+            ParameterRefKinds = ImmutableArray<ArgumentRefKind>.Empty,
+        });
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void CreateRefKindsNonEmptyAllValue_Declines()
+    {
+        // A populated ref-kind array declines even when every entry is Value.
+        var f = LoadCanonicalFunction();
+        var create = CreateCall(f);
+        ReplaceCallee(create, create.Callee with
+        {
+            ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired,
+            ParameterRefKinds = ImmutableArray.Create(ArgumentRefKind.Value),
+        });
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void BinderRefKindsNonEmptyAllValue_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var binder = BinderCall(f);
+        ReplaceCallee(binder, binder.Callee with
+        {
+            ParameterRefKindsFacts = ParameterRefKindFacts.NotRequired,
+            ParameterRefKinds = ImmutableArray.Create(
+                ArgumentRefKind.Value, ArgumentRefKind.Value, ArgumentRefKind.Value, ArgumentRefKind.Value),
+        });
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void InvokeRefKindFactsKnownEmpty_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var invoke = InvokeCall(f);
+        ReplaceCallee(invoke, invoke.Callee with
+        {
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+            ParameterRefKinds = ImmutableArray<ArgumentRefKind>.Empty,
+        });
+        Assert.False(RunPass(f));
+    }
+
+    // ======================================================================
+    // Exact signature-type assemblies (blocker #5)
+    // ======================================================================
+
+    static TypeRef WithAssembly(TypeRef definition, string assembly)
+        => TypeRef.Definition(assembly, definition.Namespace, definition.Name);
+
+    [Fact]
+    public void CreateCallSiteBinderParameterWrongAssembly_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var create = CreateCall(f);
+        var badBinder = WithAssembly(create.Callee.ParameterTypes[0], "Forged.Assembly");
+        ReplaceCallee(create, create.Callee with { ParameterTypes = WithParam(create.Callee.ParameterTypes, 0, badBinder) });
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void BinderFlagsParameterWrongAssembly_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var binder = BinderCall(f);
+        var badFlags = WithAssembly(binder.Callee.ParameterTypes[0], "Forged.Assembly");
+        ReplaceCallee(binder, binder.Callee with { ParameterTypes = WithParam(binder.Callee.ParameterTypes, 0, badFlags) });
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void InfoFlagsParameterWrongAssembly_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var info = InfoCall(f);
+        var badFlags = WithAssembly(info.Callee.ParameterTypes[0], "Forged.Assembly");
+        ReplaceCallee(info, info.Callee with { ParameterTypes = WithParam(info.Callee.ParameterTypes, 0, badFlags) });
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void InvokeCallSiteParameterWrongAssembly_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        var invoke = InvokeCall(f);
+        var badCallSite = WithAssembly(invoke.Callee.ParameterTypes[0], "Forged.Assembly");
+        ReplaceCallee(invoke, invoke.Callee with { ParameterTypes = WithParam(invoke.Callee.ParameterTypes, 0, badCallSite) });
+        Assert.False(RunPass(f));
+    }
+
+    // ======================================================================
+    // Context definition token shape (blocker #6)
+    // ======================================================================
+
+    [Fact]
+    public void ContextLoadTokenInsteadOfTypeOf_Declines()
+    {
+        // The canonical context definition is typeof(DeclaringType) (a TypeOf).
+        // A ldtoken-shaped context is not the compiler's canonical form.
+        var f = LoadCanonicalFunction();
+        var context = ContextDefStore(f);
+        var type = ((TypeOf)context.Value).Type;
+        context.Value.ReplaceWith(new LoadToken(RuntimeTokenKind.Type, type, type.ToDisplayString()));
+        Assert.False(RunPass(f));
+    }
 }

@@ -13,10 +13,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Recovery is intentionally narrow: every identity (cache ownership, the
 /// <c>CallSite&lt;T&gt;.Create</c> factory, <c>Binder.GetMember</c>,
 /// <c>CSharpArgumentInfo.Create</c>, and the delegate <c>Invoke</c>) is proven
-/// against token-anchored platform trust and exact signatures, the cache setup
-/// ledger and its slot/local dataflow are proven unique and confined, and any
-/// malformed metadata shape declines instead of throwing. A near miss keeps the
-/// honest explicit call-site scaffolding.
+/// against token-anchored platform trust and exact signatures, every signature
+/// type's assembly is tied back to a trusted declaring assembly rather than a
+/// forgeable simple name, the cache setup ledger appears in its exact canonical
+/// order with unique slot/local dataflow proven confined (no aliases, escapes,
+/// or address-of leaks), the lazy-init guard's opposite arm is proven empty
+/// before the guard is deleted, and any malformed metadata shape declines
+/// instead of throwing. A near miss keeps the honest explicit call-site
+/// scaffolding.
 /// </summary>
 public sealed class DynamicCallSitePass : IIrPass
 {
@@ -41,9 +45,10 @@ public sealed class DynamicCallSitePass : IIrPass
             {
                 if (children[i] is not IfStatement ifStmt)
                     continue;
-                if (ifStmt.Condition is not LogicalNot ln || ln.Operand is not LoadField guardLoad || guardLoad.Instance != null)
-                    continue;
-                if (ifStmt.Then is not Block thenBlock)
+
+                // The lazy-init guard: identify the cache-field load, the setup
+                // arm (ending in the cache store), and the opposite arm.
+                if (!TryGetCacheGuard(ifStmt, out var guardLoad, out var setupArm, out var oppositeArm))
                     continue;
 
                 var cacheField = guardLoad.Field;
@@ -56,10 +61,15 @@ public sealed class DynamicCallSitePass : IIrPass
                     continue;
                 }
 
+                // Deleting the guard removes both arms. The opposite arm must
+                // carry no statements, or removing it would drop real work.
+                if (oppositeArm is not null && oppositeArm.Children.Count != 0)
+                    continue;
+
                 if (children[i + 1] is not Return ret || ret.Value is not Call invokeCall)
                     continue;
 
-                if (!TryRaise(function, thenBlock, invokeCall, guardLoad, cacheField, out var receiver, out var memberName))
+                if (!TryRaise(function, setupArm, invokeCall, guardLoad, cacheField, out var receiver, out var memberName))
                     continue;
 
                 receiver.Detach();
@@ -74,9 +84,72 @@ public sealed class DynamicCallSitePass : IIrPass
         return false;
     }
 
+    /// <summary>
+    /// Identifies a cache lazy-init guard: a null/truthiness test on a
+    /// static cache field whose setup arm ends in the cache store. Works with
+    /// either structuring polarity — <c>if (cache == null) { setup }</c> (setup
+    /// in the then arm) or <c>if (cache != null) {} else { setup }</c> (setup in
+    /// the else arm) — by locating the arm that ends with the cache store, so
+    /// the opposite arm is always the one that must be empty.
+    /// </summary>
+    static bool TryGetCacheGuard(IfStatement ifStmt, out LoadField guardLoad, out Block setupArm, out Block? oppositeArm)
+    {
+        guardLoad = null!;
+        setupArm = null!;
+        oppositeArm = null;
+
+        if (!TryGuardCacheLoad(ifStmt.Condition, out var load))
+            return false;
+
+        var then = ifStmt.Then;
+        var els = ifStmt.Else;
+        bool thenIsSetup = EndsWithCacheStore(then, load.Field);
+        bool elseIsSetup = els is not null && EndsWithCacheStore(els, load.Field);
+
+        // Exactly one arm is the setup arm.
+        if (thenIsSetup == elseIsSetup)
+            return false;
+
+        guardLoad = load;
+        if (thenIsSetup)
+        {
+            setupArm = then;
+            oppositeArm = els;
+        }
+        else
+        {
+            setupArm = els!;
+            oppositeArm = then;
+        }
+        return true;
+    }
+
+    /// <summary>The guard condition is a bare truthiness test on a static field: <c>cache</c> or <c>!cache</c>.</summary>
+    static bool TryGuardCacheLoad(IrExpression condition, out LoadField load)
+    {
+        switch (condition)
+        {
+            case LogicalNot { Operand: LoadField { Instance: null } inner }:
+                load = inner;
+                return true;
+            case LoadField { Instance: null } bare:
+                load = bare;
+                return true;
+            default:
+                load = null!;
+                return false;
+        }
+    }
+
+    static bool EndsWithCacheStore(Block block, FieldRef cacheField)
+        => block.Children.Count > 0
+            && block.Children[^1] is StoreField store
+            && !store.HasInstance
+            && store.Field == cacheField;
+
     static bool TryRaise(
         IrFunction function,
-        Block thenBlock,
+        Block setupArm,
         Call invokeCall,
         LoadField guardLoad,
         FieldRef cacheField,
@@ -86,100 +159,67 @@ public sealed class DynamicCallSitePass : IIrPass
         receiver = null!;
         memberName = null!;
 
-        var statements = thenBlock.Children;
-        // Exactly: <array def>, <context def>, <element store>, <cache store>.
+        var statements = setupArm.Children;
+        // Exactly, and in this exact order:
+        //   [0] StoreSlot(array   = new CSharpArgumentInfo[1])
+        //   [1] StoreSlot(context = typeof(DeclaringType))
+        //   [2] StoreElement(array[0] = CSharpArgumentInfo.Create(...))
+        //   [3] StoreField(cache = CallSite<T>.Create(Binder.GetMember(...)))
         if (statements.Count != 4)
             return false;
 
-        // --- Cache store + CallSite<T>.Create identity ---
-        if (statements[^1] is not StoreField cacheStore || cacheStore.Field != cacheField || cacheStore.HasInstance)
+        // --- [3] Cache store + CallSite<T>.Create identity ---
+        if (statements[3] is not StoreField cacheStore || cacheStore.Field != cacheField || cacheStore.HasInstance)
             return false;
         if (cacheStore.Value is not Call createCall)
             return false;
-        if (!IsExactCreate(createCall, cacheField, out var binderCall, out var cacheT))
+        if (!IsExactCreate(createCall, cacheField, out var binderCall, out var cacheT, out var callSiteAssembly))
             return false;
 
         // --- Binder.GetMember identity ---
-        if (!IsExactBinder(binderCall, out memberName, out var contextUse, out var arrayUse))
+        if (!IsExactBinder(binderCall, callSiteAssembly, out memberName, out var contextUse, out var arrayUse, out var binderAssembly))
         {
             memberName = null!;
             return false;
         }
 
-        // --- Setup ledger: resolve each statement, then require exact multiplicity ---
-        StoreElement? elementStore = null;
-        (IrNode Store, DefKey Key, NewArray Array)? arrayDef = null;
-        (IrNode Store, DefKey Key)? contextDef = null;
-        var seenKeys = new HashSet<DefKey>();
-
-        for (int s = 0; s < statements.Count - 1; s++)
-        {
-            var statement = statements[s];
-            if (statement is StoreElement se)
-            {
-                if (elementStore != null)
-                    return false;
-                elementStore = se;
-                continue;
-            }
-
-            if (!TryDefinitionKey(statement, out var key, out var value))
-                return false;
-
-            // Duplicate definition of the same slot/local — even the same value —
-            // means the dataflow is not the single canonical shape.
-            if (!seenKeys.Add(key))
-                return false;
-
-            if (value is NewArray na)
-            {
-                if (arrayDef != null)
-                    return false;
-                if (!IsExactInfoArray(na))
-                    return false;
-                arrayDef = (statement, key, na);
-            }
-            else if (value is TypeOf or LoadToken)
-            {
-                if (contextDef != null)
-                    return false;
-                if (!TryContextType(value, out var contextType) || !contextType.Equals(function.DeclaringType))
-                    return false;
-                contextDef = (statement, key);
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        if (elementStore == null || arrayDef == null || contextDef == null)
+        // --- [0] Info array definition ---
+        if (!TryDefinitionKey(statements[0], out var arrayKey, out var arrayValue))
+            return false;
+        if (arrayValue is not NewArray infoArray || !IsExactInfoArray(infoArray, binderAssembly))
             return false;
 
-        // --- Element store: array[0] = CSharpArgumentInfo.Create(...) ---
+        // --- [1] Context definition: typeof(DeclaringType) ---
+        if (!TryDefinitionKey(statements[1], out var contextKey, out var contextValue))
+            return false;
+        if (contextValue is not TypeOf contextTypeOf || !contextTypeOf.Type.Equals(function.DeclaringType))
+            return false;
+
+        // The two setup definitions occupy distinct storage (no duplicate
+        // definition, even of the same value).
+        if (arrayKey.Equals(contextKey))
+            return false;
+
+        // --- [2] Element store: array[0] = CSharpArgumentInfo.Create(...) ---
+        if (statements[2] is not StoreElement elementStore)
+            return false;
         if (elementStore.Index is not Constant idx || idx.Value is not int index || index != 0)
             return false;
-        if (!UseMatchesKey(elementStore.Array, arrayDef.Value.Key))
+        if (!UseMatchesKey(elementStore.Array, arrayKey))
             return false;
-        if (elementStore.ElementType != null && !elementStore.ElementType.Equals(arrayDef.Value.Array.ElementType))
+        if (elementStore.ElementType != null && !elementStore.ElementType.Equals(infoArray.ElementType))
             return false;
-        if (elementStore.Value is not Call infoCreate || !IsExactInfoCreate(infoCreate))
+        if (elementStore.Value is not Call infoCreate || !IsExactInfoCreate(infoCreate, binderAssembly))
             return false;
 
         // --- Binder argument uses resolve to the owned definitions ---
-        if (!UseMatchesKey(contextUse, contextDef.Value.Key))
+        if (!UseMatchesKey(contextUse, contextKey))
             return false;
-        if (!UseMatchesKey(arrayUse, arrayDef.Value.Key))
+        if (!UseMatchesKey(arrayUse, arrayKey))
             return false;
-
-        // --- Ordering: the array definition precedes its element-store use ---
-        if (arrayDef.Value.Store.ChildIndex > elementStore.ChildIndex)
-            return false;
-        // Context and array are both consumed by the (last) cache store; being
-        // setup statements they already precede it.
 
         // --- Delegate Invoke + Target identity ---
-        if (!IsExactInvoke(invokeCall, cacheField, cacheT, out receiver, out var targetInstanceLoad, out var cacheArgLoad))
+        if (!IsExactInvoke(invokeCall, cacheField, cacheT, callSiteAssembly, out receiver, out var targetInstanceLoad, out var cacheArgLoad))
         {
             receiver = null!;
             return false;
@@ -187,20 +227,22 @@ public sealed class DynamicCallSitePass : IIrPass
 
         // --- Dataflow confinement across the whole function scope ---
         // Each owned slot/local has exactly one definition (the ledger store) and
-        // is loaded only by its proven uses; nothing aliases or escapes.
-        if (!SlotConfined(function, arrayDef.Value.Key, arrayDef.Value.Store, [elementStore.Array, arrayUse]))
+        // is loaded only by its proven uses; nothing aliases, escapes, or takes
+        // its address.
+        if (!SlotConfined(function, arrayKey, statements[0], [elementStore.Array, arrayUse]))
         {
             receiver = null!;
             return false;
         }
-        if (!SlotConfined(function, contextDef.Value.Key, contextDef.Value.Store, [contextUse]))
+        if (!SlotConfined(function, contextKey, statements[1], [contextUse]))
         {
             receiver = null!;
             return false;
         }
 
         // The cache field is written once (the init store) and read only by the
-        // guard, the delegate Target receiver, and the CallSite argument.
+        // guard, the delegate Target receiver, and the CallSite argument — and
+        // never has its address taken.
         if (!CacheFieldConfined(function, cacheField, cacheStore, [guardLoad, targetInstanceLoad, cacheArgLoad]))
         {
             receiver = null!;
@@ -210,10 +252,11 @@ public sealed class DynamicCallSitePass : IIrPass
         return true;
     }
 
-    static bool IsExactCreate(Call createCall, FieldRef cacheField, out Call binderCall, out TypeRef cacheT)
+    static bool IsExactCreate(Call createCall, FieldRef cacheField, out Call binderCall, out TypeRef cacheT, out string callSiteAssembly)
     {
         binderCall = null!;
         cacheT = null!;
+        callSiteAssembly = null!;
 
         var callee = createCall.Callee;
         var createType = callee.DeclaringType;
@@ -227,6 +270,13 @@ public sealed class DynamicCallSitePass : IIrPass
         if (callee.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes)
             return false;
 
+        // The trusted CallSite declaring assembly anchors every CallSite-family
+        // signature type below (CallSiteBinder, the non-generic CallSite, and
+        // CallSite<T>), so a planted lookalike from a different assembly declines.
+        callSiteAssembly = createDef.Assembly;
+        if (string.IsNullOrEmpty(callSiteAssembly))
+            return false;
+
         // Cache field type is exactly CallSite<T>; static Create returns exactly CallSite<T>.
         if (!cacheField.Type.Equals(createType))
             return false;
@@ -238,15 +288,20 @@ public sealed class DynamicCallSitePass : IIrPass
         // Exactly one parameter (trusted CallSiteBinder) and one argument, by value.
         if (callee.ParameterTypes.Length != 1 || createCall.Arguments.Count != 1)
             return false;
-        if (!IsValueRefKinds(callee))
+        if (!IsByValueSignature(callee))
             return false;
         var binderParam = callee.ParameterTypes[0];
-        if (binderParam.Namespace != CompilerServicesNamespace || binderParam.Name != "CallSiteBinder")
+        if (binderParam.Kind != TypeRefKind.Definition
+            || binderParam.Assembly != callSiteAssembly
+            || binderParam.Namespace != CompilerServicesNamespace
+            || binderParam.Name != "CallSiteBinder")
+        {
             return false;
+        }
 
         // T is exactly corelib Func`3<trusted non-generic CallSite, object, object>.
         var t = createType.TypeArguments[0];
-        if (!IsCallSiteFunc(t))
+        if (!IsCallSiteFunc(t, callSiteAssembly))
             return false;
 
         if (createCall.Arguments[0] is not Call binder)
@@ -257,11 +312,18 @@ public sealed class DynamicCallSitePass : IIrPass
         return true;
     }
 
-    static bool IsExactBinder(Call binderCall, out string memberName, out IrExpression contextUse, out IrExpression arrayUse)
+    static bool IsExactBinder(
+        Call binderCall,
+        string callSiteAssembly,
+        out string memberName,
+        out IrExpression contextUse,
+        out IrExpression arrayUse,
+        out string binderAssembly)
     {
         memberName = null!;
         contextUse = null!;
         arrayUse = null!;
+        binderAssembly = null!;
 
         var callee = binderCall.Callee;
         var decl = callee.DeclaringType;
@@ -269,29 +331,46 @@ public sealed class DynamicCallSitePass : IIrPass
         // Trusted, exact Microsoft.CSharp.RuntimeBinder.Binder.GetMember, static, non-generic.
         if (callee.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes)
             return false;
-        if (decl.Namespace != RuntimeBinderNamespace || decl.Name != "Binder")
+        if (decl.Kind != TypeRefKind.Definition || decl.Namespace != RuntimeBinderNamespace || decl.Name != "Binder")
+            return false;
+
+        // The trusted Binder declaring assembly anchors the RuntimeBinder-family
+        // signature types below (CSharpBinderFlags, CSharpArgumentInfo,
+        // CSharpArgumentInfoFlags).
+        binderAssembly = decl.Assembly;
+        if (string.IsNullOrEmpty(binderAssembly))
             return false;
         if (callee.Name != "GetMember" || callee.HasThis || !IsNonGeneric(callee))
             return false;
 
-        // Returns exactly trusted CallSiteBinder.
-        if (callee.ReturnType.Namespace != CompilerServicesNamespace || callee.ReturnType.Name != "CallSiteBinder")
+        // Returns exactly trusted CallSiteBinder, from the CallSite assembly.
+        if (callee.ReturnType.Kind != TypeRefKind.Definition
+            || callee.ReturnType.Assembly != callSiteAssembly
+            || callee.ReturnType.Namespace != CompilerServicesNamespace
+            || callee.ReturnType.Name != "CallSiteBinder")
+        {
             return false;
+        }
 
         // Exactly four value parameters with the exact types.
         if (callee.ParameterTypes.Length != 4 || binderCall.Arguments.Count != 4)
             return false;
-        if (!IsValueRefKinds(callee))
+        if (!IsByValueSignature(callee))
             return false;
 
         var p = callee.ParameterTypes;
-        if (p[0].Namespace != RuntimeBinderNamespace || p[0].Name != "CSharpBinderFlags")
+        if (p[0].Kind != TypeRefKind.Definition
+            || p[0].Assembly != binderAssembly
+            || p[0].Namespace != RuntimeBinderNamespace
+            || p[0].Name != "CSharpBinderFlags")
+        {
             return false;
+        }
         if (!IsCoreLib(p[1], "System", "String"))
             return false;
         if (!IsCoreLib(p[2], "System", "Type"))
             return false;
-        if (!IsArgumentInfoEnumerable(p[3]))
+        if (!IsArgumentInfoEnumerable(p[3], binderAssembly))
             return false;
 
         // Exact flags (0), escapable member name, then the source-context and
@@ -309,25 +388,35 @@ public sealed class DynamicCallSitePass : IIrPass
         return true;
     }
 
-    static bool IsExactInfoCreate(Call infoCreate)
+    static bool IsExactInfoCreate(Call infoCreate, string binderAssembly)
     {
         var callee = infoCreate.Callee;
         var decl = callee.DeclaringType;
 
         if (callee.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes)
             return false;
-        if (decl.Namespace != RuntimeBinderNamespace || decl.Name != "CSharpArgumentInfo")
+        if (decl.Kind != TypeRefKind.Definition
+            || decl.Assembly != binderAssembly
+            || decl.Namespace != RuntimeBinderNamespace
+            || decl.Name != "CSharpArgumentInfo")
+        {
             return false;
+        }
         if (callee.Name != "Create" || callee.HasThis || !IsNonGeneric(callee))
             return false;
         if (!callee.ReturnType.Equals(decl))
             return false;
         if (callee.ParameterTypes.Length != 2 || infoCreate.Arguments.Count != 2)
             return false;
-        if (!IsValueRefKinds(callee))
+        if (!IsByValueSignature(callee))
             return false;
-        if (callee.ParameterTypes[0].Namespace != RuntimeBinderNamespace || callee.ParameterTypes[0].Name != "CSharpArgumentInfoFlags")
+        if (callee.ParameterTypes[0].Kind != TypeRefKind.Definition
+            || callee.ParameterTypes[0].Assembly != binderAssembly
+            || callee.ParameterTypes[0].Namespace != RuntimeBinderNamespace
+            || callee.ParameterTypes[0].Name != "CSharpArgumentInfoFlags")
+        {
             return false;
+        }
         if (!IsCoreLib(callee.ParameterTypes[1], "System", "String"))
             return false;
 
@@ -340,7 +429,14 @@ public sealed class DynamicCallSitePass : IIrPass
         return true;
     }
 
-    static bool IsExactInvoke(Call invokeCall, FieldRef cacheField, TypeRef cacheT, out IrExpression receiver, out LoadField targetInstanceLoad, out LoadField cacheArgLoad)
+    static bool IsExactInvoke(
+        Call invokeCall,
+        FieldRef cacheField,
+        TypeRef cacheT,
+        string callSiteAssembly,
+        out IrExpression receiver,
+        out LoadField targetInstanceLoad,
+        out LoadField cacheArgLoad)
     {
         receiver = null!;
         targetInstanceLoad = null!;
@@ -349,7 +445,7 @@ public sealed class DynamicCallSitePass : IIrPass
         var callee = invokeCall.Callee;
 
         // The delegate type is exactly the cache's T (corelib Func<CallSite, object, object>).
-        if (!callee.DeclaringType.Equals(cacheT) || !IsCallSiteFunc(callee.DeclaringType))
+        if (!callee.DeclaringType.Equals(cacheT) || !IsCallSiteFunc(callee.DeclaringType, callSiteAssembly))
             return false;
         if (callee.Name != "Invoke" || !callee.HasThis || !IsNonGeneric(callee))
             return false;
@@ -360,6 +456,7 @@ public sealed class DynamicCallSitePass : IIrPass
         if (callee.ParameterTypes.Length != 2 || invokeCall.Arguments.Count != 3)
             return false;
         if (callee.ParameterTypes[0].Kind != TypeRefKind.Definition
+            || callee.ParameterTypes[0].Assembly != callSiteAssembly
             || callee.ParameterTypes[0].Namespace != CompilerServicesNamespace
             || callee.ParameterTypes[0].Name != "CallSite")
         {
@@ -367,7 +464,7 @@ public sealed class DynamicCallSitePass : IIrPass
         }
         if (!IsCoreLib(callee.ParameterTypes[1], "System", "Object"))
             return false;
-        if (!IsValueRefKinds(callee))
+        if (!IsByValueSignature(callee))
             return false;
 
         // arg0: the delegate Target field, declared on CallSite<T>, typed exactly T,
@@ -379,7 +476,8 @@ public sealed class DynamicCallSitePass : IIrPass
         var targetDecl = targetLoad.Field.DeclaringType;
         if (targetDecl.Kind != TypeRefKind.GenericInstance
             || targetDecl.ElementType?.Namespace != CompilerServicesNamespace
-            || targetDecl.ElementType?.Name != "CallSite`1")
+            || targetDecl.ElementType?.Name != "CallSite`1"
+            || targetDecl.ElementType?.Assembly != callSiteAssembly)
         {
             return false;
         }
@@ -398,14 +496,19 @@ public sealed class DynamicCallSitePass : IIrPass
         return true;
     }
 
-    static bool IsExactInfoArray(NewArray na)
+    static bool IsExactInfoArray(NewArray na, string binderAssembly)
     {
-        if (na.ElementType.Namespace != RuntimeBinderNamespace || na.ElementType.Name != "CSharpArgumentInfo")
+        if (na.ElementType.Kind != TypeRefKind.Definition
+            || na.ElementType.Assembly != binderAssembly
+            || na.ElementType.Namespace != RuntimeBinderNamespace
+            || na.ElementType.Name != "CSharpArgumentInfo")
+        {
             return false;
+        }
         return na.Length is Constant lenConst && lenConst.Value is int len && len == 1;
     }
 
-    static bool IsCallSiteFunc(TypeRef t)
+    static bool IsCallSiteFunc(TypeRef t, string callSiteAssembly)
     {
         if (t.Kind != TypeRefKind.GenericInstance || t.TypeArguments.Length != 3)
             return false;
@@ -414,6 +517,7 @@ public sealed class DynamicCallSitePass : IIrPass
             return false;
         var callSite = t.TypeArguments[0];
         if (callSite.Kind != TypeRefKind.Definition
+            || callSite.Assembly != callSiteAssembly
             || callSite.Namespace != CompilerServicesNamespace
             || callSite.Name != "CallSite")
         {
@@ -423,7 +527,7 @@ public sealed class DynamicCallSitePass : IIrPass
             && IsCoreLib(t.TypeArguments[2], "System", "Object");
     }
 
-    static bool IsArgumentInfoEnumerable(TypeRef type)
+    static bool IsArgumentInfoEnumerable(TypeRef type, string binderAssembly)
     {
         if (type.Kind != TypeRefKind.GenericInstance || type.TypeArguments.Length != 1)
             return false;
@@ -435,24 +539,9 @@ public sealed class DynamicCallSitePass : IIrPass
         }
         var arg = type.TypeArguments[0];
         return arg.Kind == TypeRefKind.Definition
+            && arg.Assembly == binderAssembly
             && arg.Namespace == RuntimeBinderNamespace
             && arg.Name == "CSharpArgumentInfo";
-    }
-
-    static bool TryContextType(IrExpression value, out TypeRef contextType)
-    {
-        switch (value)
-        {
-            case TypeOf typeOf:
-                contextType = typeOf.Type;
-                return true;
-            case LoadToken { Kind: RuntimeTokenKind.Type, Type: { } tokenType }:
-                contextType = tokenType;
-                return true;
-            default:
-                contextType = null!;
-                return false;
-        }
     }
 
     readonly record struct DefKey(bool IsSlot, int Index);
@@ -503,6 +592,11 @@ public sealed class DynamicCallSitePass : IIrPass
                     if (!ContainsReference(allowedLoads, ll))
                         return false;
                     break;
+                // Taking the address of the owned local aliases it out of the
+                // proven load set — an escape. (Stack slots are synthetic
+                // evaluation-stack values and have no address form.)
+                case LoadLocalAddress lla when !key.IsSlot && lla.Index == key.Index:
+                    return false;
             }
         }
 
@@ -523,6 +617,10 @@ public sealed class DynamicCallSitePass : IIrPass
                     if (!ContainsReference(allowedLoads, lf))
                         return false;
                     break;
+                // Taking the address of the cache field aliases it out of the
+                // proven load set — an escape.
+                case LoadFieldAddress lfa when lfa.Field == cacheField:
+                    return false;
             }
         }
 
@@ -539,10 +637,12 @@ public sealed class DynamicCallSitePass : IIrPass
 
     static bool IsNonGeneric(MethodRef callee) => callee.TypeArguments.IsDefaultOrEmpty;
 
-    static bool IsValueRefKinds(MethodRef callee)
-        => callee.ParameterRefKindsFacts != ParameterRefKindFacts.Unknown
-            && (callee.ParameterRefKinds.IsDefaultOrEmpty
-                || callee.ParameterRefKinds.All(rk => rk == ArgumentRefKind.Value));
+    // A by-value signature: the metadata positively proved no by-ref parameter
+    // facts were required (NotRequired) and carries no ref-kind entries. Anything
+    // weaker (Unknown or Known) or any populated ref-kind array declines.
+    static bool IsByValueSignature(MethodRef callee)
+        => callee.ParameterRefKindsFacts == ParameterRefKindFacts.NotRequired
+            && callee.ParameterRefKinds.IsDefaultOrEmpty;
 
     static bool IsCoreLib(TypeRef type, string ns, string name)
         => type.Kind == TypeRefKind.Definition
