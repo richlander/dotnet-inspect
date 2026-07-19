@@ -135,18 +135,30 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public async Task EnableNetworkTrafficLogging_PrintsPolicyErrorForUnallowedVulnerabilityTraffic()
+    public async Task NetworkPolicy_BlocksUnallowedVulnerabilityTrafficAfterRecordingIt()
     {
-        var stderr = await CaptureTrafficLogAsync(
-            NetworkTrafficKind.VulnerabilityData,
-            allowTrafficKind: false);
+        using var error = new StringWriter();
+        var transport = new StubHttpMessageHandler();
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (var client = new HttpClient(new NetworkTelemetryHandler(
+            transport,
+            NetworkClientKinds.Shared)))
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.VulnerabilityData))
+        {
+            var exception = await Assert.ThrowsAsync<NetworkPolicyException>(() => client.GetAsync(
+                "https://api.nuget.org/v3/vulnerabilities/index.json",
+                TestContext.Current.CancellationToken));
+            Assert.Contains("requires explicit capability authorization", exception.Message);
+        }
 
+        var stderr = error.ToString();
         Assert.Contains(
             "Network traffic [vulnerability-data]: GET https://api.nuget.org/v3/vulnerabilities/index.json",
             stderr);
         Assert.Contains(
             "Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section",
             stderr);
+        Assert.Equal(0, transport.RequestCount);
     }
 
     [Fact]
@@ -308,9 +320,14 @@ public class HttpClientFactoryTests : IDisposable
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
-            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
     }
 }
