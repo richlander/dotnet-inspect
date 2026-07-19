@@ -133,6 +133,9 @@ public enum Forward
 
     /// <summary>Roslyn's <c>BoundDynamicMemberAccess</c> (a dynamic <c>receiver.Member</c> read).</summary>
     RoslynBoundDynamicMemberAccess,
+
+    /// <summary>Roslyn's <c>BoundDefaultExpression</c> (a <c>default</c> / <c>default(T)</c> expression).</summary>
+    RoslynBoundDefaultExpression,
 }
 
 /// <summary>

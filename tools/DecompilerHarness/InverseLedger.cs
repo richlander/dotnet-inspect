@@ -32,6 +32,7 @@ public static class InverseLedger
         "CollectionExpression",
         "CollectionSpreadElement",
         "Conditional",
+        "DefaultValue",
         "DelegateCreation",
         "DynamicGetMember",
         "IncrementDecrement",

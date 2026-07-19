@@ -205,6 +205,11 @@ public static class IrPasses
         // `&&` short-circuit operand are both formed; left flat it renders as
         // a separate `T t = value as T; if (t is not null)`.
         new IsPatternPass(),
+        // Fold a pattern-guarded diamond whose true arm compares the bound value
+        // to a compiler-spilled default(T) temp (then stores <rhs>, else stores
+        // false) into `target = pattern && rhs`, inlining that arm-local default
+        // temp as `default(T)` so the arm collapses to a single store.
+        new PatternGuardedShortCircuitPass(),
         // Raise the two-arm union switch-expression lowering (cached Value,
         // ordered type tests, value arms, and the compiler's unreachable throw
         // fallback) into `union switch { T t => ..., U => ... }`.
