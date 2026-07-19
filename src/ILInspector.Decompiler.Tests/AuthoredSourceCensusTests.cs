@@ -137,3 +137,48 @@ public sealed class ReturnToSenderSourceProbeQualityCardTests
         Assert.Contains("no checkable rows", card);
     }
 }
+
+public sealed class AuthoredSourceCensusDiversificationTests
+{
+    [Fact]
+    public void DiversifyByKey_RoundRobinsAcrossKeys_WhenPoolExceedsCap()
+    {
+        string[] candidates = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B1", "C1"];
+
+        var selected = AuthoredSourceCensus.DiversifyByKey(candidates, 4, item => item[..1]);
+
+        Assert.Equal(["A1", "B1", "C1", "A2"], selected);
+    }
+
+    [Fact]
+    public void DiversifyByKey_ReturnsAllCandidates_WhenPoolFitsWithinCap()
+    {
+        string[] candidates = ["A1", "B1", "C1"];
+
+        var selected = AuthoredSourceCensus.DiversifyByKey(candidates, 10, item => item[..1]);
+
+        Assert.Same(candidates, selected);
+    }
+
+    [Fact]
+    public void DiversifyByKey_ReturnsEmpty_WhenCapIsNotPositive()
+    {
+        string[] candidates = ["A1", "B1"];
+
+        var selected = AuthoredSourceCensus.DiversifyByKey(candidates, 0, item => item[..1]);
+
+        Assert.Empty(selected);
+    }
+
+    [Fact]
+    public void DiversifyByKey_StopsAtCap_WhenOneKeyDominatesThePool()
+    {
+        // Mirrors a real-world corpus where a generated resource-string type
+        // (e.g. SR) contributes far more property getters than any other type.
+        string[] candidates = Enumerable.Range(0, 50).Select(i => $"SR{i}").Append("Other1").ToArray();
+
+        var selected = AuthoredSourceCensus.DiversifyByKey(candidates, 3, item => item.StartsWith("SR", StringComparison.Ordinal) ? "SR" : "Other");
+
+        Assert.Equal(["SR0", "Other1", "SR1"], selected);
+    }
+}

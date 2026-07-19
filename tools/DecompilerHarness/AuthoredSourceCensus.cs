@@ -25,6 +25,17 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class AuthoredSourceCensus
 {
+    /// <summary>
+    /// How many candidate targets to sample per requested slot before
+    /// diversifying by declaring type. Real assemblies commonly contain one
+    /// dominant type (e.g. a generated resource-string holder such as
+    /// <c>SR</c>) with far more property getters than any other type; without
+    /// this pool, a plain first-N-in-token-order selection can degenerate into
+    /// a corpus that is almost entirely one uncheckable type, which makes the
+    /// resulting quality card unrepresentative rather than a real benchmark.
+    /// </summary>
+    const int DiversityPoolMultiplier = 5;
+
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json, bool qualityCard = false)
         => RunAsync(assemblies, cap, maxExamples, json, qualityCard).GetAwaiter().GetResult();
 
@@ -46,12 +57,16 @@ static class AuthoredSourceCensus
             if (results.Count >= cap)
                 break;
 
+            int remainingBudget = cap - results.Count;
+            int candidatePoolCap = remainingBudget >= int.MaxValue / DiversityPoolMultiplier
+                ? int.MaxValue
+                : remainingBudget * DiversityPoolMultiplier;
+
             IReadOnlyList<ReturnToSender.Result> decompilerResults;
             try
             {
-                decompilerResults = ReturnToSender.CompileBackPropertyGetters(
-                    assemblyPath,
-                    cap - results.Count);
+                var candidates = ReturnToSender.CompileBackPropertyGetters(assemblyPath, candidatePoolCap);
+                decompilerResults = DiversifyByKey(candidates, remainingBudget, result => result.Plan.TargetMethod.Type);
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -79,6 +94,51 @@ static class AuthoredSourceCensus
 
         string corpusLabel = $"{assemblyCount} real assembly/assemblies (SourceLink-acquired authored source)";
         return ReturnToSenderSourceProbe.Report(results, maxExamples, json, qualityCard, corpusLabel);
+    }
+
+    /// <summary>
+    /// Selects up to <paramref name="cap"/> items from <paramref name="candidates"/>,
+    /// round-robining across the distinct keys produced by
+    /// <paramref name="keySelector"/> so that no single key (e.g. a declaring
+    /// type dominated by generated resource-string properties) can crowd out
+    /// the rest of the sample. Within-key order is preserved. Pure and
+    /// network-free so it can be unit tested directly.
+    /// </summary>
+    internal static IReadOnlyList<T> DiversifyByKey<T>(IReadOnlyList<T> candidates, int cap, Func<T, string> keySelector)
+    {
+        if (cap <= 0)
+            return [];
+        if (candidates.Count <= cap)
+            return candidates;
+
+        var groups = candidates
+            .GroupBy(keySelector, StringComparer.Ordinal)
+            .Select(group => group.ToArray())
+            .ToArray();
+
+        var selected = new List<T>(cap);
+        int index = 0;
+        while (selected.Count < cap)
+        {
+            bool progressed = false;
+            foreach (var group in groups)
+            {
+                if (index >= group.Length)
+                    continue;
+
+                selected.Add(group[index]);
+                progressed = true;
+                if (selected.Count >= cap)
+                    break;
+            }
+
+            if (!progressed)
+                break;
+
+            index++;
+        }
+
+        return selected;
     }
 
     internal static async Task<ReturnToSenderSourceProbeResult> ClassifyAsync(

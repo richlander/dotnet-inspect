@@ -226,6 +226,16 @@ reported distinctly and never blended into the other oracles' verdicts. Use
 `--json` for the same machine-readable rows and `source_correspondence_findings`
 projection as the fixture-based census.
 
+Target selection is diversified by declaring type: a candidate pool up to 5x
+the requested `--cap` is sampled first, then round-robined across distinct
+declaring types down to `--cap`. Real assemblies commonly contain one dominant
+type with far more property getters than any other (for example a generated
+resource-string holder such as `SR`), and without this diversification a plain
+first-N-in-token-order selection can degenerate into a corpus that is almost
+entirely one type — often one whose source isn't SourceLink-mapped at all —
+which makes the resulting sample and quality card unrepresentative rather than
+a real benchmark.
+
 `--source-quality-card` adds a PR-pasteable Markdown bucket-rate card to either
 census (`--source-correspondence-census` or `--authored-source-census`),
 printed after the normal text-mode report (it has no effect with `--json`,
