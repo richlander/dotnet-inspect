@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "description": "#2818 classic async/iterator state-machine corpus: pinned classic async, iterator, async-iterator, and switch fixtures, raised with the cross-method import seam wired.",
-  "generatedUtc": "2026-07-18T22:39:15.098946+00:00",
+  "generatedUtc": "2026-07-19T07:34:29.8525688+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 0,
   "methodCap": null,
@@ -13,6 +13,8 @@
     "semanticDefectIncrease": 0,
     "passBugIncrease": 0,
     "fidelityOpcodeDiffIncrease": 0,
+    "fidelityOperandDiffIncrease": 0,
+    "fidelityUnavailableIncrease": 0,
     "fidelityRecompileFailIncrease": 0,
     "fidelityContextFailIncrease": 0
   },
@@ -2793,18 +2795,12 @@
       "method": "Iterator_YieldBreakEarly",
       "overload": 0,
       "signature": "(corelib:System.Int32) -\u003E corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Int32\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "iterator"
-        }
-      ],
       "displayMethod": "ILInspector.Decompiler.Fixtures.ClassicStateMachines!ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures::Iterator_YieldBreakEarly#0"
     },
     {
@@ -2883,8 +2879,8 @@
   ],
   "metrics": {
     "totalMethods": 144,
-    "fullyRaisedMethods": 44,
-    "fullyRaisedBasisPoints": 3056,
+    "fullyRaisedMethods": 45,
+    "fullyRaisedBasisPoints": 3125,
     "conditionalBranchMethods": 3,
     "conditionalBranchBasisPoints": 208,
     "forwardMergeStoppedContainers": 14,
@@ -2895,7 +2891,7 @@
     "passBugs": 0,
     "residualBuckets": {
       "fidelity: DEC0009": 93,
-      "fidelity: unsupported-node": 4,
+      "fidelity: unsupported-node": 3,
       "structuring: conditional-branch": 3
     },
     "structuring": {
@@ -2912,9 +2908,12 @@
       }
     },
     "fidelity": {
+      "contractVersion": 1,
       "checkedMethods": 0,
       "exactMethods": 0,
       "opcodeDiffMethods": 0,
+      "operandDiffMethods": 0,
+      "fidelityUnavailableMethods": 0,
       "recompileFailMethods": 0,
       "contextFailMethods": 0,
       "notFullMethods": 0
@@ -2941,8 +2940,8 @@
     },
     "classic-iterator": {
       "population": 6,
-      "fullyRaised": 2,
-      "residual": 4
+      "fullyRaised": 3,
+      "residual": 3
     }
   }
 }

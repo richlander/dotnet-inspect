@@ -161,6 +161,10 @@ public class FidelityGateTests
         "StatementBodyLambda",
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
+        // Tuple-switch fixture additions changed the reconstructed source ordinal
+        // of both local functions from |5_* to |31_*. The call opcodes remain
+        // identical, but contract V1 observes the changed symbolic targets.
+        "TwoLocalFunctionQuadrants",
         // The iterator raises added by #2884 recover the source bodies and retain
         // the same outer factory opcodes, but recompiling the reconstructed large
         // fixture type assigns different synthesized state-machine ordinals

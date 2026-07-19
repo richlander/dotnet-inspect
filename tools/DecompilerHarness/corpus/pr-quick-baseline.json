@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-07-19T05:21:36.0799476+00:00",
+  "generatedUtc": "2026-07-19T07:34:12.1555437+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -4116,22 +4116,7 @@
       "assembly": "DotnetInspector.Packages",
       "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
       "type": "DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec",
-      "method": "\u003CDownloadAndExtractPackageAsync\u003Eb__4_1",
-      "overload": 0,
-      "signature": "(DotnetInspector.Packages:DotnetInspector.Packages.PackageExtractionOutcome) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec::\u003CDownloadAndExtractPackageAsync\u003Eb__4_1#0"
-    },
-    {
-      "assembly": "DotnetInspector.Packages",
-      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
-      "type": "DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec",
-      "method": "\u003CFetchVersionListAsync\u003Eb__21_1",
+      "method": "\u003CFetchVersionListAsync\u003Eb__22_1",
       "overload": 0,
       "signature": "(corelib:System.String) -\u003E corelib:System.Boolean",
       "fidelity": "Full",
@@ -4140,7 +4125,22 @@
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec::\u003CFetchVersionListAsync\u003Eb__21_1#0"
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec::\u003CFetchVersionListAsync\u003Eb__22_1#0"
+    },
+    {
+      "assembly": "DotnetInspector.Packages",
+      "assemblyPath": "artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll",
+      "type": "DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec",
+      "method": "\u003CGetAllVersionsWithCacheAsync\u003Eb__27_1",
+      "overload": 0,
+      "signature": "(corelib:System.ValueTuple\u00602\u003CNuGet.Versioning:NuGet.Versioning.NuGetVersion, corelib:System.String\u003E, corelib:System.ValueTuple\u00602\u003CNuGet.Versioning:NuGet.Versioning.NuGetVersion, corelib:System.String\u003E) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor.\u003C\u003Ec::\u003CGetAllVersionsWithCacheAsync\u003Eb__27_1#0"
     },
     {
       "assembly": "DotnetInspector.Packages",
@@ -11566,21 +11566,6 @@
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter",
-      "method": "FixedBufferElementAccessText",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.LoadIndirect) -\u003E corelib:System.String",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::FixedBufferElementAccessText#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter",
       "method": "PointeeType",
       "overload": 0,
       "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrExpression) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef",
@@ -11964,6 +11949,21 @@
         }
       ],
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.FixedArrayRaising.\u003C\u003Ec__DisplayClass2_0::\u003CTryRaiseStringPin\u003Eb__2#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.FixedBufferFieldInfo",
+      "method": "Deconstruct",
+      "overload": 0,
+      "signature": "(ref ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, ref corelib:System.Int32) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.FixedBufferFieldInfo::Deconstruct#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -12719,28 +12719,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.SwitchIteratorReconstruction",
-      "method": "Remap",
-      "overload": 0,
-      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrExpression, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrFunction, corelib:System.Collections.Generic.IReadOnlyDictionary\u00602\u003Ccorelib:System.String, corelib:System.ValueTuple\u00602\u003Ccorelib:System.Int32, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef\u003E\u003E) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrExpression",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 15
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.SwitchIteratorReconstruction::Remap#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.SwitchRaisingPass.\u003C\u003Ec__DisplayClass24_1",
       "method": ".ctor",
       "overload": 0,
@@ -12794,6 +12772,36 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TupleBinaryOperatorPass::TryMatchLogical#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.TupleSwitchExpression.\u003C\u003Ec",
+      "method": "\u003Cget_ResultType\u003Eb__9_0",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TupleSwitchExpressionArm) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TupleSwitchExpression.\u003C\u003Ec::\u003Cget_ResultType\u003Eb__9_0#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.TupleSwitchExpressionPass.Leaf",
+      "method": "op_Equality",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TupleSwitchExpressionPass\u002BLeaf, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TupleSwitchExpressionPass\u002BLeaf) -\u003E corelib:System.Boolean",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TupleSwitchExpressionPass.Leaf::op_Equality#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -12854,21 +12862,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.UnsupportedNode::get_ILOffset#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.UsingStatementPass.Match",
-      "method": "get_Dispose",
-      "overload": 0,
-      "signature": "() -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.MethodRef",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.UsingStatementPass.Match::get_Dispose#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -24166,8 +24159,8 @@
   ],
   "metrics": {
     "totalMethods": 1500,
-    "fullyRaisedMethods": 1248,
-    "fullyRaisedBasisPoints": 8320,
+    "fullyRaisedMethods": 1249,
+    "fullyRaisedBasisPoints": 8327,
     "conditionalBranchMethods": 46,
     "conditionalBranchBasisPoints": 307,
     "forwardMergeStoppedContainers": 32,
@@ -24178,13 +24171,13 @@
     "passBugs": 0,
     "residualBuckets": {
       "eh: leave/endfinally": 1,
-      "fidelity: DEC0009": 193,
+      "fidelity: DEC0009": 192,
       "fidelity: unsupported-node": 12,
       "structuring: conditional-branch": 46
     },
     "structuring": {
       "totalMethods": 1500,
-      "structuredContainers": 604,
+      "structuredContainers": 602,
       "stoppedContainers": 49,
       "methodsWithStops": 49,
       "passBugs": 0,
@@ -24209,5 +24202,6 @@
   },
   "fidelityOracle": "compile-back",
   "profile": "real-world",
-  "featureCoverage": {}
+  "featureCoverage": {},
+  "classicStateMachineCoverage": null
 }
