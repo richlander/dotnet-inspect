@@ -19,19 +19,31 @@ namespace ILInspector.DecompilerHarness;
 internal sealed record AuthoredSourceCensusRosterMember(string Type, string Method, int Overload, string? Signature);
 
 /// <summary>
-/// The locked members captured for one assembly during roster generation, in
-/// the diversified order they were confirmed to have available authored
-/// source. Correlated back to a run's resolved assembly path by file name.
+/// The locked candidate member identities captured for one assembly during
+/// roster generation, in diversified selection order. Membership is
+/// unconditional on any classification outcome -- see
+/// <see cref="AuthoredSourceCensusRoster"/> for why. Correlated back to a
+/// run's resolved assembly path by file name.
 /// </summary>
 internal sealed record AuthoredSourceCensusRosterAssembly(
     string AssemblyFileName,
     IReadOnlyList<AuthoredSourceCensusRosterMember> Members);
 
 /// <summary>
-/// A locked, generation-time snapshot of members confirmed to have authored
-/// source available (<c>Outcome</c> not <c>SourceUnavailable</c>/
-/// <c>UnsupportedTarget</c> at generation time), diversified by declaring
-/// type. Replaying this roster at increasing <c>--cap</c> values samples
+/// A locked, generation-time snapshot of candidate member identities,
+/// diversified by declaring type and fairly allocated across libraries with
+/// <see cref="AuthoredSourceCensus.AllocateAcrossLibraries"/>. Membership is
+/// locked by identity alone -- generation does <em>not</em> fetch SourceLink
+/// or filter by whether authored source currently resolves, so the same
+/// fixed population can be used to track <em>both</em> axes independently
+/// over time: the SourceLink oracle's own resolution rate (does authored
+/// source exist and can we fetch it), and RTS's match rate against whatever
+/// currently resolves. Baking a generation-time SourceLink outcome into
+/// corpus membership would make the corpus itself a product of the very
+/// oracle it's meant to hold fixed -- partial (members SourceLink fails on
+/// today can never enter the corpus, even after a later SourceLink fix) and
+/// circular (you can no longer tell "oracle got better" apart from "corpus
+/// changed"). Replaying this roster at increasing <c>--cap</c> values samples
 /// nested prefixes of the same locked population, so cap=100 and cap=1000
 /// runs are directly comparable to each other and to earlier runs over the
 /// same roster -- unlike plain live discovery, which can select a different
@@ -236,25 +248,21 @@ static class AuthoredSourceCensus
     /// candidate per assembly (via the same real RTS compile-back pipeline as
     /// live discovery), allocates the shared <paramref name="cap"/> across
     /// assemblies with <see cref="AllocateAcrossLibraries"/> so one large
-    /// library can't crowd out the rest of the corpus, diversifies each
-    /// assembly's allocation by declaring type, and classifies the result
-    /// (real SourceLink acquisition) to lock in every member whose authored
-    /// source was actually available (<c>Outcome</c> not
-    /// <c>SourceUnavailable</c>/<c>UnsupportedTarget</c>) — independent of
-    /// whether RTS's compile-back succeeded, since that verdict is exactly
-    /// what later replay runs want to re-measure fresh. Writes the locked
-    /// roster to <paramref name="rosterPath"/> for repeated, apples-to-apples
-    /// replay via <see cref="RunFromRoster"/>.
+    /// library can't crowd out the rest of the corpus, and diversifies each
+    /// assembly's allocation by declaring type. Membership is locked by
+    /// identity alone -- generation does <b>not</b> fetch SourceLink or run
+    /// any classification, and does not filter by whether authored source
+    /// currently resolves. See <see cref="AuthoredSourceCensusRoster"/> for
+    /// why: a generation-time SourceLink/RTS outcome filter would make corpus
+    /// membership itself a product of the very oracle and decompiler this
+    /// roster exists to measure repeatably. Both axes (SourceLink resolution
+    /// rate, RTS match rate) are measured fresh, every time, by
+    /// <see cref="RunFromRoster"/> against this same fixed population. Writes
+    /// the locked roster to <paramref name="rosterPath"/> for repeated,
+    /// apples-to-apples replay.
     /// </summary>
     public static int GenerateRoster(IReadOnlyList<string> assemblies, int cap, string rosterPath)
-        => GenerateRosterAsync(assemblies, cap, rosterPath).GetAwaiter().GetResult();
-
-    static async Task<int> GenerateRosterAsync(IReadOnlyList<string> assemblies, int cap, string rosterPath)
     {
-        HttpClientFactory.Initialize();
-        using var httpClient = HttpClientFactory.CreateNew();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
-
         var perLibrary = new List<(string AssemblyPath, IReadOnlyList<ReturnToSender.Result> Candidates)>();
         foreach (string assemblyPath in assemblies)
         {
@@ -283,29 +291,12 @@ static class AuthoredSourceCensus
         {
             var (assemblyPath, candidates) = perLibrary[i];
             var selected = DiversifyByKey(candidates, allocations[i], result => result.Plan.TargetMethod.Type);
-            if (selected.Count == 0)
-            {
-                rosterAssemblies.Add(new AuthoredSourceCensusRosterAssembly(Path.GetFileName(assemblyPath), []));
-                continue;
-            }
 
-            using var source = SourceLinkService.Open(assemblyPath);
-            await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
-
-            var lockedMembers = new List<AuthoredSourceCensusRosterMember>();
-            foreach (var candidate in selected)
-            {
-                var classified = await ClassifyAsync(source, fetcher, candidate);
-                if (classified.Outcome is ReturnToSenderSourceOutcome.SourceUnavailable
-                    or ReturnToSenderSourceOutcome.UnsupportedTarget)
-                {
-                    continue;
-                }
-
-                var identity = candidate.Plan.TargetMethod;
-                lockedMembers.Add(new AuthoredSourceCensusRosterMember(
-                    identity.Type, identity.Method, identity.Overload, identity.Signature));
-            }
+            var lockedMembers = selected
+                .Select(candidate => candidate.Plan.TargetMethod)
+                .Select(identity => new AuthoredSourceCensusRosterMember(
+                    identity.Type, identity.Method, identity.Overload, identity.Signature))
+                .ToList();
 
             totalLocked += lockedMembers.Count;
             rosterAssemblies.Add(new AuthoredSourceCensusRosterAssembly(Path.GetFileName(assemblyPath), lockedMembers));
@@ -317,7 +308,8 @@ static class AuthoredSourceCensus
         Console.Error.WriteLine(
             $"Wrote authored-source census roster with {totalLocked} locked member(s) "
             + $"across {rosterAssemblies.Count(assembly => assembly.Members.Count > 0)} assembly/assemblies to {rosterPath} "
-            + $"(candidate pool: {candidateCounts.Sum()} across {perLibrary.Count} librar{(perLibrary.Count == 1 ? "y" : "ies")}, cap={cap}).");
+            + $"(candidate pool: {candidateCounts.Sum()} across {perLibrary.Count} librar{(perLibrary.Count == 1 ? "y" : "ies")}, cap={cap}); "
+            + "membership is locked by identity only -- SourceLink resolution and RTS match rate are measured fresh at replay.");
         return 0;
     }
 

@@ -249,13 +249,22 @@ the shared `--cap` across libraries fairly so one huge library (for example
 ascending by candidate count, give every library except the largest
 `min(candidateCount, total / libraryCount)`, and let the single largest
 library absorb whatever is left over (bounded by its own count) to reach
-`--cap` exactly — diversify each library's allocation by declaring type,
-classify each selected candidate with real RTS compile-back and real
-SourceLink acquisition, and lock in every member whose authored source was
-actually available — regardless of whether RTS's compile-back succeeded,
-since that pass/fail verdict is exactly what later replay runs want to
-re-measure fresh — to a roster JSON file at `<path>`. Implies
-`--authored-source-census`.
+`--cap` exactly — diversify each library's allocation by declaring type, and
+lock in every selected candidate's identity to a roster JSON file at `<path>`.
+Implies `--authored-source-census`.
+
+Locking is by identity alone: generation does **not** fetch SourceLink or run
+any classification, and does not filter by whether authored source currently
+resolves. SourceLink is itself an oracle whose own resolution rate we want to
+track over time, alongside RTS's match rate against whatever source currently
+resolves — baking a generation-time SourceLink/RTS outcome into corpus
+membership would make the corpus itself a product of the very oracle and
+decompiler this roster exists to measure, which is both partial (a member
+SourceLink fails on today can never enter the corpus, even after a later
+SourceLink fix) and circular (you can no longer tell "the oracle got better"
+apart from "the corpus changed"). Both axes — SourceLink resolution rate and
+RTS match rate — are measured fresh, every time, by
+`--authored-source-census-roster` against the same fixed population.
 
 `--authored-source-census-roster <path>` replays a roster written by
 `--authored-source-census-generate-roster`: it takes the first `--cap` locked
