@@ -227,21 +227,28 @@ public sealed partial class CSharpPrinter
 
     /// <summary>The single-line form of a tuple relational-pattern switch expression, used when it is nested inside another expression.</summary>
     string TupleSwitchExpressionInline(TupleSwitchExpression node, TypeRef? target = null)
-        => $"{TupleSwitchGoverningValueText(node)} switch {{ {string.Join(", ", node.Arms.Select(arm => TupleSwitchArmText(arm, target)))} }}";
+    {
+        var componentTypes = TupleSwitchComponentTypes(node);
+        return $"{TupleSwitchGoverningValueText(node)} switch {{ {string.Join(", ", node.Arms.Select(arm => TupleSwitchArmText(arm, componentTypes, target)))} }}";
+    }
 
     string TupleSwitchGoverningValueText(TupleSwitchExpression node)
         => $"({string.Join(", ", node.Components.Select(Operand))})";
 
-    /// <summary>The text of one tuple switch arm: its positional pattern (or <c>_</c> for the default) and the value it yields.</summary>
-    string TupleSwitchArmText(TupleSwitchExpressionArm arm, TypeRef? target = null)
-        => $"{TupleSwitchArmLabelText(arm)} => {SwitchArmValueText(arm.Value, target)}";
+    /// <summary>The declared type of each governing component, so a subpattern anchor can be spelled in the component's type (e.g. a <c>char</c> literal, not a bare <c>int</c>).</summary>
+    static IReadOnlyList<TypeRef?> TupleSwitchComponentTypes(TupleSwitchExpression node)
+        => node.Components.Select(component => component.ResultType).ToList();
 
-    static string TupleSwitchArmLabelText(TupleSwitchExpressionArm arm)
+    /// <summary>The text of one tuple switch arm: its positional pattern (or <c>_</c> for the default) and the value it yields.</summary>
+    string TupleSwitchArmText(TupleSwitchExpressionArm arm, IReadOnlyList<TypeRef?> componentTypes, TypeRef? target = null)
+        => $"{TupleSwitchArmLabelText(arm, componentTypes)} => {SwitchArmValueText(arm.Value, target)}";
+
+    static string TupleSwitchArmLabelText(TupleSwitchExpressionArm arm, IReadOnlyList<TypeRef?> componentTypes)
     {
         if (arm.IsDefault)
             return "_";
         var constants = arm.Constants;
-        return $"({string.Join(", ", arm.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i])))})";
+        return $"({string.Join(", ", arm.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i], componentTypes[i])))})";
     }
 
     string InterpolatedStringText(InterpolatedStringExpression node)

@@ -273,7 +273,16 @@ public sealed class TupleSwitchExpressionPass : IIrPass
             return true;
         }
 
-        return Equals(constant.Value, anchors[index].Value) && constant.Type.Equals(anchors[index].Type);
+        // A repeated component must reuse the same declared place type as its
+        // first occurrence. The IR raiser types every load of a given slot from
+        // the fixed parameter/local signature, so a real method never loads one
+        // slot under two types; this guards the invariant explicitly, since the
+        // governing tuple is spelled in (and the fold's signedness/anchor-fit
+        // proof rests on) the first occurrence's type alone.
+        return components[index].ResultType is { } existingType
+            && existingType.Equals(placeType)
+            && Equals(constant.Value, anchors[index].Value)
+            && constant.Type.Equals(anchors[index].Type);
     }
 
     static bool IsPlaceCandidate(IrExpression expression) => expression is LoadArgument or LoadLocal;

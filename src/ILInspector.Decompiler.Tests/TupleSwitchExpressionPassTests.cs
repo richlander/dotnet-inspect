@@ -154,6 +154,33 @@ public class TupleSwitchExpressionPassTests
     }
 
     [Fact]
+    public void CharQuadrant_FoldsWithCharLiteralAnchors()
+    {
+        // Compiler-backed regression for Gemini's adversarial finding: a char
+        // component's anchor is an in-range Int32 constant in IL, but a
+        // relational pattern against a char input rejects a bare int literal
+        // (CS0266). The recovered switch must spell the anchor as a char
+        // literal so it recompiles.
+        var function = Raised(nameof(CfgSampleClass.CharQuadrant));
+
+        var tupleSwitch = Assert.Single(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.Equal(2, tupleSwitch.ComponentCount);
+        Assert.Equal(5, tupleSwitch.Arms.Count);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("return (x, y) switch", output);
+        Assert.Contains("(> 'A', > 'A') => \"I\",", output);
+        Assert.Contains("(> 'A', < 'A') => \"IV\",", output);
+        Assert.Contains("(< 'A', > 'A') => \"II\",", output);
+        Assert.Contains("(< 'A', < 'A') => \"III\",", output);
+        Assert.Contains("_ => \"axis\",", output);
+        // The bare-int spelling that fails CS0266 must not appear.
+        Assert.DoesNotContain("> 65", output);
+        Assert.DoesNotContain("< 65", output);
+    }
+
+    [Fact]
     public void TwoLocalFunctionQuadrants_BothFoldIndependently()
     {
         // Compiler-backed coverage for the completeness bug found in Gemini's
@@ -342,6 +369,33 @@ public class TupleSwitchExpressionPassTests
 
         var root = new IfStatement(GT(0, "x", -1, type: UInt32, isUnsigned: true), xPositive, xNegative);
         var function = MakeFunction(root, [new Parameter("x", UInt32), new Parameter("y", Int32)]);
+
+        new TupleSwitchExpressionPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<TupleSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void RepeatedComponentWithDifferentPlaceType_DeclinesFold()
+    {
+        // Defense-in-depth for MAI's adversarial finding. The same argument
+        // slot `x` is loaded as Int32 in the outer `x > 0` (signed) and as
+        // UInt32 in `x < 0` (unsigned), sharing an anchor of 0. The IR raiser
+        // types every load of a slot from the fixed signature, so real csc
+        // output never reuses one slot under two types (a `(uint)x` is a
+        // Convert, not a bare load IsPlaceCandidate accepts) — this is an
+        // unreachable synthetic state. But since the governing tuple is
+        // spelled in, and the signedness/anchor proof rests on, the FIRST
+        // occurrence's type alone, a mixed-type reuse must decline rather than
+        // reinterpret the slot under the wrong type.
+        var xPositive = Wrap(new IfStatement(GT(1, "y", 0), Leaf("I"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("IV"), Leaf("axis")))));
+        var xNegativeInner = Wrap(new IfStatement(GT(1, "y", 0), Leaf("II"), Wrap(new IfStatement(LT(1, "y", 0), Leaf("III"), Leaf("axis")))));
+        var xNegative = Wrap(new IfStatement(LT(0, "x", 0, type: UInt32, isUnsigned: true, constantType: Int32), xNegativeInner, Leaf("axis")));
+
+        var root = new IfStatement(GT(0, "x", 0), xPositive, xNegative);
+        var function = MakeFunction(root, [new Parameter("x", Int32), new Parameter("y", Int32)]);
 
         new TupleSwitchExpressionPass().Run(function, PassContext.None);
         function.CheckInvariant();
