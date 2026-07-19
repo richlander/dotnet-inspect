@@ -178,7 +178,7 @@ public class DataflowFactsTests
         var facts = CSharpPrinter.CollectDataflowFacts(function);
 
         Assert.False(facts.Bailed);
-        // TEMP: Assert.Contains(0, facts.ReadBeforeAssign);
+        // V_0 is only assigned on the first arm's path; the default arm must not
         // inherit that assignment, so it stays read-before-assign (keeps
         // `= default`, avoiding CS0165 in the printed output).
         Assert.Contains(0, facts.ReadBeforeAssign);
