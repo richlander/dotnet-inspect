@@ -33,7 +33,7 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
         ];
     }
 
-    static Annotation ToAnnotation(UnsafetyOccurrence occurrence)
+    static Annotation<UnsafetyOccurrence> ToAnnotation(UnsafetyOccurrence occurrence)
     {
         var descriptor = occurrence.Kind switch
         {
@@ -41,6 +41,6 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
             UnsafetyKind.CallIndirect => Calli,
             _ => Deref,
         };
-        return new Annotation(descriptor, occurrence.ILOffset, occurrence.Detail);
+        return new Annotation<UnsafetyOccurrence>(descriptor, occurrence.ILOffset, occurrence, Formatter: static o => o.Detail);
     }
 }
