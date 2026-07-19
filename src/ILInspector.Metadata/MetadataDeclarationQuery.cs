@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using ILInspector.CSharp;
 
 namespace ILInspector.Metadata;
 

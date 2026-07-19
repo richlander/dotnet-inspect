@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.CSharp;
 
 namespace ILInspector.Metadata.Tests;
 

@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using ILInspector.Metadata;
 
 namespace ILInspector.CSharp;
 
