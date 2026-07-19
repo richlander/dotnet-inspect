@@ -6,4 +6,6 @@ namespace DotnetInspector.Options;
 public record CacheOptions(
     bool Clean,
     bool Verbose,
-    string? Session = null);
+    string? Session = null,
+    OutputFormat Format = OutputFormat.Markdown,
+    bool NoHeader = false);

@@ -116,7 +116,7 @@ public sealed class WithExpressionPass : IIrPass
             => new InitializerEntry(property.PropertyName, [property.Value], ConsumedMethod: property.Accessor),
 
         StoreField { Instance: LoadStackSlot receiver } field
-            when aliasSlots.Contains(receiver.Slot) && CSharpNaming.IsUsableIdentifier(field.Field.Name)
+            when aliasSlots.Contains(receiver.Slot) && CSharpNaming.IsEscapableIdentifier(field.Field.Name)
             => new InitializerEntry(field.Field.Name, [field.Value], ConsumedField: field.Field),
 
         _ => null,

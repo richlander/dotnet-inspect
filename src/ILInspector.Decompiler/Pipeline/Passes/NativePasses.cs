@@ -45,6 +45,8 @@ internal static class NativePasses
     public static ReturnDispatchPass ReturnDispatch => new();
     [Native(NativeCategory.EmitArtifact, "two-arm union type-test switch-expression dispatch collapsed from cached Value tests and compiler fallback throw")]
     public static UnionSwitchExpressionPass UnionSwitchExpression => new();
+    [Native(NativeCategory.EmitArtifact, "an exhaustive nested if/return comparison tree over independent same-anchored places folded to one tuple relational-pattern switch expression")]
+    public static TupleSwitchExpressionPass TupleSwitchExpression => new();
     [Native(NativeCategory.EmitArtifact, "a prologue if (c) goto L; return X; guard folded to a structured if even when the rest of the body stays EH-entangled-flat")]
     public static PrologueGuardReturnPass PrologueGuardReturn => new();
     [Native(NativeCategory.EmitArtifact, "return-accumulator temp spilled across an EH/lock region eliminated")]
@@ -83,6 +85,8 @@ internal static class NativePasses
     public static RuntimeAsyncAwaiterPass RuntimeAsyncAwaiter => new();
     [Native(NativeCategory.EmitArtifact, "record with-expression clone/member-set scaffold reconstructed to receiver with { ... }")]
     public static WithExpressionPass WithExpression => new();
+    [Native(NativeCategory.EmitArtifact, "a pattern-guarded bool diamond whose true arm compares the bound value to a compiler-spilled default(T) temp (then stores rhs, else stores false) folded back to `target = pattern && rhs`, inlining the arm-local default temp as an inline default(T)")]
+    public static PatternGuardedShortCircuitPass PatternGuardedShortCircuit => new();
     [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
     public static CatchVariableScopePass CatchVariableScope => new();
 
@@ -101,6 +105,8 @@ internal static class NativePasses
     public static BitwiseBoolOperandPass BitwiseBoolOperand => new();
     [Native(NativeCategory.IlErasure, "a standing static function-pointer load (ldftn) spelled &Method")]
     public static MethodAddressPass MethodAddress => new();
+    [Native(NativeCategory.IlErasure, "fixed-buffer backing-field address arithmetic raised to the source buffer[index] place")]
+    public static FixedBufferElementAccessPass FixedBufferElementAccess => new();
     [Native(NativeCategory.IlErasure, "typeof(T) == typeof(U) / typeof type-switch folded")]
     public static TypeOfFoldingPass TypeOfFolding => new();
 

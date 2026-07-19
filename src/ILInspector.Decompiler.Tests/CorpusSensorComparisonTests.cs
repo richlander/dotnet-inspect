@@ -436,6 +436,52 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void ClassicStateMachineCoverage_CountsKickoffResultsByFamily()
+    {
+        var coverage = CorpusSensor.BuildClassicStateMachineCoverage(
+        [
+            ClassicKickoff("Async_Value", fullyRaised: true),
+            ClassicKickoff("Iterator_Sequence", fullyRaised: false),
+            ClassicKickoff("AsyncIterator_Sequence", fullyRaised: false),
+            ClassicKickoff("MoveNext", fullyRaised: true, type: "T.<Async_Value>d__1"),
+            ClassicKickoff("Switch_Control", fullyRaised: true),
+        ]);
+
+        Assert.Equal(new ClassicStateMachineFeatureMetrics(1, 1, 0), coverage["classic-async"]);
+        Assert.Equal(new ClassicStateMachineFeatureMetrics(1, 0, 1), coverage["classic-iterator"]);
+        Assert.Equal(new ClassicStateMachineFeatureMetrics(1, 0, 1), coverage["classic-async-iterator"]);
+        Assert.Equal(3, coverage.Count);
+    }
+
+    [Fact]
+    public void Compare_RejectsClassicStateMachineRaisedRegression()
+    {
+        var baselineCoverage = CompleteClassicStateMachineCoverage()
+            .SetItem("classic-async", new ClassicStateMachineFeatureMetrics(4, 4, 0));
+        var currentCoverage = CompleteClassicStateMachineCoverage()
+            .SetItem("classic-async", new ClassicStateMachineFeatureMetrics(4, 3, 1));
+        var baseline = Snapshot(
+            4, 4, 10_000, null,
+            profile: CorpusProfile.ClassicStateMachines,
+            featureCoverage: CompleteClassicFeatureCoverage(),
+            classicStateMachineCoverage: baselineCoverage);
+        var current = Snapshot(
+            4, 3, 7_500, null,
+            profile: CorpusProfile.ClassicStateMachines,
+            featureCoverage: CompleteClassicFeatureCoverage(),
+            classicStateMachineCoverage: currentCoverage);
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            "classic state-machine fully raised 'classic-async' dropped (baseline 4, current 3)",
+            regressions);
+        Assert.Contains(
+            "classic state-machine residual 'classic-async' increased (baseline 0, current 1)",
+            regressions);
+    }
+
+    [Fact]
     public void CompilerFeatureOptions_ReplaysMemorySafetyModeFromModuleMetadata()
     {
         string updatedAssembly =
@@ -1289,7 +1335,8 @@ public class CorpusSensorComparisonTests
         CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
         ReturnToSenderParityMetrics? returnToSenderParity = null,
         CorpusProfile profile = CorpusProfile.RealWorld,
-        IReadOnlyDictionary<string, int>? featureCoverage = null)
+        IReadOnlyDictionary<string, int>? featureCoverage = null,
+        IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? classicStateMachineCoverage = null)
     {
         return new CorpusSensorSnapshot(
             SchemaVersion: 1,
@@ -1328,8 +1375,26 @@ public class CorpusSensorComparisonTests
                     ReturnToSenderParity: returnToSenderParity)),
             FidelityOracle: fidelityOracle,
             Profile: profile,
-            FeatureCoverage: featureCoverage);
+            FeatureCoverage: featureCoverage,
+            ClassicStateMachineCoverage: classicStateMachineCoverage);
     }
+
+    static ImmutableDictionary<string, int> CompleteClassicFeatureCoverage()
+        => new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["classic-async-methods"] = 1,
+            ["classic-iterator-methods"] = 1,
+            ["classic-async-iterator-methods"] = 1,
+            ["switch-methods"] = 1,
+        }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    static ImmutableDictionary<string, ClassicStateMachineFeatureMetrics> CompleteClassicStateMachineCoverage()
+        => new Dictionary<string, ClassicStateMachineFeatureMetrics>(StringComparer.Ordinal)
+        {
+            ["classic-async"] = new(1, 1, 0),
+            ["classic-iterator"] = new(1, 1, 0),
+            ["classic-async-iterator"] = new(1, 1, 0),
+        }.ToImmutableDictionary(StringComparer.Ordinal);
 
     static ImmutableDictionary<string, int> CompleteFeatureCoverage()
         => new Dictionary<string, int>(StringComparer.Ordinal)
@@ -1440,6 +1505,24 @@ public class CorpusSensorComparisonTests
             Validity: validity,
             FidelityCheck: fidelityCheck,
             FidelityReference: fidelityReference);
+
+    static CorpusMethodSnapshot ClassicKickoff(
+        string method,
+        bool fullyRaised,
+        string type = "ClassicStateMachineFixtures")
+        => new(
+            Assembly: "Fixture",
+            AssemblyPath: "fixture.dll",
+            Type: type,
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: fullyRaised ? "Full" : "Partial",
+            FullyRaised: fullyRaised,
+            Residual: fullyRaised ? null : "fidelity: unsupported-node",
+            PassBug: null,
+            Validity: "not-sampled",
+            FidelityCheck: "not-sampled");
 
     static CorpusMethodSnapshot ResidualMethod(
         string method,

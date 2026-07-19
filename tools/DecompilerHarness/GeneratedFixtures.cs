@@ -1835,6 +1835,20 @@ internal static class GeneratedFixtureCatalog
             public static bool Positional(NamedCount value)
                 => value is ("ok", > 0);
 
+            // TupleSwitchExpression (issue #2867): csc's tuple relational-pattern
+            // switch lowers to the same nested if/return comparison tree as
+            // LadderRung5.Quadrant, so this small two-component case keeps the
+            // fold covered even if the Quadrant fixture's shape shifts.
+            public static int TupleRelationalSwitch(int x, int y)
+                => (x, y) switch
+                {
+                    (> 0, > 0) => 1,
+                    (< 0, > 0) => 2,
+                    (< 0, < 0) => 3,
+                    (> 0, < 0) => 4,
+                    _ => 0,
+                };
+
             public static byte[] ArrayLiteralBytes()
                 => new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
 
@@ -1861,6 +1875,9 @@ internal static class GeneratedFixtureCatalog
 
             public static string Interpolate(int value, string name)
                 => $"{name}: {value:X4}";
+
+            public static bool BePositive<T>(object subject) where T : struct, System.IComparable<T>
+                => subject is T value && value.CompareTo(default) > 0;
         }
         """,
         [],

@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 public unsafe struct FixedBufferResiduals
 {
     public fixed int Data[4];
+    public fixed int Values[4];
 
     public int Sum()
     {
@@ -14,6 +15,140 @@ public unsafe struct FixedBufferResiduals
             sum += Data[i];
         return sum;
     }
+
+    public int ReadAt(int index) => Data[index];
+
+    public int ReadFirst() => Data[0];
+
+    public void WriteAt(int index, int value) => Data[index] = value;
+
+    public void WriteFirst(int value) => Data[0] = value;
+
+    public int ReadAtThroughFixedAddress(int index)
+    {
+        fixed (int* p = &Data[index])
+            return *p;
+    }
+
+    public ref int RefAt(int index) => ref Data[index];
+
+    public ref int RefFirst() => ref Data[0];
+
+    public void PassByRef(int index) => Increment(ref Data[index]);
+
+    public void PassFirstByRef() => Increment(ref Data[0]);
+
+    public int RefLocalIncrement(int index)
+    {
+        ref int value = ref Data[index];
+        value++;
+        return value;
+    }
+
+    public int RefLocalFirstIncrement()
+    {
+        ref int value = ref Data[0];
+        value++;
+        return value;
+    }
+
+    public static int PointerLocalValue(int index)
+    {
+        FixedBufferResiduals value = default;
+        int* p = null;
+        p = &value.Data[index];
+        *p = 42;
+        return *p;
+    }
+
+    public static int PointerLocalFirstValue()
+    {
+        FixedBufferResiduals value = default;
+        int* p = null;
+        p = &value.Data[0];
+        *p = 42;
+        return *p;
+    }
+
+    public static int* PointerReturn(int index)
+    {
+        FixedBufferResiduals value = default;
+        return &value.Data[index];
+    }
+
+    public static int* PointerReturnFirst()
+    {
+        FixedBufferResiduals value = default;
+        return &value.Data[0];
+    }
+
+    public static void PointerArgument(int index)
+    {
+        FixedBufferResiduals value = default;
+        ConsumePointer(&value.Data[index]);
+    }
+
+    public static void PointerArgumentFirst()
+    {
+        FixedBufferResiduals value = default;
+        ConsumePointer(&value.Data[0]);
+    }
+
+    public string FormatValue(int index) => Values[index].ToString();
+
+    public int FirstValueHashCode() => Values[0].GetHashCode();
+
+    static void Increment(ref int value) => value++;
+
+    static void ConsumePointer(int* value) => _ = value;
+}
+
+public unsafe struct FixedBufferPrimitiveResiduals
+{
+    public fixed bool Bools[4];
+    public fixed byte Bytes[4];
+    public fixed sbyte SBytes[4];
+    public fixed char Chars[4];
+    public fixed short Shorts[4];
+    public fixed ushort UShorts[4];
+    public fixed int Ints[4];
+    public fixed uint UInts[4];
+    public fixed long Longs[4];
+    public fixed ulong ULongs[4];
+    public fixed float Floats[4];
+    public fixed double Doubles[4];
+
+    public bool ReadBool(int index) => Bools[index];
+    public void WriteBool(int index, bool value) => Bools[index] = value;
+    public byte ReadByte(int index) => Bytes[index];
+    public void WriteByte(int index, byte value) => Bytes[index] = value;
+    public sbyte ReadSByte(int index) => SBytes[index];
+    public void WriteSByte(int index, sbyte value) => SBytes[index] = value;
+    public char ReadChar(int index) => Chars[index];
+    public void WriteChar(int index, char value) => Chars[index] = value;
+    public short ReadShort(int index) => Shorts[index];
+    public void WriteShort(int index, short value) => Shorts[index] = value;
+    public ushort ReadUShort(int index) => UShorts[index];
+    public void WriteUShort(int index, ushort value) => UShorts[index] = value;
+    public int ReadInt(int index) => Ints[index];
+    public void WriteInt(int index, int value) => Ints[index] = value;
+    public uint ReadUInt(int index) => UInts[index];
+    public void WriteUInt(int index, uint value) => UInts[index] = value;
+    public long ReadLong(int index) => Longs[index];
+    public void WriteLong(int index, long value) => Longs[index] = value;
+    public ulong ReadULong(int index) => ULongs[index];
+    public void WriteULong(int index, ulong value) => ULongs[index] = value;
+    public float ReadFloat(int index) => Floats[index];
+    public void WriteFloat(int index, float value) => Floats[index] = value;
+    public double ReadDouble(int index) => Doubles[index];
+    public void WriteDouble(int index, double value) => Doubles[index] = value;
+
+    public int ReadIntAtLong(long index) => Ints[index];
+    public int ReadIntAtUInt(uint index) => Ints[index];
+    public int ReadIntAtULong(ulong index) => Ints[index];
+    public void WriteIntAtLong(long index, int value) => Ints[index] = value;
+    public void WriteIntAtUInt(uint index, int value) => Ints[index] = value;
+    public void WriteIntAtULong(ulong index, int value) => Ints[index] = value;
 }
 
 public static class StringPinningResiduals

@@ -112,6 +112,24 @@ static class DefiniteAssignment
                     }
                     return;
                 }
+                case TupleSwitchExpression tupleSwitch:
+                {
+                    // Components are independent places read unconditionally, in
+                    // order, to select an arm — the shared set carries forward.
+                    // Each arm is mutually exclusive with its siblings, so it gets
+                    // its own copy of the post-component set (never unioned or
+                    // joined back): an out-assignment in one arm's value must not
+                    // leak into another arm or the outer scope. Constants/subpatterns
+                    // are pattern metadata, not reads, so they need no flow.
+                    foreach (var component in tupleSwitch.Components)
+                        CheckReads(component, assigned);
+                    foreach (var arm in tupleSwitch.Arms)
+                    {
+                        var armSet = new HashSet<int>(assigned);
+                        CheckReads(arm.Value, armSet);
+                    }
+                    return;
+                }
                 case UnionSwitchExpression unionSwitch:
                 {
                     CheckReads(unionSwitch.Value, assigned);
@@ -219,6 +237,13 @@ static class DefiniteAssignment
                     return;
                 case SwitchExpression switchExpression:
                     AddVerifiedOutLocals(switchExpression.Value, assigned);
+                    return;
+                case TupleSwitchExpression tupleSwitch:
+                    // Only the components are unconditionally evaluated (they
+                    // select the arm); arm values are mutually exclusive and must
+                    // not contribute to the CFG's unconditional gen set.
+                    foreach (var component in tupleSwitch.Components)
+                        AddVerifiedOutLocals(component, assigned);
                     return;
                 case UnionSwitchExpression unionSwitch:
                     AddVerifiedOutLocals(unionSwitch.Value, assigned);

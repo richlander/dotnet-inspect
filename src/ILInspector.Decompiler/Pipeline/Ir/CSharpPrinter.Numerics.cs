@@ -1137,6 +1137,16 @@ public sealed partial class CSharpPrinter
         if (target is { Kind: TypeRefKind.Pointer }
             && value is Convert
             {
+                Operand: FixedBufferElementAddress fixedBufferAddress,
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+            }
+            && fixedBufferAddress.ElementType.Equals(target.ElementType))
+        {
+            return $"&{Deref(fixedBufferAddress)}";
+        }
+        if (target is { Kind: TypeRefKind.Pointer }
+            && value is Convert
+            {
                 Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress,
                 Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
             } addressConvert)
@@ -1264,6 +1274,9 @@ public sealed partial class CSharpPrinter
         if (value is UnionSwitchExpression unionSwitchExpression
             && target is { } unionSwitchTarget)
             return UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget);
+        if (value is TupleSwitchExpression tupleSwitchExpression
+            && target is { } tupleSwitchTarget)
+            return TupleSwitchExpressionInline(tupleSwitchExpression, tupleSwitchTarget);
         if (value is Coalesce coalesce
             && target is { } coalesceTarget
             && TryCoalesceTextForTarget(coalesce, coalesceTarget) is { } targetedCoalesce)

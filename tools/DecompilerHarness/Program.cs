@@ -1594,8 +1594,9 @@ static class Program
         {
             "real-world" => CorpusProfile.RealWorld,
             "opt-in-net11" => CorpusProfile.OptInNet11,
+            "classic-state-machines" => CorpusProfile.ClassicStateMachines,
             _ => throw new ArgumentException(
-                $"Unknown corpus profile '{value}'. Expected real-world or opt-in-net11."),
+                $"Unknown corpus profile '{value}'. Expected real-world, opt-in-net11, or classic-state-machines."),
         };
 
     static void PrintUsage() => Console.WriteLine("""
@@ -1885,9 +1886,10 @@ static class Program
                                 rts). RTS evaluates the same compile-back-selected
                                 target population without applying the compile-back floor.
           --corpus-profile <name>        label corpus snapshots and cards as
-                                real-world (default) or opt-in-net11. Profiles
-                                keep curated feature metrics distinct from
-                                real-world quality rates.
+                                real-world (default), opt-in-net11, or
+                                classic-state-machines. Profiles keep curated
+                                feature metrics distinct from real-world quality
+                                rates.
           --corpus-method-cap <n>        with corpus baseline modes: cap the
                                 completeness/structuring scan to a deterministic
                                 hash-ranked sample of n methods per assembly.

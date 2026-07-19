@@ -491,6 +491,48 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 bash eng/report-decompiler-opt-in-corpus-drift.sh
 ```
 
+**Classic state-machine corpus** (`--corpus-profile classic-state-machines`):
+a pinned, representative current-compiler lane for classic (non-`RuntimeAsync`)
+compiler-generated state machines — async kickoff/resume, iterators, async
+iterators, and a plain non-pattern `switch` control — none of which had
+dedicated corpus coverage before (#2818, a child of #2814). Its one fixture
+assembly,
+`ILInspector.Decompiler.Fixtures.ClassicStateMachines`, builds on the same
+`RuntimeAsync=off` axis as `ILInspector.Decompiler.Fixtures.ClassicAsync`
+rather than a downlevel TFM/LangVersion pack. The fixture spans `Task`,
+`async void`, and `ValueTask` builders; static, instance, generic, and
+non-generic iterators; and cancellation, exception-region, `await foreach`, and
+async-disposal shapes. It is not exhaustive across compiler versions or older
+TFMs; those remain a separate candidate axis.
+
+Unlike the other corpus profiles, this lane wires the cross-method import seam
+(`PassContext.ForImport`, the same helper `--dump`/`--library-report` use) into
+`CorpusSensor.AnalyzeCompleteness`, so cross-method passes such as
+`ClassicAsyncReconstructionPass` — which pulls in the sibling `MoveNext` body —
+raise the same way they do outside the corpus sensor. No other corpus profile
+wires this seam; `real-world` and `opt-in-net11` still raise each method
+standalone. Snapshot schema v4 records feature-local population evidence
+(`classic-async-methods`, `classic-iterator-methods`,
+`classic-async-iterator-methods`, `switch-methods`), tagged by the method-name
+prefix contract documented on `ClassicStateMachineFixtures`
+(`Async_`/`Iterator_`/`AsyncIterator_`/`Switch_`). The separate
+`classicStateMachineCoverage` object reports source-kickoff population, fully
+raised, and residual counts for each state-machine family. Baseline comparison
+blocks a lost specimen, a lower fully-raised count, or increased residuals when
+the population is stable. As with the opt-in-net11 profile, its baseline is
+separate from `real-world-baseline.json` and never blended into real-world
+rates; this is a first published census (successor to the earlier "0/21"
+classic-async gap), not yet a broad real-world quality target.
+
+```bash
+dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
+  --corpus-profile classic-state-machines \
+  --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+  --max-examples 10
+```
+
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
 oracle for raise and printer changes. The first run writes a method-keyed JSON
 baseline of rendered bodies; the second run compares the current render against
@@ -744,10 +786,13 @@ corpus omits: (1) put the mode-sensitive source in its own file (or reuse shared
 fixtures when one source is legal in both modes); (2) add a thin overlay csproj
 that sets the flag — preferably through a property in `Directory.Build.targets`
 for a reusable axis; (3) build it and baseline with `--library-report`. Keep it
-out of CI references so it stays a discovery tool. Candidate next axes:
-**checked arithmetic** (`CheckForOverflowUnderflow`) and **downlevel framework /
-LangVersion** (an older TFM, which cascades classic async + old switch/iterator
-lowerings at once).
+out of CI references so it stays a discovery tool. Candidate next axis:
+**checked arithmetic** (`CheckForOverflowUnderflow`). Classic iterators, async
+iterators, and classic async kickoff/resume are now pinned by the
+`classic-state-machines` corpus profile above, on the `RuntimeAsync=off` axis
+rather than a downlevel TFM; a genuinely older TFM/LangVersion pack (which
+would also change the classic switch/iterator lowering shapes themselves)
+remains a candidate next axis.
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass; `--compile-cap all` runs an exhaustive binding sweep. Capped reports print how many eligible `Full` methods were actually compiled and label semantic findings as per-sample, not corpus-wide.
 

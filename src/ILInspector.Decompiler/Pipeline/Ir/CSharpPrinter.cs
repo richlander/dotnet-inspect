@@ -1114,7 +1114,8 @@ public sealed partial class CSharpPrinter
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
-                if (HasUnsafeOperation(store.Value)
+                if (store.Type.Kind != TypeRefKind.ByRef
+                    && HasUnsafeOperation(store.Value)
                     && LocalIsRead(function, store.Index)
                     && !LocalReadsStayInsideUnsafeRun(function, store))
                 {
@@ -1526,6 +1527,19 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("};");
             return;
         }
+        if (node is Return { Value: TupleSwitchExpression tupleSwitch })
+        {
+            // Mirrors the SwitchExpression/UnionSwitchExpression return-position
+            // forms above: one arm per line, indented under the governing tuple.
+            string inner = pad + "    ";
+            var componentTypes = TupleSwitchComponentTypes(tupleSwitch);
+            sb.Append(pad).Append("return ").Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLine(" switch");
+            sb.Append(pad).AppendLine("{");
+            foreach (var arm in tupleSwitch.Arms)
+                sb.Append(inner).Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType)).AppendLine(",");
+            sb.Append(pad).AppendLine("};");
+            return;
+        }
         if (node is Return { Value: StackAllocate stackAllocate }
             && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
         {
@@ -1868,6 +1882,9 @@ public sealed partial class CSharpPrinter
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         Binary b => IsPointerArithmetic(b),
         Comparison c => IsPointerComparison(c),
+        FixedBufferElementAddress => true,
+        LoadIndirect { Address: FixedBufferElementAddress } => true,
+        StoreIndirect { Address: FixedBufferElementAddress } => true,
         LoadIndirect l => RendersAsPointerDeref(l.Address),
         StoreIndirect s => RendersAsPointerDeref(s.Address),
         InitObject o => RendersAsPointerDeref(o.Address),
@@ -1914,6 +1931,7 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress => false,
         LoadArgumentAddress => false,
         LoadFieldAddress => false,
+        FixedBufferElementAddress => false,
         LoadElementAddress => false,
         Conditional { ResultType.Kind: TypeRefKind.ByRef } c
             when c.WhenTrue.ResultType?.Kind == TypeRefKind.ByRef
@@ -2159,6 +2177,7 @@ public sealed partial class CSharpPrinter
         Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
         UnionSwitchExpression se => UnionSwitchExpressionInline(se),
+        TupleSwitchExpression se => TupleSwitchExpressionInline(se),
         NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
@@ -2210,7 +2229,7 @@ public sealed partial class CSharpPrinter
         Box b => CoerceText(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
-        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {p.PropertyName}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
+        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {CSharpNaming.EscapeIdentifier(p.PropertyName)}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         PositionalPattern p => PositionalPatternText(p),
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
@@ -2219,10 +2238,12 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
         LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
+        FixedBufferElementAddress f => $"ref {FixedBufferElementText(f)}",
         LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
+        DefaultValue d => $"default({TypeText(d.Type)})",
         TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
         LoadToken t => t.Kind == RuntimeTokenKind.Type && t.Type is not null
             ? $"typeof({TypeOfTypeText(t.Type)})"
@@ -2585,7 +2606,7 @@ public sealed partial class CSharpPrinter
         // any other binary/unary — otherwise an enclosing `!`/`-`/binary
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
         bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or Constant or LoadField
-            or NewObject or ArrayLength or LoadElement or SliceExpression or RangeExpression or CaughtException or SizeOf or LoadToken
+            or NewObject or ArrayLength or LoadElement or FixedBufferElementAddress or SliceExpression or RangeExpression or CaughtException or SizeOf or DefaultValue or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or WithExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
             || node is Call call && !IsOperatorCall(call)
@@ -2603,7 +2624,8 @@ public sealed partial class CSharpPrinter
             // member-access receiver misbinds onto the call result
             // (`(E)x.M()` is `(E)(x.M())`), so those keep Operand's parens.
             || node is Coerce && IsSimpleAtomText(text);
-        atomic = atomic || node is LoadIndirect load && PointerElementAccessText(load) is not null;
+        atomic = atomic || node is LoadIndirect { Address: FixedBufferElementAddress }
+            || node is LoadIndirect load && PointerElementAccessText(load) is not null;
         return atomic ? text : $"({text})";
     }
 
@@ -2683,6 +2705,7 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress a => $"{LocalName(a.Index)}",
         LoadArgumentAddress a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
+        FixedBufferElementAddress f => FixedBufferElementText(f),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
         // A ref-typed conditional is a ref ternary: the `ref` binds each arm
@@ -2701,6 +2724,9 @@ public sealed partial class CSharpPrinter
         { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
         _ => $"*{Operand(address)}",
     };
+
+    string FixedBufferElementText(FixedBufferElementAddress address)
+        => $"{FieldTarget(address.BufferField, address.Instance)}[{Expression(address.Index)}]";
 
     /// <summary>
     /// Renders a <c>ldind.&lt;T&gt;</c> read. Most addresses go through
@@ -2722,7 +2748,7 @@ public sealed partial class CSharpPrinter
         {
             // An address-of operand keeps its `&place` unsafe spelling (mirroring
             // ConvertText); any other operand is already a pointer/integer value.
-            string addr = conv.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress
+            string addr = conv.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress
                 ? $"(&{Deref(conv.Operand)})"
                 : Operand(conv.Operand);
             return $"*({TypeText(element)}*){addr}";
@@ -2734,9 +2760,6 @@ public sealed partial class CSharpPrinter
 
     string? PointerElementAccessText(LoadIndirect load)
     {
-        if (FixedBufferElementAccessText(load) is { } fixedBufferAccess)
-            return fixedBufferAccess;
-
         if (load.Type is not { } element
             || load.Address is not Binary { Kind: BinaryKind.Add } address
             || !TrySplitPointerAdd(address, out var pointer, out var offset)
@@ -2749,44 +2772,6 @@ public sealed partial class CSharpPrinter
 
         return $"{Operand(pointer)}[{Expression(index)}]";
     }
-
-    string? FixedBufferElementAccessText(LoadIndirect load)
-    {
-        if (load.Type is not { } element
-            || load.Address is not Binary { Kind: BinaryKind.Add } address
-            || !TrySplitFixedBufferElementAdd(address, out var elementFieldAddress, out var offset)
-            || !elementFieldAddress.Field.Type.Equals(element)
-            || !TryScaledPointerIndex(offset, element, out var index))
-        {
-            return null;
-        }
-
-        return $"System.Runtime.CompilerServices.Unsafe.Add(ref {FieldTarget(elementFieldAddress.Field, elementFieldAddress.Instance)}, {Expression(index)})";
-    }
-
-    static bool TrySplitFixedBufferElementAdd(Binary add, out LoadFieldAddress fieldAddress, out IrExpression offset)
-    {
-        if (add.Left is LoadFieldAddress left && IsFixedBufferElementAddress(left))
-        {
-            fieldAddress = left;
-            offset = add.Right;
-            return true;
-        }
-        if (add.Right is LoadFieldAddress right && IsFixedBufferElementAddress(right))
-        {
-            fieldAddress = right;
-            offset = add.Left;
-            return true;
-        }
-
-        fieldAddress = null!;
-        offset = add.Right;
-        return false;
-    }
-
-    static bool IsFixedBufferElementAddress(LoadFieldAddress address)
-        => address.Field.Name == "FixedElementField"
-            && address.Instance is LoadFieldAddress;
 
     static bool TrySplitPointerAdd(Binary add, out IrExpression pointer, out IrExpression offset)
     {
@@ -3009,7 +2994,7 @@ public sealed partial class CSharpPrinter
 
         string designation = pattern.PreserveLocalInPropertyPattern ? $" {LocalName(pattern.LocalIndex)}" : "";
         string not = negated ? " not" : "";
-        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{p.PropertyName}: {p.Subpattern}"))} }}{designation}";
+        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{CSharpNaming.EscapeIdentifier(p.PropertyName)}: {p.Subpattern}"))} }}{designation}";
     }
 
     static void CollectConjuncts(IrExpression expression, List<IrExpression> conjuncts)
@@ -3153,16 +3138,26 @@ public sealed partial class CSharpPrinter
     string PositionalPatternText(PositionalPattern pattern)
     {
         var constants = pattern.Constants;
-        return $"{Operand(pattern.Value)} is ({string.Join(", ", pattern.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i])))})";
+        return $"{Operand(pattern.Value)} is ({string.Join(", ", pattern.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i], targetType: null)))})";
     }
 
-    static string PositionalSubpatternText(PositionalPatternSubpattern subpattern, Constant constant)
-        => subpattern.Kind switch
+    static string PositionalSubpatternText(PositionalPatternSubpattern subpattern, Constant constant, TypeRef? targetType)
+    {
+        // A char component's anchor is an in-range Int32 constant in IL
+        // (ConstantFits admits it), but a relational/constant pattern against a
+        // char input rejects a bare int literal (CS0266 — the implicit
+        // constant-expression conversion does not apply in patterns). Spell it
+        // as the char literal the component's type demands.
+        string constantText = targetType is { } type && IsCoreChar(type) && TryCharConstantText(constant, out var charText)
+            ? charText
+            : ConstantText(constant);
+        return subpattern.Kind switch
         {
-            ComparisonKind.Equal => ConstantText(constant),
-            ComparisonKind.NotEqual => $"not {ConstantText(constant)}",
-            _ => $"{ComparisonOperator(subpattern.Kind)} {ConstantText(constant)}",
+            ComparisonKind.Equal => constantText,
+            ComparisonKind.NotEqual => $"not {constantText}",
+            _ => $"{ComparisonOperator(subpattern.Kind)} {constantText}",
         };
+    }
 
     /// <summary>
     /// A return statement. A method that returns by reference (<c>ref T</c>) ends
@@ -3280,6 +3275,10 @@ public sealed partial class CSharpPrinter
             && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
         (LoadFieldAddress x, LoadFieldAddress y) => x.Field.Name == y.Field.Name
             && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
+        (FixedBufferElementAddress x, FixedBufferElementAddress y) => x.BufferField.Name == y.BufferField.Name
+            && Equals(x.BufferField.DeclaringType, y.BufferField.DeclaringType)
+            && SameLValue(x.Instance, y.Instance)
+            && SameLValue(x.Index, y.Index),
         (LoadElementAddress x, LoadElementAddress y) => SameLValue(x.Array, y.Array) && SameLValue(x.Index, y.Index),
         _ => false,
     };
@@ -3725,7 +3724,7 @@ public sealed partial class CSharpPrinter
         // not a `ref` place: `(nuint)(ref x)` is CS1525 — the faithful unsafe
         // spelling is `(nuint)(&x)`. The bare `ref` form is only valid in a
         // ref-return/ref-argument/ref-local position, never as a cast operand.
-        if (convert.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or LoadElementAddress)
+        if (convert.Operand is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress)
         {
             string addressCast = $"({TypeText(convert.Target)})(&{Deref(convert.Operand)})";
             if (wrap)

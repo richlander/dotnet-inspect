@@ -147,6 +147,17 @@ public class IsPatternPassTests
     }
 
     [Fact]
+    public void KeywordPropertyPattern_EscapesPropertyName()
+    {
+        var function = Raised(nameof(CfgSampleClass.IsPatternKeywordProperty));
+
+        Assert.Single(function.Descendants.OfType<IsPattern>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("o is PatternPoint { @else: 1 }", output);
+        Assert.DoesNotContain("{ else: 1 }", output);
+    }
+
+    [Fact]
     public void PositionalPattern_RendersPositionalPatternClause()
     {
         var function = Raised(nameof(CfgSampleClass.PositionalPattern));
