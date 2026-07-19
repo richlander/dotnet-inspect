@@ -173,6 +173,26 @@ public class PackageMetadataServiceTests : IDisposable
             StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task FetchAllMetadataAsync_FileSourceNamedApiNuGetOrgDoesNotQueryNuGetOrg()
+    {
+        var handler = new CountingHandler();
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = ["file://api.nuget.org/private-feed"]
+        };
+
+        var result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: sourceOptions);
+
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Null(result.Published);
+    }
+
     private sealed class FailingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

@@ -175,6 +175,43 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task NetworkPolicy_VulnerabilityCapabilityAllowsAdvisoryTraffic()
+    {
+        using var error = new StringWriter();
+        var transport = new StubHttpMessageHandler();
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (var client = new HttpClient(new NetworkTelemetryHandler(
+            transport,
+            NetworkClientKinds.Shared)))
+        using (NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData))
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData))
+        using (var response = await client.GetAsync(
+            "https://api.github.com/advisories/GHSA-test",
+            TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        Assert.DoesNotContain("Network policy error", error.ToString());
+        Assert.Equal(1, transport.RequestCount);
+    }
+
+    [Fact]
+    public async Task NetworkPolicy_BlocksAdvisoryTrafficWithoutVulnerabilityCapability()
+    {
+        var transport = new StubHttpMessageHandler();
+        using var client = new HttpClient(new NetworkTelemetryHandler(
+            transport,
+            NetworkClientKinds.Shared));
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData);
+
+        await Assert.ThrowsAsync<NetworkPolicyException>(() => client.GetAsync(
+            "https://api.github.com/advisories/GHSA-test",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0, transport.RequestCount);
+    }
+
+    [Fact]
     public void RequestMermaidDiagram_RendersObservedTrafficSequence()
     {
         using var diagram = RequestMermaidDiagram.Start();

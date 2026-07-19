@@ -195,8 +195,10 @@ public static class NetworkTelemetry
     private static bool IsAllowedByPolicy(NetworkTrafficKind kind) =>
         kind switch
         {
-            // Package load/search traffic is always allowed; vulnerability traffic is view-gated.
-            NetworkTrafficKind.VulnerabilityData => AllowedKinds.Value?.Contains(kind) == true,
+            // Package load/search traffic is always allowed. NuGet and GitHub
+            // vulnerability enrichment share one view-gated capability.
+            NetworkTrafficKind.VulnerabilityData or NetworkTrafficKind.AdvisoryData =>
+                AllowedKinds.Value?.Contains(NetworkTrafficKind.VulnerabilityData) == true,
             _ => true
         };
 }
