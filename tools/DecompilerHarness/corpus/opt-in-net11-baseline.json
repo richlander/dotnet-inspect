@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-19T07:34:28.463745+00:00",
+  "generatedUtc": "2026-07-19T18:26:40.7575084+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -22,12 +22,12 @@
     {
       "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
-      "totalMethods": 68
+      "totalMethods": 70
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
-      "totalMethods": 68
+      "totalMethods": 70
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.OptInNet11",
@@ -527,7 +527,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::FirstValueHashCode#0"
     },
@@ -815,6 +815,36 @@
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::WriteAt#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+      "method": "WriteAtNestedIndex",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::WriteAtNestedIndex#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals",
+      "method": "WriteAtNestedZeroIndex",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::WriteAtNestedZeroIndex#0"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
@@ -1829,7 +1859,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals::Sum#0"
     },
@@ -1847,6 +1877,36 @@
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals::WriteAt#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+      "method": "WriteAtNestedIndex",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals::WriteAtNestedIndex#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals",
+      "method": "WriteAtNestedZeroIndex",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals::WriteAtNestedZeroIndex#0"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
@@ -3002,9 +3062,9 @@
     }
   ],
   "metrics": {
-    "totalMethods": 195,
-    "fullyRaisedMethods": 191,
-    "fullyRaisedBasisPoints": 9795,
+    "totalMethods": 199,
+    "fullyRaisedMethods": 195,
+    "fullyRaisedBasisPoints": 9799,
     "conditionalBranchMethods": 0,
     "conditionalBranchBasisPoints": 0,
     "forwardMergeStoppedContainers": 0,
@@ -3017,7 +3077,7 @@
       "fidelity: unsupported-node": 4
     },
     "structuring": {
-      "totalMethods": 195,
+      "totalMethods": 199,
       "structuredContainers": 27,
       "stoppedContainers": 0,
       "methodsWithStops": 0,
@@ -3041,7 +3101,7 @@
   "featureCoverage": {
     "await-recovery-methods": 11,
     "cross-assembly-requires-unsafe-methods": 1,
-    "legacy-memory-safety-control-methods": 68,
+    "legacy-memory-safety-control-methods": 70,
     "runtime-async-await-using-methods": 2,
     "runtime-async-awaiter-methods": 6,
     "runtime-async-exception-methods": 5,
@@ -3050,7 +3110,7 @@
     "union-declarations": 2,
     "union-switch-methods": 3,
     "union-types": 3,
-    "updated-memory-safety-methods": 68
+    "updated-memory-safety-methods": 70
   },
   "classicStateMachineCoverage": null
 }
