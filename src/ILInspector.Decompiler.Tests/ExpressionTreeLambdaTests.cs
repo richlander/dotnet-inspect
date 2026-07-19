@@ -141,6 +141,76 @@ public class ExpressionTreeLambdaTests
             "Expression.Lambda<Func<int, int>>");
     }
 
+    // Constant-fold guard: hand-written canonical graphs whose arithmetic operands
+    // are all compile-time constant would be folded by the compiler on recompile
+    // (`2 + 3` rebuilds as Constant(5), not Add), so recovering them as `x => ...`
+    // would change the tree. Each stays in honest factory-call form. Covers every
+    // supported operator at the root, a nested constant-only subtree under a
+    // parameter-dependent parent, and the Divide/Remainder zero/overflow edges.
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.ManualConstantOnlyAddFactory), "Expression.Add")]
+    [InlineData(nameof(CfgSampleClass.ManualConstantOnlySubtractFactory), "Expression.Subtract")]
+    [InlineData(nameof(CfgSampleClass.ManualConstantOnlyMultiplyFactory), "Expression.Multiply")]
+    [InlineData(nameof(CfgSampleClass.ManualNestedConstantSubtreeFactory), "Expression.Multiply")]
+    [InlineData(nameof(CfgSampleClass.ManualConstantOnlyDivideByZeroFactory), "Expression.Divide")]
+    [InlineData(nameof(CfgSampleClass.ManualConstantOnlyRemainderOverflowFactory), "Expression.Modulo")]
+    public void ConstantOnlyArithmeticFactory_StaysFactoryCalls(string methodName, string expectedFactory)
+    {
+        var function = Raised(methodName);
+
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<int, int>>", output);
+        Assert.Contains(expectedFactory, output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    // Positive control: a hand-written graph in which every arithmetic node has at
+    // least one parameter-dependent operand (`x * 2 + 3`) folds nothing, so the
+    // constant-fold guard leaves it recoverable at Full fidelity.
+    [Fact]
+    public void ManualParameterDependentFactory_RecoversLambda()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualParameterPlusConstantFactory));
+
+        Assert.Single(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("x =>", output);
+        Assert.DoesNotContain("Expression.Lambda", output);
+    }
+
+    // Real compile-back tree-structure oracle for the constant-fold guard. A source
+    // lambda whose body is constant-only arithmetic is folded to a single Constant
+    // node (root) or collapses a nested constant subtree — so recovering a
+    // constant-only factory graph as such a lambda would NOT rebuild the original
+    // Add/Multiply structure. A parameter-dependent body keeps its arithmetic node.
+    [Fact]
+    public void ConstantFoldOracle_RootConstantArithmetic_FoldsToConstant()
+    {
+        var body = BuildTreeUnderChecked("x => unchecked(2 + 3)");
+        Assert.Equal(ExpressionType.Constant, body.NodeType);
+    }
+
+    [Fact]
+    public void ConstantFoldOracle_NestedConstantSubtree_Collapses()
+    {
+        var body = BuildTreeUnderChecked("x => unchecked((2 + 3) * x)");
+        var multiply = Assert.IsAssignableFrom<BinaryExpression>(body);
+        Assert.Equal(ExpressionType.Multiply, multiply.NodeType);
+        // The original Add(Constant(2), Constant(3)) left subtree is gone.
+        Assert.Equal(ExpressionType.Constant, multiply.Left.NodeType);
+    }
+
+    [Fact]
+    public void ConstantFoldOracle_ParameterDependent_KeepsArithmeticNode()
+    {
+        var body = BuildTreeUnderChecked("x => unchecked(x + 1)");
+        Assert.Equal(ExpressionType.Add, body.NodeType);
+    }
+
     // Assembly-identity spoof: an unsigned assembly literally named
     // System.Linq.Expressions exposing a lookalike Expression factory family, whose
     // consumer builds the exact canonical inline graph returned as

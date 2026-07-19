@@ -349,6 +349,18 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
                     || RaiseBody(right, parameters, indexByLocal) is not { } raisedRight
                     || !IsInt(raisedLeft.ResultType) || !IsInt(raisedRight.ResultType))
                     return null;
+                // Transitive constant-fold guard. An arithmetic node whose operands are
+                // both compile-time constant (bare int constants or nested constant-only
+                // arithmetic) is folded by the C# compiler when the lambda is recompiled
+                // to an expression tree: `Add(Constant(2), Constant(3))` rebuilds as a
+                // single Constant(5), not an Add node, so the recovered tree is NOT
+                // identical. Because RaiseBody visits every arithmetic node, declining
+                // here also declines a constant-only subtree nested under a
+                // parameter-dependent parent (e.g. `Multiply(Add(2,3), p)`). Bare
+                // constant leaves and arithmetic with at least one parameter-dependent
+                // operand stay allowed and keep exact tree identity.
+                if (!DependsOnParameter(raisedLeft) && !DependsOnParameter(raisedRight))
+                    return null;
                 return new Binary(kind, isChecked: false, isUnsigned: false, raisedLeft, raisedRight);
 
             case Call when TryIntConstant(node, out var value):
@@ -358,6 +370,17 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
                 return null;
         }
     }
+
+    // A raised subtree is parameter-dependent when it transitively loads a lambda
+    // parameter. Only such subtrees are safe operands for a recovered arithmetic
+    // node: a constant-only operand pair would be constant-folded on recompile,
+    // breaking exact expression-tree identity (see RaiseBody's arithmetic guard).
+    static bool DependsOnParameter(IrExpression raised) => raised switch
+    {
+        LoadArgument => true,
+        Binary binary => DependsOnParameter(binary.Left) || DependsOnParameter(binary.Right),
+        _ => false,
+    };
 
     static bool TryArithmeticKind(IrExpression node, out BinaryKind kind, out IrExpression left, out IrExpression right)
     {

@@ -138,6 +138,32 @@ public class FidelityGateTests
         // over-render frontier, not a new daily product regression.
         "ManualSimpleExpressionTreeFactory",
         "SimpleExpressionTreeLambda",
+        // The parameter-dependent manual factory graph recovers to a lambda, so it
+        // recompiles to the compiler's expression-tree lowering rather than the
+        // hand-written factory calls — the same recovery-induced diff as
+        // SimpleExpressionTreeLambda.
+        "ManualParameterPlusConstantFactory",
+        // The manual factory fixtures below DECLINE and decompile to honest
+        // Expression.* factory-call C# with clean locals: the malformed/shared-graph
+        // near misses (reused parameter identity, duplicate names, unspellable name),
+        // the canonical graphs returned through Expression/LambdaExpression/object
+        // sinks, and the constant-only arithmetic graphs Roslyn would fold. Like
+        // ManualSimpleExpressionTreeFactory, their emitted Expression.* calls
+        // recompile through SDK preview compile-back reshaping of stack-slot/local
+        // temporaries — a valid over-render, not opcode-exact. Verified by running
+        // the Speed=Slow fidelity gate locally.
+        "ManualCanonicalReturnedAsExpression",
+        "ManualCanonicalReturnedAsLambdaExpression",
+        "ManualCanonicalReturnedAsObject",
+        "ManualReusedParameterFactory",
+        "ManualDuplicateNameFactory",
+        "ManualUnspellableNameFactory",
+        "ManualConstantOnlyAddFactory",
+        "ManualConstantOnlySubtractFactory",
+        "ManualConstantOnlyMultiplyFactory",
+        "ManualNestedConstantSubtreeFactory",
+        "ManualConstantOnlyDivideByZeroFactory",
+        "ManualConstantOnlyRemainderOverflowFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
