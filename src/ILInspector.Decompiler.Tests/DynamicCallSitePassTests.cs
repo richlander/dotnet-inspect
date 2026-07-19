@@ -1051,10 +1051,16 @@ public class DynamicCallSitePassTests
         var f = LoadCanonicalFunction();
         // A `ByRef` receiver is implicitly dereferenced, so `ref int*` still
         // yields `int*` — no `dynamic` conversion (CS0030). The gate must look
-        // through the `ByRef` wrapper to the pointer element.
+        // through `ByRef` wrappers to the pointer element (real IL cannot nest
+        // `ByRef`, but the peel loop closes the synthetic case as well).
         InvokeCall(f).Arguments[2].ReplaceWith(
             new LoadArgument(0, "p", TypeRef.ByRef(TypeRef.Pointer(Int32Type))));
         Assert.False(RunPass(f));
+
+        var g = LoadCanonicalFunction();
+        InvokeCall(g).Arguments[2].ReplaceWith(
+            new LoadArgument(0, "p", TypeRef.ByRef(TypeRef.ByRef(TypeRef.Pointer(Int32Type)))));
+        Assert.False(RunPass(g));
     }
 
     // ======================================================================

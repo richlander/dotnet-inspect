@@ -714,7 +714,9 @@ public sealed class DynamicCallSitePass : IIrPass
     // A `ByRef` receiver is implicitly dereferenced by C#, so it is raisable when
     // its element is a value/reference type (`((dynamic)r).Member` is valid) but
     // unraisable when the element is itself a pointer/function pointer (`ref int*`
-    // still yields `int*`), so look through one `ByRef` before the pointer check.
+    // still yields `int*`), so look through `ByRef` wrappers before the pointer
+    // check. (Real IL cannot nest `ByRef`, but the peel is a bounded loop over the
+    // finite result-type tree so no crafted shape can slip a pointer through.)
     static bool IsUnraisableReceiver(IrExpression expr)
     {
         if (expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
@@ -723,7 +725,7 @@ public sealed class DynamicCallSitePass : IIrPass
             return true;
 
         var type = expr.ResultType;
-        if (type?.Kind == TypeRefKind.ByRef)
+        while (type?.Kind == TypeRefKind.ByRef)
             type = type.ElementType;
         return type?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
     }
