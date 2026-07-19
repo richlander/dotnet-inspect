@@ -269,6 +269,111 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Theory]
+    [InlineData("IBaseEvents.add_Changed")]
+    [InlineData("IBaseEvents.remove_Changed")]
+    public void CompileBackEventAccessor_RoundTripsExplicitInterfaceEvent(string accessorName)
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class ExplicitEventFixture : IDerivedEvents
+            {
+                event Action IBaseEvents.Changed
+                {
+                    add
+                    {
+                        Console.WriteLine(value);
+                    }
+                    remove
+                    {
+                        Console.WriteLine(value);
+                    }
+                }
+            }
+
+            public interface IDerivedEvents : IBaseEvents
+            {
+            }
+
+            public interface IBaseEvents
+            {
+                event Action Changed;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitEventFixture",
+                    accessorName,
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("event Action IBaseEvents.Changed", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public event Action IBaseEvents.Changed", result.Source, StringComparison.Ordinal);
+            Assert.Contains("add", result.Source, StringComparison.Ordinal);
+            Assert.Contains("remove", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Console.WriteLine(value);", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackEventAccessor_KeepsStaticOnExplicitInterfaceEvent()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class ExplicitStaticEventFixture : IStaticEvents
+            {
+                static event Action IStaticEvents.Changed
+                {
+                    add
+                    {
+                        Console.WriteLine(value);
+                    }
+                    remove
+                    {
+                        Console.WriteLine(value);
+                    }
+                }
+            }
+
+            public interface IStaticEvents
+            {
+                static abstract event Action Changed;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticEventFixture",
+                    "IStaticEvents.add_Changed",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("static event Action IStaticEvents.Changed", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public static event Action IStaticEvents.Changed", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void CompileBackFirstPropertyGetter_PreservesRequiredImplicitInterfaceProperty()
     {

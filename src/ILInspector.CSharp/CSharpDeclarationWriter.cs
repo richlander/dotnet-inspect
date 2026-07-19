@@ -333,7 +333,8 @@ internal static class CSharpDeclarationWriter
         {
             signature = FormatOperatorSignature(signature, member.Name);
         }
-        else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
+        else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
+            && !IsExplicitInterfaceEvent(member))
         {
             if (methodParameters is { Count: > 0 })
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
@@ -341,11 +342,11 @@ internal static class CSharpDeclarationWriter
                 signature = AddExtensionThisModifier(signature);
             signature = EscapeMemberNameInSignature(signature, member.Name);
         }
-        else if (member.Kind == "event" && !signature.StartsWith("event ", StringComparison.Ordinal))
+        else if (IsEvent(member) && !signature.StartsWith("event ", StringComparison.Ordinal))
         {
             signature = $"event {signature}";
         }
-        if (member.Kind is "property" or "field" or "event")
+        if (member.Kind is "property" or "field" or "event" || IsExplicitInterfaceEvent(member))
         {
             signature = EscapeMemberNameInSignature(signature, member.Name);
         }
@@ -860,10 +861,11 @@ internal static class CSharpDeclarationWriter
                 : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(AccessorDeclaration))} }}";
             return true;
         }
-        if (member.Kind == "event"
+        if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
             && model.ReturnType is { Length: > 0 } eventType
-            && IsOrdinaryPropertyName(member.Name)
-            && IsOrdinaryPropertyName(model.MemberName))
+            && (IsExplicitInterfaceEvent(member)
+                || IsOrdinaryPropertyName(member.Name)
+                    && IsOrdinaryPropertyName(model.MemberName)))
         {
             var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
                 ? member.Name
@@ -904,7 +906,19 @@ internal static class CSharpDeclarationWriter
     static bool IsExplicitInterfaceProperty(ApiMember member)
         => member.Kind == "explicit-interface-implementation"
             && member.Name.Contains('.', StringComparison.Ordinal)
-            && member.SignatureModel?.Accessors.Count > 0;
+            && HasOnlyAccessors(member, "get", "set");
+
+    static bool IsExplicitInterfaceEvent(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            && member.Name.Contains('.', StringComparison.Ordinal)
+            && HasOnlyAccessors(member, "add", "remove");
+
+    static bool IsEvent(ApiMember member)
+        => member.Kind == "event" || IsExplicitInterfaceEvent(member);
+
+    static bool HasOnlyAccessors(ApiMember member, string first, string second)
+        => member.SignatureModel?.Accessors is { Count: > 0 } accessors
+            && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
 
     internal static string FormatParameter(ApiParameter parameter)
     {
