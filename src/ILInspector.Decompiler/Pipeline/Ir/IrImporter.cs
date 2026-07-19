@@ -2729,7 +2729,12 @@ sealed class PlatformDeclaringTypeHandleProvider : ISignatureTypeProvider<Entity
     public EntityHandle GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => handle;
     public EntityHandle GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => handle;
     public EntityHandle GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    {
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return default;
+        using (scope)
+            return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    }
     public EntityHandle GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
     public EntityHandle GetSZArrayType(EntityHandle elementType) => elementType;
     public EntityHandle GetArrayType(EntityHandle elementType, ArrayShape shape) => elementType;
