@@ -1264,6 +1264,9 @@ public sealed partial class CSharpPrinter
         if (value is UnionSwitchExpression unionSwitchExpression
             && target is { } unionSwitchTarget)
             return UnionSwitchExpressionInline(unionSwitchExpression, unionSwitchTarget);
+        if (value is TupleSwitchExpression tupleSwitchExpression
+            && target is { } tupleSwitchTarget)
+            return TupleSwitchExpressionInline(tupleSwitchExpression, tupleSwitchTarget);
         if (value is Coalesce coalesce
             && target is { } coalesceTarget
             && TryCoalesceTextForTarget(coalesce, coalesceTarget) is { } targetedCoalesce)

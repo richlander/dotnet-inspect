@@ -173,6 +173,7 @@ internal static class AssertionScan
         new("SwitchExpression", [AssertionCoverageFixture]),
         new("TupleBinaryExpression", [AssertionCoverageFixture]),
         new("TupleExpression", [AssertionCoverageFixture]),
+        new("TupleSwitchExpression", [AssertionCoverageFixture]),
         new("TypeOf", [AssertionCoverageFixture]),
         new("Unary", [AssertionCoverageFixture]),
         new("Unbox", [AssertionIlUnboxFixture]),

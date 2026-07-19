@@ -56,6 +56,7 @@ public static class InverseLedger
         "SwitchExpression",
         "TupleBinaryExpression",
         "TupleExpression",
+        "TupleSwitchExpression",
         "TypeOf",
         "UnionSwitchExpression",
         "WithExpression",

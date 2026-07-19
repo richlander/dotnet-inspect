@@ -16,6 +16,86 @@ public class CfgSampleClass
         s_finalized = true;
     }
 
+    // A three-component tuple relational-pattern switch (issue #2867 breadth
+    // coverage beyond LadderRung5.Quadrant's two components). csc lowers this
+    // to the same nested-if/return comparison-tree shape TupleSwitchExpressionPass
+    // recognizes, so this proves the fold generalizes to componentCount > 2.
+    public static string Octant(int x, int y, int z) => (x, y, z) switch
+    {
+        (> 0, > 0, > 0) => "+++",
+        (> 0, > 0, < 0) => "++-",
+        (> 0, < 0, > 0) => "+-+",
+        (< 0, > 0, > 0) => "-++",
+        _ => "other",
+    };
+
+    // A tuple relational-pattern switch over genuinely UNSIGNED (uint)
+    // components (issue #2867 signedness follow-up). csc compiles uint's `>`/`<`
+    // as cgt.un/clt.un (Comparison.IsUnsigned = true) — unlike Octant/Quadrant's
+    // `int`, and unlike byte/ushort/char, which promote through a signed int32
+    // compare despite being unsigned types. This proves the fold's signedness
+    // proof positively recognizes a matching unsigned comparison against an
+    // unsigned place, not just declines every unsigned flag.
+    public static string UIntQuadrant(uint x, uint y) => (x, y) switch
+    {
+        (> 100u, > 100u) => "I",
+        (> 100u, < 100u) => "IV",
+        (< 100u, > 100u) => "II",
+        (< 100u, < 100u) => "III",
+        _ => "axis",
+    };
+
+    // A tuple relational-pattern switch over `char` components (issue #2867
+    // printing follow-up: Gemini's adversarial review found char anchors were
+    // spelled as bare `int` literals). csc lowers a char comparison as a signed
+    // int32 compare against the char's numeric value, so the anchor Constant is
+    // an in-range Int32 that ConstantFits admits — but a relational pattern
+    // against a char input rejects a bare int literal (CS0266, no implicit
+    // constant-expression conversion in patterns). The recovered switch must
+    // spell the anchor as a char literal (`> 'A'`) so it recompiles, which the
+    // fidelity gate exercises by roundtripping this method's IL.
+    public static string CharQuadrant(char x, char y) => (x, y) switch
+    {
+        (> 'A', > 'A') => "I",
+        (> 'A', < 'A') => "IV",
+        (< 'A', > 'A') => "II",
+        (< 'A', < 'A') => "III",
+        _ => "axis",
+    };
+
+    // Two independent, non-capturing (static) local functions, each with its
+    // own full tuple relational-pattern quadrant switch (issue #2867
+    // completeness follow-up: Gemini's adversarial review of 23c34bae found
+    // TupleSwitchExpressionPass.Run() returned right after its first
+    // successful container fold, so a method with more than one
+    // independently-eligible dispatch container only ever raised one tuple
+    // switch). Each static local function is raised through its own
+    // recursive LocalFunctionRaisingPass pipeline run, so both must fold to
+    // their own TupleSwitchExpression, with no nested if/return tree left in
+    // either.
+    public static string TwoLocalFunctionQuadrants(int x1, int y1, int x2, int y2)
+    {
+        static string QuadrantA(int x, int y) => (x, y) switch
+        {
+            (> 0, > 0) => "IA",
+            (< 0, > 0) => "IIA",
+            (< 0, < 0) => "IIIA",
+            (> 0, < 0) => "IVA",
+            _ => "axisA",
+        };
+
+        static string QuadrantB(int x, int y) => (x, y) switch
+        {
+            (> 0, > 0) => "IB",
+            (< 0, > 0) => "IIB",
+            (< 0, < 0) => "IIIB",
+            (> 0, < 0) => "IVB",
+            _ => "axisB",
+        };
+
+        return QuadrantA(x1, y1) + QuadrantB(x2, y2);
+    }
+
     // A non-public overload declared BEFORE the public one of the same name.
     // With publicOnly resolution, the visibility filter must skip this so the
     // overload index lands on the public overload below — masking the access

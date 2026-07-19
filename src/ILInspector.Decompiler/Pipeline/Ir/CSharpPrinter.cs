@@ -1526,6 +1526,19 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("};");
             return;
         }
+        if (node is Return { Value: TupleSwitchExpression tupleSwitch })
+        {
+            // Mirrors the SwitchExpression/UnionSwitchExpression return-position
+            // forms above: one arm per line, indented under the governing tuple.
+            string inner = pad + "    ";
+            var componentTypes = TupleSwitchComponentTypes(tupleSwitch);
+            sb.Append(pad).Append("return ").Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLine(" switch");
+            sb.Append(pad).AppendLine("{");
+            foreach (var arm in tupleSwitch.Arms)
+                sb.Append(inner).Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType)).AppendLine(",");
+            sb.Append(pad).AppendLine("};");
+            return;
+        }
         if (node is Return { Value: StackAllocate stackAllocate }
             && _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer } returnPointer)
         {
@@ -2159,6 +2172,7 @@ public sealed partial class CSharpPrinter
         Conditional t => ConditionalText(t),
         SwitchExpression se => SwitchExpressionInline(se),
         UnionSwitchExpression se => UnionSwitchExpressionInline(se),
+        TupleSwitchExpression se => TupleSwitchExpressionInline(se),
         NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
@@ -3154,16 +3168,26 @@ public sealed partial class CSharpPrinter
     string PositionalPatternText(PositionalPattern pattern)
     {
         var constants = pattern.Constants;
-        return $"{Operand(pattern.Value)} is ({string.Join(", ", pattern.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i])))})";
+        return $"{Operand(pattern.Value)} is ({string.Join(", ", pattern.Subpatterns.Select((subpattern, i) => PositionalSubpatternText(subpattern, constants[i], targetType: null)))})";
     }
 
-    static string PositionalSubpatternText(PositionalPatternSubpattern subpattern, Constant constant)
-        => subpattern.Kind switch
+    static string PositionalSubpatternText(PositionalPatternSubpattern subpattern, Constant constant, TypeRef? targetType)
+    {
+        // A char component's anchor is an in-range Int32 constant in IL
+        // (ConstantFits admits it), but a relational/constant pattern against a
+        // char input rejects a bare int literal (CS0266 — the implicit
+        // constant-expression conversion does not apply in patterns). Spell it
+        // as the char literal the component's type demands.
+        string constantText = targetType is { } type && IsCoreChar(type) && TryCharConstantText(constant, out var charText)
+            ? charText
+            : ConstantText(constant);
+        return subpattern.Kind switch
         {
-            ComparisonKind.Equal => ConstantText(constant),
-            ComparisonKind.NotEqual => $"not {ConstantText(constant)}",
-            _ => $"{ComparisonOperator(subpattern.Kind)} {ConstantText(constant)}",
+            ComparisonKind.Equal => constantText,
+            ComparisonKind.NotEqual => $"not {constantText}",
+            _ => $"{ComparisonOperator(subpattern.Kind)} {constantText}",
         };
+    }
 
     /// <summary>
     /// A return statement. A method that returns by reference (<c>ref T</c>) ends
