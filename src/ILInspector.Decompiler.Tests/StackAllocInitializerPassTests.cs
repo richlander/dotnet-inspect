@@ -379,7 +379,7 @@ public class StackAllocInitializerPassTests
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
     }
 
-    
+
 
     [Fact]
     public void VolatileCpblk_Declines()
@@ -479,12 +479,12 @@ public class StackAllocInitializerPassTests
         var innerBody = innerFunction.Body;
         innerBody.Detach();
         var localFunc = new LocalFunctionStatement("L", Void, System.Collections.Immutable.ImmutableArray<Parameter>.Empty, false, System.Collections.Immutable.ImmutableArray<TypeRef>.Empty, System.Collections.Immutable.ImmutableArray<string?>.Empty, false, false, innerBody);
-        
+
         function.Descendants.OfType<Block>().First().Add(localFunc);
 
         new StackAllocInitializerPass().Run(function, PassContext.None);
         function.CheckInvariant();
-        
+
         int outerArrays = 0;
         int innerArrays = 0;
         foreach (var s in function.Descendants.OfType<StackAllocArray>())
@@ -534,7 +534,7 @@ public class StackAllocInitializerPassTests
         Assert.Equal(0, ((Constant)loadProp.IndexArguments[0]).Value);
 
         new StackAllocInitializerPass().Run(function, context);
-        
+
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.Equal(3, ((Constant)raised.Count).Value);
     }
