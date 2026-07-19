@@ -236,6 +236,31 @@ entirely one type — often one whose source isn't SourceLink-mapped at all —
 which makes the resulting sample and quality card unrepresentative rather than
 a real benchmark.
 
+Live discovery samples a fresh population every run, so `--cap 100` and
+`--cap 1000` runs (or the same `--cap` run again later) are not directly
+comparable to each other — the sampled members can differ each time. To get a
+fixed, growable population instead:
+
+`--authored-source-census-generate-roster <path>` runs a one-time generation
+phase: sample a diversified candidate pool (sized off `--cap`), classify each
+candidate with real RTS compile-back and real SourceLink acquisition, and
+lock in every member whose authored source was actually available — regardless
+of whether RTS's compile-back succeeded, since that pass/fail verdict is
+exactly what later replay runs want to re-measure fresh — to a roster JSON
+file at `<path>`. Implies `--authored-source-census`.
+
+`--authored-source-census-roster <path>` replays a roster written by
+`--authored-source-census-generate-roster`: it takes the first `--cap` locked
+members (a nested prefix, in the same order captured at generation time) per
+matched assembly and classifies them fresh. Because the prefix only grows as
+`--cap` grows — earlier members are never reshuffled or dropped — a
+`--cap 100` run and a `--cap 1000` run against the same roster (now, or months
+later) sample a strict subset/superset of each other and are directly
+comparable. Generate once at a high cap (for example 10000) to build a large
+locked population, then run repeatedly at whatever smaller caps make sense for
+a given PR or CI budget. Implies `--authored-source-census`; mutually
+exclusive with `--authored-source-census-generate-roster`.
+
 `--source-quality-card` adds a PR-pasteable Markdown bucket-rate card to either
 census (`--source-correspondence-census` or `--authored-source-census`),
 printed after the normal text-mode report (it has no effect with `--json`,

@@ -181,4 +181,58 @@ public sealed class AuthoredSourceCensusDiversificationTests
 
         Assert.Equal(["SR0", "Other1", "SR1"], selected);
     }
+
+    [Fact]
+    public void RoundRobinByKey_ReordersEntirePool_WithoutTruncating()
+    {
+        string[] items = ["A1", "A2", "A3", "B1", "C1", "C2"];
+
+        var reordered = AuthoredSourceCensus.RoundRobinByKey(items, item => item[..1]);
+
+        Assert.Equal(["A1", "B1", "C1", "A2", "C2", "A3"], reordered);
+        Assert.Equal(items.Length, reordered.Count);
+    }
+}
+
+public sealed class AuthoredSourceCensusRosterTests
+{
+    [Fact]
+    public void Roster_RoundTripsThroughJson()
+    {
+        var roster = new AuthoredSourceCensusRoster(
+            SchemaVersion: 1,
+            GeneratedUtc: new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            Assemblies:
+            [
+                new AuthoredSourceCensusRosterAssembly(
+                    "System.Text.Json.dll",
+                    [
+                        new AuthoredSourceCensusRosterMember("System.Text.Json.JsonDocument", "get_RootElement", 0, null),
+                        new AuthoredSourceCensusRosterMember("System.HexConverter", "get_CharToHexLookup", 0, "System.Byte[]"),
+                    ]),
+            ]);
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            roster,
+            new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            });
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<AuthoredSourceCensusRoster>(
+            json,
+            new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            });
+
+        Assert.NotNull(roundTripped);
+        Assert.Equal(roster.SchemaVersion, roundTripped!.SchemaVersion);
+        Assert.Equal(roster.GeneratedUtc, roundTripped.GeneratedUtc);
+        Assert.Single(roundTripped.Assemblies);
+        Assert.Equal("System.Text.Json.dll", roundTripped.Assemblies[0].AssemblyFileName);
+        Assert.Equal(2, roundTripped.Assemblies[0].Members.Count);
+        Assert.Equal("System.HexConverter", roundTripped.Assemblies[0].Members[1].Type);
+        Assert.Equal("System.Byte[]", roundTripped.Assemblies[0].Members[1].Signature);
+    }
 }

@@ -75,6 +75,8 @@ static class Program
         bool authoredRebuildFidelity = false;
         bool authoredSourceCensus = false;
         bool sourceQualityCard = false;
+        string? authoredSourceCensusGenerateRoster = null;
+        string? authoredSourceCensusRoster = null;
         string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
@@ -196,6 +198,14 @@ static class Program
                     case "--authored-rebuild-fidelity": authoredRebuildFidelity = true; break;
                     case "--authored-source-census": authoredSourceCensus = true; break;
                     case "--source-quality-card": sourceQualityCard = true; break;
+                    case "--authored-source-census-generate-roster":
+                        authoredSourceCensus = true;
+                        authoredSourceCensusGenerateRoster = NextArg(args, ref i, flag);
+                        break;
+                    case "--authored-source-census-roster":
+                        authoredSourceCensus = true;
+                        authoredSourceCensusRoster = NextArg(args, ref i, flag);
+                        break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
                         returnToSenderCatalog = true;
@@ -291,6 +301,8 @@ static class Program
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
+        if (authoredSourceCensusGenerateRoster is not null && authoredSourceCensusRoster is not null)
+            return Fail("--authored-source-census-generate-roster and --authored-source-census-roster are mutually exclusive.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
 
@@ -411,7 +423,13 @@ static class Program
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
 
         if (authoredSourceCensus)
+        {
+            if (authoredSourceCensusGenerateRoster is not null)
+                return AuthoredSourceCensus.GenerateRoster(assemblies, cap, authoredSourceCensusGenerateRoster);
+            if (authoredSourceCensusRoster is not null)
+                return AuthoredSourceCensus.RunFromRoster(assemblies, authoredSourceCensusRoster, cap, maxExamples, json, sourceQualityCard);
             return AuthoredSourceCensus.Run(assemblies, cap, maxExamples, json, sourceQualityCard);
+        }
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1783,6 +1801,24 @@ static class Program
                                 state, no baseline) to --source-correspondence-census
                                 or --authored-source-census text-mode output; no
                                 effect with --json.
+          --authored-source-census-generate-roster <path>
+                                one-time generation phase: sample a diversified
+                                candidate pool (per --cap), classify each with real
+                                RTS compile-back and real SourceLink acquisition,
+                                and lock in members whose authored source was
+                                available (regardless of RTS pass/fail) to a roster
+                                JSON file at <path>. Implies --authored-source-census.
+          --authored-source-census-roster <path>
+                                replay a roster written by
+                                --authored-source-census-generate-roster: take the
+                                first --cap locked members (a nested, comparable
+                                prefix of the same population every time) and
+                                classify them fresh. Increasing --cap across runs
+                                grows the sample without discarding or reshuffling
+                                earlier members, so cap=100 and cap=1000 runs (now or
+                                later) are directly comparable. Implies
+                                --authored-source-census; mutually exclusive with
+                                --authored-source-census-generate-roster.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for
