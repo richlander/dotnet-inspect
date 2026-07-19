@@ -188,15 +188,63 @@ static class AuthoredSourceCensus
         => new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     /// <summary>
-    /// One-time generation phase: samples a diversified candidate pool per
-    /// assembly, classifies each candidate (real RTS compile-back + real
-    /// SourceLink acquisition), and locks in up to <paramref name="cap"/>
-    /// members per assembly whose authored source was actually available
-    /// (<c>Outcome</c> not <c>SourceUnavailable</c>/<c>UnsupportedTarget</c>) —
-    /// independent of whether RTS's compile-back succeeded, since that verdict
-    /// is exactly what later replay runs want to re-measure fresh. Writes the
-    /// locked roster to <paramref name="rosterPath"/> for repeated,
-    /// apples-to-apples replay via <see cref="RunFromRoster"/>.
+    /// Allocates a shared <paramref name="cap"/> across libraries proportional
+    /// to how many candidates each one actually has available, in one
+    /// deterministic pass (no iterative water-filling): sort libraries
+    /// ascending by candidate count, let <c>n</c> be the simple average
+    /// (<c>sum(candidateCounts) / library count</c>), give every library
+    /// except the largest <c>min(n, its own count)</c>, and let the single
+    /// largest library absorb whatever is left over (bounded by its own
+    /// count) so the total reaches <paramref name="cap"/> exactly whenever the
+    /// corpus has enough candidates overall. This keeps small libraries from
+    /// being crowded out by a single huge one while still hitting the
+    /// requested total. Pure and network-free so it can be unit tested
+    /// directly. Returns allocations in the same order as
+    /// <paramref name="candidateCounts"/>.
+    /// </summary>
+    internal static IReadOnlyList<int> AllocateAcrossLibraries(IReadOnlyList<int> candidateCounts, int cap)
+    {
+        if (candidateCounts.Count == 0 || cap <= 0)
+            return new int[candidateCounts.Count];
+
+        long total = candidateCounts.Sum(count => (long)count);
+        if (total <= cap)
+            return candidateCounts.ToArray();
+
+        int fairShare = (int)(total / candidateCounts.Count);
+        var ascendingOrder = Enumerable.Range(0, candidateCounts.Count)
+            .OrderBy(index => candidateCounts[index])
+            .ToArray();
+
+        var allocation = new int[candidateCounts.Count];
+        int allocatedSoFar = 0;
+        for (int rank = 0; rank < ascendingOrder.Length - 1; rank++)
+        {
+            int index = ascendingOrder[rank];
+            int share = Math.Min(fairShare, candidateCounts[index]);
+            allocation[index] = share;
+            allocatedSoFar += share;
+        }
+
+        int largestIndex = ascendingOrder[^1];
+        allocation[largestIndex] = Math.Clamp(cap - allocatedSoFar, 0, candidateCounts[largestIndex]);
+        return allocation;
+    }
+
+    /// <summary>
+    /// One-time generation phase: collects every eligible property-getter
+    /// candidate per assembly (via the same real RTS compile-back pipeline as
+    /// live discovery), allocates the shared <paramref name="cap"/> across
+    /// assemblies with <see cref="AllocateAcrossLibraries"/> so one large
+    /// library can't crowd out the rest of the corpus, diversifies each
+    /// assembly's allocation by declaring type, and classifies the result
+    /// (real SourceLink acquisition) to lock in every member whose authored
+    /// source was actually available (<c>Outcome</c> not
+    /// <c>SourceUnavailable</c>/<c>UnsupportedTarget</c>) — independent of
+    /// whether RTS's compile-back succeeded, since that verdict is exactly
+    /// what later replay runs want to re-measure fresh. Writes the locked
+    /// roster to <paramref name="rosterPath"/> for repeated, apples-to-apples
+    /// replay via <see cref="RunFromRoster"/>.
     /// </summary>
     public static int GenerateRoster(IReadOnlyList<string> assemblies, int cap, string rosterPath)
         => GenerateRosterAsync(assemblies, cap, rosterPath).GetAwaiter().GetResult();
@@ -206,24 +254,13 @@ static class AuthoredSourceCensus
         HttpClientFactory.Initialize();
         using var httpClient = HttpClientFactory.CreateNew();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
-        var rosterAssemblies = new List<AuthoredSourceCensusRosterAssembly>();
-        int totalLocked = 0;
 
+        var perLibrary = new List<(string AssemblyPath, IReadOnlyList<ReturnToSender.Result> Candidates)>();
         foreach (string assemblyPath in assemblies)
         {
-            if (totalLocked >= cap)
-                break;
-
-            int remainingBudget = cap - totalLocked;
-            int candidatePoolCap = remainingBudget >= int.MaxValue / DiversityPoolMultiplier
-                ? int.MaxValue
-                : remainingBudget * DiversityPoolMultiplier;
-
-            IReadOnlyList<ReturnToSender.Result> orderedCandidates;
             try
             {
-                var pool = ReturnToSender.CompileBackPropertyGetters(assemblyPath, candidatePoolCap);
-                orderedCandidates = RoundRobinByKey(pool, result => result.Plan.TargetMethod.Type);
+                perLibrary.Add((assemblyPath, ReturnToSender.CompileBackPropertyGetters(assemblyPath, int.MaxValue)));
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -233,6 +270,22 @@ static class AuthoredSourceCensus
                 Console.Error.WriteLine(
                     $"Warning: roster generation skipped '{assemblyPath}' "
                     + $"({ex.GetType().Name}: {ex.Message}).");
+            }
+        }
+
+        var candidateCounts = perLibrary.Select(library => library.Candidates.Count).ToArray();
+        var allocations = AllocateAcrossLibraries(candidateCounts, cap);
+
+        var rosterAssemblies = new List<AuthoredSourceCensusRosterAssembly>();
+        int totalLocked = 0;
+
+        for (int i = 0; i < perLibrary.Count; i++)
+        {
+            var (assemblyPath, candidates) = perLibrary[i];
+            var selected = DiversifyByKey(candidates, allocations[i], result => result.Plan.TargetMethod.Type);
+            if (selected.Count == 0)
+            {
+                rosterAssemblies.Add(new AuthoredSourceCensusRosterAssembly(Path.GetFileName(assemblyPath), []));
                 continue;
             }
 
@@ -240,11 +293,8 @@ static class AuthoredSourceCensus
             await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
 
             var lockedMembers = new List<AuthoredSourceCensusRosterMember>();
-            foreach (var candidate in orderedCandidates)
+            foreach (var candidate in selected)
             {
-                if (lockedMembers.Count >= remainingBudget)
-                    break;
-
                 var classified = await ClassifyAsync(source, fetcher, candidate);
                 if (classified.Outcome is ReturnToSenderSourceOutcome.SourceUnavailable
                     or ReturnToSenderSourceOutcome.UnsupportedTarget)
@@ -266,7 +316,8 @@ static class AuthoredSourceCensus
         File.WriteAllText(rosterPath, JsonSerializer.Serialize(roster, RosterJsonOptions()));
         Console.Error.WriteLine(
             $"Wrote authored-source census roster with {totalLocked} locked member(s) "
-            + $"across {rosterAssemblies.Count(assembly => assembly.Members.Count > 0)} assembly/assemblies to {rosterPath}");
+            + $"across {rosterAssemblies.Count(assembly => assembly.Members.Count > 0)} assembly/assemblies to {rosterPath} "
+            + $"(candidate pool: {candidateCounts.Sum()} across {perLibrary.Count} librar{(perLibrary.Count == 1 ? "y" : "ies")}, cap={cap}).");
         return 0;
     }
 

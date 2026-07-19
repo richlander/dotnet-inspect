@@ -242,12 +242,20 @@ comparable to each other — the sampled members can differ each time. To get a
 fixed, growable population instead:
 
 `--authored-source-census-generate-roster <path>` runs a one-time generation
-phase: sample a diversified candidate pool (sized off `--cap`), classify each
-candidate with real RTS compile-back and real SourceLink acquisition, and
-lock in every member whose authored source was actually available — regardless
-of whether RTS's compile-back succeeded, since that pass/fail verdict is
-exactly what later replay runs want to re-measure fresh — to a roster JSON
-file at `<path>`. Implies `--authored-source-census`.
+phase: collect every eligible candidate from each library in the corpus
+(the full compile-back candidate list, not a `--cap`-sized sample), allocate
+the shared `--cap` across libraries fairly so one huge library (for example
+`System.Private.CoreLib`) can't crowd out much smaller ones — sort libraries
+ascending by candidate count, give every library except the largest
+`min(candidateCount, total / libraryCount)`, and let the single largest
+library absorb whatever is left over (bounded by its own count) to reach
+`--cap` exactly — diversify each library's allocation by declaring type,
+classify each selected candidate with real RTS compile-back and real
+SourceLink acquisition, and lock in every member whose authored source was
+actually available — regardless of whether RTS's compile-back succeeded,
+since that pass/fail verdict is exactly what later replay runs want to
+re-measure fresh — to a roster JSON file at `<path>`. Implies
+`--authored-source-census`.
 
 `--authored-source-census-roster <path>` replays a roster written by
 `--authored-source-census-generate-roster`: it takes the first `--cap` locked

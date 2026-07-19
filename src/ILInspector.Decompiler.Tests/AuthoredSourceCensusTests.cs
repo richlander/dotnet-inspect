@@ -194,6 +194,68 @@ public sealed class AuthoredSourceCensusDiversificationTests
     }
 }
 
+public sealed class AuthoredSourceCensusAllocationTests
+{
+    [Fact]
+    public void AllocateAcrossLibraries_ReturnsFullCounts_WhenCorpusFitsWithinCap()
+    {
+        int[] counts = [10, 20, 30];
+
+        var allocation = AuthoredSourceCensus.AllocateAcrossLibraries(counts, cap: 1000);
+
+        Assert.Equal(counts, allocation);
+    }
+
+    [Fact]
+    public void AllocateAcrossLibraries_GivesSmallLibrariesTheirFullCount_AndLargestAbsorbsShortfall()
+    {
+        // total=5250, cap=1000 -> fairShare=1750; libraries sorted ascending
+        // [50,200,5000] each get min(1750, count) except the largest, which
+        // absorbs the remainder to hit the cap exactly.
+        int[] counts = [50, 200, 5000];
+
+        var allocation = AuthoredSourceCensus.AllocateAcrossLibraries(counts, cap: 1000);
+
+        Assert.Equal([50, 200, 750], allocation);
+        Assert.Equal(1000, allocation.Sum());
+    }
+
+    [Fact]
+    public void AllocateAcrossLibraries_DoesNotCrowdOutSmallLibraries_WhenOneLibraryDominates()
+    {
+        // A single huge library (e.g. System.Private.CoreLib) must not take
+        // the entire cap and leave nothing for much smaller libraries.
+        int[] counts = [30, 40, 100_000];
+
+        var allocation = AuthoredSourceCensus.AllocateAcrossLibraries(counts, cap: 100);
+
+        Assert.Equal(30, allocation[0]);
+        Assert.Equal(40, allocation[1]);
+        Assert.Equal(30, allocation[2]);
+        Assert.Equal(100, allocation.Sum());
+    }
+
+    [Fact]
+    public void AllocateAcrossLibraries_ClampsToActualTotal_WhenCorpusIsSmallerThanCap()
+    {
+        int[] counts = [5, 5];
+
+        var allocation = AuthoredSourceCensus.AllocateAcrossLibraries(counts, cap: 10_000);
+
+        Assert.Equal([5, 5], allocation);
+    }
+
+    [Fact]
+    public void AllocateAcrossLibraries_ReducesToPlainCap_ForASingleLibrary()
+    {
+        int[] counts = [500];
+
+        var allocation = AuthoredSourceCensus.AllocateAcrossLibraries(counts, cap: 200);
+
+        Assert.Equal([200], allocation);
+    }
+}
+
 public sealed class AuthoredSourceCensusRosterTests
 {
     [Fact]
