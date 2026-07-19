@@ -417,9 +417,7 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
-            bool allowsVulnerabilityTraffic = options.Verbosity >= Verbosity.Detailed
-                || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
-            using var vulnerabilityTrafficScope = allowsVulnerabilityTraffic
+            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
 
@@ -428,7 +426,8 @@ public class PackageCommand
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
                 resolution.NupkgPath,
-                fetchMetadata: wantsSignals);
+                fetchMetadata: wantsSignals,
+                sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
             if (packageSize.HasValue)
@@ -469,7 +468,8 @@ public class PackageCommand
             }
 
             if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(result, client, logger);
+                await AuditSignalBuilder.PopulatePackageAuditAsync(
+                    result, client, logger, options.SourceOptions);
 
             // Output results
             if (effectiveDiscovery)
@@ -1210,6 +1210,9 @@ public class PackageCommand
 
             bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
                 || DiscoverRequestsSection(options.Discover, PackageSections.Signals, PackageSectionDescriptors.CreatePipeline());
+            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
+                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
+                : null;
             var result = await PackageInspector.InspectAsync(
                 extractPath,
                 target.PackageName,
@@ -1222,7 +1225,8 @@ public class PackageCommand
                 options.ForceLatest,
                 options.Verbosity,
                 resolution.NupkgPath,
-                fetchMetadata: wantsSignals);
+                fetchMetadata: wantsSignals,
+                sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
@@ -1236,7 +1240,8 @@ public class PackageCommand
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
                     extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
-                await AuditSignalBuilder.PopulatePackageAuditAsync(result, context.HttpClient, logger);
+                await AuditSignalBuilder.PopulatePackageAuditAsync(
+                    result, context.HttpClient, logger, options.SourceOptions);
             }
 
             return result;
@@ -1752,6 +1757,10 @@ public class PackageCommand
         section.Equals(PackageSections.Signals, StringComparison.OrdinalIgnoreCase)
         || section.Equals(PackageSections.Statistics, StringComparison.OrdinalIgnoreCase)
         || section.Equals(PackageSections.Vulnerabilities, StringComparison.OrdinalIgnoreCase);
+
+    private static bool AllowsVulnerabilityTraffic(InspectionOptions options) =>
+        options.Verbosity >= Verbosity.Detailed
+        || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {

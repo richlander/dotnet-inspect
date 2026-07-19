@@ -41,6 +41,12 @@ applies: if a pack directory exists on disk, use it without querying NuGet.
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 
+Those aggregate metadata services are NuGet.org-specific. They are queried only
+when `api.nuget.org` is present in the resolved source list; a custom-only feed
+does not leak its package identity to NuGet.org or reuse a NuGet.org metadata
+cache entry for a same-named private package. Package acquisition and RID
+companion-package verification continue to follow the configured sources.
+
 ### Always check (`Name@latest`)
 
 Forces a full network refresh. Bypasses the disk scan, version cache, and
