@@ -24,6 +24,10 @@ public unsafe struct FixedBufferResiduals
 
     public void WriteFirst(int value) => Data[0] = value;
 
+    public void WriteAtNestedIndex() => Data[Data[1]] = 1;
+
+    public void WriteAtNestedZeroIndex() => Data[Data[0]] = 1;
+
     public int ReadAtThroughFixedAddress(int index)
     {
         fixed (int* p = &Data[index])
