@@ -317,6 +317,9 @@ public sealed class CSharpTypePrinter
         if (IsProperty(member.Member))
             return RenderProperty(type, member, formatter, propertyFormatter, indent);
 
+        if (IsEvent(member.Member))
+            return RenderEvent(type, member, formatter, indent);
+
         string memberDeclaration = member.Body is null
             ? formatter.FormatMember(type.Type, member.Member)
             : formatter.FormatMemberWithBody(type.Type, member.Member, member.Body);
@@ -379,6 +382,35 @@ public sealed class CSharpTypePrinter
         };
         AddAccessor(lines, member.Member, "get", body.Getter, indent + 1);
         AddAccessor(lines, member.Member, "set", body.Setter, indent + 1);
+        lines.Add($"{pad}}}");
+        return lines;
+    }
+
+    static IEnumerable<string> RenderEvent(
+        PreparedType type,
+        PreparedMember member,
+        CSharpFormatter formatter,
+        int indent)
+    {
+        string pad = new(' ', indent * 4);
+        if (member.Policy == CSharpBodyPolicy.Skeleton)
+        {
+            string skeleton = formatter.FormatMember(type.Type, member.Member);
+            return [PadDeclaration(EnsureTerminated(skeleton), pad)];
+        }
+
+        var body = (CSharpEventBody)member.Body!;
+        string declaration = formatter.FormatMemberWithBody(
+            type.Type,
+            member.Member,
+            body);
+        var lines = new List<string>
+        {
+            PadDeclaration(declaration, pad),
+            $"{pad}{{"
+        };
+        AddAccessor(lines, member.Member, "add", body.Adder, indent + 1);
+        AddAccessor(lines, member.Member, "remove", body.Remover, indent + 1);
         lines.Add($"{pad}}}");
         return lines;
     }
@@ -680,10 +712,31 @@ public sealed class CSharpTypePrinter
                 $"Abstract member '{member.Name}' must use skeleton body policy.",
                 parameterName);
         }
-        if (member.Kind == "event" && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
+        if (IsExplicitInterfaceEvent(member) && policy.BodyPolicy == CSharpBodyPolicy.Skeleton)
+        {
+            throw new NotSupportedException(
+                $"Explicit interface event '{member.Name}' requires add/remove bodies.");
+        }
+        if (member.Kind == "event"
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && policy.Body is null)
         {
             throw new NotSupportedException(
                 $"Event '{member.Name}' does not support body policy '{policy.BodyPolicy}'.");
+        }
+        if (IsEvent(member)
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && policy.Body is not CSharpEventBody)
+        {
+            throw new NotSupportedException(
+                $"Event '{member.Name}' requires an explicit add/remove body shape.");
+        }
+        if (policy.Body is CSharpEventBody { Adder.Kind: CSharpAccessorBodyKind.Auto }
+            or CSharpEventBody { Remover.Kind: CSharpAccessorBodyKind.Auto })
+        {
+            throw new ArgumentException(
+                $"Event '{member.Name}' cannot use auto accessor bodies.",
+                parameterName);
         }
         if (member.Kind == "field" && policy.BodyPolicy == CSharpBodyPolicy.Stub)
         {
@@ -718,6 +771,7 @@ public sealed class CSharpTypePrinter
             (_, null) => policy.BodyPolicy != CSharpBodyPolicy.Full,
             ("field", CSharpFieldInitializer) => true,
             (_, CSharpPropertyBody) when IsProperty(member) => true,
+            (_, CSharpEventBody) when IsEvent(member) => true,
             ("method" or "extension-method" or "explicit-interface-implementation" or "constructor", CSharpBlockBody) => true,
             _ => false,
         };
@@ -740,7 +794,20 @@ public sealed class CSharpTypePrinter
         => member.Kind == "property"
             || member.Kind == "explicit-interface-implementation"
                 && member.Name.Contains('.', StringComparison.Ordinal)
-                && member.SignatureModel?.Accessors.Count > 0;
+                && HasOnlyAccessors(member, "get", "set");
+
+    static bool IsEvent(ApiMember member)
+        => member.Kind == "event"
+            || IsExplicitInterfaceEvent(member);
+
+    static bool IsExplicitInterfaceEvent(ApiMember member)
+        => member.Kind == "explicit-interface-implementation"
+            && member.Name.Contains('.', StringComparison.Ordinal)
+            && HasOnlyAccessors(member, "add", "remove");
+
+    static bool HasOnlyAccessors(ApiMember member, string first, string second)
+        => member.SignatureModel?.Accessors is { Count: > 0 } accessors
+            && accessors.All(accessor => accessor.Kind == first || accessor.Kind == second);
 
     sealed record PreparedType(
         string Namespace,

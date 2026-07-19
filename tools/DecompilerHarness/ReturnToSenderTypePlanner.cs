@@ -137,6 +137,34 @@ internal sealed record PropertySetterArtifactRequest(
         ClosureRoots,
         ClosureFacts);
 
+internal sealed record EventAccessorArtifactRequest(
+    string AssemblyPath,
+    MetadataReader Reader,
+    IrFunction Function,
+    TypeDefinitionHandle TargetType,
+    MethodDefinitionHandle TargetMethod,
+    EventDefinitionHandle TargetEvent,
+    ProductTargetBody TargetBody,
+    string FullType,
+    string MethodName,
+    int Overload,
+    string SignatureText,
+    IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts)
+    : ArtifactRequest(
+        AssemblyPath,
+        Reader,
+        Function,
+        TargetType,
+        TargetMethod,
+        TargetBody,
+        FullType,
+        MethodName,
+        Overload,
+        SignatureText,
+        ClosureRoots,
+        ClosureFacts);
+
 internal sealed record ProductArtifact(
     ArtifactRequest Request,
     ProductTargetBody TargetBody,
@@ -201,6 +229,8 @@ public enum CompileBackMemberKind
 {
     PropertyGet,
     PropertySet,
+    EventAdd,
+    EventRemove,
     Constructor,
     Method,
     Field,
@@ -336,6 +366,12 @@ internal sealed record ProductTargetBody(
     IReadOnlyList<DecompilerDecision> Decisions,
     string? ConstructorChain = null);
 
+internal sealed record ExplicitInterfaceEventInfo(
+    TypeDefinitionHandle InterfaceType,
+    EventDefinitionHandle InterfaceEvent,
+    string QualifiedName,
+    string AccessorName);
+
 public static class CompileBackSourceComposer
 {
     internal static ProductTargetBody CreateTargetBody(
@@ -394,6 +430,21 @@ public static class CompileBackSourceComposer
                 request.Function,
                 request.TargetType,
                 setter.TargetProperty,
+                request.TargetMethod,
+                request.TargetBody.Source,
+                request.FullType,
+                request.MethodName,
+                request.Overload,
+                request.SignatureText,
+                closure.Roots,
+                closure.Facts,
+                closure.MemberRequirements),
+            EventAccessorArtifactRequest eventAccessor => ComposeEventAccessor(
+                request.AssemblyPath,
+                request.Reader,
+                request.Function,
+                request.TargetType,
+                eventAccessor.TargetEvent,
                 request.TargetMethod,
                 request.TargetBody.Source,
                 request.FullType,
@@ -962,6 +1013,79 @@ public static class CompileBackSourceComposer
         }
     }
 
+    static ExplicitInterfaceEventInfo? ExplicitInterfaceEvent(
+        MetadataReader reader,
+        TypeDefinition targetType,
+        MethodDefinitionHandle targetAccessor)
+    {
+        foreach (var implementationHandle in targetType.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != targetAccessor
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var interfaceHandle = declaration.GetDeclaringType();
+            var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            foreach (var eventHandle in interfaceDef.GetEvents())
+            {
+                var eventDefinition = reader.GetEventDefinition(eventHandle);
+                var accessors = eventDefinition.GetAccessors();
+                if (accessors.Adder != declarationHandle && accessors.Remover != declarationHandle)
+                    continue;
+
+                var interfaceIdentity = CompileBackTypeIdentity.FromDefinition(reader, interfaceDef);
+                string eventName = Identifier(reader.GetString(eventDefinition.Name));
+                return new ExplicitInterfaceEventInfo(
+                    interfaceHandle,
+                    eventHandle,
+                    $"{interfaceIdentity.FullName}.{eventName}",
+                    reader.GetString(declaration.Name));
+            }
+        }
+
+        return null;
+    }
+
+    static void AddExplicitInterfaceEventDeclaration(
+        List<CompileBackTypeRequirement> requirements,
+        MetadataReader reader,
+        ExplicitInterfaceEventInfo? explicitEvent)
+    {
+        if (explicitEvent is null)
+            return;
+
+        var interfaceDef = reader.GetTypeDefinition(explicitEvent.InterfaceType);
+        var interfaceIdentity = CompileBackTypeIdentity.FromDefinition(reader, interfaceDef);
+        var member = TypeProducer.EventRequirement(
+            reader,
+            interfaceDef,
+            interfaceIdentity,
+            explicitEvent.InterfaceEvent,
+            explicitEvent.AccessorName,
+            "explicit-interface-target-event");
+        if (member is null)
+            return;
+
+        int requirementIndex = requirements.FindIndex(
+            requirement => requirement.Type.MetadataFullName == interfaceIdentity.MetadataFullName);
+        if (requirementIndex < 0)
+            return;
+
+        var requirement = requirements[requirementIndex];
+        if (requirement.RequiredMembers.Any(existing => TypeProducer.SameMemberShape(existing, member)))
+            return;
+
+        requirements[requirementIndex] = requirement with
+        {
+            RequiredMembers = requirement.RequiredMembers.Append(member).ToArray()
+        };
+    }
+
     public static CompileBackSourceResult ComposePropertySetter(
         string assemblyPath,
         MetadataReader reader,
@@ -1060,6 +1184,106 @@ public static class CompileBackSourceComposer
             module,
             production.Requirements,
             declarations,
+            diagnostics);
+        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+    }
+
+    public static CompileBackSourceResult ComposeEventAccessor(
+        string assemblyPath,
+        MetadataReader reader,
+        IrFunction function,
+        TypeDefinitionHandle targetType,
+        EventDefinitionHandle targetEvent,
+        MethodDefinitionHandle targetAccessor,
+        string targetBody,
+        string fullType,
+        string methodName,
+        int overload,
+        string signatureText,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+    {
+        var targetTypeDef = reader.GetTypeDefinition(targetType);
+        var eventDefinition = reader.GetEventDefinition(targetEvent);
+        var accessors = eventDefinition.GetAccessors();
+        var accessor = reader.GetMethodDefinition(targetAccessor);
+        var signature = GuardedSignatureText.MethodText(
+            reader,
+            accessor,
+            GenericContext.ForMethod(reader, targetTypeDef, accessor));
+        var parameters = MethodParameters(reader, accessor, signature);
+        if (parameters.Count != 1)
+            throw new InvalidOperationException("Event accessors must have exactly one value parameter.");
+
+        var kind = targetAccessor == accessors.Adder
+            ? CompileBackMemberKind.EventAdd
+            : targetAccessor == accessors.Remover
+                ? CompileBackMemberKind.EventRemove
+                : throw new InvalidOperationException("Target method is not an accessor of the selected event.");
+        var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
+        string metadataEventName = reader.GetString(eventDefinition.Name);
+        string eventName = Identifier(metadataEventName[(metadataEventName.LastIndexOf('.') + 1)..]);
+        var explicitEvent = ExplicitInterfaceEvent(
+            reader,
+            targetTypeDef,
+            targetAccessor);
+
+        var diagnostics = new List<CompileBackPlanningDiagnostic>();
+        var targetRoot = TopLevelRootOf(reader, targetType);
+        var targetFacts = new List<CompileBackFact>
+        {
+            new("metadata", "target-type", targetIdentity.FullName),
+        };
+        if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
+            targetFacts.AddRange(targetClosureFacts);
+
+        var targetMembers = new List<CompileBackMemberRequirement>
+        {
+            new(
+                new CompileBackMethodIdentity(targetIdentity.FullName, eventName, overload, signatureText),
+                kind,
+                accessor.Attributes.HasFlag(MethodAttributes.Static),
+                [],
+                parameters[0].Type,
+                [],
+                CompileBackStubBodyKind.TargetBody,
+                targetBody,
+                [new CompileBackFact("metadata", "target-event-accessor", reader.GetString(accessor.Name))],
+                MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
+                RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
+                ExplicitInterfaceMemberName: explicitEvent?.QualifiedName)
+        };
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
+
+        var requirements = new List<CompileBackTypeRequirement>
+        {
+            new(
+                targetIdentity,
+                ShellKind(reader, targetTypeDef, targetFacts),
+                targetMembers,
+                PrimaryConstructor: null,
+                targetFacts)
+        };
+        AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
+        foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
+        {
+            if (dependency != targetRoot)
+                AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
+        }
+        AddExplicitInterfaceEventDeclaration(requirements, reader, explicitEvent);
+
+        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var module = new CompileBackModuleRequirement(
+            Usings: BuildUsings(function),
+            AssemblyAttributes: [],
+            ModuleAttributes: []);
+        var plan = new CompileBackReconstructionPlan(
+            assemblyPath,
+            new CompileBackMethodIdentity(fullType, methodName, overload, signatureText),
+            module,
+            production.Requirements,
+            production.Requests,
             diagnostics);
         return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
@@ -1282,15 +1506,19 @@ public static class CompileBackSourceComposer
         string? returnType = member.ReturnType?.DisplayName;
         bool isExplicitInterfaceProperty = member.ExplicitInterfaceMemberName is not null
             && member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet;
+        bool isEvent = member.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove;
+        bool isExplicitInterfaceEvent = member.ExplicitInterfaceMemberName is not null && isEvent;
         var apiMember = new ApiMember
         {
             Name = member.ExplicitInterfaceMemberName ?? member.Identity.Method,
-            Kind = isExplicitInterfaceProperty
+            Kind = isExplicitInterfaceProperty || isExplicitInterfaceEvent
                 ? "explicit-interface-implementation"
                 : member.Kind switch
                 {
                     CompileBackMemberKind.PropertyGet => "property",
                     CompileBackMemberKind.PropertySet => "property",
+                    CompileBackMemberKind.EventAdd => "event",
+                    CompileBackMemberKind.EventRemove => "event",
                     CompileBackMemberKind.Constructor => "constructor",
                     CompileBackMemberKind.Method => "method",
                     CompileBackMemberKind.Field => "field",
@@ -1353,6 +1581,15 @@ public static class CompileBackSourceComposer
                     : apiMember.Name;
                 apiMember.SignatureModel.Accessors = PropertyAccessors(member);
             }
+            else if (isEvent)
+            {
+                apiMember.SignatureModel.MemberName = apiMember.Name;
+                apiMember.SignatureModel.Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" },
+                ];
+            }
         }
         return apiMember;
     }
@@ -1396,6 +1633,11 @@ public static class CompileBackSourceComposer
                 => new(member, CSharpBodyPolicy.Skeleton),
             CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
                 => new(member, CSharpBodyPolicy.Stub, PropertyBody(requirement, CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
             CompileBackStubBodyKind.Throw when requirement.Kind == CompileBackMemberKind.Constructor
                 && primaryConstructorParameterCount > 0
                 => new(
@@ -1420,6 +1662,11 @@ public static class CompileBackSourceComposer
                     member,
                     CSharpBodyPolicy.Full,
                     PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    EventBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
             CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
                 && primaryConstructorParameterCount > 0
                 => new(
@@ -1465,6 +1712,13 @@ public static class CompileBackSourceComposer
         => requirement.Kind == CompileBackMemberKind.PropertyGet
             ? new CSharpPropertyBody(body, null)
             : new CSharpPropertyBody(null, body);
+
+    static CSharpEventBody EventBody(
+        CompileBackMemberRequirement requirement,
+        CSharpAccessorBody body)
+        => requirement.Kind == CompileBackMemberKind.EventAdd
+            ? new CSharpEventBody(body, CSharpAccessorBody.Throw)
+            : new CSharpEventBody(CSharpAccessorBody.Throw, body);
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
@@ -2691,6 +2945,74 @@ public static class CompileBackSourceComposer
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName);
         }
 
+        internal static CompileBackMemberRequirement? EventRequirement(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            CompileBackTypeIdentity typeIdentity,
+            EventDefinitionHandle eventHandle,
+            string accessorName,
+            string factId = "typed-closure-event")
+        {
+            var eventDefinition = reader.GetEventDefinition(eventHandle);
+            var accessors = eventDefinition.GetAccessors();
+            MethodDefinitionHandle accessorHandle;
+            if (!accessors.Adder.IsNil
+                && reader.GetString(reader.GetMethodDefinition(accessors.Adder).Name) == accessorName)
+            {
+                accessorHandle = accessors.Adder;
+            }
+            else if (!accessors.Remover.IsNil
+                && reader.GetString(reader.GetMethodDefinition(accessors.Remover).Name) == accessorName)
+            {
+                accessorHandle = accessors.Remover;
+            }
+            else
+            {
+                return null;
+            }
+
+            var accessor = reader.GetMethodDefinition(accessorHandle);
+            MethodSignature<string> signature;
+            IReadOnlyList<CompileBackParameter> parameters;
+            try
+            {
+                signature = GuardedSignatureText.MethodText(
+                    reader,
+                    accessor,
+                    GenericContext.ForMethod(reader, typeDef, accessor));
+                parameters = MethodParameters(reader, accessor, signature);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+            if (parameters.Count != 1)
+                return null;
+
+            string eventName = Identifier(reader.GetString(eventDefinition.Name));
+            bool isAbstract = IsAbstractMethod(accessor);
+            bool hasNoBody = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstract;
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(
+                    typeIdentity.FullName,
+                    eventName,
+                    0,
+                    $"event {parameters[0].Type.DisplayName}"),
+                accessorHandle == accessors.Adder
+                    ? CompileBackMemberKind.EventAdd
+                    : CompileBackMemberKind.EventRemove,
+                accessor.Attributes.HasFlag(MethodAttributes.Static),
+                [],
+                parameters[0].Type,
+                [],
+                hasNoBody ? CompileBackStubBodyKind.None : CompileBackStubBodyKind.Throw,
+                null,
+                [new CompileBackFact("metadata", factId, accessorName)],
+                MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
+                IsAbstract: isAbstract,
+                IsVirtual: IsVirtualMethod(accessor));
+        }
+
         static CompileBackMemberRequirement? MethodRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
@@ -2982,8 +3304,11 @@ public static class CompileBackSourceComposer
         {
             if (SameMemberDeclaration(left, right))
                 return true;
-            if (left.Kind is not (CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet)
-                || right.Kind is not (CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet))
+            bool bothProperties = left.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                && right.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet;
+            bool bothEvents = left.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
+                && right.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove;
+            if (!bothProperties && !bothEvents)
             {
                 return false;
             }
@@ -2991,6 +3316,7 @@ public static class CompileBackSourceComposer
             string leftName = left.ExplicitInterfaceMemberName ?? left.Identity.Method;
             string rightName = right.ExplicitInterfaceMemberName ?? right.Identity.Method;
             return leftName == rightName
+                && left.ReturnType == right.ReturnType
                 && SameParameters(left.Parameters, right.Parameters);
         }
 
