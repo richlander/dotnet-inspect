@@ -1034,6 +1034,74 @@ public class DynamicCallSitePassTests
         Assert.False(RunPass(f));
     }
 
+    [Fact]
+    public void ReceiverIsCoercedAddressExpression_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        InvokeCall(f).Arguments[2].ReplaceWith(
+            new Coerce(ObjectType, new LoadLocalAddress(300, ObjectType)));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverIsConditionalAddressExpression_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        InvokeCall(f).Arguments[2].ReplaceWith(new Conditional(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            new LoadLocalAddress(300, ObjectType),
+            new LoadLocalAddress(301, ObjectType)));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverSwitchArmIsAddressExpression_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        InvokeCall(f).Arguments[2].ReplaceWith(new SwitchExpression(
+            new Constant(0, Int32Type),
+            [
+                new SwitchExpressionArm(
+                    [0],
+                    isDefault: false,
+                    new Constant(null, ObjectType)),
+                new SwitchExpressionArm(
+                    [],
+                    isDefault: true,
+                    new LoadLocalAddress(300, ObjectType)),
+            ]));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverSlotDefinedByAddressExpression_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        InsertBeforeGuard(
+            f,
+            new StoreStackSlot(500, new LoadLocalAddress(300, ObjectType)));
+        InvokeCall(f).Arguments[2].ReplaceWith(new LoadStackSlot(500, ObjectType));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverCallWithByRefArgument_StillRaises()
+    {
+        var f = LoadCanonicalFunction();
+        var helperType = TypeRef.Definition("Synthetic", "Tests", "ReceiverHelpers");
+        var receiver = new Call(
+            new MethodRef(
+                helperType,
+                "Read",
+                ObjectType,
+                [TypeRef.ByRef(ObjectType)],
+                HasThis: false),
+            isVirtual: false,
+            [new LoadLocalAddress(300, ObjectType)]);
+        InvokeCall(f).Arguments[2].ReplaceWith(receiver);
+        Assert.True(RunPass(f));
+    }
+
     // ======================================================================
     // By-value signature ref-kind facts (blocker #4)
     // ======================================================================
