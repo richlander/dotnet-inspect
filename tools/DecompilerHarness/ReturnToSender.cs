@@ -535,6 +535,21 @@ static class ReturnToSender
                 continue;
             }
 
+            if (TryFindEventAccessor(reader, typeDef, target) is { } eventTarget)
+            {
+                results.Add(CompileBackEventAccessorOrContextFail(
+                    assemblyPath,
+                    pe,
+                    reader,
+                    source,
+                    typeHandle,
+                    eventTarget.Event,
+                    eventTarget.Accessor,
+                    MemberAnchorFor(memberAnchors, eventTarget.Accessor),
+                    sourceIndex));
+                continue;
+            }
+
             if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
             {
                 results.Add(CompileBackMethodOrContextFail(
@@ -665,6 +680,61 @@ static class ReturnToSender
         return null;
     }
 
+    static (EventDefinitionHandle Event, MethodDefinitionHandle Accessor)? TryFindEventAccessor(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        RequestedTarget target)
+    {
+        var accessorToEvent = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+            if (!accessors.Adder.IsNil)
+                accessorToEvent[accessors.Adder] = eventHandle;
+            if (!accessors.Remover.IsNil)
+                accessorToEvent[accessors.Remover] = eventHandle;
+        }
+
+        if (TryFindMethod(reader, typeDef, target) is { } accessorHandle
+            && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle)
+            && IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle))
+        {
+            return (foundEventHandle, accessorHandle);
+        }
+
+        return null;
+    }
+
+    static bool IsExplicitInterfaceEventAccessor(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle accessorHandle)
+    {
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != accessorHandle
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var interfaceDef = reader.GetTypeDefinition(declaration.GetDeclaringType());
+            if (!interfaceDef.Attributes.HasFlag(TypeAttributes.Interface))
+                continue;
+            foreach (var eventHandle in interfaceDef.GetEvents())
+            {
+                var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+                if (accessors.Adder == declarationHandle || accessors.Remover == declarationHandle)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Resolves the target metadata method by normalized signature when the target
     /// carries one (ordinal-independent), falling back to the count-all overload
@@ -789,6 +859,42 @@ static class ReturnToSender
         }
     }
 
+    static Result CompileBackEventAccessorOrContextFail(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        EventDefinitionHandle eventHandle,
+        MethodDefinitionHandle accessorHandle,
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
+    {
+        try
+        {
+            return CompileBackEventAccessor(
+                assemblyPath,
+                pe,
+                reader,
+                source,
+                typeHandle,
+                eventHandle,
+                accessorHandle,
+                memberAnchor,
+                sourceIndex);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return ContextFailResult(
+                assemblyPath,
+                reader,
+                typeHandle,
+                accessorHandle,
+                $"{ex.GetType().Name}: {ex.Message}",
+                memberAnchor);
+        }
+    }
+
     static Result CompileBackPropertySetterOrContextFail(
         string assemblyPath,
         PEReader pe,
@@ -907,6 +1013,60 @@ static class ReturnToSender
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: methodHandle,
+                TargetBody: targetBody,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts));
+    }
+
+    static Result CompileBackEventAccessor(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        EventDefinitionHandle eventHandle,
+        MethodDefinitionHandle accessorHandle,
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var accessor = reader.GetMethodDefinition(accessorHandle);
+        string fullType = reader.GetFullTypeName(typeDef);
+        string methodName = reader.GetString(accessor.Name);
+        int overload = OverloadIndex(reader, typeDef, accessorHandle, methodName);
+
+        var function = IrImporter.Import(source, fullType, methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+
+        var original = MetadataInstructionProducer.Disassemble(pe, reader, accessor)
+            ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
+        var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
+
+        return CompileBackTarget(
+            assemblyPath,
+            reader,
+            typeHandle,
+            accessorHandle,
+            function,
+            targetBody,
+            fullType,
+            methodName,
+            overload,
+            originalOps,
+            memberAnchor,
+            sourceIndex,
+            (closureRoots, closureFacts) => new EventAccessorArtifactRequest(
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: accessorHandle,
+                TargetEvent: eventHandle,
                 TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
@@ -1523,6 +1683,7 @@ static class ReturnToSender
             MethodArtifactRequest method => method with { TargetBody = targetBody },
             PropertyGetterArtifactRequest getter => getter with { TargetBody = targetBody },
             PropertySetterArtifactRequest setter => setter with { TargetBody = targetBody },
+            EventAccessorArtifactRequest eventAccessor => eventAccessor with { TargetBody = targetBody },
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -1532,6 +1693,7 @@ static class ReturnToSender
             MethodArtifactRequest method => method with { Reader = reader },
             PropertyGetterArtifactRequest getter => getter with { Reader = reader },
             PropertySetterArtifactRequest setter => setter with { Reader = reader },
+            EventAccessorArtifactRequest eventAccessor => eventAccessor with { Reader = reader },
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
