@@ -22,26 +22,27 @@ public enum IlOperandIdentityKind
     SwitchTargets,
 }
 
-/// <summary>
-/// Product-owned comparison contracts for decoded IL bodies.
-/// </summary>
-public enum IlBodyDiffProfile
+[Flags]
+public enum IlBodyDiffOptions
 {
-    /// <summary>
-    /// The general-purpose IL diff contract. Local and argument slots remain
-    /// observable, and only the canonicalizations documented by
-    /// <see cref="IlBodyDiff"/> apply.
-    /// </summary>
-    Default,
+    None = 0,
 
     /// <summary>
-    /// Compile-back fidelity contract v1. It compares
-    /// immediate values, symbolic metadata operands, and branch topology while
-    /// tolerating local/argument macro encodings, slot-layout changes, and
-    /// compile-back assembly/platform reference-scope changes.
-    /// Exception-region tables are outside this profile.
+    /// Fold local and argument opcode encodings into their operation families
+    /// and omit raw local and argument slot numbers.
     /// </summary>
-    CompileBackFidelityV1,
+    NormalizeVariableLayout = 1 << 0,
+
+    /// <summary>
+    /// Replace references to types and members defined by each compared
+    /// assembly with a shared current-assembly scope.
+    /// </summary>
+    NormalizeCurrentAssemblyScope = 1 << 1,
+
+    /// <summary>
+    /// Replace known platform assembly reference scopes with a shared scope.
+    /// </summary>
+    NormalizePlatformAssemblyScopes = 1 << 2,
 }
 
 public sealed record IlOperandIdentity(IlOperandIdentityKind Kind, string Value);
@@ -103,28 +104,33 @@ public sealed record IlBodyDiffResult(
 /// </summary>
 public static class IlBodyDiff
 {
+    const IlBodyDiffOptions SupportedOptions =
+        IlBodyDiffOptions.NormalizeVariableLayout
+        | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+        | IlBodyDiffOptions.NormalizePlatformAssemblyScopes;
+
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
-        => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffProfile.Default);
+        => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffOptions.None);
 
     public static IlBodyDiffResult Compare(
         MethodInstructions oldBody,
         MethodInstructions newBody,
-        IlBodyDiffProfile profile)
-        => Compare(oldBody, newBody, oldResolver: null, newResolver: null, profile);
+        IlBodyDiffOptions options)
+        => Compare(oldBody, newBody, oldResolver: null, newResolver: null, options);
 
     public static IlBodyDiffResult Compare(
         MetadataReader oldReader,
         MethodBodyBlock oldBody,
         MetadataReader newReader,
         MethodBodyBlock newBody)
-        => Compare(oldReader, oldBody, newReader, newBody, IlBodyDiffProfile.Default);
+        => Compare(oldReader, oldBody, newReader, newBody, IlBodyDiffOptions.None);
 
     public static IlBodyDiffResult Compare(
         MetadataReader oldReader,
         MethodBodyBlock oldBody,
         MetadataReader newReader,
         MethodBodyBlock newBody,
-        IlBodyDiffProfile profile)
+        IlBodyDiffOptions options)
     {
         ArgumentNullException.ThrowIfNull(oldReader);
         ArgumentNullException.ThrowIfNull(oldBody);
@@ -134,9 +140,9 @@ public static class IlBodyDiff
         return Compare(
             MethodInstructions.Decode(oldBody),
             MethodInstructions.Decode(newBody),
-            new MetadataOperandResolver(oldReader, profile),
-            new MetadataOperandResolver(newReader, profile),
-            profile);
+            new MetadataOperandResolver(oldReader, options),
+            new MetadataOperandResolver(newReader, options),
+            options);
     }
 
     /// <summary>
@@ -158,12 +164,12 @@ public static class IlBodyDiff
             return false;
         }
 
-        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffProfile.Default);
+        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffOptions.None);
         return TryBuildOperations(
             body.Instructions,
             resolver,
             "body",
-            IlBodyDiffProfile.Default,
+            IlBodyDiffOptions.None,
             out operations,
             out failure);
     }
@@ -173,10 +179,12 @@ public static class IlBodyDiff
         MethodInstructions newBody,
         MetadataOperandResolver? oldResolver,
         MetadataOperandResolver? newResolver,
-        IlBodyDiffProfile profile)
+        IlBodyDiffOptions options)
     {
         ArgumentNullException.ThrowIfNull(oldBody);
         ArgumentNullException.ThrowIfNull(newBody);
+        if ((options & ~SupportedOptions) != 0)
+            throw new ArgumentOutOfRangeException(nameof(options), options, "Unsupported IL body diff options.");
 
         if (!oldBody.IsComplete)
             return IlBodyDiffResult.Failed(
@@ -191,12 +199,12 @@ public static class IlBodyDiff
 
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
-        if (!TryBuildOperations(oldInstructions, oldResolver, "old", profile, out var oldOperations, out var oldFailure))
+        if (!TryBuildOperations(oldInstructions, oldResolver, "old", options, out var oldOperations, out var oldFailure))
             return IlBodyDiffResult.Failed(
                 IlDiffFailureKind.TokenResolutionFailure,
                 oldFailure ?? "old body token resolution failed",
                 side: "old");
-        if (!TryBuildOperations(newInstructions, newResolver, "new", profile, out var newOperations, out var newFailure))
+        if (!TryBuildOperations(newInstructions, newResolver, "new", options, out var newOperations, out var newFailure))
             return IlBodyDiffResult.Failed(
                 IlDiffFailureKind.TokenResolutionFailure,
                 newFailure ?? "new body token resolution failed",
@@ -230,14 +238,14 @@ public static class IlBodyDiff
         ImmutableArray<DecodedInstruction> instructions,
         MetadataOperandResolver? resolver,
         string side,
-        IlBodyDiffProfile profile,
+        IlBodyDiffOptions options,
         out ImmutableArray<CanonicalIlOperation> operations,
         out string? failure)
     {
         var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(instructions.Length);
         foreach (var instruction in instructions)
         {
-            if (!TryToOperation(instruction, resolver, profile, out var operation, out var operationFailure))
+            if (!TryToOperation(instruction, resolver, options, out var operation, out var operationFailure))
             {
                 operations = [];
                 failure = $"{side} body {operationFailure}";
@@ -394,27 +402,27 @@ public static class IlBodyDiff
     static bool TryToOperation(
         DecodedInstruction instruction,
         MetadataOperandResolver? resolver,
-        IlBodyDiffProfile profile,
+        IlBodyDiffOptions options,
         out CanonicalIlOperation operation,
         out string? failure)
     {
-        if (!TryOperandIdentity(instruction, resolver, profile, out var operand, out failure))
+        if (!TryOperandIdentity(instruction, resolver, options, out var operand, out failure))
         {
-            operation = new CanonicalIlOperation(instruction.Offset, OpcodeFamily(instruction, profile), Operand: null);
+            operation = new CanonicalIlOperation(instruction.Offset, OpcodeFamily(instruction, options), Operand: null);
             return false;
         }
 
         operation = new CanonicalIlOperation(
             instruction.Offset,
-            OpcodeFamily(instruction, profile),
+            OpcodeFamily(instruction, options),
             operand);
         return true;
     }
 
-    static string OpcodeFamily(DecodedInstruction instruction, IlBodyDiffProfile profile)
+    static string OpcodeFamily(DecodedInstruction instruction, IlBodyDiffOptions options)
     {
         var opcode = instruction.OpCode;
-        if (profile == IlBodyDiffProfile.CompileBackFidelityV1)
+        if ((options & IlBodyDiffOptions.NormalizeVariableLayout) != 0)
         {
             if (opcode is ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
                 or ILOpCode.Ldarg_3 or ILOpCode.Ldarg_s or ILOpCode.Ldarg)
@@ -455,7 +463,7 @@ public static class IlBodyDiff
     static bool TryOperandIdentity(
         DecodedInstruction instruction,
         MetadataOperandResolver? resolver,
-        IlBodyDiffProfile profile,
+        IlBodyDiffOptions options,
         out IlOperandIdentity? operand,
         out string? failure)
     {
@@ -471,7 +479,7 @@ public static class IlBodyDiff
             return resolver.TryResolve(instruction, out operand, out failure);
         }
 
-        operand = ImmediateOperandIdentity(instruction) ?? OperandIdentityByKind(instruction, profile);
+        operand = ImmediateOperandIdentity(instruction) ?? OperandIdentityByKind(instruction, options);
         failure = null;
         return true;
     }
@@ -494,14 +502,14 @@ public static class IlBodyDiff
 
     static IlOperandIdentity? OperandIdentityByKind(
         DecodedInstruction instruction,
-        IlBodyDiffProfile profile)
+        IlBodyDiffOptions options)
         => instruction.Operand switch
         {
             OperandKind.ShortInlineI or OperandKind.InlineI or OperandKind.InlineI8
                 or OperandKind.ShortInlineR or OperandKind.InlineR
                 => new(IlOperandIdentityKind.Immediate, instruction.OperandValue.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             OperandKind.ShortInlineVar or OperandKind.InlineVar
-                when profile != IlBodyDiffProfile.CompileBackFidelityV1
+                when (options & IlBodyDiffOptions.NormalizeVariableLayout) == 0
                 => new(IlOperandIdentityKind.Slot, instruction.OperandValue.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget
                 => new(IlOperandIdentityKind.BranchTarget, $"IL_{instruction.BranchTargets[0]:X4}"),
@@ -556,7 +564,7 @@ public static class IlBodyDiff
         return -1;
     }
 
-    sealed class MetadataOperandResolver(MetadataReader reader, IlBodyDiffProfile profile)
+    sealed class MetadataOperandResolver(MetadataReader reader, IlBodyDiffOptions options)
     {
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic,
         // so the type-name climbs below would recurse until an uncatchable
@@ -580,13 +588,13 @@ public static class IlBodyDiff
                     OperandKind.InlineSig => ResolveSignature((int)instruction.OperandValue),
                     _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
                 };
-                if (profile == IlBodyDiffProfile.CompileBackFidelityV1
-                    && reader.IsAssembly
-                    && instruction.Operand != OperandKind.InlineString)
+                if (reader.IsAssembly && instruction.Operand != OperandKind.InlineString)
                 {
                     string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
-                    value = value.Replace($"[{assembly}]", "[<current>]", StringComparison.Ordinal);
-                    value = NormalizePlatformScopes(value);
+                    if ((options & IlBodyDiffOptions.NormalizeCurrentAssemblyScope) != 0)
+                        value = value.Replace($"[{assembly}]", "[<current>]", StringComparison.Ordinal);
+                    if ((options & IlBodyDiffOptions.NormalizePlatformAssemblyScopes) != 0)
+                        value = NormalizePlatformScopes(value, assembly);
                 }
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
                 failure = null;
@@ -850,7 +858,7 @@ public static class IlBodyDiff
         }
 
         string CurrentAssemblyName()
-            => profile == IlBodyDiffProfile.CompileBackFidelityV1
+            => (options & IlBodyDiffOptions.NormalizeCurrentAssemblyScope) != 0
                 ? "<current>"
                 : reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
 
@@ -860,7 +868,7 @@ public static class IlBodyDiff
         static string Escape(string value)
             => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
-        static string NormalizePlatformScopes(string value)
+        static string NormalizePlatformScopes(string value, string currentAssembly)
         {
             StringBuilder? normalized = null;
             int copied = 0;
@@ -874,7 +882,8 @@ public static class IlBodyDiff
                 ReadOnlySpan<char> identity = value.AsSpan(open + 1, close - open - 1);
                 int comma = identity.IndexOf(',');
                 ReadOnlySpan<char> name = comma >= 0 ? identity[..comma] : identity;
-                if (IsPlatformAssembly(name))
+                if (!identity.Equals(currentAssembly, StringComparison.Ordinal)
+                    && IsPlatformAssembly(name))
                 {
                     normalized ??= new StringBuilder(value.Length);
                     normalized.Append(value, copied, open - copied);

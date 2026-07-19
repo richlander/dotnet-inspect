@@ -230,7 +230,7 @@ public static class IlAssemblyDiff
         MethodDefinitionHandle newMethod,
         string? oldLabel = null,
         string? newLabel = null,
-        IlBodyDiffProfile profile = IlBodyDiffProfile.Default)
+        IlBodyDiffOptions options = IlBodyDiffOptions.None)
     {
         ArgumentNullException.ThrowIfNull(oldPe);
         ArgumentNullException.ThrowIfNull(oldReader);
@@ -261,7 +261,7 @@ public static class IlAssemblyDiff
                 "method identity resolution failed",
                 detail: string.Join("; ", identityFailures.Select(FormatIdentityFailure)))
             : oldBody.Result ?? newBody.Result
-                ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!, profile);
+                ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!, options);
         return new IlMemberDiffResult(
             oldSubject,
             newSubject,

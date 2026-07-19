@@ -40,6 +40,10 @@ namespace ILInspector.DecompilerHarness;
 static class FidelityCheck
 {
     internal const int CurrentContractVersion = 1;
+    internal const IlBodyDiffOptions ContractV1BodyDiffOptions =
+        IlBodyDiffOptions.NormalizeVariableLayout
+        | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+        | IlBodyDiffOptions.NormalizePlatformAssemblyScopes;
 
     const int MaxTransientEmptyEmitAttempts = 3;
 
@@ -3865,7 +3869,7 @@ static class FidelityCheck
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
-            profile: IlBodyDiffProfile.CompileBackFidelityV1).Diff;
+            options: ContractV1BodyDiffOptions).Diff;
     }
 
     static string CanonicalOpcode(string op)

@@ -794,6 +794,16 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void FidelityContractV1_ComposesAllIlBodyNormalizations()
+    {
+        Assert.Equal(
+            IlBodyDiffOptions.NormalizeVariableLayout
+            | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+            | IlBodyDiffOptions.NormalizePlatformAssemblyScopes,
+            FidelityCheck.ContractV1BodyDiffOptions);
+    }
+
+    [Fact]
     public void ClassifyStatus_RequiresV1BodyEqualityForExact()
     {
         var exact = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []);

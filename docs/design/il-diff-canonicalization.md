@@ -21,24 +21,22 @@ resolved exact `MethodDefinitionHandle` values. It returns old/new
 so RTS, Research, and diagnostics can attach IL diff evidence to their own
 member identity without running an assembly-wide card.
 
-`IlBodyDiffProfile.CompileBackFidelityV1` is the product-owned body-comparison
-profile used by compile-back fidelity contract V1. The contract reports a
-method as `Exact` only when both the opcode stream and this comparison match.
-It reports `OpcodeDiff` when opcode names differ, `OperandDiff` when opcode
-names match but this comparison differs, and `FidelityUnavailable` when the
-comparison cannot produce a verdict. The contract version covers the complete
-set of measurements and outcome semantics, not only operand comparison.
+`IlBodyDiffOptions` exposes independent, domain-neutral normalization
+mechanics without defining a consumer's equality policy:
 
-The profile preserves value, symbolic-token, and branch-topology comparison
-while folding `ldarg*`, `ldarga*`, `starg*`, `ldloc*`, `ldloca*`, and `stloc*`
-encoding macros into their operation families and omitting their raw slot
-numbers. Types defined by either compared module use a shared `<current>`
-scope because compile-back intentionally changes the output assembly name.
-Platform assembly scopes (`System.*`, `mscorlib`, `netstandard`,
-`Microsoft.CSharp`, and `Microsoft.VisualBasic*`) use a shared `<platform>`
-scope so framework version and type-forwarding changes do not masquerade as
-member-target changes. Non-platform assembly identities remain observable.
-The default profile remains unchanged.
+- `NormalizeVariableLayout` folds `ldarg*`, `ldarga*`, `starg*`, `ldloc*`,
+  `ldloca*`, and `stloc*` encoding macros into their operation families and
+  omits their raw slot numbers.
+- `NormalizeCurrentAssemblyScope` gives types and members defined by either
+  compared assembly a shared `<current>` scope.
+- `NormalizePlatformAssemblyScopes` gives known platform references
+  (`System.*`, `mscorlib`, `netstandard`, `Microsoft.CSharp`, and
+  `Microsoft.VisualBasic*`) a shared `<platform>` scope while preserving the
+  current assembly and non-platform references.
+
+Values, symbolic targets, and branch topology remain observable under every
+option. Consumers own any named or versioned policy that composes these
+mechanics. Comparisons use no optional normalization by default.
 
 The boundary is intentionally narrow: the diff answers "which decoded IL
 operations changed?" It does not claim source equivalence, semantic equivalence,
@@ -122,10 +120,11 @@ rewrites, Debug/Release differences, or equivalent local reordering can produce
 slot noise.
 
 Some local macros currently surface as opcode-family changes (`ldloc.0`,
-`stloc.1`) rather than as `Slot` operands. That is part of the current boundary,
+`stloc.1`) rather than as `Slot` operands. That is part of the default boundary,
 not a stronger local identity contract. The opt-in
-`IlBodyDiffProfile.CompileBackFidelityV1` profile deliberately normalizes these
-families and ignores their slot operands for decompile/recompile evidence.
+`IlBodyDiffOptions.NormalizeVariableLayout` option normalizes these families
+and ignores their slot operands when a consumer does not treat variable layout
+as observable.
 
 ### Exception-region shape
 
@@ -133,8 +132,8 @@ The body decoder is EH-aware, and malformed EH regions fail closed through
 `MethodInstructions`. `IlBodyDiff` does not currently emit producer-owned EH
 region rows. Catch/finally availability or protected-range changes surface only
 through operation-level rows unless a future substrate layer adds explicit EH
-row kinds. `CompileBackFidelityV1` has the same boundary: an `Exact` result
-under fidelity contract V1 is EH-blind and is not a semantic-equivalence claim.
+row kinds. No `IlBodyDiffOptions` value adds EH comparison, so consumers must
+not present an exact body result as a semantic-equivalence claim.
 
 ### Offset identity
 

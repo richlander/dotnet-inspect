@@ -173,9 +173,12 @@ public class IlBodyDiffTests
     }
 
     [Fact]
-    public void CompileBackFidelityV1_CompiledFixtureCallTargetChange_IsNotExact()
+    public void Compare_WithScopeNormalization_CompiledFixtureCallTargetChange_IsNotExact()
     {
-        var diff = DiffFixtureDiff("CallToken", IlBodyDiffProfile.CompileBackFidelityV1);
+        var diff = DiffFixtureDiff(
+            "CallToken",
+            IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+            | IlBodyDiffOptions.NormalizePlatformAssemblyScopes);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("::Abs(", StringComparison.Ordinal) == true);
@@ -786,7 +789,7 @@ public class IlBodyDiffTests
 
     static IlBodyDiffResult DiffFixtureDiff(
         string name,
-        IlBodyDiffProfile profile = IlBodyDiffProfile.Default)
+        IlBodyDiffOptions options = IlBodyDiffOptions.None)
     {
         using var oldStream = File.OpenRead(FixtureCatalog.DiffPair.OldAssemblyPath());
         using var newStream = File.OpenRead(FixtureCatalog.DiffPair.NewAssemblyPath());
@@ -799,7 +802,7 @@ public class IlBodyDiffTests
             DiffFixtureMethodBody(oldPe, oldReader, name),
             newReader,
             DiffFixtureMethodBody(newPe, newReader, name),
-            profile);
+            options);
     }
 
     static MethodInstructions DiffFixtureMethod(FixtureDefinition fixture, string name)

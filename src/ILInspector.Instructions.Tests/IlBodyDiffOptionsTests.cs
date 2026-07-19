@@ -5,35 +5,40 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Instructions.Tests;
 
-public class CompileBackFidelityProfileTests
+public class IlBodyDiffOptionsTests
 {
+    const IlBodyDiffOptions AllNormalizationOptions =
+        IlBodyDiffOptions.NormalizeVariableLayout
+        | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
+        | IlBodyDiffOptions.NormalizePlatformAssemblyScopes;
+
     [Fact]
-    public void CompileBackFidelityV1_ToleratesLocalMacroAndSlotLayout()
+    public void NormalizeVariableLayout_ToleratesLocalMacroAndSlotLayout()
     {
         var macro = Decode([0x06, 0x2a]); // ldloc.0; ret
         var explicitSlot = Decode([0x11, 0x07, 0x2a]); // ldloc.s 7; ret
 
         Assert.False(IlBodyDiff.Compare(macro, explicitSlot).IsExact);
-        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffProfile.CompileBackFidelityV1).IsExact);
+        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffOptions.NormalizeVariableLayout).IsExact);
     }
 
     [Fact]
-    public void CompileBackFidelityV1_ToleratesArgumentMacroAndSlotLayout()
+    public void NormalizeVariableLayout_ToleratesArgumentMacroAndSlotLayout()
     {
         var macro = Decode([0x02, 0x2a]); // ldarg.0; ret
         var explicitSlot = Decode([0x0e, 0x07, 0x2a]); // ldarg.s 7; ret
 
         Assert.False(IlBodyDiff.Compare(macro, explicitSlot).IsExact);
-        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffProfile.CompileBackFidelityV1).IsExact);
+        Assert.True(IlBodyDiff.Compare(macro, explicitSlot, IlBodyDiffOptions.NormalizeVariableLayout).IsExact);
     }
 
     [Fact]
-    public void CompileBackFidelityV1_DoesNotFoldArgumentValueAndAddressLoads()
+    public void NormalizeVariableLayout_DoesNotFoldArgumentValueAndAddressLoads()
     {
         var valueLoad = Decode([0x02, 0x2a]); // ldarg.0; ret
         var addressLoad = Decode([0x0f, 0x00, 0x2a]); // ldarga.s 0; ret
 
-        var diff = IlBodyDiff.Compare(valueLoad, addressLoad, IlBodyDiffProfile.CompileBackFidelityV1);
+        var diff = IlBodyDiff.Compare(valueLoad, addressLoad, IlBodyDiffOptions.NormalizeVariableLayout);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.OpcodeFamily == "ldarg");
@@ -41,12 +46,12 @@ public class CompileBackFidelityProfileTests
     }
 
     [Fact]
-    public void CompileBackFidelityV1_ReportsNumericOperandChange()
+    public void AllOptions_PreserveNumericOperandChanges()
     {
         var five = Decode([0x1b, 0x2a]); // ldc.i4.5; ret
         var seven = Decode([0x1d, 0x2a]); // ldc.i4.7; ret
 
-        var diff = IlBodyDiff.Compare(five, seven, IlBodyDiffProfile.CompileBackFidelityV1);
+        var diff = IlBodyDiff.Compare(five, seven, AllNormalizationOptions);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value == "5");
@@ -54,12 +59,12 @@ public class CompileBackFidelityProfileTests
     }
 
     [Fact]
-    public void CompileBackFidelityV1_ReportsBranchTopologyChange()
+    public void AllOptions_PreserveBranchTopologyChanges()
     {
         var firstTarget = Decode([0x2b, 0x03, 0x00, 0x2a, 0x00, 0x2a]);
         var secondTarget = Decode([0x2b, 0x01, 0x00, 0x2a, 0x00, 0x2a]);
 
-        var diff = IlBodyDiff.Compare(firstTarget, secondTarget, IlBodyDiffProfile.CompileBackFidelityV1);
+        var diff = IlBodyDiff.Compare(firstTarget, secondTarget, AllNormalizationOptions);
 
         Assert.False(diff.IsExact);
         Assert.Equal(2, diff.Rows.Length);
@@ -67,47 +72,95 @@ public class CompileBackFidelityProfileTests
     }
 
     [Fact]
-    public void CompileBackFidelityV1_ToleratesPlatformReferenceScopeChanges()
+    public void NormalizePlatformAssemblyScopes_ToleratesPlatformReferenceScopeChanges()
     {
-        var diff = CompareCallImages("System.Runtime", "System.Private.CoreLib");
+        var defaultDiff = CompareCallImages("System.Runtime", "System.Private.CoreLib");
+        var normalizedDiff = CompareCallImages(
+            "System.Runtime",
+            "System.Private.CoreLib",
+            IlBodyDiffOptions.NormalizePlatformAssemblyScopes);
 
-        Assert.False(diff.Default.IsExact);
-        Assert.True(diff.CompileBackFidelity.IsExact);
+        Assert.False(defaultDiff.IsExact);
+        Assert.True(normalizedDiff.IsExact);
     }
 
     [Fact]
-    public void CompileBackFidelityV1_PreservesNonPlatformReferenceIdentity()
+    public void NormalizePlatformAssemblyScopes_PreservesNonPlatformReferenceIdentity()
     {
-        var diff = CompareCallImages("Library.One", "Library.Two");
+        var diff = CompareCallImages(
+            "Library.One",
+            "Library.Two",
+            IlBodyDiffOptions.NormalizePlatformAssemblyScopes);
 
-        Assert.False(diff.CompileBackFidelity.IsExact);
+        Assert.False(diff.IsExact);
     }
 
     [Fact]
-    public void CompileBackFidelityV1_PreservesPlatformLikeStringLiterals()
+    public void NormalizePlatformAssemblyScopes_PreservesPlatformLikeStringLiterals()
     {
         var diff = CompareImages(
             BuildStringImage("Old", "[System.Runtime]"),
-            BuildStringImage("New", "[System.Private.CoreLib]"));
+            BuildStringImage("New", "[System.Private.CoreLib]"),
+            IlBodyDiffOptions.NormalizePlatformAssemblyScopes);
 
-        Assert.False(diff.CompileBackFidelity.IsExact);
-        Assert.Contains(diff.CompileBackFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Runtime", StringComparison.Ordinal) == true);
-        Assert.Contains(diff.CompileBackFidelity.Rows, row => row.Operation.Operand?.Value.Contains("System.Private.CoreLib", StringComparison.Ordinal) == true);
+        Assert.False(diff.IsExact);
+        Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("System.Runtime", StringComparison.Ordinal) == true);
+        Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("System.Private.CoreLib", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public void NormalizeCurrentAssemblyScope_ToleratesCurrentAssemblyNameChanges()
+    {
+        var oldImage = BuildCallImage("System.Old");
+        var newImage = BuildCallImage("System.New");
+
+        Assert.False(CompareImages(oldImage, newImage).IsExact);
+        Assert.False(CompareImages(
+            oldImage,
+            newImage,
+            IlBodyDiffOptions.NormalizePlatformAssemblyScopes).IsExact);
+        Assert.True(CompareImages(
+            oldImage,
+            newImage,
+            IlBodyDiffOptions.NormalizeCurrentAssemblyScope).IsExact);
+    }
+
+    [Fact]
+    public void AllOptions_PreservePlatformNormalizationForSelfReferences()
+    {
+        var diff = CompareImages(
+            BuildCallImage("System.Runtime", "System.Runtime"),
+            BuildCallImage("System.Private.CoreLib", "System.Private.CoreLib"),
+            AllNormalizationOptions);
+
+        Assert.True(diff.IsExact);
+    }
+
+    [Fact]
+    public void Compare_RejectsUndefinedOptions()
+    {
+        var body = Decode([0x2a]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => IlBodyDiff.Compare(body, body, (IlBodyDiffOptions)(1 << 10)));
     }
 
     static MethodInstructions Decode(byte[] il)
         => MethodInstructions.Decode(il, il.Length, exceptionRegions: []);
 
-    static (IlBodyDiffResult Default, IlBodyDiffResult CompileBackFidelity) CompareCallImages(
+    static IlBodyDiffResult CompareCallImages(
         string oldReference,
-        string newReference)
+        string newReference,
+        IlBodyDiffOptions options = IlBodyDiffOptions.None)
         => CompareImages(
             BuildCallImage("Old", oldReference),
-            BuildCallImage("New", newReference));
+            BuildCallImage("New", newReference),
+            options);
 
-    static (IlBodyDiffResult Default, IlBodyDiffResult CompileBackFidelity) CompareImages(
+    static IlBodyDiffResult CompareImages(
         byte[] oldImage,
-        byte[] newImage)
+        byte[] newImage,
+        IlBodyDiffOptions options = IlBodyDiffOptions.None)
     {
         using var oldPe = new PEReader(new MemoryStream(oldImage));
         using var newPe = new PEReader(new MemoryStream(newImage));
@@ -115,20 +168,17 @@ public class CompileBackFidelityProfileTests
         var newReader = newPe.GetMetadataReader();
         var oldMethod = MetadataTokens.MethodDefinitionHandle(1);
         var newMethod = MetadataTokens.MethodDefinitionHandle(1);
-        return (
-            IlAssemblyDiff.CompareMembers(
-                oldPe, oldReader, oldMethod, newPe, newReader, newMethod).Diff,
-            IlAssemblyDiff.CompareMembers(
-                oldPe,
-                oldReader,
-                oldMethod,
-                newPe,
-                newReader,
-                newMethod,
-                profile: IlBodyDiffProfile.CompileBackFidelityV1).Diff);
+        return IlAssemblyDiff.CompareMembers(
+            oldPe,
+            oldReader,
+            oldMethod,
+            newPe,
+            newReader,
+            newMethod,
+            options: options).Diff;
     }
 
-    static byte[] BuildCallImage(string assemblyName, string referenceAssemblyName)
+    static byte[] BuildCallImage(string assemblyName, string? referenceAssemblyName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -144,21 +194,29 @@ public class CompileBackFidelityProfileTests
             default,
             default,
             default);
-        var reference = metadata.AddAssemblyReference(
-            metadata.GetOrAddString(referenceAssemblyName),
-            new Version(1, 0, 0, 0),
-            default,
-            default,
-            default,
-            default);
-        var type = metadata.AddTypeReference(
-            reference,
-            metadata.GetOrAddString("System"),
-            metadata.GetOrAddString("Probe"));
-        var target = metadata.AddMemberReference(
-            type,
-            metadata.GetOrAddString("Target"),
-            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
+        EntityHandle target;
+        if (referenceAssemblyName is null)
+        {
+            target = MetadataTokens.MethodDefinitionHandle(1);
+        }
+        else
+        {
+            var reference = metadata.AddAssemblyReference(
+                metadata.GetOrAddString(referenceAssemblyName),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var type = metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Probe"));
+            target = metadata.AddMemberReference(
+                type,
+                metadata.GetOrAddString("Target"),
+                metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
+        }
 
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,
