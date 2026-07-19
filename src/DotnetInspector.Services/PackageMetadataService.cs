@@ -13,10 +13,17 @@ public static class PackageMetadataService
     /// <summary>
     /// Gets the published date for a specific package version.
     /// </summary>
-    public static async Task<DateTimeOffset?> GetPublishedDateAsync(HttpClient client, string packageName, string version, Action<string>? log)
+    public static async Task<DateTimeOffset?> GetPublishedDateAsync(
+        HttpClient client,
+        string packageName,
+        string version,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{version}";
+        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
+            return null;
         PackageMetadata? cached;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
         {
@@ -63,10 +70,17 @@ public static class PackageMetadataService
     /// Results are cached on disk; use <paramref name="forceLatest"/> to bypass the cache.
     /// </summary>
     public static async Task<PackageMetadata> FetchAllMetadataAsync(
-        HttpClient client, string packageName, string version, Action<string>? log, bool forceLatest = false)
+        HttpClient client,
+        string packageName,
+        string version,
+        Action<string>? log,
+        bool forceLatest = false,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
         string cacheKey = $"{normalizedName}@{version}";
+        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
+            return new PackageMetadata();
 
         // Try cache first (unless @latest forces refresh)
         if (!forceLatest)
@@ -92,6 +106,21 @@ public static class PackageMetadataService
         }
 
         return metadata;
+    }
+
+    internal static bool SupportsNuGetOrgMetadata(
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log = null)
+    {
+        bool supported = NuGetSourceResolver.ResolveSources(sourceOptions).Any(source =>
+            Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
+            && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase));
+        if (!supported)
+        {
+            log?.Invoke(
+                "NuGet.org aggregate metadata is unavailable because the configured package sources do not include api.nuget.org.");
+        }
+        return supported;
     }
 
     private static async Task<PackageMetadata> FetchAllMetadataFromNetworkAsync(

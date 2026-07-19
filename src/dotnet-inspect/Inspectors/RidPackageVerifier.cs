@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -15,7 +14,8 @@ public static class RidPackageVerifier
         InspectionResult result,
         string version,
         string? localDir,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions = null)
     {
         if (result.RuntimeIdentifierPackages == null)
             return;
@@ -34,25 +34,24 @@ public static class RidPackageVerifier
             }
             else
             {
-                // Remote verification: check NuGet API with retry
-                string packageId = ridPkg.PackageId.ToLowerInvariant();
-                string checkVersion = version.ToLowerInvariant();
-                string url = $"https://api.nuget.org/v3-flatcontainer/{packageId}/{checkVersion}/{packageId}.nuspec";
-
                 try
                 {
-                    using var response = await HttpRetryHelper.HeadWithRetryAsync(
-                        client, url,
-                        trafficKind: NetworkTrafficKind.RidPackageProbe);
-                    ridPkg.Exists = response != null && response.IsSuccessStatusCode;
+                    string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                        client,
+                        ridPkg.PackageId,
+                        version,
+                        logger.Log,
+                        sourceOptions);
+                    ridPkg.Exists = nuspec is not null;
 
                     string status = ridPkg.Exists == true ? "available" : "NOT FOUND";
                     logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({ridPkg.PackageId} {version})");
                 }
-                catch
+                catch (Exception ex)
                 {
                     ridPkg.Exists = false;
-                    logger.Log($"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version})");
+                    logger.Log(
+                        $"  {ridPkg.RuntimeIdentifier}: ERROR checking ({ridPkg.PackageId} {version}): {ex.Message}");
                 }
             }
         }

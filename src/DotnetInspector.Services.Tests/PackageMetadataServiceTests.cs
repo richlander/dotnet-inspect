@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Core;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -145,12 +146,51 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal(published, result);
     }
 
+    [Fact]
+    public async Task FetchAllMetadataAsync_CustomSourceDoesNotQueryNuGetOrg()
+    {
+        var handler = new CountingHandler();
+        var messages = new List<string>();
+        MetadataFieldCache.Set(
+            "private.package@1.0.0",
+            new PackageMetadata { Published = DateTimeOffset.UnixEpoch });
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [Path.Combine(Path.GetTempPath(), $"feed-{Guid.NewGuid():N}")]
+        };
+
+        var result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            messages.Add,
+            sourceOptions: sourceOptions);
+
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Null(result.Published);
+        Assert.Contains(messages, message => message.Contains(
+            "configured package sources do not include api.nuget.org",
+            StringComparison.Ordinal));
+    }
+
     private sealed class FailingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             throw new HttpRequestException($"Network access not allowed in test: {request.RequestUri}");
+        }
+    }
+
+    private sealed class CountingHandler : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
         }
     }
 }

@@ -155,6 +155,9 @@ scope.
 Vulnerability-service traffic is capability-gated. It runs only for detailed
 package inspection or an explicitly selected network-using package section;
 requests outside that scope are blocked at the shared HTTP handler.
+NuGet.org-wide statistics, verification, deprecation, and vulnerability
+metadata are queried only when `api.nuget.org` is among the configured package
+sources. RID companion-package verification follows the configured source list.
 
 ## Integrations
 

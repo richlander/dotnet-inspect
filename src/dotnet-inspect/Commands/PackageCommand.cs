@@ -428,7 +428,8 @@ public class PackageCommand
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger, options.ForceLatest, options.Verbosity,
                 resolution.NupkgPath,
-                fetchMetadata: wantsSignals);
+                fetchMetadata: wantsSignals,
+                sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
             if (packageSize.HasValue)
@@ -469,7 +470,8 @@ public class PackageCommand
             }
 
             if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(result, client, logger);
+                await AuditSignalBuilder.PopulatePackageAuditAsync(
+                    result, client, logger, options.SourceOptions);
 
             // Output results
             if (effectiveDiscovery)
@@ -1222,7 +1224,8 @@ public class PackageCommand
                 options.ForceLatest,
                 options.Verbosity,
                 resolution.NupkgPath,
-                fetchMetadata: wantsSignals);
+                fetchMetadata: wantsSignals,
+                sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
@@ -1236,7 +1239,8 @@ public class PackageCommand
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
                     extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
-                await AuditSignalBuilder.PopulatePackageAuditAsync(result, context.HttpClient, logger);
+                await AuditSignalBuilder.PopulatePackageAuditAsync(
+                    result, context.HttpClient, logger, options.SourceOptions);
             }
 
             return result;
