@@ -711,14 +711,22 @@ public sealed class DynamicCallSitePass : IIrPass
     //  - any expression whose value is an unmanaged pointer or function pointer
     //    (`int*`, `delegate*<...>`), which has no conversion to `dynamic`
     //    (CS0030).
-    // A `ByRef`-valued receiver (a ref local or ref-returning call) is a value
-    // for these purposes: C# implicitly dereferences it, so `((dynamic)r).Member`
-    // is valid and is not declined here.
-    static bool IsUnraisableReceiver(IrExpression expr) =>
-        expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
+    // A `ByRef` receiver is implicitly dereferenced by C#, so it is raisable when
+    // its element is a value/reference type (`((dynamic)r).Member` is valid) but
+    // unraisable when the element is itself a pointer/function pointer (`ref int*`
+    // still yields `int*`), so look through one `ByRef` before the pointer check.
+    static bool IsUnraisableReceiver(IrExpression expr)
+    {
+        if (expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
             or LoadElementAddress or FixedBufferElementAddress
-            or LoadFunctionPointer or Unbox
-        || expr.ResultType?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
+            or LoadFunctionPointer or Unbox)
+            return true;
+
+        var type = expr.ResultType;
+        if (type?.Kind == TypeRefKind.ByRef)
+            type = type.ElementType;
+        return type?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
+    }
 
     static bool ContainsReference<T>(IReadOnlyList<T> nodes, T node) where T : class
     {

@@ -1045,6 +1045,18 @@ public class DynamicCallSitePassTests
         Assert.False(RunPass(f));
     }
 
+    [Fact]
+    public void ReceiverIsByRefToPointer_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        // A `ByRef` receiver is implicitly dereferenced, so `ref int*` still
+        // yields `int*` — no `dynamic` conversion (CS0030). The gate must look
+        // through the `ByRef` wrapper to the pointer element.
+        InvokeCall(f).Arguments[2].ReplaceWith(
+            new LoadArgument(0, "p", TypeRef.ByRef(TypeRef.Pointer(Int32Type))));
+        Assert.False(RunPass(f));
+    }
+
     // ======================================================================
     // By-value signature ref-kind facts (blocker #4)
     // ======================================================================
