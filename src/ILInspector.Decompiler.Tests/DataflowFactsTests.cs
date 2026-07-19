@@ -136,6 +136,147 @@ public class DataflowFactsTests
         Assert.Contains(1, facts.ReadBeforeAssign);
     }
 
+    // Direct TupleSwitchExpression IR reproducing the reported CS0165 hazard:
+    // the first arm calls TryGet(out V_0), the default arm reads V_0. Before
+    // DefiniteAssignment special-cased TupleSwitchExpression, CheckReads fell
+    // through to the generic child walk, which passes the SAME assigned set by
+    // reference into every arm — so the out-assignment leaked from the first
+    // arm into the default arm, and V_0 was wrongly proven definitely assigned.
+    [Fact]
+    public void CollectDataflowFacts_TupleSwitchArmOutAssignmentDoesNotLeakToSiblingArm()
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var helper = TypeRef.Definition("Test", "Synthetic", "Helper");
+        var tryGet = new MethodRef(helper, "TryGet", i32, [TypeRef.ByRef(i32)], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+
+        var x = new LoadArgument(0, "x", i32);
+        var y = new LoadArgument(1, "y", i32);
+
+        var firstArm = new TupleSwitchExpressionArm(
+            subpatterns: [new PositionalPatternSubpattern(ComparisonKind.GreaterThan), new PositionalPatternSubpattern(ComparisonKind.GreaterThan)],
+            constants: [new Constant(0, i32), new Constant(0, i32)],
+            value: new Call(tryGet, isVirtual: false, [new LoadLocalAddress(0, i32)]));
+        var defaultArm = new TupleSwitchExpressionArm(subpatterns: [], constants: [], value: new LoadLocal(0, i32));
+
+        var tupleSwitch = new TupleSwitchExpression([x, y], [firstArm, defaultArm]);
+
+        var block = new Block(0);
+        block.Add(new Return(tupleSwitch));
+        var container = new BlockContainer();
+        container.Add(block);
+
+        var signature = new MethodSignature(i32, [new Parameter("x", i32), new Parameter("y", i32)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("TupleSwitchOut", helper, signature, [i32], container);
+        function.CheckInvariant();
+
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+        Assert.False(facts.Bailed);
+        // V_0 is only assigned on the first arm's path; the default arm must not
+        // inherit that assignment, so it stays read-before-assign (keeps
+        // `= default`, avoiding CS0165 in the printed output).
+        Assert.Contains(0, facts.ReadBeforeAssign);
+    }
+
+    // Same shape as above, but built as a flat/goto-connected container so the
+    // TupleSwitchExpression is embedded in a ConditionalBranch's condition,
+    // exercising AddVerifiedOutLocals via the CFG "gen" computation rather than
+    // the structured CheckReads walk.
+    [Fact]
+    public void CollectDataflowFacts_TupleSwitchArmValueIsNotUnconditionalCfgGen()
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var helper = TypeRef.Definition("Test", "Synthetic", "Helper");
+        var tryGet = new MethodRef(helper, "TryGet", boolType, [TypeRef.ByRef(i32)], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+
+        var x = new LoadArgument(0, "x", i32);
+        var y = new LoadArgument(1, "y", i32);
+
+        var firstArm = new TupleSwitchExpressionArm(
+            subpatterns: [new PositionalPatternSubpattern(ComparisonKind.GreaterThan), new PositionalPatternSubpattern(ComparisonKind.GreaterThan)],
+            constants: [new Constant(0, i32), new Constant(0, i32)],
+            value: new Call(tryGet, isVirtual: false, [new LoadLocalAddress(0, i32)]));
+        var defaultArm = new TupleSwitchExpressionArm(subpatterns: [], constants: [], value: new Constant(false, boolType));
+
+        var tupleSwitch = new TupleSwitchExpression([x, y], [firstArm, defaultArm]);
+
+        var entry = new Block(0x00);
+        entry.Add(new ConditionalBranch(tupleSwitch, targetOffset: 0x08));
+
+        var join = new Block(0x08);
+        join.Add(new Return(new Constant(0, i32)));
+
+        var container = new BlockContainer();
+        container.Add(entry);
+        container.Add(join);
+
+        var signature = new MethodSignature(i32, [new Parameter("x", i32), new Parameter("y", i32)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("TupleSwitchCondition", helper, signature, [i32], container);
+        function.CheckInvariant();
+
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+        Assert.False(facts.Bailed);
+        var entryBlock = Assert.Single(facts.Containers).Blocks.Single(b => b.Offset == 0x00);
+        // The arm's out-assignment is conditional on the pattern match, not
+        // unconditional on entering this block, so it must not appear in Gen.
+        Assert.DoesNotContain(0, entryBlock.Gen);
+    }
+
+    // Two non-default arms independently reuse the same IL local slot via
+    // separate out-calls (a realistic tuple-switch shape when csc assigns the
+    // same slot to two mutually exclusive TryGet results). Neither arm's
+    // assignment should leak into the other or into the default arm.
+    [Fact]
+    public void CollectDataflowFacts_TupleSwitchReusedLocalAcrossArmsDoesNotLeak()
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var helper = TypeRef.Definition("Test", "Synthetic", "Helper");
+        var tryGet = new MethodRef(helper, "TryGet", i32, [TypeRef.ByRef(i32)], HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+
+        var x = new LoadArgument(0, "x", i32);
+        var y = new LoadArgument(1, "y", i32);
+
+        var firstArm = new TupleSwitchExpressionArm(
+            subpatterns: [new PositionalPatternSubpattern(ComparisonKind.GreaterThan), new PositionalPatternSubpattern(ComparisonKind.GreaterThan)],
+            constants: [new Constant(0, i32), new Constant(0, i32)],
+            value: new Call(tryGet, isVirtual: false, [new LoadLocalAddress(0, i32)]));
+        var secondArm = new TupleSwitchExpressionArm(
+            subpatterns: [new PositionalPatternSubpattern(ComparisonKind.LessThan), new PositionalPatternSubpattern(ComparisonKind.LessThan)],
+            constants: [new Constant(0, i32), new Constant(0, i32)],
+            value: new Call(tryGet, isVirtual: false, [new LoadLocalAddress(0, i32)]));
+        var defaultArm = new TupleSwitchExpressionArm(subpatterns: [], constants: [], value: new LoadLocal(0, i32));
+
+        var tupleSwitch = new TupleSwitchExpression([x, y], [firstArm, secondArm, defaultArm]);
+
+        var block = new Block(0);
+        block.Add(new Return(tupleSwitch));
+        var container = new BlockContainer();
+        container.Add(block);
+
+        var signature = new MethodSignature(i32, [new Parameter("x", i32), new Parameter("y", i32)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("TupleSwitchReusedLocal", helper, signature, [i32], container);
+        function.CheckInvariant();
+
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
+
+        Assert.False(facts.Bailed);
+        Assert.Contains(0, facts.ReadBeforeAssign);
+    }
+
     [Fact]
     public void CollectDataflowFacts_FieldNullCoalescingAssignmentDoesNotLeakOutAssignment()
     {
