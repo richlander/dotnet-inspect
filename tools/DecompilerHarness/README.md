@@ -484,16 +484,18 @@ bash eng/report-decompiler-opt-in-corpus-drift.sh
 ```
 
 **Classic state-machine corpus** (`--corpus-profile classic-state-machines`):
-a pinned lane for classic (non-`RuntimeAsync`) compiler-generated state
-machines — async kickoff/resume, iterators, async iterators, and a plain
-non-pattern `switch` — none of which had dedicated corpus coverage before
-(#2818, a child of #2814). Its one fixture assembly,
+a pinned, representative current-compiler lane for classic (non-`RuntimeAsync`)
+compiler-generated state machines — async kickoff/resume, iterators, async
+iterators, and a plain non-pattern `switch` control — none of which had
+dedicated corpus coverage before (#2818, a child of #2814). Its one fixture
+assembly,
 `ILInspector.Decompiler.Fixtures.ClassicStateMachines`, builds on the same
 `RuntimeAsync=off` axis as `ILInspector.Decompiler.Fixtures.ClassicAsync`
-rather than a downlevel TFM/LangVersion pack, since classic lowering for these
-four shapes does not depend on an older runtime or compiler; this reaches the
-same classic lowering set without the added complexity of installing a
-downlevel runtime pack.
+rather than a downlevel TFM/LangVersion pack. The fixture spans `Task`,
+`async void`, and `ValueTask` builders; static, instance, generic, and
+non-generic iterators; and cancellation, exception-region, `await foreach`, and
+async-disposal shapes. It is not exhaustive across compiler versions or older
+TFMs; those remain a separate candidate axis.
 
 Unlike the other corpus profiles, this lane wires the cross-method import seam
 (`PassContext.ForImport`, the same helper `--dump`/`--library-report` use) into
@@ -501,14 +503,18 @@ Unlike the other corpus profiles, this lane wires the cross-method import seam
 `ClassicAsyncReconstructionPass` — which pulls in the sibling `MoveNext` body —
 raise the same way they do outside the corpus sensor. No other corpus profile
 wires this seam; `real-world` and `opt-in-net11` still raise each method
-standalone. Snapshot schema v4 records feature-local evidence
+standalone. Snapshot schema v4 records feature-local population evidence
 (`classic-async-methods`, `classic-iterator-methods`,
 `classic-async-iterator-methods`, `switch-methods`), tagged by the method-name
 prefix contract documented on `ClassicStateMachineFixtures`
-(`Async_`/`Iterator_`/`AsyncIterator_`/`Switch_`). As with the opt-in-net11
-profile, its baseline is separate from `real-world-baseline.json` and never
-blended into real-world rates; this is a first published census (successor to
-the earlier "0/21" classic-async gap), not yet a quality target.
+(`Async_`/`Iterator_`/`AsyncIterator_`/`Switch_`). The separate
+`classicStateMachineCoverage` object reports source-kickoff population, fully
+raised, and residual counts for each state-machine family. Baseline comparison
+blocks a lost specimen, a lower fully-raised count, or increased residuals when
+the population is stable. As with the opt-in-net11 profile, its baseline is
+separate from `real-world-baseline.json` and never blended into real-world
+rates; this is a first published census (successor to the earlier "0/21"
+classic-async gap), not yet a broad real-world quality target.
 
 ```bash
 dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release

@@ -157,7 +157,12 @@ internal static class CorpusSensor
         }
 
         if (diffBaseline is null)
-            return current.Metrics.PassBugs > 0 || FeatureCoverageFailures(current).Length > 0 || rtsParityRegressed ? 1 : 0;
+            return current.Metrics.PassBugs > 0
+                || FeatureCoverageFailures(current).Length > 0
+                || ClassicStateMachineCoverageFailures(current, current).Length > 0
+                || rtsParityRegressed
+                ? 1
+                : 0;
 
         var baseline = JsonSerializer.Deserialize<CorpusSensorSnapshot>(
             ReadBaselineText(diffBaseline, diffBaselineRef),
@@ -327,7 +332,8 @@ internal static class CorpusSensor
             Metrics: metrics,
             FidelityOracle: fidelityOracle,
             Profile: profile,
-            FeatureCoverage: completeness.FeatureCoverage);
+            FeatureCoverage: completeness.FeatureCoverage,
+            ClassicStateMachineCoverage: completeness.ClassicStateMachineCoverage);
 
         return (snapshot, fidelityReports);
     }
@@ -489,7 +495,48 @@ internal static class CorpusSensor
             residualBuckets.OrderBy(kvp => kvp.Key, StringComparer.Ordinal).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal),
             methodReports.OrderBy(m => MethodKey(m), StringComparer.Ordinal).ToImmutableArray(),
             featureCoverage.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
+                .ToImmutableSortedDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+            profile == CorpusProfile.ClassicStateMachines
+                ? BuildClassicStateMachineCoverage(methodReports)
+                : null);
+    }
+
+    internal static ImmutableSortedDictionary<string, ClassicStateMachineFeatureMetrics>
+        BuildClassicStateMachineCoverage(IEnumerable<CorpusMethodSnapshot> methods)
+    {
+        var coverage = new Dictionary<string, ClassicStateMachineFeatureMetrics>(StringComparer.Ordinal);
+        foreach (var method in methods)
+        {
+            // Count source kickoffs, not every generated interface/support member.
+            // The kickoff's post-pass fidelity is the product-visible result of
+            // reconstructing its sibling MoveNext through the import seam.
+            if (method.Type.Contains('<', StringComparison.Ordinal))
+                continue;
+
+            string? feature = method.Method switch
+            {
+                var name when name.StartsWith("AsyncIterator_", StringComparison.Ordinal)
+                    => "classic-async-iterator",
+                var name when name.StartsWith("Iterator_", StringComparison.Ordinal)
+                    => "classic-iterator",
+                var name when name.StartsWith("Async_", StringComparison.Ordinal)
+                    => "classic-async",
+                _ => null,
+            };
+            if (feature is null)
+                continue;
+
+            coverage.TryGetValue(feature, out var current);
+            current ??= new ClassicStateMachineFeatureMetrics();
+            coverage[feature] = current with
+            {
+                Population = current.Population + 1,
+                FullyRaised = current.FullyRaised + (method.FullyRaised ? 1 : 0),
+                Residual = current.Residual + (method.FullyRaised ? 0 : 1),
+            };
+        }
+
+        return coverage.ToImmutableSortedDictionary(StringComparer.Ordinal);
     }
 
     static void RecordUnionCoverage(
@@ -1291,6 +1338,7 @@ internal static class CorpusSensor
                 + $"current {CorpusProfileName(current.Profile)})");
         }
         failures.AddRange(FeatureCoverageFailures(current));
+        failures.AddRange(ClassicStateMachineCoverageFailures(baseline, current));
         if (baseline.FeatureCoverage is not null && current.FeatureCoverage is not null)
         {
             foreach (var (feature, baselineCount) in baseline.FeatureCoverage)
@@ -1427,6 +1475,49 @@ internal static class CorpusSensor
 
         AddCountRegression(failures, "pass bugs", baseline.Metrics.PassBugs, current.Metrics.PassBugs, tolerance.PassBugIncrease);
 
+        return failures.ToImmutable();
+    }
+
+    internal static ImmutableArray<string> ClassicStateMachineCoverageFailures(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current)
+    {
+        if (current.Profile != CorpusProfile.ClassicStateMachines)
+            return [];
+
+        var failures = ImmutableArray.CreateBuilder<string>();
+        foreach (string feature in new[] { "classic-async", "classic-iterator", "classic-async-iterator" })
+        {
+            var currentMetrics = current.ClassicStateMachineCoverage?.GetValueOrDefault(feature);
+            if (currentMetrics is null || currentMetrics.Population == 0)
+            {
+                failures.Add($"classic state-machine evidence '{feature}' has no kickoff specimens");
+                continue;
+            }
+
+            var baselineMetrics = baseline.ClassicStateMachineCoverage?.GetValueOrDefault(feature);
+            if (baselineMetrics is null)
+                continue;
+            if (currentMetrics.Population < baselineMetrics.Population)
+            {
+                failures.Add(
+                    $"classic state-machine population '{feature}' dropped "
+                    + $"(baseline {baselineMetrics.Population}, current {currentMetrics.Population})");
+            }
+            if (currentMetrics.FullyRaised < baselineMetrics.FullyRaised)
+            {
+                failures.Add(
+                    $"classic state-machine fully raised '{feature}' dropped "
+                    + $"(baseline {baselineMetrics.FullyRaised}, current {currentMetrics.FullyRaised})");
+            }
+            if (currentMetrics.Population == baselineMetrics.Population
+                && currentMetrics.Residual > baselineMetrics.Residual)
+            {
+                failures.Add(
+                    $"classic state-machine residual '{feature}' increased "
+                    + $"(baseline {baselineMetrics.Residual}, current {currentMetrics.Residual})");
+            }
+        }
         return failures.ToImmutable();
     }
 
@@ -1897,13 +1988,25 @@ internal static class CorpusSensor
 
     static void PrintFeatureCoverage(CorpusSensorSnapshot snapshot)
     {
-        if (snapshot.FeatureCoverage is not { Count: > 0 } coverage)
-            return;
+        if (snapshot.FeatureCoverage is { Count: > 0 } coverage)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Feature evidence:");
+            foreach (var (feature, count) in coverage.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                Console.WriteLine($"- `{feature}`: {count}");
+        }
 
-        Console.WriteLine();
-        Console.WriteLine("Feature evidence:");
-        foreach (var (feature, count) in coverage.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-            Console.WriteLine($"- `{feature}`: {count}");
+        if (snapshot.ClassicStateMachineCoverage is { Count: > 0 } stateMachines)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Classic state-machine kickoff evidence:");
+            foreach (var (feature, metrics) in stateMachines.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                Console.WriteLine(
+                    $"- `{feature}`: population {metrics.Population}, "
+                    + $"fully raised {metrics.FullyRaised}, residual {metrics.Residual}");
+            }
+        }
     }
 
     internal static string QualityCardHeadingForProfile(CorpusProfile profile)
@@ -2498,7 +2601,13 @@ internal sealed record CorpusSensorSnapshot(
     CorpusFidelityOracle FidelityOracle = CorpusFidelityOracle.CompileBack,
     [property: JsonConverter(typeof(JsonStringEnumConverter<CorpusProfile>))]
     CorpusProfile Profile = CorpusProfile.RealWorld,
-    IReadOnlyDictionary<string, int>? FeatureCoverage = null);
+    IReadOnlyDictionary<string, int>? FeatureCoverage = null,
+    IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? ClassicStateMachineCoverage = null);
+
+internal sealed record ClassicStateMachineFeatureMetrics(
+    int Population = 0,
+    int FullyRaised = 0,
+    int Residual = 0);
 
 internal sealed record CorpusAssemblySnapshot(string Assembly, string Path, int TotalMethods);
 
@@ -2521,7 +2630,8 @@ internal sealed record CompletenessSensorMetrics(
     int PassBugs,
     IReadOnlyDictionary<string, int> ResidualBuckets,
     IReadOnlyList<CorpusMethodSnapshot> Methods,
-    IReadOnlyDictionary<string, int> FeatureCoverage);
+    IReadOnlyDictionary<string, int> FeatureCoverage,
+    IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? ClassicStateMachineCoverage);
 
 internal sealed record ValiditySensorMetrics(
     int FullMalformedMethods,
