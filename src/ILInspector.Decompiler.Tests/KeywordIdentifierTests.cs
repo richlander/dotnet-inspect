@@ -119,6 +119,15 @@ public class KeywordIdentifierTests
     }
 
     [Fact]
+    public void KeywordFieldWithExpression_IsRaisedAndEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.WithKeywordField));
+
+        Assert.Contains("return value with { @else = input };", output);
+        Assert.DoesNotContain("value with { else = input }", output);
+    }
+
+    [Fact]
     public void RaisedAnonymousObjectKeywordProperty_IsEscaped()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");

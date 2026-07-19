@@ -78,6 +78,14 @@ public class CfgSampleClass
     public static CfgSampleClass InitializeKeywordField(string? value)
         => new() { @else = value };
 
+    public sealed record KeywordFieldRecord
+    {
+        public string? @else;
+    }
+
+    public static KeywordFieldRecord WithKeywordField(KeywordFieldRecord value, string? input)
+        => value with { @else = input };
+
     public static int @return(int value) => value + 1;
 
     public static int CallsKeywordStaticMethod(int value) => @return(value);
