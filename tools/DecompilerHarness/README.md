@@ -226,6 +226,19 @@ reported distinctly and never blended into the other oracles' verdicts. Use
 `--json` for the same machine-readable rows and `source_correspondence_findings`
 projection as the fixture-based census.
 
+`--source-quality-card` adds a PR-pasteable Markdown bucket-rate card to either
+census (`--source-correspondence-census` or `--authored-source-census`),
+printed after the normal text-mode report (it has no effect with `--json`,
+since the card is prose, not a machine-readable row shape). Unlike
+`--quality-diff-card` (decompiler IR/opcode raising quality against a pinned
+baseline), this card is specific to the RTS-vs-authored-source correspondence
+taxonomy and has no baseline yet: it reports today's bucket distribution
+(valid match, valid different by category, invalid, source unavailable,
+unsupported target) as counts and rates over the sampled corpus, with a
+descriptive verdict line rather than a pass/fail gate. It exists so reviewers
+can see the current-state quality distribution over a real corpus, not just an
+aggregate pass/fail count.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |

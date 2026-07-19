@@ -87,3 +87,53 @@ public sealed class AuthoredSourceCensusTests
         Assert.True(result.Failed);
     }
 }
+
+public sealed class ReturnToSenderSourceProbeQualityCardTests
+{
+    static ReturnToSender.RequestedTarget SyntheticTarget(string method)
+        => new("Synthetic.Type", method, 0);
+
+    static ReturnToSenderSourceProbeResult Synthetic(ReturnToSenderSourceOutcome outcome, string reason, string method = "M")
+        => new(SyntheticTarget(method), outcome, null, reason, null, null, null, null);
+
+    [Fact]
+    public void RenderQualityCard_AccountsForEveryResult_AcrossAllBuckets()
+    {
+        var results = new[]
+        {
+            Synthetic(ReturnToSenderSourceOutcome.ValidMatch, "valid_match", "A"),
+            Synthetic(ReturnToSenderSourceOutcome.ValidDifferent, "valid_different.known_taste", "B"),
+            Synthetic(ReturnToSenderSourceOutcome.ValidDifferent, "valid_different.semantic_opcode_diff", "C"),
+            Synthetic(ReturnToSenderSourceOutcome.Invalid, "invalid.recompile_fail", "D"),
+            Synthetic(ReturnToSenderSourceOutcome.SourceUnavailable, "source_unavailable", "E"),
+            Synthetic(ReturnToSenderSourceOutcome.UnsupportedTarget, "unsupported-rts-target", "F"),
+        };
+
+        string card = ReturnToSenderSourceProbe.RenderQualityCard(results, "2 test assemblies");
+
+        Assert.Contains("Source-correspondence quality card", card);
+        Assert.Contains("2 test assemblies", card);
+        Assert.Contains("6 target(s) sampled", card);
+        Assert.Contains("Valid match (+) | 1 (16.67%)", card);
+        Assert.Contains("ignorable known difference (+) | 1 (16.67%)", card);
+        Assert.Contains("semantic opcode diff (-) | 1 (16.67%)", card);
+        Assert.Contains("Invalid / RTS compile-back failed (-) | 1 (16.67%)", card);
+        Assert.Contains("Source unavailable (uncheckable) | 1 (16.67%)", card);
+        Assert.Contains("Unsupported target (uncheckable) | 1 (16.67%)", card);
+        Assert.Contains("Verdict:", card);
+    }
+
+    [Fact]
+    public void RenderQualityCard_ReportsNoSignalVerdict_WhenNothingIsCheckable()
+    {
+        var results = new[]
+        {
+            Synthetic(ReturnToSenderSourceOutcome.SourceUnavailable, "source_unavailable", "A"),
+            Synthetic(ReturnToSenderSourceOutcome.UnsupportedTarget, "unsupported-rts-target", "B"),
+        };
+
+        string card = ReturnToSenderSourceProbe.RenderQualityCard(results, "no-signal corpus");
+
+        Assert.Contains("no checkable rows", card);
+    }
+}

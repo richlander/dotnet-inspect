@@ -25,19 +25,21 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class AuthoredSourceCensus
 {
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json)
-        => RunAsync(assemblies, cap, maxExamples, json).GetAwaiter().GetResult();
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json, bool qualityCard = false)
+        => RunAsync(assemblies, cap, maxExamples, json, qualityCard).GetAwaiter().GetResult();
 
     static async Task<int> RunAsync(
         IReadOnlyList<string> assemblies,
         int cap,
         int maxExamples,
-        bool json)
+        bool json,
+        bool qualityCard)
     {
         HttpClientFactory.Initialize();
         using var httpClient = HttpClientFactory.CreateNew();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
         List<ReturnToSenderSourceProbeResult> results = [];
+        int assemblyCount = 0;
 
         foreach (string assemblyPath in assemblies)
         {
@@ -62,6 +64,7 @@ static class AuthoredSourceCensus
                 continue;
             }
 
+            assemblyCount++;
             using var source = SourceLinkService.Open(assemblyPath);
             await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
 
@@ -74,7 +77,8 @@ static class AuthoredSourceCensus
             }
         }
 
-        return ReturnToSenderSourceProbe.Report(results, maxExamples, json);
+        string corpusLabel = $"{assemblyCount} real assembly/assemblies (SourceLink-acquired authored source)";
+        return ReturnToSenderSourceProbe.Report(results, maxExamples, json, qualityCard, corpusLabel);
     }
 
     internal static async Task<ReturnToSenderSourceProbeResult> ClassifyAsync(

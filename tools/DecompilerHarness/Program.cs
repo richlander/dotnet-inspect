@@ -74,6 +74,7 @@ static class Program
         bool returnToSenderSourceProbe = false;
         bool authoredRebuildFidelity = false;
         bool authoredSourceCensus = false;
+        bool sourceQualityCard = false;
         string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
         int fidelityZeroSignalGuard = 0;
@@ -194,6 +195,7 @@ static class Program
                     case "--source-correspondence-census": returnToSenderSourceProbe = true; break;
                     case "--authored-rebuild-fidelity": authoredRebuildFidelity = true; break;
                     case "--authored-source-census": authoredSourceCensus = true; break;
+                    case "--source-quality-card": sourceQualityCard = true; break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
                         returnToSenderCatalog = true;
@@ -403,13 +405,13 @@ static class Program
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (returnToSenderSourceProbe)
-            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json);
+            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json, sourceQualityCard);
 
         if (authoredRebuildFidelity)
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
 
         if (authoredSourceCensus)
-            return AuthoredSourceCensus.Run(assemblies, cap, maxExamples, json);
+            return AuthoredSourceCensus.Run(assemblies, cap, maxExamples, json, sourceQualityCard);
 
         if (typeCheck)
             return TypeSourceCheck.Run(assemblies, cap, maxExamples);
@@ -1776,6 +1778,11 @@ static class Program
                                 reports the same valid_match, valid_different,
                                 invalid, source_unavailable, and unsupported_target
                                 buckets. Use --json for machine-readable row output.
+          --source-quality-card
+                                add a PR-pasteable Markdown bucket-rate card (current
+                                state, no baseline) to --source-correspondence-census
+                                or --authored-source-census text-mode output; no
+                                effect with --json.
           --return-to-sender-fixtures <group>
                                 add built fixture assemblies from a FixtureCatalog
                                 group (for example rts.candidates) as inputs for

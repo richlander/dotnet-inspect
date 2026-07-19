@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -62,8 +63,8 @@ static partial class ReturnToSenderSourceProbe
 {
     internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json)
-        => Report(Evaluate(assemblies, cap), maxExamples, json);
+    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json, bool qualityCard = false, string? corpusLabel = null)
+        => Report(Evaluate(assemblies, cap), maxExamples, json, qualityCard, corpusLabel ?? $"{assemblies.Count} assembly/assemblies (fixture-only source index)");
 
     /// <summary>
     /// Renders the same summary/bucket/finding report as <see cref="Run"/>, for
@@ -72,7 +73,12 @@ static partial class ReturnToSenderSourceProbe
     /// source in <c>AuthoredSourceCensus</c> rather than the fixture-only source
     /// index). The bucket taxonomy and finding shape stay identical across lanes.
     /// </summary>
-    public static int Report(IReadOnlyList<ReturnToSenderSourceProbeResult> results, int maxExamples, bool json)
+    public static int Report(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results,
+        int maxExamples,
+        bool json,
+        bool qualityCard = false,
+        string? corpusLabel = null)
     {
         int passed = results.Count(result => result.Passed);
         int different = results.Count(result => result.Different);
@@ -152,6 +158,12 @@ static partial class ReturnToSenderSourceProbe
                         Console.WriteLine($"      recompiled-opcodes: {example.RecompiledOpcodes}");
                 }
             }
+        }
+
+        if (qualityCard)
+        {
+            Console.WriteLine();
+            Console.WriteLine(RenderQualityCard(results, corpusLabel ?? "unspecified corpus"));
         }
 
         return failed == 0 ? 0 : 1;
@@ -381,7 +393,7 @@ static partial class ReturnToSenderSourceProbe
         return Path.GetFileName(sourcePath.Replace('\\', '/'));
     }
 
-    static string SourceCorrespondenceCategory(ReturnToSenderSourceProbeResult result)
+    internal static string SourceCorrespondenceCategory(ReturnToSenderSourceProbeResult result)
     {
         if (result.Outcome == ReturnToSenderSourceOutcome.Invalid)
             return "invalid";
@@ -401,6 +413,54 @@ static partial class ReturnToSenderSourceProbe
             return "not-yet-raised-sugar";
 
         return "unclassified";
+    }
+
+    /// <summary>
+    /// Renders a compact, PR-ready Markdown bucket-rate card for a source-
+    /// correspondence census run, in the spirit of the decompiler quality-diff
+    /// card (docs/decompiler-quality.md) but for the RTS-vs-authored-source
+    /// correspondence taxonomy rather than IR/opcode raising quality. This is a
+    /// current-state card (no baseline/PR columns) since the RTS-vs-authored-
+    /// source lane has no established baseline population yet; it exists so
+    /// reviewers can see today's bucket distribution over a real corpus rather
+    /// than only a pass/fail count.
+    /// </summary>
+    internal static string RenderQualityCard(IReadOnlyList<ReturnToSenderSourceProbeResult> results, string corpusLabel)
+    {
+        int total = results.Count;
+        int validMatch = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch);
+        int sourceUnavailable = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable);
+        int unsupportedTarget = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget);
+        var categorized = results
+            .Where(result => result.Outcome is ReturnToSenderSourceOutcome.ValidDifferent or ReturnToSenderSourceOutcome.Invalid)
+            .GroupBy(SourceCorrespondenceCategory, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        string Rate(int count) => total == 0 ? "n/a" : $"{count} ({100.0 * count / total:0.00}%)";
+        int CategoryCount(string category) => categorized.TryGetValue(category, out int count) ? count : 0;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("### Source-correspondence quality card");
+        sb.AppendLine();
+        sb.AppendLine($"Corpus: {corpusLabel}. {total} target(s) sampled.");
+        sb.AppendLine();
+        sb.AppendLine("| Bucket (desired direction) | Count (rate) |");
+        sb.AppendLine("| --- | ---: |");
+        sb.AppendLine($"| Valid match (+) | {Rate(validMatch)} |");
+        sb.AppendLine($"| Valid different - ignorable known difference (+) | {Rate(CategoryCount("ignorable"))} |");
+        sb.AppendLine($"| Valid different - not-yet-raised sugar (~) | {Rate(CategoryCount("not-yet-raised-sugar"))} |");
+        sb.AppendLine($"| Valid different - structuring residue (~) | {Rate(CategoryCount("structuring-residue"))} |");
+        sb.AppendLine($"| Valid different - semantic opcode diff (-) | {Rate(CategoryCount("semantic-opcode-diff"))} |");
+        sb.AppendLine($"| Valid different - unclassified (-) | {Rate(CategoryCount("unclassified"))} |");
+        sb.AppendLine($"| Invalid / RTS compile-back failed (-) | {Rate(CategoryCount("invalid"))} |");
+        sb.AppendLine($"| Source unavailable (uncheckable) | {Rate(sourceUnavailable)} |");
+        sb.AppendLine($"| Unsupported target (uncheckable) | {Rate(unsupportedTarget)} |");
+        sb.AppendLine();
+        int checkable = total - sourceUnavailable - unsupportedTarget;
+        sb.Append(checkable == 0
+            ? "Verdict: no checkable rows (all source-unavailable/unsupported); not enough signal to assess quality."
+            : $"Verdict: {validMatch}/{checkable} checkable row(s) ({(checkable == 0 ? 0 : 100.0 * validMatch / checkable):0.00}%) matched authored source exactly; this is a current-state snapshot, not yet compared against a floor.");
+        return sb.ToString();
     }
 
     static string TargetId(ReturnToSender.RequestedTarget target)
