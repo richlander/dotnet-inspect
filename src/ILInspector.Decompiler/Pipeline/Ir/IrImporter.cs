@@ -2331,27 +2331,14 @@ public static class IrImporter
 
     static bool IsTrustedPlatformTypeSpecification(MetadataReader reader, TypeSpecificationHandle handle)
     {
-        var type = TypeRefDecoder.Instance.GetTypeFromSpecification(reader, GenericScope.Empty, handle, 0);
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
-        return definition is { Kind: TypeRefKind.Definition }
-            && (definition.Assembly == TypeRef.CoreLibrary || PlatformKeys.IsPlatform(PlatformToken(reader, definition.Assembly)));
+        var baseHandle = PlatformDeclaringTypeHandleProvider.Instance.GetTypeFromSpecification(reader, null, handle, 0);
+        return baseHandle.Kind == HandleKind.TypeReference && IsTrustedPlatformTypeReference(reader, (TypeReferenceHandle)baseHandle);
     }
 
     static bool IsTrustedPlatformAssembly(MetadataReader reader, AssemblyReferenceHandle handle)
     {
         var reference = reader.GetAssemblyReference(handle);
         return PlatformKeys.IsPlatform(ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken)));
-    }
-
-    static string? PlatformToken(MetadataReader reader, string assemblyName)
-    {
-        foreach (var handle in reader.AssemblyReferences)
-        {
-            var reference = reader.GetAssemblyReference(handle);
-            if (reader.GetString(reference.Name) == assemblyName)
-                return ToHex(reader.GetBlobBytes(reference.PublicKeyOrToken));
-        }
-        return null;
     }
 
     static string ToHex(byte[] bytes)

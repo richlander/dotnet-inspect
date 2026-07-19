@@ -45,29 +45,31 @@ public sealed class StackAllocInitializerPass : IIrPass
             }
 
             IrExpression? instance = null;
-
+            TypeRef? expectedSourceType = null;
             TypeRef? elementType = null;
 
             if (copyBlock.Source is Call callItem)
             {
-                if (IsTrustedSpanGetItem(callItem.Callee, out elementType))
+                if (IsTrustedSpanGetItem(callItem.Callee, out elementType, out expectedSourceType))
                 {
-                    if (callItem.Arguments.Count == 2) instance = callItem.Arguments[0];
+                    if (callItem.Arguments.Count == 2 && callItem.Arguments[1] is Constant { Value: 0 })
+                        instance = callItem.Arguments[0];
                 }
-                else if (IsTrustedSpanGetPinnableReference(callItem.Callee, out elementType))
+                else if (IsTrustedSpanGetPinnableReference(callItem.Callee, out elementType, out expectedSourceType))
                 {
                     if (callItem.Arguments.Count == 1) instance = callItem.Arguments[0];
                 }
-                else if (IsTrustedMemoryMarshalGetReference(callItem.Callee, out elementType))
+                else if (IsTrustedMemoryMarshalGetReference(callItem.Callee, out elementType, out expectedSourceType))
                 {
                     if (callItem.Arguments.Count == 1) instance = callItem.Arguments[0];
                 }
             }
             else if (copyBlock.Source is LoadProperty loadProp)
             {
-                if (IsTrustedSpanGetItem(loadProp.Accessor, out elementType))
+                if (IsTrustedSpanGetItem(loadProp.Accessor, out elementType, out expectedSourceType))
                 {
-                    instance = loadProp.Instance;
+                    if (loadProp.IndexArguments.Count == 1 && loadProp.IndexArguments[0] is Constant { Value: 0 })
+                        instance = loadProp.Instance;
                 }
             }
 
@@ -77,6 +79,10 @@ public sealed class StackAllocInitializerPass : IIrPass
                 if (instance is LoadLocalAddress lla && localStores.TryGetValue(lla.Index, out var stores) && stores.Count == 1)
                 {
                     spanSetupStore = stores[0];
+                    if (!expectedSourceType!.Equals(spanSetupStore.Type) || spanSetupStore.Type.Kind != TypeRefKind.GenericInstance)
+                    {
+                        spanSetupStore = null;
+                    }
                 }
             }
             else if (copyBlock.Source is LoadFieldAddress loadField && loadField.FieldRvaData != null)
@@ -164,21 +170,29 @@ public sealed class StackAllocInitializerPass : IIrPass
                         && ctor.Name == ".ctor"
                         && ctor.ReturnType.Assembly == TypeRef.CoreLibrary && ctor.ReturnType.Name == "Void"
                         && ctor.DeclaringType.Kind == TypeRefKind.GenericInstance
-                        && ctor.DeclaringType.TypeArguments.Length == 1)
+                        && ctor.DeclaringType.TypeArguments.Length == 1
+                        && ctor.TypeArguments.Length == 0)
                     {
                         var ctorDeclDef = ctor.DeclaringType.ElementType!;
-                        if (ctorDeclDef.Namespace == "System" && ctorDeclDef.Name is "Span`1" or "ReadOnlySpan`1")
+                        if ((ctorDeclDef.Assembly == TypeRef.CoreLibrary || ctorDeclDef.Assembly == "System.Memory") && ctorDeclDef.Namespace == "System" && ctorDeclDef.Name is "Span`1" or "ReadOnlySpan`1")
                         {
                             if (ctor.ParameterTypes.Length == 2
                                 && ctor.ParameterTypes[0].Kind == TypeRefKind.Pointer
+                                && ctor.ParameterTypes[0].ElementType!.Assembly == TypeRef.CoreLibrary
+                                && ctor.ParameterTypes[0].ElementType!.Namespace == "System"
+                                && ctor.ParameterTypes[0].ElementType!.Name == "Void"
                                 && ctor.ParameterTypes[1].Assembly == TypeRef.CoreLibrary
                                 && ctor.ParameterTypes[1].Namespace == "System"
-                                && ctor.ParameterTypes[1].Name == "Int32")
+                                && ctor.ParameterTypes[1].Name == "Int32"
+                                && ctor.ParameterRefKindsFacts == ParameterRefKindFacts.NotRequired)
                             {
-                                var typeArg = ctor.DeclaringType.TypeArguments[0];
-                                if (ctor.ParameterTypes[0].ElementType!.Equals(typeArg) || typeArg.Name == "Byte" || ctor.ParameterTypes[0].ElementType!.Name == "Void")
+                                if (no.Arguments.Count == 2 && no.Arguments[0] is LoadStackSlot destSlot && destSlot.Slot == loadDest.Slot && no.Arguments[1] is Constant { Value: int len } && len == copySize / (GetSizeOf(ctor.DeclaringType.TypeArguments[0]) ?? 1))
                                 {
-                                    elementType = typeArg;
+                                    elementType = ctor.DeclaringType.TypeArguments[0];
+                                    if (!TypeRef.Pointer(elementType).Equals(loadDest.Type))
+                                    {
+                                        elementType = null;
+                                    }
                                 }
                             }
                         }
@@ -219,40 +233,45 @@ public sealed class StackAllocInitializerPass : IIrPass
         }
     }
 
-    static bool IsTrustedMemoryMarshalGetReference(MethodRef method, out TypeRef? elementType)
+    static bool IsTrustedMemoryMarshalGetReference(MethodRef method, out TypeRef? elementType, out TypeRef? expectedSourceType)
     {
-        elementType = null;
+        elementType = null; expectedSourceType = null;
         if (method.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
         if (method.HasThis) return false;
+        if (method.DeclaringType.Kind != TypeRefKind.Definition) return false;
         if (method.DeclaringType.Namespace != "System.Runtime.InteropServices" || method.DeclaringType.Name != "MemoryMarshal") return false;
         if (method.Name != "GetReference") return false;
         if (method.ParameterTypes.Length != 1) return false;
         if (method.ReturnType.Kind != TypeRefKind.ByRef) return false;
         if (method.ParameterTypes[0].Kind != TypeRefKind.GenericInstance) return false;
         if (method.TypeArguments.Length != 1) return false;
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired) return false;
 
         var typeArg = method.TypeArguments[0];
         if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
 
         var param0Def = method.ParameterTypes[0].ElementType!;
-        if (param0Def.Namespace != "System" || param0Def.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
+        if ((param0Def.Assembly != TypeRef.CoreLibrary && param0Def.Assembly != "System.Memory") || param0Def.Namespace != "System" || param0Def.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
         if (method.ParameterTypes[0].TypeArguments.Length != 1) return false;
         if (!typeArg.Equals(method.ParameterTypes[0].TypeArguments[0])) return false;
 
         elementType = typeArg;
+        expectedSourceType = method.ParameterTypes[0];
         return true;
     }
 
-    static bool IsTrustedSpanGetItem(MethodRef method, out TypeRef? elementType)
+    static bool IsTrustedSpanGetItem(MethodRef method, out TypeRef? elementType, out TypeRef? expectedSourceType)
     {
-        elementType = null;
+        elementType = null; expectedSourceType = null;
         if (method.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
         if (!method.HasThis) return false;
+        if (method.TypeArguments.Length != 0) return false;
 
         if (method.DeclaringType.Kind != TypeRefKind.GenericInstance) return false;
         var declDef = method.DeclaringType.ElementType!;
-        if (declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
+        if ((declDef.Assembly != TypeRef.CoreLibrary && declDef.Assembly != "System.Memory") || declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
         if (method.DeclaringType.TypeArguments.Length != 1) return false;
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired) return false;
 
         if (method.Name != "get_Item") return false;
         if (method.ParameterTypes.Length != 1) return false;
@@ -264,19 +283,22 @@ public sealed class StackAllocInitializerPass : IIrPass
         if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
 
         elementType = typeArg;
+        expectedSourceType = method.DeclaringType;
         return true;
     }
 
-    static bool IsTrustedSpanGetPinnableReference(MethodRef method, out TypeRef? elementType)
+    static bool IsTrustedSpanGetPinnableReference(MethodRef method, out TypeRef? elementType, out TypeRef? expectedSourceType)
     {
-        elementType = null;
+        elementType = null; expectedSourceType = null;
         if (method.DeclaringTypeIsTrustedPlatform != MetadataFactState.Yes) return false;
         if (!method.HasThis) return false;
+        if (method.TypeArguments.Length != 0) return false;
 
         if (method.DeclaringType.Kind != TypeRefKind.GenericInstance) return false;
         var declDef = method.DeclaringType.ElementType!;
-        if (declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
+        if ((declDef.Assembly != TypeRef.CoreLibrary && declDef.Assembly != "System.Memory") || declDef.Namespace != "System" || declDef.Name is not ("Span`1" or "ReadOnlySpan`1")) return false;
         if (method.DeclaringType.TypeArguments.Length != 1) return false;
+        if (method.ParameterRefKindsFacts != ParameterRefKindFacts.NotRequired) return false;
 
         if (method.Name != "GetPinnableReference") return false;
         if (method.ParameterTypes.Length != 0) return false;
@@ -286,6 +308,7 @@ public sealed class StackAllocInitializerPass : IIrPass
         if (!typeArg.Equals(method.ReturnType.ElementType)) return false;
 
         elementType = typeArg;
+        expectedSourceType = method.DeclaringType;
         return true;
     }
 
@@ -295,7 +318,6 @@ public sealed class StackAllocInitializerPass : IIrPass
             node = node.Parent;
         return node.Parent is Block ? node : null;
     }
-
 
     static int? GetSizeOf(TypeRef type)
     {
