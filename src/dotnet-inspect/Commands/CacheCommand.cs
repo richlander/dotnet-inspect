@@ -27,12 +27,7 @@ public class CacheCommand
     private static int ShowCacheInfo(CacheOptions options)
     {
         var info = PackageCacheService.GetCacheInfo();
-
-        if (info.Categories.Count == 0)
-        {
-            Console.WriteLine("Cache is empty.");
-            return 0;
-        }
+        bool isEmpty = info.Categories.Count == 0;
 
         var categories = info.Categories.Select(c =>
         {
@@ -41,7 +36,9 @@ public class CacheCommand
         }).ToList();
         var total = CacheOutputFormatter.FormatSize(info.TotalSize);
 
-        if (options.Format == OutputFormat.Json)
+        // JSON and JSONL always emit a single structured record, even for an empty
+        // cache, so machine consumers never receive the plaintext fallback.
+        if (options.Format is OutputFormat.Json or OutputFormat.Jsonl)
         {
             var json = new CacheInfoJson(
                 info.Location,
@@ -54,7 +51,7 @@ public class CacheCommand
         var view = new CacheInfoView
         {
             Location = info.Location,
-            Categories = categories,
+            Categories = categories.Count > 0 ? categories : null,
             Total = total
         };
 
@@ -62,18 +59,27 @@ public class CacheCommand
         {
             case OutputFormat.Table:
             case OutputFormat.Tsv:
-            case OutputFormat.Jsonl:
                 var writerOptions = OutputFormatter.CreateTableWriterOptions(
                     tsv: options.Format == OutputFormat.Tsv,
-                    jsonl: options.Format == OutputFormat.Jsonl);
+                    jsonl: false);
                 MarkoutSerializer.Serialize(
                     view, Console.Out, new TableFormatter(!options.NoHeader), CacheInfoContext.Default, writerOptions);
                 break;
             case OutputFormat.PlainText:
+                if (isEmpty)
+                {
+                    Console.WriteLine("Cache is empty.");
+                    break;
+                }
                 MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
                 Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
                 break;
             default:
+                if (isEmpty)
+                {
+                    Console.WriteLine("Cache is empty.");
+                    break;
+                }
                 MarkoutSerializer.Serialize(view, Console.Out, CacheInfoContext.Default);
                 Console.WriteLine("Run 'dotnet-inspect cache clear' to clear the cache.");
                 break;

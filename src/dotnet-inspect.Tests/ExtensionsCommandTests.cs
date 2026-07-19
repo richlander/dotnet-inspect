@@ -312,6 +312,25 @@ public class ExtensionsCommandTests
     }
 
     [Fact]
+    public void FormatResults_ReachableUniformType_KeepsTypeColumn()
+    {
+        // All rows are reachable via the same intermediate type. Type is uniform but
+        // differs from the queried type, so the column must stay visible.
+        var results = new List<ExtensionMethodResult>
+        {
+            new() { MethodName = "ReadFromJsonAsync", Kind = "method", ExtensionClass = "HttpContentJsonExtensions", Assembly = "System.Net.Http.Json", ReachablePath = ".Content", ReachableFromType = "System.Net.Http.HttpContent" },
+            new() { MethodName = "ReadFromJsonAsAsyncEnumerable", Kind = "method", ExtensionClass = "HttpContentJsonExtensions", Assembly = "System.Net.Http.Json", ReachablePath = ".Content", ReachableFromType = "System.Net.Http.HttpContent" },
+        };
+
+        var view = ExtensionsOutputFormatter.BuildView("HttpResponseMessage", results);
+        var output = MarkoutSerializer.Serialize(view, SearchViewContext.Default);
+
+        Assert.Contains("| Type ", output);
+        Assert.Contains("System.Net.Http.HttpContent", output);
+        Assert.Contains("| Via ", output);
+    }
+
+    [Fact]
     public void CollapseOverloads_PreservesAllSignatures()
     {
         var results = CreateOverloadResults();

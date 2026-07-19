@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using Markout;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -48,6 +49,39 @@ public class CacheCommandTests : IDisposable
         Assert.Contains("## Categories", output);
         Assert.Contains("| Packages | 1.0 MB | 3 packages |", output);
         Assert.DoesNotContain("----------", output);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyCache_JsonFormat_EmitsValidJson()
+    {
+        // Finding 9 follow-up: machine formats must emit structured output even for
+        // an empty cache, not the "Cache is empty." plaintext fallback.
+        var options = new CacheOptions(Clean: false, Verbose: false, Format: OutputFormat.Json);
+
+        var (result, output, _) = await ConsoleCapture.RunAsync(
+            () => CacheCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, result);
+        Assert.DoesNotContain("Cache is empty", output);
+        using var doc = JsonDocument.Parse(output.Trim());
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.GetProperty("categories").ValueKind);
+        Assert.Empty(doc.RootElement.GetProperty("categories").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyCache_JsonlFormat_EmitsSingleValidLine()
+    {
+        // JSONL must be a single valid JSON record per line, with no blank separator.
+        var options = new CacheOptions(Clean: false, Verbose: false, Format: OutputFormat.Jsonl);
+
+        var (result, output, _) = await ConsoleCapture.RunAsync(
+            () => CacheCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, result);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.Single(lines);
+        using var doc = JsonDocument.Parse(lines[0]);
+        Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
     }
 
     [Fact]

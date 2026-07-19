@@ -24,9 +24,13 @@ public class ExtensionsResultView
     public static bool OverloadsUniform(List<ExtensionRow>? rows)
         => rows is null || rows.All(r => r.Overloads <= 1);
 
-    // Hide the Type column when uniform (direct extensions all share the queried type, echoed in the title).
+    // Hide the Type column only for all-direct results, where every row echoes the
+    // queried type shown in the title. Reachable (indirect) rows carry a distinct
+    // resolved type, so keep the column whenever any row has a Via path.
     public static bool TypeUniform(List<ExtensionRow>? rows)
-        => rows?.Select(r => r.Type).Distinct(StringComparer.Ordinal).Count() <= 1;
+        => rows is null
+            || (rows.All(r => string.IsNullOrEmpty(r.Via))
+                && rows.Select(r => r.Type).Distinct(StringComparer.Ordinal).Count() <= 1);
 
     // Hide the Via column when no reachable-path (indirect) extensions are present.
     public static bool ViaEmpty(List<ExtensionRow>? rows)
