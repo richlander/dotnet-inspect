@@ -141,7 +141,7 @@ public static partial class ResearchViews
         }
     }
 
-    public static IReadOnlyList<Annotation> CollectFacts(
+    public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, string type, string method, int overloadIndex = 0, bool publicOnly = false,
         ResearchFactRegistry? registry = null)
     {
@@ -156,11 +156,11 @@ public static partial class ResearchViews
             registry);
     }
 
-    public static IReadOnlyList<Annotation> CollectFacts(
+    public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported));
 
-    public static IReadOnlyList<Annotation> CollectFacts(
+    public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchAssemblyContext? assembly, ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported, assembly));
 
@@ -195,7 +195,7 @@ public static partial class ResearchViews
         string type,
         string method,
         IrFunction imported,
-        IReadOnlyList<Annotation> annotations,
+        IReadOnlyList<IAnnotation> annotations,
         AnnotationStage stage,
         int overloadIndex,
         bool publicOnly,
@@ -228,12 +228,12 @@ public static partial class ResearchViews
         IrFunction imported,
         string csText,
         IReadOnlyDictionary<IrNode, int> statementLines,
-        IReadOnlyList<Annotation> annotations,
+        IReadOnlyList<IAnnotation> annotations,
         IReadOnlyList<SourceLine> annotatedInstrLines)
     {
         var spans = AnnotationAnchor.ComputeSpans(imported);
 
-        var annotationsByLine = new Dictionary<int, List<Annotation>>();
+        var annotationsByLine = new Dictionary<int, List<IAnnotation>>();
         foreach (var annotation in annotations)
         {
             if (AnnotationAnchor.Best(spans, annotation.SourceOffset) is not { } owner)
@@ -264,7 +264,7 @@ public static partial class ResearchViews
         {
             var csLine = csLines[i];
             var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
-                ? (IReadOnlyList<Annotation>)annos
+                ? (IReadOnlyList<IAnnotation>)annos
                 : [];
             stream.Add(new AnnotatedSourceLine(
                 csLine.Text,
@@ -331,7 +331,7 @@ public static partial class ResearchViews
         return sb.ToString().TrimEnd();
     }
 
-    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<Annotation> annotations)
+    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations)
     {
         var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
         if (result.Output is not { } output)
@@ -346,7 +346,7 @@ public static partial class ResearchViews
         string type,
         string method,
         IrFunction imported,
-        IReadOnlyList<Annotation> facts,
+        IReadOnlyList<IAnnotation> facts,
         IReadOnlyList<ResearchHeaderFact> headerFacts)
     {
         var linesByFact = CSharpLinesByFact(imported, facts);
@@ -382,7 +382,7 @@ public static partial class ResearchViews
         IrFunction raised,
         string output,
         IReadOnlyDictionary<IrNode, int> statementLines,
-        IReadOnlyList<Annotation> annotations)
+        IReadOnlyList<IAnnotation> annotations)
     {
         var stream = CorrelateOverlay(raised, output, statementLines, annotations);
         return RenderOverlayStream(output, stream);
@@ -398,9 +398,9 @@ public static partial class ResearchViews
         IrFunction raised,
         string output,
         IReadOnlyDictionary<IrNode, int> statementLines,
-        IReadOnlyList<Annotation> annotations)
+        IReadOnlyList<IAnnotation> annotations)
     {
-        var annotationsByLine = new Dictionary<int, IReadOnlyList<Annotation>>();
+        var annotationsByLine = new Dictionary<int, IReadOnlyList<IAnnotation>>();
         foreach (var (statement, facts) in AnnotationAnchor.Anchor(raised, annotations))
             if (AnnotationAnchor.TryGetPrintedLine(statement, statementLines, out int line))
                 annotationsByLine[line] = facts;
@@ -453,13 +453,13 @@ public static partial class ResearchViews
         return string.Join(Environment.NewLine, lines);
     }
 
-    static Dictionary<Annotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<Annotation> facts)
+    static Dictionary<IAnnotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<IAnnotation> facts)
     {
         var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
         if (result.Output is null || facts.Count == 0)
             return [];
         var spans = AnnotationAnchor.ComputeSpans(imported);
-        var lines = new Dictionary<Annotation, int>();
+        var lines = new Dictionary<IAnnotation, int>();
         foreach (var fact in facts)
         {
             if (AnnotationAnchor.Best(spans, fact.SourceOffset) is { } owner
@@ -471,15 +471,15 @@ public static partial class ResearchViews
         return lines;
     }
 
-    static Dictionary<int, IReadOnlyList<Annotation>> FactsByOffset(IReadOnlyList<Annotation> annotations)
+    static Dictionary<int, IReadOnlyList<IAnnotation>> FactsByOffset(IReadOnlyList<IAnnotation> annotations)
         => annotations
             .Where(annotation => annotation.SourceOffset >= 0)
             .GroupBy(annotation => annotation.SourceOffset)
             .ToDictionary(
                 group => group.Key,
-                group => (IReadOnlyList<Annotation>)[.. group.OrderBy(annotation => annotation.Descriptor.Id, StringComparer.Ordinal)]);
+                group => (IReadOnlyList<IAnnotation>)[.. group.OrderBy(annotation => annotation.Descriptor.Id, StringComparer.Ordinal)]);
 
-    static string AddFactsToAnnotatedLine(string line, IReadOnlyList<Annotation>? facts)
+    static string AddFactsToAnnotatedLine(string line, IReadOnlyList<IAnnotation>? facts)
     {
         if (facts is not { Count: > 0 })
             return line;

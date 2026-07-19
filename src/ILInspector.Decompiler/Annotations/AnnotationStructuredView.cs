@@ -17,7 +17,7 @@ namespace ILInspector.Decompiler.Annotations;
 /// </summary>
 public static class AnnotationStructuredView
 {
-    public static string Json(IReadOnlyList<Annotation> annotations)
+    public static string Json(IReadOnlyList<IAnnotation> annotations)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -49,7 +49,7 @@ public static class AnnotationStructuredView
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public static string Tsv(IReadOnlyList<Annotation> annotations)
+    public static string Tsv(IReadOnlyList<IAnnotation> annotations)
     {
         var sb = new StringBuilder();
         sb.Append("id\tcategory\tconditionality\toffset\tdetail\n");
