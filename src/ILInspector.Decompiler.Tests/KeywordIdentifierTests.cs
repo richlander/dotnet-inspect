@@ -128,6 +128,24 @@ public class KeywordIdentifierTests
     }
 
     [Fact]
+    public void KeywordPropertyWithExpression_IsRaisedAndEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.WithKeywordProperty));
+
+        Assert.Contains("return value with { @event = input };", output);
+        Assert.DoesNotContain("value with { event = input }", output);
+    }
+
+    [Fact]
+    public void KeywordPropertyObjectInitializer_IsRaisedAndEscaped()
+    {
+        var output = Render(nameof(CfgSampleClass.InitializeKeywordProperty));
+
+        Assert.Contains("return new InitTarget { @else = value };", output);
+        Assert.DoesNotContain("new InitTarget { else = value }", output);
+    }
+
+    [Fact]
     public void RaisedAnonymousObjectKeywordProperty_IsEscaped()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
