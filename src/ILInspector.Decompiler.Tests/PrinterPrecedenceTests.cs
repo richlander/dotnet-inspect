@@ -1,5 +1,7 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Tests;
@@ -280,6 +282,114 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("return (flag ? a : b) ?? c;", output);
         Assert.DoesNotContain("return flag ? a : b ?? c;", output);
+    }
+
+    // Issue #2867 follow-up (Gemini review): CSharpPrecedence.Of did not
+    // classify TupleSwitchExpression alongside its SwitchExpression/
+    // UnionSwitchExpression siblings, so it fell through to the Primary
+    // default. RenderedExpression's three consumers (BinaryOperand,
+    // CoalesceLeftText, InterpolatedExpression) all trust that reported
+    // precedence to decide whether to wrap — with the bug, a tuple switch
+    // nested as a Binary/Coalesce operand rendered bare, inconsistent with how
+    // a plain Conditional or SwitchExpression renders in the exact same
+    // position (see CoalesceLeft_Conditional_StaysParenthesized above). This
+    // is an IR-contract defect (any Precedence.Of consumer, present or
+    // future, gets the wrong answer for this node type) rather than a hard
+    // C# syntax requirement — a tuple/relational switch expression is
+    // self-terminating at its closing `}`, so the *unwrapped* spelling below
+    // also compiles and evaluates identically; the assertions here pin the
+    // wrapped, sibling-consistent spelling the fixed Of() now produces.
+    static TupleSwitchExpression MakeTupleSwitch(TypeRef componentType, TypeRef resultType, object firstValue, object defaultValue)
+    {
+        var x = new LoadArgument(0, "x", componentType);
+        var y = new LoadArgument(1, "y", componentType);
+        var firstArm = new TupleSwitchExpressionArm(
+            subpatterns: [new PositionalPatternSubpattern(ComparisonKind.GreaterThan), new PositionalPatternSubpattern(ComparisonKind.GreaterThan)],
+            constants: [new Constant(0, componentType), new Constant(0, componentType)],
+            value: new Constant(firstValue, resultType));
+        var defaultArm = new TupleSwitchExpressionArm(subpatterns: [], constants: [], value: new Constant(defaultValue, resultType));
+        return new TupleSwitchExpression([x, y], [firstArm, defaultArm]);
+    }
+
+    [Fact]
+    public void BinaryOperand_TupleSwitchExpressionChild_StaysParenthesized()
+    {
+        var tupleSwitch = MakeTupleSwitch(s_int, s_int, firstValue: 1, defaultValue: 2);
+        var add = new Binary(BinaryKind.Add, false, false, new LoadArgument(2, "z", s_int), tupleSwitch);
+
+        var output = PrintReturn(
+            add,
+            s_int,
+            [new Parameter("x", s_int), new Parameter("y", s_int), new Parameter("z", s_int)]);
+
+        Assert.Contains("return z + ((x, y) switch { (> 0, > 0) => 1, _ => 2 });", output);
+        Assert.DoesNotContain("return z + (x, y) switch", output);
+        AssertCompiles("public static int M(int x, int y, int z)", output);
+    }
+
+    [Fact]
+    public void CoalesceLeft_TupleSwitchExpressionChild_StaysParenthesized()
+    {
+        var tupleSwitch = MakeTupleSwitch(s_int, s_string, firstValue: "one", defaultValue: "other");
+        var coalesce = new Coalesce(tupleSwitch, new LoadArgument(2, "fallback", s_string));
+
+        var output = PrintReturn(
+            coalesce,
+            s_string,
+            [new Parameter("x", s_int), new Parameter("y", s_int), new Parameter("fallback", s_string)]);
+
+        Assert.Contains("return ((x, y) switch { (> 0, > 0) => \"one\", _ => \"other\" }) ?? fallback;", output);
+        Assert.DoesNotContain("return (x, y) switch { (> 0, > 0) => \"one\", _ => \"other\" } ?? fallback;", output);
+        AssertCompiles("public static string M(int x, int y, string fallback)", output);
+    }
+
+    // Confirms the fix has no effect on the pass's actual current output
+    // shape: TupleSwitchExpressionPass only ever raises a tuple switch as a
+    // Return's direct value, which CoerceText special-cases (the switch is
+    // the whole right-hand side, never nested under another operator), so it
+    // never reaches RenderedExpression/CSharpPrecedence.Of at all.
+    [Fact]
+    public void DirectReturn_TupleSwitchExpression_RendersWithoutOuterParens()
+    {
+        var tupleSwitch = MakeTupleSwitch(s_int, s_int, firstValue: 1, defaultValue: 2);
+
+        var output = PrintReturn(tupleSwitch, s_int, [new Parameter("x", s_int), new Parameter("y", s_int)]);
+
+        Assert.Contains("return (x, y) switch\n{\n    (> 0, > 0) => 1,\n    _ => 2,\n};", output);
+        Assert.DoesNotContain("return ((x, y) switch", output);
+        AssertCompiles("public static int M(int x, int y)", output);
+    }
+
+    // AssertCompiles/Recompile shape already used by DataflowFactsTests,
+    // EnumCastPrinterTests, and MixedSignComparisonTests; reused here rather
+    // than reimplemented.
+    static void AssertCompiles(string methodHeader, string body)
+    {
+        var errors = Recompile(methodHeader, body)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+        Assert.True(errors.Length == 0, "Rendered method must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
+    }
+
+    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body)
+    {
+        string source = $$"""
+            static class __Gate
+            {
+                {{methodHeader}}
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "__gate",
+            [tree],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return compilation.GetDiagnostics();
     }
 
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
