@@ -73,17 +73,21 @@ public sealed class DynamicCallSitePass : IIrPass
                 if (oppositeArm is not null && oppositeArm.Children.Count != 0)
                     continue;
 
-                if (children[i + 1] is not Return ret || ret.Value is not Call invokeCall)
+                if (children[i + 1] is not IrNode useStatement)
                     continue;
 
-                if (!TryRaise(function, setupArm, invokeCall, guardLoad, cacheField, out var receiver, out var memberName))
+                if (!TryRaise(function, setupArm, useStatement, guardLoad, cacheField, out var invokeCall, out var receiver, out var memberName))
                     continue;
 
+                // Replace the proven Invoke call in place with the dynamic access,
+                // preserving the enclosing statement (return, assignment, argument,
+                // expression) and its evaluation order. Detach the guard only after
+                // every proof has passed.
                 receiver.Detach();
-                var newReturn = new Return(new DynamicGetMember(receiver, memberName));
-                ret.ReplaceWith(newReturn);
+                var dynamicGet = new DynamicGetMember(receiver, memberName);
+                invokeCall.ReplaceWith(dynamicGet);
                 ifStmt.Detach();
-                stepper.StepOver("raise dynamic get", newReturn);
+                stepper.StepOver("raise dynamic get", dynamicGet);
                 return true;
             }
         }
@@ -170,12 +174,14 @@ public sealed class DynamicCallSitePass : IIrPass
     static bool TryRaise(
         IrFunction function,
         Block setupArm,
-        Call invokeCall,
+        IrNode useStatement,
         LoadField guardLoad,
         FieldRef cacheField,
+        out Call invokeCall,
         out IrExpression receiver,
         out string memberName)
     {
+        invokeCall = null!;
         receiver = null!;
         memberName = null!;
 
@@ -239,9 +245,36 @@ public sealed class DynamicCallSitePass : IIrPass
             return false;
 
         // --- Delegate Invoke + Target identity ---
-        if (!IsExactInvoke(invokeCall, cacheField, cacheT, callSiteAssembly, out receiver, out var targetInstanceLoad, out var cacheArgLoad))
+        // The dynamic access is used exactly once, in the statement immediately
+        // following the guard. Locate the single Call in that statement (outside
+        // any nested function body) that is exactly this cache's delegate Invoke.
+        // Zero matches means the cache is not consumed here; more than one means
+        // the use is ambiguous — both decline.
+        LoadField targetInstanceLoad = null!;
+        LoadField cacheArgLoad = null!;
+        foreach (var node in DescendantsAndSelfOutsideNestedFunctions(useStatement))
+        {
+            if (node is not Call candidate)
+                continue;
+            if (!IsExactInvoke(candidate, cacheField, cacheT, callSiteAssembly, out var candidateReceiver, out var candidateTargetLoad, out var candidateCacheArg))
+                continue;
+            if (invokeCall is not null)
+            {
+                // Ambiguous: more than one matching invoke of the same cache.
+                invokeCall = null!;
+                receiver = null!;
+                memberName = null!;
+                return false;
+            }
+            invokeCall = candidate;
+            receiver = candidateReceiver;
+            targetInstanceLoad = candidateTargetLoad;
+            cacheArgLoad = candidateCacheArg;
+        }
+        if (invokeCall is null)
         {
             receiver = null!;
+            memberName = null!;
             return false;
         }
 
@@ -629,9 +662,14 @@ public sealed class DynamicCallSitePass : IIrPass
 
     static bool CacheFieldConfined(IrFunction function, FieldRef cacheField, StoreField definition, IReadOnlyList<LoadField> allowedLoads)
     {
-        // Scoped to this body: a nested function referencing a same-shaped cache
-        // field runs its own pipeline and must not veto or be consumed here.
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
+        // Unlike slots/locals (per-body pools), the static dynamic call-site cache
+        // field is a single shared identity. Any reference to the SAME field from
+        // anywhere in this IrFunction — including nested lambda and local-function
+        // bodies that have not yet been split into their own pipeline runs — must
+        // be accounted for: a nested load/store/address-of the same field means
+        // the field is not confined to the proven guard/Target/argument uses, so
+        // consuming the guard here would be unsound. Walk the whole function.
+        foreach (var node in function.Descendants)
         {
             switch (node)
             {
@@ -659,6 +697,18 @@ public sealed class DynamicCallSitePass : IIrPass
             if (ReferenceEquals(candidate, node))
                 return true;
         return false;
+    }
+
+    // The use statement and its descendants, without crossing into nested
+    // lambda/local-function bodies (their storage pools are independent and are
+    // raised by their own pipeline run).
+    static IEnumerable<IrNode> DescendantsAndSelfOutsideNestedFunctions(IrNode node)
+    {
+        yield return node;
+        if (node is Lambda or LocalFunctionStatement)
+            yield break;
+        foreach (var descendant in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(node))
+            yield return descendant;
     }
 
     static bool IsNonGeneric(MethodRef callee) => callee.TypeArguments.IsDefaultOrEmpty;

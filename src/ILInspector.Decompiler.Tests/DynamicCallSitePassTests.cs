@@ -1086,11 +1086,47 @@ public class DynamicCallSitePassTests
     }
 
     // ======================================================================
-    // Nested-function body scoping (blocker: per-body-scope rule)
+    // Nested-function body scoping
     // ======================================================================
+    //
+    // Locals and stack slots are per-body pools, so an identically numbered slot
+    // in a nested lambda/local function must not veto the outer candidate. The
+    // static dynamic call-site cache field is a single shared identity, so a
+    // nested reference to the SAME field must veto (consuming the guard would
+    // leave that reference dangling against a field the pass believes confined).
 
     [Fact]
-    public void NestedBodyShadowsSlotAndCacheReferences_RaisesOnlyOuter()
+    public void SameCacheFieldInNestedBody_Declines()
+    {
+        var f = LoadCanonicalFunction();
+
+        var cacheField = GuardLoad(f).Field;
+
+        // A nested lambda body reads the SAME cache field. Because the cache
+        // field is shared identity, this extra load is outside the proven
+        // guard/Target/argument set, so the whole-function cache confinement
+        // check must veto the raise.
+        var nestedCacheLoad = new LoadField(cacheField, null);
+        var nestedBlock = new Block();
+        nestedBlock.Add(new Return(nestedCacheLoad));
+        var container = new BlockContainer();
+        container.Add(nestedBlock);
+        var lambda = new Lambda(
+            ObjectType,
+            ImmutableArray<Parameter>.Empty,
+            ImmutableArray<TypeRef>.Empty,
+            ImmutableArray<string?>.Empty,
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            container);
+
+        InsertBeforeGuard(f, new StoreStackSlot(500, lambda));
+
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void DistinctCacheFieldAndShadowedSlot_RaisesOuterAndLeavesNestedUntouched()
     {
         var f = LoadCanonicalFunction();
 
@@ -1098,13 +1134,17 @@ public class DynamicCallSitePassTests
         var cacheField = GuardLoad(f).Field;
         var infoElementType = ArrayNode(f).ElementType;
 
-        // A nested lambda whose independent slot pool reuses the outer info-array
-        // slot index and whose body reads a same-shaped cache field. Its storage
-        // is scoped separately (it receives its own pipeline run), so it must
-        // neither veto the outer candidate's slot/cache confinement nor be
-        // consumed or mutated by this pass.
+        // A DISTINCT cache field (different name => different identity) plus a
+        // nested slot that reuses the outer info-array slot index. The slot pool
+        // is per-body, so the shadowed slot must not veto; the distinct field is
+        // not the owned cache, so it must not veto either. The outer site raises
+        // and the nested body is left untouched.
+        var distinctField = new FieldRef(cacheField.DeclaringType, cacheField.Name + "__other", cacheField.Type)
+        {
+            DeclaringTypeCompilerGenerated = cacheField.DeclaringTypeCompilerGenerated,
+        };
         var nestedArrayStore = new StoreStackSlot(arraySlot, new NewArray(infoElementType, new Constant(1, Int32Type)));
-        var nestedCacheLoad = new LoadField(cacheField, null);
+        var nestedCacheLoad = new LoadField(distinctField, null);
         var nestedBlock = new Block();
         nestedBlock.Add(nestedArrayStore);
         nestedBlock.Add(new Return(nestedCacheLoad));
@@ -1119,18 +1159,7 @@ public class DynamicCallSitePassTests
             skipLocalsInit: false,
             container);
 
-        // Hold the lambda in an unrelated slot statement placed before the guard,
-        // inside the same outer block.
-        var guardIf = CacheIf(f);
-        var outerBlock = (Block)guardIf.Parent!;
-        var holder = new StoreStackSlot(500, lambda);
-        var ordered = outerBlock.Children.ToList();
-        int guardIndex = ordered.IndexOf(guardIf);
-        ordered.Insert(guardIndex, holder);
-        foreach (var c in outerBlock.Children.ToList())
-            c.Detach();
-        foreach (var c in ordered)
-            outerBlock.Add(c);
+        InsertBeforeGuard(f, new StoreStackSlot(500, lambda));
 
         Assert.True(RunPass(f));
         Assert.Single(f.Descendants.OfType<DynamicGetMember>());
@@ -1140,5 +1169,143 @@ public class DynamicCallSitePassTests
         Assert.Contains(nestedArrayStore, lambda.Descendants);
         Assert.Contains(nestedCacheLoad, lambda.Descendants);
         Assert.Empty(lambda.Descendants.OfType<DynamicGetMember>());
+    }
+
+    /// <summary>Inserts <paramref name="statement"/> immediately before the cache guard, inside the guard's block.</summary>
+    static void InsertBeforeGuard(IrFunction f, IrNode statement)
+    {
+        var guardIf = CacheIf(f);
+        var outerBlock = (Block)guardIf.Parent!;
+        var ordered = outerBlock.Children.ToList();
+        int guardIndex = ordered.IndexOf(guardIf);
+        ordered.Insert(guardIndex, statement);
+        foreach (var c in outerBlock.Children.ToList())
+            c.Detach();
+        foreach (var c in ordered)
+            outerBlock.Add(c);
+    }
+
+    // ======================================================================
+    // Immediate-use forms beyond direct return + nested-context boundary
+    // ======================================================================
+
+    /// <summary>Imports a method of the compiler-backed member-context fixtures and runs the full raise pipeline (with the cross-method import seam).</summary>
+    static string RaiseMemberContext(string method)
+    {
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, "LadderRung9.DynamicMemberContexts", method, 0, false);
+        var result = CSharpPrinter.PrintRaised(function!, mr => IrImporter.Import(source, mr));
+        return result.Output ?? string.Empty;
+    }
+
+    [Fact]
+    public void ImmediateUse_FieldAssignment_Raises()
+    {
+        // Compiler-backed: `_last = value.Length;` — the dynamic access is the
+        // value of a field store, not a return.
+        var output = RaiseMemberContext("AssignToField");
+        Assert.Contains("_last = ((dynamic)value).Length;", output);
+        Assert.DoesNotContain("Binder.GetMember", output);
+    }
+
+    [Fact]
+    public void ImmediateUse_CallArgument_Raises()
+    {
+        // Compiler-backed: `return Identity(value.Length);` — the GetMember
+        // access is a call argument (nested inside an unrelated InvokeMember
+        // site that legitimately stays explicit).
+        var output = RaiseMemberContext("UseAsArgument");
+        Assert.Contains("((dynamic)value).Length", output);
+        Assert.DoesNotContain("Binder.GetMember", output);
+    }
+
+    [Fact]
+    public void ImmediateUse_LocalInitializer_Raises()
+    {
+        // Compiler-backed: `object length = value.Length;` used twice.
+        var output = RaiseMemberContext("AssignToLocal");
+        Assert.Contains("((dynamic)value).Length", output);
+        Assert.DoesNotContain("Binder.GetMember", output);
+    }
+
+    [Fact]
+    public void NestedContext_LocalFunction_Raises()
+    {
+        // A local function is declared on the authored enclosing type, so the
+        // GetMember context typeof matches the body's declaring type and the
+        // nested site raises.
+        var output = RaiseMemberContext("InLocalFunction");
+        Assert.Contains("((dynamic)value).Length", output);
+    }
+
+    [Fact]
+    public void NestedContext_LambdaDisplayClass_RemainsPartial()
+    {
+        // Boundary (tracked): csc lowers the lambda body into a display-class
+        // method whose declaring type is the generated environment, while the
+        // GetMember context typeof is the authored enclosing type. No typed
+        // enclosing-authored-type fact exists to bridge them without parsing the
+        // display-class name (prohibited), so the exact context check declines
+        // and the site honestly stays explicit rather than raising via a fuzzy
+        // heuristic.
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        string? displayClassOutput = null;
+        foreach (var (_, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName.Contains("InLambda") && methodName.Contains("b__"))
+            {
+                displayClassOutput = CSharpPrinter.PrintRaised(function, mr => IrImporter.Import(source, mr)).Output;
+                break;
+            }
+        }
+        Assert.NotNull(displayClassOutput);
+        Assert.Contains("Binder.GetMember", displayClassOutput);
+        Assert.DoesNotContain("(dynamic)", displayClassOutput);
+    }
+
+    [Fact]
+    public void ImmediateUse_InterveningStatement_Declines()
+    {
+        // A statement between the guard and the use means the invoke is no longer
+        // the immediately-following statement, so the cache is not consumed and
+        // the pass declines.
+        var f = LoadCanonicalFunction();
+        var guardIf = CacheIf(f);
+        var outerBlock = (Block)guardIf.Parent!;
+        var ordered = outerBlock.Children.ToList();
+        int guardIndex = ordered.IndexOf(guardIf);
+        ordered.Insert(guardIndex + 1, new StoreLocal(300, Int32Type, new Constant(0, Int32Type)));
+        foreach (var c in outerBlock.Children.ToList())
+            c.Detach();
+        foreach (var c in ordered)
+            outerBlock.Add(c);
+
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ImmediateUse_MultipleInvokes_Declines()
+    {
+        // Two exact invokes of the same cache in the use statement make the use
+        // ambiguous; the pass declines rather than picking one arbitrarily.
+        var f = LoadCanonicalFunction();
+        var invoke = InvokeCall(f);
+        var callee = invoke.Callee;
+        var targetFieldRef = ((LoadField)invoke.Arguments[0]).Field;
+        var cacheField = GuardLoad(f).Field;
+
+        Call MakeInvoke(IrExpression recv) => new Call(callee, invoke.IsVirtual, new List<IrExpression>
+        {
+            new LoadField(targetFieldRef, new LoadField(cacheField, null)),
+            new LoadField(cacheField, null),
+            recv,
+        });
+
+        var receiver = Detach(invoke.Arguments[2]);
+        invoke.ReplaceWith(MakeInvoke(MakeInvoke(receiver)));
+
+        Assert.False(RunPass(f));
     }
 }

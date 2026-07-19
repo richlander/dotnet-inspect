@@ -131,10 +131,27 @@ public class LadderRung9GateTests
         AssertDynamicPartial(members, "DynamicSetMember", "Binder.SetMember");
         AssertDynamicPartial(members, "DynamicGetIndex", "Binder.GetIndex");
         AssertDynamicPartial(members, "DynamicSetIndex", "Binder.SetIndex");
-        AssertDynamicPartial(members, "DynamicCompoundMember", "Binder.SetMember(unchecked((CSharpBinderFlags)128)", "Binder.GetMember", "Binder.BinaryOperation");
+
+        // DynamicCompoundMember (`x.Count += ...`) lowers to an inner GetMember
+        // read, a BinaryOperation, and a SetMember write. The GetMember read is a
+        // canonical `((dynamic)x).Count` local-assignment immediate use and is now
+        // correctly raised, while the BinaryOperation and SetMember scaffolding
+        // legitimately stay explicit — an honest partial with a mixed body.
+        var compound = members.Single(m => m.Name == "DynamicCompoundMember");
+        Assert.Equal(DecompilationFidelity.Partial, compound.Function.Fidelity);
+        Assert.Contains("((dynamic)", compound.Body);
+        Assert.Contains(").Count", compound.Body);
+        Assert.Contains("Binder.SetMember(unchecked((CSharpBinderFlags)128)", compound.Body);
+        Assert.Contains("Binder.BinaryOperation", compound.Body);
+        Assert.DoesNotContain("Binder.GetMember", compound.Body);
+
         AssertDynamicPartial(members, "DynamicResultDiscarded", "Binder.InvokeMember(unchecked((CSharpBinderFlags)256)", "CallSite<Action<CallSite, object>>");
-        AssertDynamicPartial(members, "DynamicEventAdd", "Binder.IsEvent", "add_Changed");
-        AssertDynamicPartial(members, "DynamicEventRemove", "Binder.IsEvent", "remove_Changed");
+
+        // DynamicEventAdd/Remove (`x.Changed += h` / `-= h`) likewise lower to an
+        // inner GetMember read that is now correctly raised to ((dynamic)x).Changed,
+        // while the IsEvent / SetMember / BinaryOperation scaffolding stays explicit.
+        AssertDynamicPartialWithRaisedMember(members, "DynamicEventAdd", ".Changed", "Binder.IsEvent", "add_Changed");
+        AssertDynamicPartialWithRaisedMember(members, "DynamicEventRemove", ".Changed", "Binder.IsEvent", "remove_Changed");
     }
 
     [Fact]
@@ -225,6 +242,26 @@ public class LadderRung9GateTests
         foreach (string fragment in expectedFragments)
             Assert.Contains(fragment, member.Body);
         Assert.DoesNotContain("dynamic", member.Body);
+    }
+
+    /// <summary>
+    /// A partial dynamic member whose inner GetMember read is correctly raised to
+    /// <c>((dynamic)x).Member</c> while the enclosing dynamic scaffolding stays
+    /// explicit. Asserts the raised access plus the explicit fragments, but does
+    /// not require the body to be free of the raised <c>dynamic</c> spelling.
+    /// </summary>
+    static void AssertDynamicPartialWithRaisedMember(
+        List<(string Name, IrFunction Function, DecompilerResult Result, string Body)> members,
+        string name,
+        string raisedMemberSuffix,
+        params string[] explicitFragments)
+    {
+        var member = members.Single(m => m.Name == name);
+        Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
+        Assert.Contains("((dynamic)", member.Body);
+        Assert.Contains(")" + raisedMemberSuffix, member.Body);
+        foreach (string fragment in explicitFragments)
+            Assert.Contains(fragment, member.Body);
     }
 
     static List<(string Name, IrFunction Function, DecompilerResult Result, string Body)> LoadRaisedMembers()
