@@ -296,7 +296,11 @@ diagnostic buckets below:
 - **Unsupported (rts-target)** — the target is not an RTS-compilable member.
 
 The run exits nonzero when any target is `Invalid`, `Drift`, or `Unsupported`
-(round-trip failure or corpus/assembly drift). `Not-Full` alone does not fail.
+(round-trip failure or corpus/assembly drift). It also exits nonzero — with a
+named blocker — when the run is not *honest*: any corpus row whose assembly was
+not supplied (`unmatchedRows > 0`) or a run that evaluated no targets at all.
+Every corpus row must be checked, so an empty or partially-unmatched run is never
+a success. `Not-Full` alone does not fail.
 
 The corpus is vendored on the `vendor/authored-source-corpus` orphan branch so
 the harvested third-party source snapshots never enter main's history. Restore it

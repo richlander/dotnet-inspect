@@ -119,8 +119,10 @@ static class AuthoredCorpusBenchmark
         Console.WriteLine($"  corpus rows        : {corpusRows}");
         Console.WriteLine($"  assemblies matched : {matchedAssemblies} / {corpusAssemblies}");
         if (unmatchedRows > 0)
-            Console.WriteLine($"  rows without asm   : {unmatchedRows} (no local assembly supplied)");
+            Console.WriteLine($"  rows without asm   : {unmatchedRows} (BLOCKER: no local assembly supplied)");
         Console.WriteLine($"  targets evaluated  : {evaluated}");
+        if (evaluated == 0)
+            Console.WriteLine($"  (BLOCKER: no targets evaluated — nothing was checked)");
         int lowering = results.Count(result => ClassifyTaste(result) == TasteBucket.Lowering);
         int knownTaste = results.Count(result => ClassifyTaste(result) == TasteBucket.KnownTaste);
         int frontierExact = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
@@ -164,8 +166,11 @@ static class AuthoredCorpusBenchmark
         // Nonzero exit if any target failed to round-trip (Invalid) or the corpus
         // no longer corresponds to the pinned assembly (Drift/Unsupported). Not-Full
         // is a surfaced decompiler limitation, not a corpus problem, so it does not
-        // fail the run on its own.
-        return invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
+        // fail the run on its own. Honest-exit contract: an empty or partially
+        // unmatched run is never a success — every corpus row must be checked, so
+        // unmatched rows (assembly not supplied) and a zero-target run also fail.
+        bool honest = unmatchedRows == 0 && evaluated > 0;
+        return honest && invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
     }
 
     enum TasteBucket
@@ -253,6 +258,10 @@ static class AuthoredCorpusBenchmark
         int notFull = results.Count(result => ClassifyTaste(result) == TasteBucket.NotFull);
         int drift = results.Count(result => ClassifyTaste(result) == TasteBucket.Drift);
         int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
+        int evaluated = results.Count;
+        // Honest-exit contract: an empty or partially unmatched run is never a
+        // success — unmatched rows (assembly not supplied) and a zero-target run fail.
+        bool honest = unmatchedRows == 0 && evaluated > 0;
 
         var payload = new
         {
@@ -260,7 +269,8 @@ static class AuthoredCorpusBenchmark
             matchedAssemblies,
             corpusAssemblies,
             unmatchedRows,
-            targetsEvaluated = results.Count,
+            targetsEvaluated = evaluated,
+            honest,
             correct = match,
             validDifferent = different,
             validBreakdown = new
@@ -290,6 +300,6 @@ static class AuthoredCorpusBenchmark
         };
 
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        return invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
+        return honest && invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
     }
 }
