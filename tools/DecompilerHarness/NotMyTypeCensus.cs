@@ -65,6 +65,8 @@ internal sealed record NmtCensusTolerances(int AgreeRateDropBasisPoints)
 
 internal static class NotMyTypeCensus
 {
+    internal static readonly HarnessReportDescriptor Descriptor = new("census.not-my-type", 1);
+
     public static int Run(
         IReadOnlyList<string> assemblies,
         int maxExamples,
@@ -72,13 +74,13 @@ internal static class NotMyTypeCensus
         string? emitSnapshot = null,
         string? diffBaseline = null)
     {
-        var report = Measure(assemblies, maxExamples);
+        var report = new DecompilerHarnessReport<NmtCensusReport>(Descriptor, Measure(assemblies, maxExamples));
         Console.Write(Format(report, maxExamples, format));
 
         if (emitSnapshot is null && diffBaseline is null)
             return 0;
 
-        var snapshot = BuildSnapshot(report);
+        var snapshot = BuildSnapshot(report.Payload);
 
         if (emitSnapshot is not null)
         {
@@ -212,7 +214,7 @@ internal static class NotMyTypeCensus
         };
     }
 
-    static string Format(NmtCensusReport report, int maxExamples, NmtCensusFormat format)
+    static string Format(DecompilerHarnessReport<NmtCensusReport> report, int maxExamples, NmtCensusFormat format)
     {
         var output = new StringWriter();
         if (format == NmtCensusFormat.Markdown)
@@ -313,30 +315,32 @@ internal static class NotMyTypeCensus
         };
     }
 
-    static NmtCensusMarkdownView BuildMarkdownView(NmtCensusReport report, int maxExamples)
+    static NmtCensusMarkdownView BuildMarkdownView(DecompilerHarnessReport<NmtCensusReport> envelope, int maxExamples)
         => new()
         {
-            Summary = SummaryRows(report).Select(r => new NmtCensusMetricRow(r.Metric, r.Value)).ToList(),
-            PerAssembly = report.Assemblies
+            Report = [.. DecompilerHarnessReportViews.Metadata(envelope).Select(row => new NmtCensusReportMetadataRow(row.Metric, row.Value))],
+            Summary = SummaryRows(envelope.Payload).Select(r => new NmtCensusMetricRow(r.Metric, r.Value)).ToList(),
+            PerAssembly = envelope.Payload.Assemblies
                 .Where(a => a.Opened)
                 .Select(a => new NmtCensusAssemblyRow(a.Name, a.Definitions, a.Agree, a.Diverge, Pct(a.Agree, a.Definitions), a.CrossRefs, a.Recovered))
                 .ToList(),
-            Divergences = report.Assemblies
+            Divergences = envelope.Payload.Assemblies
                 .SelectMany(a => a.Examples)
                 .Take(maxExamples)
                 .Select(e => new NmtCensusDivergenceRow(e.Type, e.Oracle, e.Legacy))
                 .ToList(),
         };
 
-    static NmtCensusTableView BuildTableView(NmtCensusReport report, int maxExamples)
+    static NmtCensusTableView BuildTableView(DecompilerHarnessReport<NmtCensusReport> envelope, int maxExamples)
         => new()
         {
-            Summary = SummaryRows(report).Select(r => new NmtCensusSectionMetricRow("Summary", r.Metric, r.Value)).ToList(),
-            PerAssembly = report.Assemblies
+            Report = [.. DecompilerHarnessReportViews.Metadata(envelope).Select(row => new NmtCensusSectionReportMetadataRow("Report", row.Metric, row.Value))],
+            Summary = SummaryRows(envelope.Payload).Select(r => new NmtCensusSectionMetricRow("Summary", r.Metric, r.Value)).ToList(),
+            PerAssembly = envelope.Payload.Assemblies
                 .Where(a => a.Opened)
                 .Select(a => new NmtCensusSectionAssemblyRow("Per assembly", a.Name, a.Definitions, a.Agree, a.Diverge, Pct(a.Agree, a.Definitions), a.CrossRefs, a.Recovered))
                 .ToList(),
-            Divergences = report.Assemblies
+            Divergences = envelope.Payload.Assemblies
                 .SelectMany(a => a.Examples)
                 .Take(maxExamples)
                 .Select(e => new NmtCensusSectionDivergenceRow("Divergences", e.Type, e.Oracle, e.Legacy))
@@ -349,6 +353,9 @@ internal sealed class NmtCensusMarkdownView
 {
     [MarkoutIgnore]
     public string Title => "Not My Type type-shape census";
+
+    [MarkoutSection(Name = "Report")]
+    public List<NmtCensusReportMetadataRow>? Report { get; init; }
 
     [MarkoutSection(Name = "Summary")]
     public List<NmtCensusMetricRow>? Summary { get; init; }
@@ -366,6 +373,9 @@ internal sealed class NmtCensusTableView
     [MarkoutIgnore]
     public string Title => "Not My Type type-shape census";
 
+    [MarkoutSection(Name = "Report")]
+    public List<NmtCensusSectionReportMetadataRow>? Report { get; init; }
+
     [MarkoutSection(Name = "Summary")]
     public List<NmtCensusSectionMetricRow>? Summary { get; init; }
 
@@ -378,6 +388,12 @@ internal sealed class NmtCensusTableView
 
 [MarkoutSerializable]
 internal sealed record NmtCensusMetricRow(string Metric, string Value);
+
+[MarkoutSerializable]
+internal sealed record NmtCensusReportMetadataRow(string Metric, string Value);
+
+[MarkoutSerializable]
+internal sealed record NmtCensusSectionReportMetadataRow(string Section, string Metric, string Value);
 
 [MarkoutSerializable]
 internal sealed record NmtCensusSectionMetricRow(string Section, string Metric, string Value);
@@ -397,6 +413,8 @@ internal sealed record NmtCensusSectionDivergenceRow(string Section, string Type
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(NmtCensusMarkdownView))]
 [MarkoutContext(typeof(NmtCensusTableView))]
+[MarkoutContext(typeof(NmtCensusReportMetadataRow))]
+[MarkoutContext(typeof(NmtCensusSectionReportMetadataRow))]
 [MarkoutContext(typeof(NmtCensusMetricRow))]
 [MarkoutContext(typeof(NmtCensusSectionMetricRow))]
 [MarkoutContext(typeof(NmtCensusAssemblyRow))]
