@@ -32,7 +32,8 @@ The card includes:
 
 - compared body count;
 - self-diff empty count;
-- pair exact-empty and changed-body counts;
+- pair exact-empty, operand-diff, opcode-diff, unavailable, and changed-body
+  counts;
 - failure count and failure buckets;
 - baseline metric changes when `--diff-baseline` is used;
 - baseline bucket changes when `--diff-baseline` is used;
@@ -49,6 +50,9 @@ omits Markdown section separators so each non-empty line is a JSON object.
 
 Use `--emit-snapshot <file>` to write stable JSON card data for a run. Use
 `--diff-baseline <file>` to compare the current run against a previous snapshot.
+Snapshot schema version 2 records exact, operand-diff, opcode-diff,
+unavailable, and changed-body totals independently. Older snapshots must be
+regenerated before baseline comparison.
 Baseline comparisons return exit code `1` for regressions (more failures, new
 failure buckets, or fewer self-diff-empty bodies) and report changed-body,
 hunk-kind, and opcode-family drift as non-failing drift. Baseline output uses

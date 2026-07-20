@@ -463,7 +463,8 @@ public static class ImplementationDiff
                 detail: failureRow.Detail ?? failureRow.Message,
                 category: ResearchChangeCategory.IlBody,
                 ilDisplayFailureRow: failureRow,
-                ilMemberDiff: diff));
+                ilMemberDiff: diff,
+                ilBodyDiff: diff?.Diff));
         }
 
         if (failureRows.IsDefaultOrEmpty && display.Failure is { Length: > 0 } failure)
@@ -475,7 +476,8 @@ public static class ImplementationDiff
                 ResearchChangeKind.Failed,
                 detail: failure,
                 category: ResearchChangeCategory.IlBody,
-                ilMemberDiff: diff));
+                ilMemberDiff: diff,
+                ilBodyDiff: diff?.Diff));
         }
 
         var displayRows = display.Rows.IsDefault ? [] : display.Rows;
@@ -502,7 +504,8 @@ public static class ImplementationDiff
                 detail: displayRow.Message,
                 category: ResearchChangeCategory.IlBody,
                 ilDisplayRows: [displayRow],
-                ilMemberDiff: diff));
+                ilMemberDiff: diff,
+                ilBodyDiff: diff?.Diff));
         }
 
         return changes.ToImmutable();

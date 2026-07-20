@@ -40,10 +40,10 @@ namespace ILInspector.DecompilerHarness;
 static class FidelityCheck
 {
     internal const int CurrentContractVersion = 1;
-    internal const IlBodyDiffOptions ContractV1BodyDiffOptions =
-        IlBodyDiffOptions.NormalizeVariableLayout
-        | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
-        | IlBodyDiffOptions.NormalizePlatformAssemblyScopes;
+    internal const IlBodyDiffNormalization ContractV1BodyDiffNormalization =
+        IlBodyDiffNormalization.NormalizeVariableLayout
+        | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
 
     const int MaxTransientEmptyEmitAttempts = 3;
 
@@ -286,13 +286,9 @@ static class FidelityCheck
     {
         if (!opcodesExact)
             return isFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull;
-        if (fidelityDiff is null
-            || fidelityDiff.Failure is not null
-            || !fidelityDiff.FailureRows.IsDefaultOrEmpty)
-        {
+        if (fidelityDiff is null || !fidelityDiff.IsAvailable)
             return CompileBackStatus.FidelityUnavailable;
-        }
-        if (fidelityDiff.IsExact)
+        if (fidelityDiff.Outcome == IlBodyDiffOutcome.Exact)
             return CompileBackStatus.Exact;
         return isFull ? CompileBackStatus.OperandDiff : CompileBackStatus.NotFull;
     }
@@ -3869,7 +3865,7 @@ static class FidelityCheck
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
-            options: ContractV1BodyDiffOptions).Diff;
+            normalization: ContractV1BodyDiffNormalization).Diff;
     }
 
     static string CanonicalOpcode(string op)

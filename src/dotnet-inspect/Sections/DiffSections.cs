@@ -20,7 +20,7 @@ public static class DiffSections
         return new DocumentSchema()
             .Add(Changes.Name, "column", "Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New")
             .Add(AnalysisDiff.Name, "section", "Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence")
-            .Add(ImplementationDiff.Name, "section", "Member", "Mechanism", "Change", "Evidence")
+            .Add(ImplementationDiff.Name, "section", "Member", "Mechanism", "Difference", "Change", "Evidence")
             .Add(FindingTransitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
     }
 

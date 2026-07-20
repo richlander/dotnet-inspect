@@ -109,6 +109,7 @@ public sealed record ResearchChange
         ImmutableArray<IlDiffDisplayRow> ilDisplayRows = default,
         IlDiffDisplayFailureRow? ilDisplayFailureRow = null,
         IlMemberDiffResult? ilMemberDiff = null,
+        IlBodyDiffResult? ilBodyDiff = null,
         ImmutableArray<CSharpDiffDisplayRow> cSharpDisplayRows = default,
         CSharpDiffDisplayFailureRow? cSharpDisplayFailureRow = null,
         FindingComparison<AllocationOccurrence>? allocationComparison = null)
@@ -170,6 +171,11 @@ public sealed record ResearchChange
             ResearchChangeMechanism.IlBody,
             nameof(ilMemberDiff));
         ValidatePayloadMechanism(
+            ilBodyDiff is not null,
+            mechanism,
+            ResearchChangeMechanism.IlBody,
+            nameof(ilBodyDiff));
+        ValidatePayloadMechanism(
             !cSharpDisplayRows.IsDefaultOrEmpty,
             mechanism,
             ResearchChangeMechanism.CSharp,
@@ -209,6 +215,7 @@ public sealed record ResearchChange
         IlDisplayRows = ilDisplayRows.IsDefault ? [] : ilDisplayRows;
         IlDisplayFailureRow = ilDisplayFailureRow;
         IlMemberDiff = ilMemberDiff;
+        IlBodyDiff = ilBodyDiff ?? ilMemberDiff?.Diff;
         CSharpDisplayRows = cSharpDisplayRows.IsDefault ? [] : cSharpDisplayRows;
         CSharpDisplayFailureRow = cSharpDisplayFailureRow;
         AllocationComparison = allocationComparison;
@@ -253,6 +260,7 @@ public sealed record ResearchChange
     public ImmutableArray<IlDiffDisplayRow> IlDisplayRows { get; }
     public IlDiffDisplayFailureRow? IlDisplayFailureRow { get; }
     public IlMemberDiffResult? IlMemberDiff { get; }
+    public IlBodyDiffResult? IlBodyDiff { get; }
     public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; }
     public CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow { get; }
     public FindingComparison<AllocationOccurrence>? AllocationComparison { get; }

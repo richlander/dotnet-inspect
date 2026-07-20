@@ -1236,7 +1236,7 @@ static class ReturnToSender
                     fullType,
                     methodName,
                     overload: 0,
-                    FidelityCheck.ContractV1BodyDiffOptions)?.Diff;
+                    FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
 
                 if (recompiledOps is null)
                 {
@@ -1566,7 +1566,7 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload,
-        IlBodyDiffOptions options = IlBodyDiffOptions.None)
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
@@ -1584,7 +1584,7 @@ static class ReturnToSender
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
-            options: options);
+            normalization: normalization);
     }
 
     internal static ImplementationMemberDiffResult? BuildImplementationDiff(
