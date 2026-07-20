@@ -23,12 +23,16 @@ public class FixtureSourceInventoryReportTests
         Assert.All(
             report.Rows.Where(row => row.Population == FixtureSourcePopulation.Dynamic),
             row => Assert.Equal(FixtureSourceInventoryStatus.Unclassified, row.Status));
+        var dynamicSites = report.Rows
+            .Where(row => row.Population == FixtureSourcePopulation.Dynamic)
+            .Select(row => row.Id)
+            .ToArray();
         Assert.Equal(
-            DecompilerFixtureSourceInventory.ClassifiedDynamicCompilationSites.Order(),
-            report.Rows
-                .Where(row => row.Population == FixtureSourcePopulation.Dynamic)
-                .Select(row => row.Id)
-                .Order());
+            DecompilerFixtureSourceInventory.ClassifiedDynamicCompilationSiteCount,
+            dynamicSites.Length);
+        Assert.Equal(
+            DecompilerFixtureSourceInventory.ClassifiedDynamicCompilationSiteSetFingerprint,
+            DecompilerFixtureSourceInventory.ComputeSiteSetFingerprint(dynamicSites));
     }
 
     [Fact]
@@ -63,10 +67,12 @@ public class FixtureSourceInventoryReportTests
             }
             """;
 
-        Assert.Equal(
-            ["Fixture.cs::M#1", "Fixture.cs::M#2"],
-            DecompilerFixtureSourceInventory.DiscoverCSharpCompilationSites(
-                source,
-                "Fixture.cs"));
+        var sites = DecompilerFixtureSourceInventory.DiscoverCSharpCompilationSites(
+            source,
+            "Fixture.cs");
+
+        Assert.Equal(2, sites.Count);
+        Assert.All(sites, site => Assert.StartsWith("Fixture.cs::C`0.M()@", site));
+        Assert.NotEqual(sites[0], sites[1]);
     }
 }

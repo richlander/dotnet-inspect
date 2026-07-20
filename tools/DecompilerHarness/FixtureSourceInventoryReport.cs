@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
 
 using DotnetInspector.Fixtures;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -36,45 +38,9 @@ internal sealed record DecompilerFixtureSourceReport(
 
 internal static class DecompilerFixtureSourceInventory
 {
-    internal static IReadOnlySet<string> ClassifiedDynamicCompilationSites { get; } =
-        new HashSet<string>(StringComparer.Ordinal)
-        {
-            "src/ILInspector.Decompiler.Tests/CSharpPrinterReceiverTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/CatchEntryFoldingTests.cs::AssertCompiles#1",
-            "src/ILInspector.Decompiler.Tests/CharElementStorePrinterTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/ClosureDiagnosticEvidenceTests.cs::Extract_IncludesObjectForCompleteInterfaceReceiverCompatibility#1",
-            "src/ILInspector.Decompiler.Tests/ClosureDiagnosticEvidenceTests.cs::Extract_MarksNonNamedReceiverCompatibilityIncomplete#1",
-            "src/ILInspector.Decompiler.Tests/ClosureDiagnosticEvidenceTests.cs::Extract_MarksReceiverCompatibilityIncompleteWhenBaseTypeIsUnresolved#1",
-            "src/ILInspector.Decompiler.Tests/ClosureDiagnosticEvidenceTests.cs::Extract_ReportsReceiverBaseAndGenericInterfaceCompatibility#1",
-            "src/ILInspector.Decompiler.Tests/ClosureDiagnosticEvidenceTests.cs::Extract_ReturnsNullForSupportedDiagnosticWithoutSourceLocation#1",
-            "src/ILInspector.Decompiler.Tests/ClosureDiagnosticEvidenceTests.cs::Extract_UsesStructuredSyntaxAndSemanticEvidence#1",
-            "src/ILInspector.Decompiler.Tests/CoerceChokePointTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/CompileBackTypeIdentityTests.cs::Compile#1",
-            "src/ILInspector.Decompiler.Tests/CompilerFeatureOptionsTests.cs::Compile#1",
-            "src/ILInspector.Decompiler.Tests/CrossAssemblyMethodFactsTests.cs::Emit#1",
-            "src/ILInspector.Decompiler.Tests/DataflowFactsTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/DefaultParameterValidityTests.cs::CompileSignature#1",
-            "src/ILInspector.Decompiler.Tests/EnumCastPrinterTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/FidelityCheckGeneratedFilterTests.cs::CompileFixture#1",
-            "src/ILInspector.Decompiler.Tests/FidelityCheckGeneratedFilterTests.cs::ExtensionRootSelection_UsesArityAwareRoslynReceiverEvidence#1",
-            "src/ILInspector.Decompiler.Tests/FinallyDisposePrinterTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/IrImporterTests.cs::AssertRefLocalBodyCompiles#1",
-            "src/ILInspector.Decompiler.Tests/IteratorReconstructionPassTests.cs::CompileComplexIteratorFixture#1",
-            "src/ILInspector.Decompiler.Tests/LadderRung6GateTests.cs::RecompileNewRules#1",
-            "src/ILInspector.Decompiler.Tests/LadderRung9GateTests.cs::CompileExpressionTreeStatement#1",
-            "src/ILInspector.Decompiler.Tests/MemberBodyProducerUnionTests.cs::Compile#1",
-            "src/ILInspector.Decompiler.Tests/MemberNameCollisionRenderingTests.cs::AssertBodyCompiles#1",
-            "src/ILInspector.Decompiler.Tests/MixedSignComparisonTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/MultiDimensionalArrayPrinterTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/NestedScopeNameCollisionTests.cs::AssertCompiles#1",
-            "src/ILInspector.Decompiler.Tests/NonFiniteConstantPrinterTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/PrinterPrecedenceTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/ReturnToSenderFixtureCatalogTests.cs::CompileSourceFixture#1",
-            "src/ILInspector.Decompiler.Tests/ReturnToSenderPrototypeTests.cs::CompileFixture#1",
-            "src/ILInspector.Decompiler.Tests/TypeSourceCheckTests.cs::AssertCompiles#1",
-            "src/ILInspector.Decompiler.Tests/UnsafeEmitterTests.cs::Recompile#1",
-            "src/ILInspector.Decompiler.Tests/ValidityShellNoiseTests.cs::CreateCompilation#1",
-        };
+    internal const int ClassifiedDynamicCompilationSiteCount = 35;
+    internal const string ClassifiedDynamicCompilationSiteSetFingerprint =
+        "494845969D89C6D5B2ABDB1A2879E09E336A883CF9CB08D6EA727E1E796F76C0";
 
     public static DecompilerFixtureSourceReport Create()
     {
@@ -167,17 +133,36 @@ internal static class DecompilerFixtureSourceInventory
         {
             if (invocation.Expression is not MemberAccessExpressionSyntax access
                 || access.Name.Identifier.ValueText != "Create"
-                || access.Expression.ToString() != "CSharpCompilation")
+                || !access.Expression.ToString().EndsWith("CSharpCompilation", StringComparison.Ordinal))
                 continue;
 
-            string member = invocation.Ancestors()
-                .OfType<MethodDeclarationSyntax>()
-                .FirstOrDefault()?.Identifier.ValueText ?? "<top-level>";
-            int ordinal = memberOrdinals.TryGetValue(member, out int count) ? count + 1 : 1;
-            memberOrdinals[member] = ordinal;
-            sites.Add($"{relativePath}::{member}#{ordinal}");
+            var method = invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+            string member = method is null ? "<top-level>" : MethodIdentity(method);
+            string fingerprint = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes(invocation.WithoutTrivia().ToFullString())))[..12];
+            string identity = $"{member}@{fingerprint}";
+            int ordinal = memberOrdinals.TryGetValue(identity, out int count) ? count + 1 : 1;
+            memberOrdinals[identity] = ordinal;
+            sites.Add($"{relativePath}::{identity}#{ordinal}");
         }
         return sites;
+    }
+
+    internal static string ComputeSiteSetFingerprint(IEnumerable<string> sites)
+    {
+        string canonical = string.Join('\n', sites.Order(StringComparer.Ordinal));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
+    static string MethodIdentity(MethodDeclarationSyntax method)
+    {
+        string containingTypes = string.Join("+", method.Ancestors()
+            .OfType<TypeDeclarationSyntax>()
+            .Reverse()
+            .Select(type => $"{type.Identifier.ValueText}`{type.TypeParameterList?.Parameters.Count ?? 0}"));
+        string parameters = string.Join(",", method.ParameterList.Parameters.Select(parameter =>
+            parameter.Type?.WithoutTrivia().ToString() ?? "?"));
+        return $"{containingTypes}.{method.Identifier.ValueText}({parameters})";
     }
 
     static string RepositoryRoot()

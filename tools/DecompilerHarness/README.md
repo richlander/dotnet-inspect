@@ -135,6 +135,10 @@ each population; `--json` emits the typed rows. `SourceDiscovered` means source
 is present for migration and deliberately does not mean its bytes have been
 verified against a built assembly. Dynamic sites remain visible as unresolved
 until they use the shared source-retaining materializer.
+The guard recognizes the repository's current direct
+`CSharpCompilation.Create` entry point using C# syntax, and fingerprints each
+containing type, method signature, and invocation. Introducing another dynamic
+compiler entry point requires extending this inventory explicitly.
 
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
