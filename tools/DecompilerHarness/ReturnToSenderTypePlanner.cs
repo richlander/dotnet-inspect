@@ -150,7 +150,8 @@ internal sealed record EventAccessorArtifactRequest(
     int Overload,
     string SignatureText,
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
-    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts)
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts,
+    ProductTargetBody? SiblingAccessorBody = null)
     : ArtifactRequest(
         AssemblyPath,
         Reader,
@@ -304,6 +305,7 @@ public enum CompileBackStubBodyKind
     TargetBody,
     TargetGetterWithSetter,
     TargetSetterWithGetter,
+    TargetEventAccessorWithSibling,
     AutoProperty,
     AutoPropertyGetSet,
     FieldInitializer,
@@ -352,7 +354,8 @@ public sealed record CompileBackMemberRequirement(
     string? ConstructorInitializer = null,
     string? ExplicitInterfaceMemberName = null,
     string? DeclarationSignature = null,
-    bool RequiresUnsafeModifier = false)
+    bool RequiresUnsafeModifier = false,
+    string? SiblingTargetBody = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -453,7 +456,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                eventAccessor.SiblingAccessorBody?.Source),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
                 request.Reader,
@@ -1202,7 +1206,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        string? siblingAccessorBody = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var eventDefinition = reader.GetEventDefinition(targetEvent);
@@ -1247,12 +1252,15 @@ public static class CompileBackSourceComposer
                 [],
                 parameters[0].Type,
                 [],
-                CompileBackStubBodyKind.TargetBody,
+                siblingAccessorBody is not null
+                    ? CompileBackStubBodyKind.TargetEventAccessorWithSibling
+                    : CompileBackStubBodyKind.TargetBody,
                 targetBody,
                 [new CompileBackFact("metadata", "target-event-accessor", reader.GetString(accessor.Name))],
                 MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
-                ExplicitInterfaceMemberName: explicitEvent?.QualifiedName)
+                ExplicitInterfaceMemberName: explicitEvent?.QualifiedName,
+                SiblingTargetBody: siblingAccessorBody)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -1667,6 +1675,14 @@ public static class CompileBackSourceComposer
                     member,
                     CSharpBodyPolicy.Full,
                     EventBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetEventAccessorWithSibling
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    EventBody(
+                        requirement,
+                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        CSharpAccessorBody.Block(requirement.SiblingTargetBody!))),
             CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Constructor
                 && primaryConstructorParameterCount > 0
                 => new(
@@ -1715,10 +1731,11 @@ public static class CompileBackSourceComposer
 
     static CSharpEventBody EventBody(
         CompileBackMemberRequirement requirement,
-        CSharpAccessorBody body)
+        CSharpAccessorBody body,
+        CSharpAccessorBody? siblingBody = null)
         => requirement.Kind == CompileBackMemberKind.EventAdd
-            ? new CSharpEventBody(body, CSharpAccessorBody.Throw)
-            : new CSharpEventBody(CSharpAccessorBody.Throw, body);
+            ? new CSharpEventBody(body, siblingBody ?? CSharpAccessorBody.Throw)
+            : new CSharpEventBody(siblingBody ?? CSharpAccessorBody.Throw, body);
 
     static CompileBackParameter ToCompileBackParameter(ApiParameter parameter)
         => new(
