@@ -351,6 +351,7 @@ public static partial class MetadataFindings
         ApiDiffScope scope)
     {
         var changesByKey = BuildTypeChangeMap(diff);
+        var consumedKeys = new HashSet<string>(StringComparer.Ordinal);
         var builder = ImmutableArray.CreateBuilder<PairFinding<ApiTypeHandle>>(pairs.Length);
         foreach (var pair in pairs)
         {
@@ -358,7 +359,10 @@ public static partial class MetadataFindings
             {
                 var details = new List<string>();
                 if (changesByKey.TryGetValue(present.New.Payload.TypeFullName, out var changes))
+                {
+                    consumedKeys.Add(present.New.Payload.TypeFullName);
                     details.AddRange(changes.Select(FormatApiChange));
+                }
                 AddTypeFacetDetails(present.Old.Payload.Type, present.New.Payload.Type, scope, details);
 
                 builder.Add(details.Count == 0
@@ -375,6 +379,7 @@ public static partial class MetadataFindings
             }
         }
 
+        ThrowIfLegacyChangesUnconsumed("type", changesByKey, consumedKeys);
         return builder.ToImmutable();
     }
 
@@ -384,6 +389,7 @@ public static partial class MetadataFindings
         ApiDiffScope scope)
     {
         var changesByKey = BuildMemberChangeMap(diff);
+        var consumedKeys = new HashSet<string>(StringComparer.Ordinal);
         var builder = ImmutableArray.CreateBuilder<PairFinding<ApiMemberHandle>>(pairs.Length);
         foreach (var pair in pairs)
         {
@@ -392,7 +398,10 @@ public static partial class MetadataFindings
                 string key = present.New.Key.IdentityKey;
                 var details = new List<string>();
                 if (changesByKey.TryGetValue(key, out var changes))
+                {
+                    consumedKeys.Add(key);
                     details.AddRange(changes.Select(FormatApiChange));
+                }
                 AddMemberFacetDetails(present.Old.Payload.Member, present.New.Payload.Member, scope, details);
 
                 builder.Add(details.Count == 0
@@ -433,8 +442,40 @@ public static partial class MetadataFindings
             }
         }
 
+        ThrowIfLegacyChangesUnconsumed("member", changesByKey, consumedKeys);
         return builder.ToImmutable();
     }
+
+    /// <summary>
+    /// Cross-validates the legacy <see cref="ApiDiffAnalyzer"/> lane against the Finding
+    /// lane (finding-adoption.md rule 1): every present-in-both facet change the legacy
+    /// analyzer reports must land on a matching identity-set <c>Present</c> pair here. A
+    /// legacy change with no matching pair means the two lanes disagree about which
+    /// types/members correspond across surfaces -- a producer or adapter bug that must
+    /// fail loudly rather than silently render only the legacy change.
+    /// </summary>
+    static void ThrowIfLegacyChangesUnconsumed(
+        string domain,
+        Dictionary<string, List<ApiChange>> changesByKey,
+        HashSet<string> consumedKeys)
+    {
+        var unconsumed = changesByKey.Keys
+            .Where(key => !consumedKeys.Contains(key))
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        if (unconsumed.Count == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"API {domain} diff divergence: the legacy ApiDiffAnalyzer reported "
+            + $"{unconsumed.Count} present-in-both {domain} change(s) that the Finding-lane "
+            + "identity-set comparison did not match to a Present pair: "
+            + string.Join(", ", unconsumed)
+            + ". This means the legacy and Finding lanes disagree about correspondence "
+            + "for these identities.");
+    }
+
+
 
     static ImmutableArray<PairFinding<ApiAttributeHandle>> ApplyAttributeValueChanges(
         ImmutableArray<PairFinding<ApiAttributeHandle>> pairs)
