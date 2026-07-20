@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 
 using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
+using DotnetInspector.HarnessReports;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
@@ -66,6 +67,7 @@ static class Program
         bool notMyType = false;
         string? emitNotMyTypeSnapshot = null;
         string? diffNotMyTypeBaseline = null;
+        string? emitHarnessReport = null;
         bool censusTsv = false;
         bool censusJsonl = false;
         bool returnToSenderAb = false;
@@ -185,6 +187,8 @@ static class Program
                         emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
                     case "--diff-not-my-type-baseline":
                         diffNotMyTypeBaseline = NextArg(args, ref i, flag); notMyType = true; break;
+                    case "--emit-harness-report":
+                        emitHarnessReport = NextArg(args, ref i, flag); break;
                     case "--tsv": censusTsv = true; break;
                     case "--jsonl": censusJsonl = true; break;
                     case "--return-to-sender-ab": returnToSenderAb = true; break;
@@ -289,6 +293,14 @@ static class Program
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
+        int harnessReportModes = (returnAddress ? 1 : 0)
+            + (notMyType ? 1 : 0)
+            + (returnToSenderCatalog ? 1 : 0)
+            + (returnToSenderSourceProbe ? 1 : 0);
+        if (emitHarnessReport is not null && harnessReportModes != 1)
+        {
+            return Fail("--emit-harness-report requires exactly one of --return-address, --not-my-type, --return-to-sender-catalog, or --source-correspondence-census.");
+        }
 
         if (generatedFixtures)
         {
@@ -310,7 +322,13 @@ static class Program
                 return Fail("--return-to-sender-fixtures supplies built assemblies; do not use it with --return-to-sender-catalog.");
             if (inputs.Count > 0)
                 return Fail("--return-to-sender-catalog generates its own temporary input assembly; do not pass assembly paths.");
-            return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, returnToSenderMarkout, maxExamples);
+            return ReturnToSenderCatalog(
+                returnToSenderCatalogSelector,
+                keepGeneratedFixtures,
+                json,
+                returnToSenderMarkout,
+                maxExamples,
+                emitHarnessReport);
         }
 
         if (returnToSenderFixtureGroup is not null
@@ -385,7 +403,8 @@ static class Program
                     : censusTsv ? RaCensusFormat.Tsv
                     : RaCensusFormat.Markdown,
                 emitReturnAddressSnapshot,
-                diffReturnAddressBaseline);
+                diffReturnAddressBaseline,
+                emitHarnessReport);
 
         if (notMyType)
             return NotMyTypeCensus.Run(
@@ -395,13 +414,14 @@ static class Program
                     : censusTsv ? NmtCensusFormat.Tsv
                     : NmtCensusFormat.Markdown,
                 emitNotMyTypeSnapshot,
-                diffNotMyTypeBaseline);
+                diffNotMyTypeBaseline,
+                emitHarnessReport);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (returnToSenderSourceProbe)
-            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json);
+            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json, emitHarnessReport);
 
         if (authoredRebuildFidelity)
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
@@ -518,7 +538,13 @@ static class Program
         return run.Passed ? 0 : 1;
     }
 
-    static int ReturnToSenderCatalog(string? selector, bool keepArtifacts, bool json, bool markout, int maxExamples)
+    static int ReturnToSenderCatalog(
+        string? selector,
+        bool keepArtifacts,
+        bool json,
+        bool markout,
+        int maxExamples,
+        string? emitHarnessReport)
     {
         if (json && markout)
             return Fail("--return-to-sender-markout cannot be combined with --json.");
@@ -526,6 +552,8 @@ static class Program
         var fixtures = GeneratedFixtureCatalog.Select(selector);
         if (selector == "list")
         {
+            if (emitHarnessReport is not null)
+                return Fail("--emit-harness-report does not apply to --return-to-sender-catalog list.");
             if (markout)
                 return Fail("--return-to-sender-markout does not apply to --return-to-sender-catalog list.");
             if (json)
@@ -541,6 +569,7 @@ static class Program
         var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
             fixtures,
             new GeneratedFixtureRunOptions(KeepArtifacts: keepArtifacts));
+        var report = ReturnToSenderCatalogReport.BuildReport(run, maxExamples);
         if (json)
         {
             Console.WriteLine(GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run));
@@ -548,8 +577,13 @@ static class Program
         else
         {
             Console.Write(markout
-                ? GeneratedFixtureRunner.FormatReturnToSenderCatalogMarkout(run, maxExamples)
-                : GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples));
+                ? ReturnToSenderCatalogReport.RenderMarkout(report)
+                : ReturnToSenderCatalogReport.RenderPlain(report.Payload));
+        }
+        if (emitHarnessReport is not null)
+        {
+            HarnessReportStorage.Write(emitHarnessReport, report);
+            HarnessLog.Status($"Wrote harness report: {emitHarnessReport}");
         }
         if (keepArtifacts && !json)
         {
@@ -1746,6 +1780,12 @@ static class Program
                                 run the not-my-type census and fail (exit 1) if the
                                 same-assembly agree rate regressed below baseline <f>
                                 (implies --not-my-type).
+          --emit-harness-report <f>
+                                with --return-address, --not-my-type, or
+                                --return-to-sender-catalog or
+                                --source-correspondence-census, write the shared
+                                goal-aware stored-report JSON consumed by
+                                tools/HarnessReportDiff.
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
           --return-to-sender-source-probe

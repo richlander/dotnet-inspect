@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.HarnessReports;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
@@ -63,10 +64,21 @@ internal static class ReturnAddressCensus
         int maxExamples,
         RaCensusFormat format,
         string? emitSnapshot = null,
-        string? diffBaseline = null)
+        string? diffBaseline = null,
+        string? emitHarnessReport = null)
     {
-        var report = new DecompilerHarnessReport<RaCensusReport>(Descriptor, Measure(assemblies, maxExamples));
+        var payload = Measure(assemblies, maxExamples);
+        var report = new DecompilerHarnessReport<RaCensusReport>(
+            Descriptor,
+            payload,
+            BuildComparison(payload));
         Console.Write(Format(report, maxExamples, format));
+
+        if (emitHarnessReport is not null)
+        {
+            HarnessReportStorage.Write(emitHarnessReport, report);
+            HarnessLog.Status($"Wrote harness report: {emitHarnessReport}");
+        }
 
         if (emitSnapshot is null && diffBaseline is null)
             return 0;
@@ -277,6 +289,28 @@ internal static class ReturnAddressCensus
             ("diverge", (matched - agree).ToString()),
             ("unmatched (not in surface)", TotalUnmatched(report).ToString()),
         };
+    }
+
+    static HarnessComparisonProjection BuildComparison(RaCensusReport report)
+    {
+        int matched = TotalMatched(report);
+        int agree = TotalAgree(report);
+        int unmatched = TotalUnmatched(report);
+        string aggregatePopulation = HarnessPopulationKey.Create(
+            "return-address",
+            report.Assemblies.Select(row => $"{row.Name}|{row.Opened}|{row.Matched}|{row.Unmatched}"));
+        string matchedPopulation = HarnessPopulationKey.Create(
+            "return-address.matched",
+            report.Assemblies.Where(row => row.Opened).Select(row => $"{row.Name}|{row.Matched}"));
+
+        return new HarnessComparisonProjection(
+            "#2440 Return Address member-identity equivalence census.",
+            aggregatePopulation,
+            [
+                new("agree", "Agree", MetricGoal.Higher, new MetricValue(agree, matched), matchedPopulation),
+                new("diverge", "Diverge", MetricGoal.Lower, new MetricValue(matched - agree, matched), matchedPopulation),
+                new("unmatched", "Unmatched (not in surface)", MetricGoal.Context, new MetricValue(unmatched), aggregatePopulation),
+            ]);
     }
 
     static RaCensusMarkdownView BuildMarkdownView(DecompilerHarnessReport<RaCensusReport> envelope, int maxExamples)

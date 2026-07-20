@@ -2,17 +2,9 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using DotnetInspector.HarnessReports;
 
 namespace DotnetInspector.HarnessReportDiff;
-
-public enum MetricGoal
-{
-    Higher,
-    Lower,
-    Hold,
-    Context,
-}
 
 public enum MetricVerdict
 {
@@ -21,30 +13,6 @@ public enum MetricVerdict
     Regressed,
     Incomparable,
 }
-
-public sealed record MetricValue(long Count, long? Total = null)
-{
-    public string Display => Total is > 0
-        ? $"{Count.ToString("N0", CultureInfo.InvariantCulture)} ({100.0 * Count / Total.Value:0.00}%)"
-        : Count.ToString("N0", CultureInfo.InvariantCulture);
-}
-
-public sealed record ComparableMetric(
-    string Id,
-    string Label,
-    MetricGoal Goal,
-    MetricValue Value,
-    string PopulationKey);
-
-public sealed record ResidueEvidence(long Count, bool MeasurementComplete = true);
-
-public sealed record StructuredHarnessReport(
-    int SchemaVersion,
-    string Kind,
-    string Description,
-    string PopulationKey,
-    IReadOnlyList<ComparableMetric> Metrics,
-    ResidueEvidence? Residue);
 
 public sealed record MetricComparison(
     string Id,
@@ -58,16 +26,19 @@ public sealed record MetricComparison(
 public sealed record FullyRaisedComparison(
     string Before,
     string After,
+    MetricVerdict Verdict,
     string Basis = "zero decompiler residue (V1 signal)");
 
 public sealed record HarnessComparison(
     StructuredHarnessReport Before,
     StructuredHarnessReport After,
     IReadOnlyList<MetricComparison> Metrics,
-    FullyRaisedComparison FullyRaised,
+    FullyRaisedComparison? FullyRaised,
     IReadOnlyList<string> Warnings)
 {
-    public bool HasRegressions => Metrics.Any(metric => metric.Verdict == MetricVerdict.Regressed);
+    public bool HasRegressions
+        => Metrics.Any(metric => metric.Verdict == MetricVerdict.Regressed)
+            || FullyRaised?.Verdict == MetricVerdict.Regressed;
 }
 
 public static class HarnessReportComparer
@@ -76,17 +47,37 @@ public static class HarnessReportComparer
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
+        ValidateReport(before, "before");
+        ValidateReport(after, "after");
         if (before.SchemaVersion != after.SchemaVersion)
             throw new InvalidOperationException($"Report schema differs ({before.SchemaVersion} vs {after.SchemaVersion}).");
         if (!string.Equals(before.Kind, after.Kind, StringComparison.Ordinal))
             throw new InvalidOperationException($"Report kind differs ('{before.Kind}' vs '{after.Kind}').");
 
+        bool aggregatePopulationKnown = PopulationKnown(before.PopulationKey)
+            && PopulationKnown(after.PopulationKey);
+        bool aggregateComparable = aggregatePopulationKnown
+            && string.Equals(before.PopulationKey, after.PopulationKey, StringComparison.Ordinal);
+        bool reportsComplete = before.Disposition == HarnessRunDisposition.Completed
+            && after.Disposition == HarnessRunDisposition.Completed;
         var warnings = new List<string>();
-        if (!string.Equals(before.PopulationKey, after.PopulationKey, StringComparison.Ordinal))
+        if (!aggregatePopulationKnown)
+            warnings.Add("The aggregate population identity is unavailable; population-sensitive rows are marked incomparable.");
+        else if (!aggregateComparable)
             warnings.Add("The aggregate population differs; population-sensitive rows are marked incomparable.");
+        if (before.Disposition != HarnessRunDisposition.Completed || after.Disposition != HarnessRunDisposition.Completed)
+            warnings.Add($"Execution disposition is not completed ({before.Disposition} -> {after.Disposition}).");
 
-        var beforeById = before.Metrics.ToDictionary(metric => metric.Id, StringComparer.Ordinal);
-        var afterById = after.Metrics.ToDictionary(metric => metric.Id, StringComparer.Ordinal);
+        var beforeById = IndexMetrics(before.Metrics, "before");
+        var afterById = IndexMetrics(after.Metrics, "after");
+        string[] missingAfter = [.. beforeById.Keys.Except(afterById.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+        string[] missingBefore = [.. afterById.Keys.Except(beforeById.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+        if (missingAfter.Length != 0 || missingBefore.Length != 0)
+        {
+            throw new InvalidOperationException(
+                $"Metric set differs; missing after: {ListOrNone(missingAfter)}; missing before: {ListOrNone(missingBefore)}.");
+        }
+
         var comparisons = new List<MetricComparison>();
         foreach (string id in beforeById.Keys.Intersect(afterById.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
@@ -95,7 +86,10 @@ public static class HarnessReportComparer
             if (left.Goal != right.Goal)
                 throw new InvalidOperationException($"Metric '{id}' changed goal ({left.Goal} vs {right.Goal}).");
 
-            bool comparable = string.Equals(left.PopulationKey, right.PopulationKey, StringComparison.Ordinal);
+            bool comparable = reportsComplete
+                && PopulationKnown(left.PopulationKey)
+                && PopulationKnown(right.PopulationKey)
+                && string.Equals(left.PopulationKey, right.PopulationKey, StringComparison.Ordinal);
             long delta = right.Value.Count - left.Value.Count;
             var verdict = comparable ? Verdict(left.Goal, delta) : MetricVerdict.Incomparable;
             comparisons.Add(new MetricComparison(
@@ -108,17 +102,56 @@ public static class HarnessReportComparer
                 comparable ? Delta(left.Value, right.Value) : "n/a"));
         }
 
-        foreach (string id in beforeById.Keys.Except(afterById.Keys, StringComparer.Ordinal))
-            warnings.Add($"Metric '{id}' is missing from the after report.");
-        foreach (string id in afterById.Keys.Except(beforeById.Keys, StringComparer.Ordinal))
-            warnings.Add($"Metric '{id}' is missing from the before report.");
-
         return new HarnessComparison(
             before,
             after,
             comparisons,
-            new FullyRaisedComparison(FullyRaisedText(before.Residue), FullyRaisedText(after.Residue)),
+            CompareFullyRaised(before.Residue, after.Residue, aggregateComparable && reportsComplete),
             warnings);
+    }
+
+    static void ValidateReport(StructuredHarnessReport report, string side)
+    {
+        if (report.SchemaVersion < 1)
+            throw new InvalidOperationException($"The {side} report has an invalid schema version.");
+        if (string.IsNullOrWhiteSpace(report.Kind))
+            throw new InvalidOperationException($"The {side} report has no kind.");
+        if (string.IsNullOrWhiteSpace(report.PopulationKey))
+            throw new InvalidOperationException($"The {side} report has no aggregate population identity.");
+        if (report.Metrics is null)
+            throw new InvalidOperationException($"The {side} report has no metric collection.");
+
+        for (int i = 0; i < report.Metrics.Count; i++)
+        {
+            var metric = report.Metrics[i];
+            if (metric is null)
+                throw new InvalidOperationException($"Metric {i} is null in the {side} report.");
+            if (string.IsNullOrWhiteSpace(metric.Id))
+                throw new InvalidOperationException($"Metric {i} has no ID in the {side} report.");
+            if (metric.Value is null)
+                throw new InvalidOperationException($"Metric '{metric.Id}' has no value in the {side} report.");
+            if (string.IsNullOrWhiteSpace(metric.PopulationKey))
+                throw new InvalidOperationException($"Metric '{metric.Id}' has no population identity in the {side} report.");
+        }
+    }
+
+    static bool PopulationKnown(string populationKey)
+        => !populationKey.StartsWith("unavailable:", StringComparison.Ordinal);
+
+    static string ListOrNone(IReadOnlyList<string> values)
+        => values.Count == 0 ? "none" : string.Join(", ", values.Select(value => $"'{value}'"));
+
+    static Dictionary<string, ComparableMetric> IndexMetrics(
+        IReadOnlyList<ComparableMetric> metrics,
+        string side)
+    {
+        var indexed = new Dictionary<string, ComparableMetric>(StringComparer.Ordinal);
+        foreach (var metric in metrics)
+        {
+            if (!indexed.TryAdd(metric.Id, metric))
+                throw new InvalidOperationException($"Metric '{metric.Id}' is duplicated in the {side} report.");
+        }
+        return indexed;
     }
 
     static MetricVerdict Verdict(MetricGoal goal, long delta) => goal switch
@@ -132,14 +165,36 @@ public static class HarnessReportComparer
         _ => MetricVerdict.Neutral,
     };
 
-    static string FullyRaisedText(ResidueEvidence? residue)
+    static FullyRaisedComparison? CompareFullyRaised(
+        ResidueEvidence? before,
+        ResidueEvidence? after,
+        bool populationComparable)
     {
-        if (residue is not { MeasurementComplete: true })
-            return "Not established — residue measurement unavailable";
-        return residue.Count == 0
-            ? "Yes — zero residue"
-            : $"No — {residue.Count.ToString("N0", CultureInfo.InvariantCulture)} residual method(s)";
+        if (before is null && after is null)
+            return null;
+        if (!populationComparable)
+        {
+            return new FullyRaisedComparison(
+                "Incomparable",
+                "Incomparable",
+                MetricVerdict.Incomparable);
+        }
+
+        string beforeText = FullyRaisedText(before);
+        string afterText = FullyRaisedText(after);
+        var verdict = before is { MeasurementComplete: true }
+            && after is { MeasurementComplete: true }
+            ? Verdict(MetricGoal.Lower, after.Count - before.Count)
+            : MetricVerdict.Incomparable;
+        return new FullyRaisedComparison(beforeText, afterText, verdict);
     }
+
+    static string FullyRaisedText(ResidueEvidence? residue)
+        => residue is not { MeasurementComplete: true }
+            ? "Not established — residue measurement unavailable"
+            : residue.Count == 0
+                ? "Yes — zero residue"
+                : $"No — {residue.Count.ToString("N0", CultureInfo.InvariantCulture)} residual method(s)";
 
     static string Signed(long value)
         => value == 0 ? "0" : value.ToString("+0;-0", CultureInfo.InvariantCulture);
@@ -162,20 +217,56 @@ public static class HarnessReportReader
 {
     public static StructuredHarnessReport Read(string path)
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        var root = document.RootElement;
-        return root.TryGetProperty("kind", out _)
-            ? ReadStructured(root)
-            : ReadCorpusSnapshot(root);
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            if (root.TryGetProperty("descriptor", out _))
+                return ReadStored(root);
+            if (root.TryGetProperty("kind", out _))
+                return ReadStructured(root);
+            if (root.TryGetProperty("schemaVersion", out _)
+                && root.TryGetProperty("metrics", out _)
+                && root.TryGetProperty("assemblies", out _))
+            {
+                return ReadCorpusSnapshot(root);
+            }
+            throw new InvalidOperationException("Input is not a stored harness report or a decompiler corpus snapshot.");
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new InvalidOperationException($"Harness report is missing a required property: {ex.Message}", ex);
+        }
+    }
+
+    static StructuredHarnessReport ReadStored(JsonElement root)
+    {
+        var stored = HarnessReportStorage.Read(root);
+        if (stored.Descriptor is null)
+            throw new InvalidOperationException("The stored harness report has no descriptor.");
+        if (stored.Comparison is null)
+            throw new InvalidOperationException("The stored harness report has no comparison projection.");
+        return new StructuredHarnessReport(
+            stored.Descriptor.SchemaVersion,
+            stored.Descriptor.Id,
+            stored.Comparison.Description,
+            stored.Comparison.PopulationKey,
+            stored.Comparison.Metrics,
+            stored.Comparison.Residue,
+            stored.Disposition,
+            stored.Blockers,
+            stored.Artifacts);
     }
 
     static StructuredHarnessReport ReadStructured(JsonElement root)
-        => JsonSerializer.Deserialize<StructuredHarnessReport>(root.GetRawText(), JsonOptions())
+        => JsonSerializer.Deserialize<StructuredHarnessReport>(
+            root.GetRawText(),
+            HarnessReportStorage.JsonOptions(writeIndented: false))
             ?? throw new InvalidOperationException("The structured harness report was empty.");
 
     static StructuredHarnessReport ReadCorpusSnapshot(JsonElement root)
     {
-        _ = RequiredInt(root, "schemaVersion");
+        int schemaVersion = RequiredInt(root, "schemaVersion");
         string description = RequiredString(root, "description");
         string profile = root.TryGetProperty("profile", out var profileNode) ? profileNode.GetString() ?? "real-world" : "real-world";
         string oracle = root.TryGetProperty("fidelityOracle", out var oracleNode) ? oracleNode.GetString() ?? "compile-back" : "compile-back";
@@ -187,9 +278,12 @@ public static class HarnessReportReader
         var fidelity = metrics.GetProperty("fidelity");
         long fidelityChecked = RequiredLong(fidelity, "checkedMethods");
 
-        string aggregatePopulation = $"{profile}|cap={methodCap?.ToString(CultureInfo.InvariantCulture) ?? "all"}|{AssemblyPopulation(root)}";
-        string validityPopulation = SamplePopulation(root, "validity", value => value != "not-sampled");
-        string fidelityPopulation = SamplePopulation(root, "fidelityCheck", value => value != "not-sampled");
+        string methodPopulation = AggregatePopulation(root);
+        string aggregatePopulation = methodPopulation.StartsWith("unavailable:", StringComparison.Ordinal)
+            ? $"unavailable:{profile}|cap={methodCap?.ToString(CultureInfo.InvariantCulture) ?? "all"}|{methodPopulation}"
+            : $"{profile}|cap={methodCap?.ToString(CultureInfo.InvariantCulture) ?? "all"}|{methodPopulation}";
+        string validityPopulation = SamplePopulation(root, "validity", value => value != "not-sampled", aggregatePopulation);
+        string fidelityPopulation = SamplePopulation(root, "fidelityCheck", value => value != "not-sampled", aggregatePopulation);
 
         var rows = new List<ComparableMetric>
         {
@@ -213,7 +307,7 @@ public static class HarnessReportReader
         }
 
         return new StructuredHarnessReport(
-            1,
+            schemaVersion,
             $"decompiler-corpus.{profile}.{oracle}",
             description,
             aggregatePopulation,
@@ -224,18 +318,30 @@ public static class HarnessReportReader
     static ComparableMetric Metric(string id, string label, MetricGoal goal, long count, long total, string population)
         => new(id, label, goal, new MetricValue(count, total), population);
 
-    static string AssemblyPopulation(JsonElement root)
+    static string AggregatePopulation(JsonElement root)
     {
+        if (root.TryGetProperty("methods", out var methods) && methods.ValueKind == JsonValueKind.Array)
+        {
+            var identities = methods.EnumerateArray()
+                .Select(method => $"{RequiredString(method, "assembly")}|{RequiredString(method, "displayMethod")}")
+                .Order(StringComparer.Ordinal);
+            return Hash(string.Join("\n", identities));
+        }
+
         var values = root.GetProperty("assemblies").EnumerateArray()
             .Select(row => $"{RequiredString(row, "assembly")}:{RequiredLong(row, "totalMethods")}")
             .Order(StringComparer.Ordinal);
-        return Hash(string.Join("\n", values));
+        return $"unavailable:{Hash(string.Join("\n", values))}";
     }
 
-    static string SamplePopulation(JsonElement root, string property, Func<string, bool> include)
+    static string SamplePopulation(
+        JsonElement root,
+        string property,
+        Func<string, bool> include,
+        string aggregatePopulation)
     {
         if (!root.TryGetProperty("methods", out var methods) || methods.ValueKind != JsonValueKind.Array)
-            return "sample-unavailable";
+            return $"unavailable:{aggregatePopulation}";
         var values = methods.EnumerateArray()
             .Where(method => method.TryGetProperty(property, out var value) && include(value.GetString() ?? ""))
             .Select(method => method.TryGetProperty("displayMethod", out var display) ? display.GetString() ?? "" : "")
@@ -248,10 +354,4 @@ public static class HarnessReportReader
     static long RequiredLong(JsonElement value, string property) => value.GetProperty(property).GetInt64();
     static long OptionalLong(JsonElement value, string property) => value.TryGetProperty(property, out var node) ? node.GetInt64() : 0;
     static string RequiredString(JsonElement value, string property) => value.GetProperty(property).GetString() ?? throw new InvalidOperationException($"'{property}' was null.");
-    static JsonSerializerOptions JsonOptions()
-    {
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        options.Converters.Add(new JsonStringEnumConverter());
-        return options;
-    }
 }

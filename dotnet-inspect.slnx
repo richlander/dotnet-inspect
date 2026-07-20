@@ -71,6 +71,7 @@
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />
     <Project Path="tools/IlDiffHarness/IlDiffHarness.csproj" />
     <Project Path="tools/HarnessReportDiff/HarnessReportDiff.csproj" />
+    <Project Path="tools/HarnessReportProtocol/HarnessReportProtocol.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
   </Folder>
 </Solution>

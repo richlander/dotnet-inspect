@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.HarnessReports;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Markout;
@@ -72,10 +73,21 @@ internal static class NotMyTypeCensus
         int maxExamples,
         NmtCensusFormat format,
         string? emitSnapshot = null,
-        string? diffBaseline = null)
+        string? diffBaseline = null,
+        string? emitHarnessReport = null)
     {
-        var report = new DecompilerHarnessReport<NmtCensusReport>(Descriptor, Measure(assemblies, maxExamples));
+        var payload = Measure(assemblies, maxExamples);
+        var report = new DecompilerHarnessReport<NmtCensusReport>(
+            Descriptor,
+            payload,
+            BuildComparison(payload));
         Console.Write(Format(report, maxExamples, format));
+
+        if (emitHarnessReport is not null)
+        {
+            HarnessReportStorage.Write(emitHarnessReport, report);
+            HarnessLog.Status($"Wrote harness report: {emitHarnessReport}");
+        }
 
         if (emitSnapshot is null && diffBaseline is null)
             return 0;
@@ -313,6 +325,32 @@ internal static class NotMyTypeCensus
             ("recovered", TotalRecovered(report).ToString()),
             ("recovery rate", Pct(TotalRecovered(report), crossRefs)),
         };
+    }
+
+    static HarnessComparisonProjection BuildComparison(NmtCensusReport report)
+    {
+        int definitions = TotalDefinitions(report);
+        int agree = TotalAgree(report);
+        int crossRefs = TotalCrossRefs(report);
+        int recovered = TotalRecovered(report);
+        string aggregatePopulation = HarnessPopulationKey.Create(
+            "not-my-type",
+            report.Assemblies.Select(row => $"{row.Name}|{row.Opened}|{row.Definitions}|{row.CrossRefs}"));
+        string definitionPopulation = HarnessPopulationKey.Create(
+            "not-my-type.definitions",
+            report.Assemblies.Where(row => row.Opened).Select(row => $"{row.Name}|{row.Definitions}"));
+        string referencePopulation = HarnessPopulationKey.Create(
+            "not-my-type.cross-references",
+            report.Assemblies.Where(row => row.Opened).Select(row => $"{row.Name}|{row.CrossRefs}"));
+
+        return new HarnessComparisonProjection(
+            "#2548 Not My Type type-shape equivalence census.",
+            aggregatePopulation,
+            [
+                new("agree", "Agree", MetricGoal.Higher, new MetricValue(agree, definitions), definitionPopulation),
+                new("diverge", "Diverge", MetricGoal.Lower, new MetricValue(TotalDiverge(report), definitions), definitionPopulation),
+                new("recovered", "Cross-assembly references recovered", MetricGoal.Higher, new MetricValue(recovered, crossRefs), referencePopulation),
+            ]);
     }
 
     static NmtCensusMarkdownView BuildMarkdownView(DecompilerHarnessReport<NmtCensusReport> envelope, int maxExamples)

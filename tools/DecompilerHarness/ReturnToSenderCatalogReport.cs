@@ -1,4 +1,5 @@
 using System.Text;
+using DotnetInspector.HarnessReports;
 using ILInspector.Instructions;
 using ILInspector.Research;
 using Markout;
@@ -39,7 +40,10 @@ internal static class ReturnToSenderCatalogReport
     public static DecompilerHarnessReport<ReturnToSenderCatalogReportView> BuildReport(
         GeneratedFixtureReturnToSenderRunResult run,
         int maxExamples)
-        => new(Descriptor, Build(run, maxExamples));
+    {
+        var view = Build(run, maxExamples);
+        return new(Descriptor, view, BuildComparison(run, view));
+    }
 
     public static ReturnToSenderCatalogReportView Build(GeneratedFixtureReturnToSenderRunResult run, int maxExamples)
     {
@@ -91,6 +95,27 @@ internal static class ReturnToSenderCatalogReport
             Buckets(run.Results.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail)),
             [.. fixtureRows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Fail).Take(maxExamples)],
             [.. fixtureRows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Pass).Take(maxExamples)]);
+    }
+
+    static HarnessComparisonProjection BuildComparison(
+        GeneratedFixtureReturnToSenderRunResult run,
+        ReturnToSenderCatalogReportView view)
+    {
+        string population = HarnessPopulationKey.Create(
+            "return-to-sender.catalog",
+            run.Results.Select(row => $"{row.FixtureId}|{row.DisplayMember}"));
+
+        return new HarnessComparisonProjection(
+            "ReturnToSender generated-fixture catalog.",
+            population,
+            [
+                new("fixtures-passed", "Fixtures passed", MetricGoal.Higher, new MetricValue(view.Fixtures.Passed, view.FixtureCount), population),
+                new("fixtures-skipped", "Fixtures skipped", MetricGoal.Lower, new MetricValue(view.Fixtures.Skipped, view.FixtureCount), population),
+                new("fixtures-failed", "Fixtures failed", MetricGoal.Lower, new MetricValue(view.Fixtures.Failed, view.FixtureCount), population),
+                new("targets-passed", "Targets passed", MetricGoal.Higher, new MetricValue(view.Targets.Passed, view.TargetCount), population),
+                new("targets-skipped", "Targets skipped", MetricGoal.Lower, new MetricValue(view.Targets.Skipped, view.TargetCount), population),
+                new("targets-failed", "Targets failed", MetricGoal.Lower, new MetricValue(view.Targets.Failed, view.TargetCount), population),
+            ]);
     }
 
     public static string RenderPlain(ReturnToSenderCatalogReportView view)

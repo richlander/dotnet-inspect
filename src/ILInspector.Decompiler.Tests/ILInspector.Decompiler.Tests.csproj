@@ -42,6 +42,7 @@
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
   </ItemGroup>
 
   <!--
@@ -55,8 +56,6 @@
     <Compile Include="..\..\tools\DecompilerHarness\InverseLedger.cs" Link="InverseArchitecture\InverseLedger.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\HarnessLog.cs"
              Link="HarnessLog.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\DecompilerHarnessReport.cs"
-             Link="DecompilerHarnessReport.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\DecompilerHarnessReportViews.cs"
              Link="DecompilerHarnessReportViews.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMetadata.cs"

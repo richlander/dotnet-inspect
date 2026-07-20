@@ -1,3 +1,5 @@
+using DotnetInspector.HarnessReports;
+
 namespace ILInspector.DecompilerHarness;
 
 internal static class DecompilerHarnessReportViews

@@ -1,4 +1,5 @@
 using DotnetInspector.HarnessReportDiff;
+using DotnetInspector.HarnessReports;
 using Markout;
 using Markout.Formatting;
 using System.Text.Json;
@@ -32,17 +33,31 @@ for (int i = 2; i < args.Length; i++)
 try
 {
     var comparison = HarnessReportComparer.Compare(HarnessReportReader.Read(beforePath), HarnessReportReader.Read(afterPath));
-    var view = ComparisonView.Create(comparison);
-    var formatter = format == "markdown" ? (IMarkoutFormatter)new MarkdownFormatter() : new TableFormatter(showHeader: true);
-    var options = format switch
-    {
-        "markdown" => new MarkoutWriterOptions(),
-        "tsv" => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv, JsonTypedValues = true, OmitEmptyJsonFields = true },
-        "jsonl" => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl, JsonTypedValues = true, OmitEmptyJsonFields = true },
-        _ => throw new InvalidOperationException($"Unsupported format '{format}'."),
-    };
     var output = new StringWriter();
-    MarkoutSerializer.Serialize(view, output, formatter, ComparisonViewContext.Default, options);
+    if (format == "markdown")
+    {
+        MarkoutSerializer.Serialize(
+            ComparisonView.Create(comparison),
+            output,
+            new MarkdownFormatter(),
+            ComparisonViewContext.Default,
+            new MarkoutWriterOptions());
+    }
+    else
+    {
+        var options = format switch
+        {
+            "tsv" => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Tsv },
+            "jsonl" => new MarkoutWriterOptions { TableMode = MarkoutTableMode.Jsonl, OmitEmptyJsonFields = true },
+            _ => throw new InvalidOperationException($"Unsupported format '{format}'."),
+        };
+        MarkoutSerializer.Serialize(
+            ComparisonTableView.Create(comparison),
+            output,
+            new TableFormatter(showHeader: true),
+            ComparisonViewContext.Default,
+            options);
+    }
     string rendered = output.ToString();
     if (format == "jsonl")
     {
@@ -54,7 +69,11 @@ try
     Console.Write(rendered);
     return failOnRegression && comparison.HasRegressions ? 1 : 0;
 }
-catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or UnauthorizedAccessException)
+catch (Exception ex) when (ex is IOException
+    or JsonException
+    or InvalidOperationException
+    or UnauthorizedAccessException
+    or ArgumentException)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
@@ -85,7 +104,9 @@ sealed class ComparisonView
             new("Before", comparison.Before.Kind, comparison.Before.Description),
             new("After", comparison.After.Kind, comparison.After.Description),
         ],
-        FullyRaised = [new(comparison.FullyRaised.Before, comparison.FullyRaised.After, comparison.FullyRaised.Basis)],
+        FullyRaised = comparison.FullyRaised is { } fullyRaised
+            ? [new(fullyRaised.Before, fullyRaised.After, fullyRaised.Basis, fullyRaised.Verdict.ToString())]
+            : null,
         Metrics = [.. comparison.Metrics.Select(MetricRow.Create)],
         Warnings = comparison.Warnings.Count == 0 ? null : [.. comparison.Warnings.Select(warning => new WarningRow(warning))],
     };
@@ -95,7 +116,7 @@ sealed class ComparisonView
 sealed record ReportRow(string Side, string Kind, string Description);
 
 [MarkoutSerializable]
-sealed record FullyRaisedRow(string Before, string After, string Basis);
+sealed record FullyRaisedRow(string Before, string After, string Basis, string Verdict);
 
 [MarkoutSerializable]
 sealed record MetricRow(
@@ -120,12 +141,75 @@ sealed record MetricRow(
 [MarkoutSerializable]
 sealed record WarningRow(string Warning);
 
+[MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
+sealed class ComparisonTableView
+{
+    [MarkoutIgnore]
+    public string Title => "Harness report diff";
+
+    [MarkoutSection(Name = "Rows")]
+    public required List<ComparisonTableRow> Rows { get; init; }
+
+    public static ComparisonTableView Create(HarnessComparison comparison)
+    {
+        var rows = new List<ComparisonTableRow>
+        {
+            new("Report", "Before", "", "", "", "", $"{comparison.Before.Kind}: {comparison.Before.Description}"),
+            new("Report", "After", "", "", "", "", $"{comparison.After.Kind}: {comparison.After.Description}"),
+        };
+        if (comparison.FullyRaised is { } endpoint)
+        {
+            rows.Add(new(
+                "Endpoint",
+                "Fully raised",
+                endpoint.Before,
+                endpoint.After,
+                "",
+                endpoint.Verdict.ToString(),
+                endpoint.Basis));
+        }
+        rows.AddRange(comparison.Metrics.Select(metric =>
+        {
+            string goal = metric.Goal switch
+            {
+                MetricGoal.Higher => "+",
+                MetricGoal.Lower => "−",
+                MetricGoal.Hold => "=",
+                _ => "context",
+            };
+            return new ComparisonTableRow(
+                "Metric",
+                $"{metric.Label} ({goal})",
+                metric.Before.Display,
+                metric.After.Display,
+                metric.Delta,
+                metric.Verdict.ToString(),
+                "");
+        }));
+        rows.AddRange(comparison.Warnings.Select(warning =>
+            new ComparisonTableRow("Warning", "Warning", "", "", "", "", warning)));
+        return new ComparisonTableView { Rows = rows };
+    }
+}
+
+[MarkoutSerializable]
+sealed record ComparisonTableRow(
+    string Section,
+    string Item,
+    string Before,
+    string After,
+    string Delta,
+    string Verdict,
+    string Detail);
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(ComparisonView))]
 [MarkoutContext(typeof(ReportRow))]
 [MarkoutContext(typeof(FullyRaisedRow))]
 [MarkoutContext(typeof(MetricRow))]
 [MarkoutContext(typeof(WarningRow))]
+[MarkoutContext(typeof(ComparisonTableView))]
+[MarkoutContext(typeof(ComparisonTableRow))]
 partial class ComparisonViewContext : MarkoutSerializerContext
 {
 }
