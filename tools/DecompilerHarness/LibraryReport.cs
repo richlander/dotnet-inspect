@@ -85,12 +85,12 @@ internal static class LibraryReport
         int patternLimit = Math.Max(1, topPatterns);
         var selectedReports = SelectLibraries(reports, topLibraries);
         return BuildPortfolio(
-            selectedReports,
+            reports,
             patternLimit,
             maxExamples,
             methodCap,
             compileCap,
-            reports.Sum(report => report.PassBugs));
+            selectedReports);
     }
 
     static IReadOnlyList<AssemblyReport> SelectLibraries(IReadOnlyList<AssemblyReport> reports, int? topLibraries)
@@ -299,17 +299,17 @@ internal static class LibraryReport
         int maxExamples,
         int methodCap = int.MaxValue,
         int semanticCompileCap = int.MaxValue,
-        int? totalPassBugs = null)
+        IReadOnlyList<AssemblyReport>? displayedLibraries = null)
     {
         var allPatterns = TopPatterns(reports, int.MaxValue, maxExamples);
         return new LibraryPortfolioReport(
             methodCap,
             semanticCompileCap,
-            totalPassBugs ?? reports.Sum(report => report.PassBugs),
+            reports.Sum(report => report.PassBugs),
             [.. allPatterns.Where(pattern => IsCorrectnessDefect(pattern.Name))],
             PromotionCandidates(reports),
             [.. allPatterns.Take(Math.Max(1, topPatterns))],
-            reports);
+            displayedLibraries ?? reports);
     }
 
     static bool IsCorrectnessDefect(string pattern)

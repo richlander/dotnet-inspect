@@ -41,6 +41,32 @@ public class LibraryReportTests
             candidate.Reasons);
     }
 
+    [Fact]
+    public void BuildPortfolio_KeepsGlobalEvidenceOutsideDisplayedLibraries()
+    {
+        var hiddenDefect = Report(
+            "HiddenDefect",
+            new PatternReport("pass-bug: InvalidOperationException", 1, ["HiddenDefect::M"]))
+            with
+            {
+                PassBugs = 1,
+            };
+        var displayed = Report(
+            "Displayed",
+            new PatternReport("fidelity: unsupported-node", 10, ["Displayed::M"]));
+
+        var portfolio = LibraryReport.BuildPortfolio(
+            [hiddenDefect, displayed],
+            topPatterns: 10,
+            maxExamples: 2,
+            displayedLibraries: [displayed]);
+
+        Assert.Equal(1, portfolio.TotalPassBugs);
+        Assert.Equal("pass-bug: InvalidOperationException", Assert.Single(portfolio.DefectClasses).Name);
+        Assert.Equal("HiddenDefect", Assert.Single(portfolio.PromotionCandidates).Assembly);
+        Assert.Equal("Displayed", Assert.Single(portfolio.Libraries).Assembly);
+    }
+
     static AssemblyReport Report(string assembly, params PatternReport[] patterns)
         => new(
             assembly,
