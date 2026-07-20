@@ -412,6 +412,19 @@ public static class StackallocInitializerNegatives
             System.Runtime.CompilerServices.Unsafe.CopyBlock(dest, src, 10);
         }
     }
+
+    // Boolean/floating-point RVA elements are not covered by RvaSpanPass's shared
+    // primitive decoder in a bit-preserving way (Boolean canonicalizes to true/false,
+    // NaN payloads collapse), so StackAllocInitializerPass declines these element
+    // types until that decoder round-trips exactly.
+    public static unsafe bool StackallocBooleanInitializer()
+    {
+        unsafe
+        {
+            bool* values = stackalloc bool[] { true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false };
+            return values[0] || values[2];
+        }
+    }
 }
 
 public static class PointerArithmeticFixtures

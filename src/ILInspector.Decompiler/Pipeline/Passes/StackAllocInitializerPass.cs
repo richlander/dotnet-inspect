@@ -217,7 +217,16 @@ public sealed class StackAllocInitializerPass : IIrPass
                 if (elementType != null)
                 {
                     int? elementSize = GetSizeOf(elementType);
-                    if (elementSize != null && copySize % elementSize.Value == 0 && rvaData.Length == copySize)
+                    // RvaSpanPass's shared primitive decoder is not bit-preserving for Boolean
+                    // (any nonzero byte canonicalizes to `true`) or floating-point NaN payloads
+                    // (collapse to the canonical NaN bit pattern). Decline those element types here
+                    // until that decoder is made bit-preserving, rather than raising a literal whose
+                    // recompiled bytes can differ from the original RVA data.
+                    bool isLossyElementType = elementType.Kind == TypeRefKind.Definition
+                        && elementType.Assembly == TypeRef.CoreLibrary
+                        && elementType.Namespace == "System"
+                        && elementType.Name is "Boolean" or "Single" or "Double";
+                    if (elementSize != null && !isLossyElementType && copySize % elementSize.Value == 0 && rvaData.Length == copySize)
                     {
                         int requiredElementCount = copySize / elementSize.Value;
                         elements = RvaSpanPass.DecodeElements(function, elementType, rvaData, requiredElementCount);
