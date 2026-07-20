@@ -457,7 +457,14 @@ static class Program
             return SlotUnifierCensus.Run(assemblies, corpusMethodCap, maxExamples);
 
         if (libraryReport)
-            return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
+            return LibraryReport.Run(
+                assemblies,
+                compileCap,
+                maxExamples,
+                json,
+                topPatterns,
+                topLibraries,
+                corpusMethodCap);
 
         if (unsupportedNodes)
             return UnsupportedNodeReport.Run(assemblies, maxExamples, json);
@@ -1865,7 +1872,9 @@ static class Program
                                 non-zero on any precision violation.
           --library-report       per-assembly summary: Full %, fully-raised %,
                                 validity defects, residual pattern buckets, and
-                                examples. Use --json for machine-readable output.
+                                examples. Use --json for machine-readable output
+                                and --corpus-method-cap for a deterministic,
+                                bounded per-assembly sample.
           --unsupported-nodes    report every unsupported IL marker left in the
                                 raised tree, grouped by opcode/reason. Use --json
                                 for machine-readable output.
