@@ -38,17 +38,6 @@ public sealed record MethodRef(
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
     /// <summary>
-    /// Metadata fact: the declaring type is from the trusted platform boundary
-    /// (the core library), proven by the public-key token of its root assembly
-    /// reference, preserving exact TypeReference handles. The printer's map to a
-    /// real framework type keys off this token-anchored fact rather than the name.
-    /// <see cref="MetadataFactState.Yes"/> only for token-verified platform
-    /// MemberRefs; <see cref="MetadataFactState.Unknown"/> otherwise (a MethodDef,
-    /// MethodSpec, or a non-platform MemberRef never sets it).
-    /// </summary>
-    public MetadataFactState DeclaringTypeIsTrustedPlatform { get; init; } = MetadataFactState.Unknown;
-
-    /// <summary>
     /// Whether <see cref="ParameterRefKinds"/> is known. Distinguishes "no by-ref
     /// parameters needed spelling facts" from "a MemberRef did not expose rows."
     /// </summary>
@@ -117,6 +106,21 @@ public sealed record MethodRef(
     /// signature alone.
     /// </summary>
     public MetadataFactState DeclaringTypeIsDelegate { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// The callee's declaring type was reached through a <em>trusted-platform</em>
+    /// assembly reference — a reference whose public-key token is a framework token
+    /// (verified at import via <see cref="ILInspector.Metadata.PlatformKeys"/>),
+    /// covering both a direct platform reference and a framework forwarding facade.
+    /// The simple assembly name is forgeable, so a consumer that must not confuse a
+    /// planted lookalike (an unsigned assembly literally named
+    /// <c>System.Linq.Expressions</c> defining its own <c>Expression</c>) with the
+    /// real framework type keys off this token-anchored fact rather than the name.
+    /// <see cref="MetadataFactState.Yes"/> only for token-verified platform
+    /// MemberRefs; <see cref="MetadataFactState.Unknown"/> otherwise (a MethodDef,
+    /// MethodSpec, or a non-platform MemberRef never sets it).
+    /// </summary>
+    public MetadataFactState DeclaringTypeIsTrustedPlatform { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
     /// Metadata <c>[Extension]</c> evidence on this method: it is an extension
@@ -2450,6 +2454,22 @@ public sealed class Lambda : IrExpression
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
     public override TypeRef? ResultType => DelegateType;
+
+    /// <summary>
+    /// The lambda was recovered from a <c>System.Linq.Expressions</c> factory
+    /// graph (<see cref="ExpressionTreeLambdaRaisingPass"/>), so it is an
+    /// <em>expression-tree</em> lambda: the C# compiler at the consuming site
+    /// builds an <see cref="System.Linq.Expressions.Expression{TDelegate}"/> from
+    /// it under that project's own overflow-checking default. The matched graph
+    /// used the unchecked <c>Expression.Add/Subtract/Multiply</c> factories, so the
+    /// printer must spell overflow-prone arithmetic inside an explicit
+    /// <c>unchecked(...)</c> — otherwise a project compiled with
+    /// <c>CheckForOverflowUnderflow</c> would rebuild the tree with the checked
+    /// <c>AddChecked</c> node, silently changing the tree identity the rewrite
+    /// claims to preserve. False for ordinary delegate lambdas, whose printing is
+    /// unaffected.
+    /// </summary>
+    public bool IsExpressionTree { get; init; }
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
 
