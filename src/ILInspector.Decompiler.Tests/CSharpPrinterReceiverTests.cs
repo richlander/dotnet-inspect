@@ -347,6 +347,33 @@ public sealed class CSharpPrinterReceiverTests
         AssertCompiles("public static int M<T>(object o)", body);
     }
 
+    [Fact]
+    public void UnboxReceiver_KnownReferenceType_KeepsCast()
+    {
+        // Defensive: `unbox` of a reference type is malformed IL, but if one
+        // reaches the printer the receiver must not spell `Unsafe.Unbox<C>` — C is
+        // not a struct (CS0453). When the resolver knows the target is a reference
+        // type, the value-position receiver keeps the compiling cast `((C)o)`.
+        var c = TypeRef.Definition("synthetic", "", "C");
+        var call = new Call(
+            new MethodRef(c, "M", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(c, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(
+            call,
+            Int32Type,
+            [new Parameter("o", ObjectType)],
+            typeShapes: new Dictionary<TypeRef, TypeShape> { [c] = TypeShape.Reference });
+
+        Assert.Contains("((C)o).M()", body);
+        Assert.DoesNotContain("Unsafe.Unbox", body);
+        AssertCompiles(
+            "public static int M(object o)",
+            body,
+            "public class C { public int M() => 0; }");
+    }
+
     static MethodRef Extension(string name, TypeRef receiverType)
         => new(
             TypeRef.Definition("synthetic", "", "Extensions"),
@@ -374,7 +401,8 @@ public sealed class CSharpPrinterReceiverTests
         IrExpression value,
         TypeRef returnType,
         IReadOnlyList<Parameter>? parameters = null,
-        IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>>? enumMembers = null)
+        IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>>? enumMembers = null,
+        IReadOnlyDictionary<TypeRef, TypeShape>? typeShapes = null)
     {
         var block = new Block(0);
         block.Add(new Return(value));
@@ -385,6 +413,7 @@ public sealed class CSharpPrinterReceiverTests
         var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
         {
             EnumMembers = enumMembers ?? ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty,
+            TypeShapes = typeShapes ?? ImmutableDictionary<TypeRef, TypeShape>.Empty,
         };
         return CSharpPrinter.Print(function).Output!.Trim();
     }

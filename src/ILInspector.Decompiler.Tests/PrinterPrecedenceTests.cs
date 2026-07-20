@@ -133,6 +133,29 @@ public class PrinterPrecedenceTests
         AssertCompiles("public static ref int M(object o)", output);
     }
 
+    // Review (#2925): a ref-place (here a by-ref return) of a *generic-parameter*
+    // unbox must keep the faithful `Unsafe.Unbox<T>(o)` intrinsic — the place
+    // substrates (`ArgumentLvalue`/`Deref`) stay ungated. `Unsafe.Unbox<T>`
+    // compiles for a `where T : struct` parameter, whereas the value-copy cast
+    // `ref (T)o` is CS0445; a ref-place has no valid cast form, so the intrinsic
+    // is the only faithful spelling. (The value-position member receiver falls
+    // back to the cast for a generic parameter instead — see
+    // CSharpPrinterReceiverTests.UnboxReceiver_GenericParameter_KeepsCastNotUnsafeUnbox.)
+    [Fact]
+    public void ReturnRefUnbox_GenericParameter_SpellsUnsafeUnbox()
+    {
+        var t = TypeRef.MethodGenericParameter(0, "T");
+        var output = PrintReturn(
+            new Unbox(t, new LoadArgument(0, "o", s_object)),
+            TypeRef.ByRef(t),
+            [new Parameter("o", s_object)]);
+
+        Assert.Contains("return ref ", output);
+        Assert.Contains("Unsafe.Unbox<T>(o)", output);
+        Assert.DoesNotContain("ref (T)o", output);
+        AssertCompiles("public static ref T M<T>(object o) where T : struct", output);
+    }
+
     // Issue #2302: an arm whose signedness (or width) disagrees with the numeric
     // join renders CS0266 bare (`flag ? s : u` with `u` a uint at an int join).
     // The join spells the faithful same-stack-family reinterpretation cast on the

@@ -2744,38 +2744,63 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// Spells an <c>unbox</c> as the managed pointer into the box:
     /// <c>System.Runtime.CompilerServices.Unsafe.Unbox&lt;T&gt;(o)</c>, a
-    /// <c>ref T</c>-returning intrinsic. Fully qualified so it resolves without a
-    /// using directive.
+    /// <c>ref T</c>-returning intrinsic — the only C# form that is a genuine
+    /// assignable place. Fully qualified so it resolves without a using directive.
     /// <para>
-    /// <c>Unsafe.Unbox&lt;T&gt;</c> constrains <c>T</c> to a non-nullable value
-    /// type (<c>where T : struct</c>). Every concrete value type reaching an
-    /// <c>unbox</c> satisfies that, but <see cref="Nullable{T}"/> and an open
-    /// generic parameter do not (CS0453), so those keep the value-copy cast
-    /// <c>((T)o)</c>. The cast is exact in value and member-access positions —
-    /// <c>Nullable&lt;T&gt;</c> is immutable and an open <c>T</c> matches the
-    /// prior spelling — and in a <c>ref</c>/<c>out</c>/write place a boxed
-    /// <c>Nullable&lt;T&gt;</c>/open <c>T</c> has no valid C# form at all, so the
-    /// cast is the honest best effort.
+    /// This is the unconditional place spelling used by <see cref="Deref"/> and
+    /// <c>ArgumentLvalue</c> (ref/out/ref-return/write positions), where the
+    /// value-copy cast <c>(T)o</c> is never a place (<c>ref (T)o</c> is CS0445,
+    /// <c>out (T)o</c> is CS0206) so there is no safe fallback. <c>unbox</c>
+    /// yields a value type for valid IL, so <c>Unsafe.Unbox&lt;T&gt;</c>'s
+    /// <c>where T : struct</c> is satisfied; the only exceptions —
+    /// <see cref="Nullable{T}"/> and an unconstrained generic parameter — have no
+    /// assignable-place form in C# at all (a boxed <c>Nullable&lt;T&gt;</c>/open
+    /// <c>T</c> cannot be referenced), so a visible compile error there is
+    /// faithful to un-spellable IL rather than a regression. The member-access
+    /// receiver position, where the cast <em>is</em> a valid fallback, gates
+    /// through <see cref="UnboxReceiverText"/> instead.
     /// </para>
     /// </summary>
     string UnsafeUnboxText(Unbox unbox)
-        => CanSpellUnsafeUnbox(unbox.Type)
-            ? $"{FullyQualifiedTypeText(s_unsafeType)}.Unbox<{TypeText(unbox.Type)}>({Operand(unbox.Operand)})"
+        => $"{FullyQualifiedTypeText(s_unsafeType)}.Unbox<{TypeText(unbox.Type)}>({Operand(unbox.Operand)})";
+
+    /// <summary>
+    /// Spells an <c>unbox</c> in a member-access receiver. Unlike a ref/out/write
+    /// place, a receiver is a value position where the cast <c>((T)o)</c>
+    /// compiles, so it is a safe fallback. Emits the faithful
+    /// <see cref="UnsafeUnboxText"/> intrinsic — which reaches the in-box place so
+    /// a mutating call or member assignment acts on the boxed payload — only when
+    /// the target is a spellable non-nullable value type; otherwise the value-copy
+    /// cast, which reads the same value but silently drops a mutation and is
+    /// tolerable only because a receiver never needs an assignable place.
+    /// </summary>
+    string UnboxReceiverText(Unbox unbox)
+        => CanReceiveViaUnsafeUnbox(unbox.Type)
+            ? UnsafeUnboxText(unbox)
             : $"(({TypeText(unbox.Type)}){Operand(unbox.Operand)})";
 
     /// <summary>
-    /// Whether an <c>unbox</c> target can spell as <c>Unsafe.Unbox&lt;T&gt;</c>,
-    /// i.e. is a concrete non-nullable value type: a named value-type definition
-    /// or a non-<see cref="Nullable{T}"/> generic instance. An open generic
-    /// parameter (may be unconstrained) and any other shape fall back to the
-    /// value-copy cast to avoid the <c>where T : struct</c> violation (CS0453).
+    /// Whether an <c>unbox</c> receiver can spell as <c>Unsafe.Unbox&lt;T&gt;</c>.
+    /// <c>unbox</c> yields a value type for valid IL, so a named definition or a
+    /// generic instance qualifies — except <see cref="Nullable{T}"/> and any type
+    /// the resolver knows is a reference type (only reachable from malformed IL),
+    /// both of which violate <c>where T : struct</c> (CS0453). An open generic
+    /// parameter is also excluded: its constraint is unknown, so the compiling
+    /// value-copy cast is the safe receiver spelling.
     /// </summary>
-    static bool CanSpellUnsafeUnbox(TypeRef type) => type.Kind switch
+    bool CanReceiveViaUnsafeUnbox(TypeRef type) => type.Kind switch
     {
-        TypeRefKind.Definition => true,
-        TypeRefKind.GenericInstance => !TypeFamilies.IsNullableType(type),
+        TypeRefKind.Definition =>
+            !IsNullableDefinition(type)
+            && _function.TypeShapes.GetValueOrDefault(type) != TypeShape.Reference,
+        TypeRefKind.GenericInstance =>
+            !TypeFamilies.IsNullableType(type)
+            && _function.TypeShapes.GetValueOrDefault(type) != TypeShape.Reference,
         _ => false,
     };
+
+    static bool IsNullableDefinition(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" };
 
     string FixedBufferElementText(FixedBufferElementAddress address)
         => $"{FieldTarget(address.BufferField, address.Instance)}[{Expression(address.Index)}]";

@@ -197,15 +197,18 @@ public sealed partial class CSharpPrinter
         // would be CS1525 in this value position (`(ref pairs[0]).A`).
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         // An unbox yields a managed pointer into the box; a member access must
-        // reach that in-box place, not a copy. The `Unsafe.Unbox<T>(o)` intrinsic
-        // (a `ref T`; see UnsafeUnboxText) spells it faithfully — a mutating
-        // instance call or a member assignment then acts on the boxed payload,
-        // matching `unbox; call`/`unbox; stfld`. The bare cast `((T)x)` is an
-        // unbox.any copy: it reads the same value but silently drops a mutation
-        // (`((T)x).Mutate()`) and is CS0445 as an assignment target
-        // (`((T)x).Field = v`). `Unsafe.Unbox` is a primary expression, so the
-        // trailing `.Member` binds without extra parentheses.
-        Unbox u => UnsafeUnboxText(u),
+        // reach that in-box place, not a copy. Unlike a ref/out/write place, a
+        // receiver is a value position where the cast `((T)o)` compiles, so it is
+        // a safe fallback: `UnboxReceiverText` emits the faithful
+        // `Unsafe.Unbox<T>(o)` intrinsic (a `ref T`; a mutating call or a member
+        // assignment then acts on the boxed payload, matching `unbox; call` /
+        // `unbox; stfld`) for a spellable non-nullable value type, and falls back
+        // to the cast for Nullable<T>, a resolver-known reference type (malformed
+        // IL), or an open generic parameter — where the cast silently drops a
+        // mutation but at least compiles (`Unsafe.Unbox<T>` would be CS0453). The
+        // intrinsic is a primary expression, so a trailing `.Member` binds
+        // without extra parentheses, as does the parenthesized cast.
+        Unbox u => UnboxReceiverText(u),
         // A bare negative constant misbinds as a member-access receiver:
         // `-1.ToString()` parses as `-(1.ToString())` (CS0023). Operand treats a
         // Constant as an atom, so a receiver whose literal leads with a unary
