@@ -1,3 +1,4 @@
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -129,17 +130,31 @@ public static class ILOffsetProjectionProducer
         List<ILOffsetCostContext>? costContext = null;
         if (Includes(request, ILOffsetProjectionCapabilities.AllocationContext))
         {
-            allocationContext = BuildAllocationContext(
-                context.AssemblyPath,
-                request.MethodToken,
-                request.ILOffset,
-                instructionContext,
-                request.Log);
+            if (!TryBuildAllocationContext(context.AssemblyPath, request.MethodToken, request.ILOffset, out allocationContext, out var allocationError))
+            {
+                return ILOffsetProjectionOutcome.Failed(
+                    ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable,
+                    allocationError);
+            }
         }
         if (Includes(request, ILOffsetProjectionCapabilities.SafetyContext))
-            safetyContext = BuildSafetyContext(instructionContext);
+        {
+            if (!TryBuildSafetyContext(context.AssemblyPath, request.MethodToken, request.ILOffset, out safetyContext, out var safetyError))
+            {
+                return ILOffsetProjectionOutcome.Failed(
+                    ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable,
+                    safetyError);
+            }
+        }
         if (Includes(request, ILOffsetProjectionCapabilities.CostContext))
-            costContext = BuildCostContext(instructionContext);
+        {
+            if (!TryBuildCostContext(context.AssemblyPath, request.MethodToken, request.ILOffset, out costContext, out var costError))
+            {
+                return ILOffsetProjectionOutcome.Failed(
+                    ILOffsetProjectionFailureKind.CostAnalysisUnavailable,
+                    costError);
+            }
+        }
 
         SourceLinkResolver.ILOffsetSourceInfo? source = null;
         if (Includes(request, ILOffsetProjectionCapabilities.SourceLocation))
@@ -250,24 +265,29 @@ public static class ILOffsetProjectionProducer
 
     static string FormatILOffset(int offset) => $"IL_{offset:X4}";
 
-    static List<ILOffsetAllocationContext> BuildAllocationContext(
+    /// <summary>
+    /// Analysis is the single source of truth for allocation, safety, and cost facts at an IL
+    /// coordinate. Zero facts is a complete, verified answer; an acquisition failure is reported
+    /// as a visible outcome failure, never silently replaced by an opcode-pattern guess.
+    /// </summary>
+    static bool TryBuildAllocationContext(
         string assemblyPath,
         int methodToken,
         int ilOffset,
-        ILOffsetInstructionContextInfo? instruction,
-        Action<string>? log)
+        out List<ILOffsetAllocationContext> facts,
+        out string error)
     {
         try
         {
             var index = Analysis.LibraryBodyIndex.Open(assemblyPath);
-            var facts = Analysis.SemanticFactProjection.AllocationFacts(
+            facts = Analysis.SemanticFactProjection.AllocationFacts(
                     index.GetAllocationOccurrences(),
                     methodToken,
                     ilOffset)
                 .Select(ToILOffsetAllocationContext)
                 .ToList();
-            if (facts.Count > 0)
-                return facts;
+            error = "";
+            return true;
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or IOException
@@ -275,116 +295,96 @@ public static class ILOffsetProjectionProducer
             or ArgumentException
             or UnauthorizedAccessException)
         {
-            log?.Invoke(
-                $"IL-offset allocation analysis unavailable; using instruction fallback: "
-                + $"{ex.GetType().Name}: {ex.Message}");
+            facts = [];
+            error = $"IL-offset allocation analysis unavailable: {ex.GetType().Name}: {ex.Message}";
+            return false;
         }
-
-        return BuildInstructionAllocationContext(instruction);
     }
 
-    static List<ILOffsetAllocationContext> BuildInstructionAllocationContext(
-        ILOffsetInstructionContextInfo? instruction)
+    static bool TryBuildSafetyContext(
+        string assemblyPath,
+        int methodToken,
+        int ilOffset,
+        out List<ILOffsetSafetyContext> facts,
+        out string error)
     {
-        if (instruction is null)
-            return [];
-
-        var opcode = instruction.Opcode;
-        string? kind = opcode switch
+        try
         {
-            "newarr" => "array",
-            "box" => "box",
-            "newobj" => "object",
-            _ => null
-        };
-        if (kind is null)
-            return [];
-
-        return
-        [
-            new ILOffsetAllocationContext
-            {
-                ILOffset = FormatILOffset(instruction.ILOffset),
-                AllocationKind = kind,
-                AllocatedType = instruction.Operand,
-                CountedAsHeap = opcode == "newobj" ? "Unknown" : "Yes",
-                Frequency = "always",
-                Escape = "unknown",
-                InLoop = "Unknown",
-                Evidence = opcode
-            }
-        ];
+            var index = Analysis.LibraryBodyIndex.Open(assemblyPath);
+            var subject = new FindingSubject($"{assemblyPath}|{methodToken:X8}", $"0x{methodToken:X}");
+            index.GetUnsafetyOccurrences().TryGetValue(methodToken, out var occurrences);
+            index.GetUnsafeEvidenceByMember().TryGetValue(methodToken, out var evidence);
+            facts = Analysis.SemanticFactProjection.SafetyFacts(
+                    Analysis.AnalysisFindings.InspectUnsafeEvidence(evidence.IsDefault ? [] : evidence, subject),
+                    Analysis.AnalysisFindings.InspectUnsafety(occurrences.IsDefault ? [] : occurrences, subject),
+                    ilOffset)
+                .Select(ToILOffsetSafetyContext)
+                .ToList();
+            error = "";
+            return true;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or IOException
+            or InvalidOperationException
+            or ArgumentException
+            or UnauthorizedAccessException)
+        {
+            facts = [];
+            error = $"IL-offset safety analysis unavailable: {ex.GetType().Name}: {ex.Message}";
+            return false;
+        }
     }
 
-    static List<ILOffsetSafetyContext> BuildSafetyContext(
-        ILOffsetInstructionContextInfo? instruction)
+    static bool TryBuildCostContext(
+        string assemblyPath,
+        int methodToken,
+        int ilOffset,
+        out List<ILOffsetCostContext> facts,
+        out string error)
     {
-        if (instruction is null)
-            return [];
-
-        var opcode = instruction.Opcode;
-        string? kind = opcode switch
+        try
         {
-            "localloc" => "stackalloc",
-            "calli" => "calli",
-            "cpblk" or "initblk" => "unsafe block operation",
-            "ldind.i1" or "ldind.u1" or "ldind.i2" or "ldind.u2" or "ldind.i4" or "ldind.u4"
-                or "ldind.i8" or "ldind.i" or "ldind.r4" or "ldind.r8" or "ldind.ref" => "dereference",
-            "stind.i1" or "stind.i2" or "stind.i4" or "stind.i8" or "stind.i"
-                or "stind.r4" or "stind.r8" or "stind.ref" => "dereference",
-            "call" or "callvirt" or "newobj" when IsUnsafeOperation(instruction.Operand) => "unsafe call",
-            _ => null
-        };
-        if (kind is null)
-            return [];
-
-        return
-        [
-            new ILOffsetSafetyContext
-            {
-                ILOffset = FormatILOffset(instruction.ILOffset),
-                SafetyKind = kind,
-                Operation = instruction.Operand ?? opcode,
-                Requirement = "requires unsafe",
-                Evidence = opcode
-            }
-        ];
+            var index = Analysis.LibraryBodyIndex.Open(assemblyPath);
+            facts = Analysis.SemanticFactProjection.CostFacts(
+                    index.GetDirectCallsByCaller(),
+                    methodToken,
+                    ilOffset)
+                .Select(ToILOffsetCostContext)
+                .ToList();
+            error = "";
+            return true;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or IOException
+            or InvalidOperationException
+            or ArgumentException
+            or UnauthorizedAccessException)
+        {
+            facts = [];
+            error = $"IL-offset cost analysis unavailable: {ex.GetType().Name}: {ex.Message}";
+            return false;
+        }
     }
 
-    static bool IsUnsafeOperation(string? operand)
-        => operand?.Contains("System.Runtime.CompilerServices.Unsafe::", StringComparison.Ordinal) == true
-            || operand?.Contains("System.Runtime.CompilerServices.Unsafe.", StringComparison.Ordinal) == true
-            || operand?.Contains("void*", StringComparison.Ordinal) == true;
-
-    static List<ILOffsetCostContext> BuildCostContext(
-        ILOffsetInstructionContextInfo? instruction)
-    {
-        if (instruction is null)
-            return [];
-
-        var opcode = instruction.Opcode;
-        string? kind = opcode switch
+    static ILOffsetSafetyContext ToILOffsetSafetyContext(Analysis.SafetyFact fact)
+        => new()
         {
-            "callvirt" => "virtual dispatch",
-            "ldftn" or "ldvirtftn" => "delegate/function pointer",
-            "calli" => "function pointer call",
-            _ => null
+            ILOffset = fact.ILOffset is { } offset ? FormatILOffset(offset) : null,
+            SafetyKind = fact.SafetyKind,
+            Operation = fact.Operation,
+            Requirement = fact.Requirement,
+            Evidence = fact.Evidence
         };
-        if (kind is null)
-            return [];
 
-        return
-        [
-            new ILOffsetCostContext
-            {
-                ILOffset = FormatILOffset(instruction.ILOffset),
-                CostKind = kind,
-                Operation = instruction.Operand ?? opcode,
-                InLoop = "Unknown",
-                Evidence = opcode
-            }
-        ];
-    }
+    static ILOffsetCostContext ToILOffsetCostContext(Analysis.CostFact fact)
+        => new()
+        {
+            ILOffset = FormatILOffset(fact.ILOffset),
+            CostKind = fact.CostKind,
+            Operation = fact.Operation,
+            InLoop = fact.InLoop ? "Yes" : "No",
+            Evidence = fact.Evidence
+        };
 
     static ILOffsetAllocationContext ToILOffsetAllocationContext(Analysis.AllocationFact fact)
         => new()

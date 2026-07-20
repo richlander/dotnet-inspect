@@ -21,14 +21,13 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
-        if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
+        if (context.Assembly is not { } assembly || function.MetadataToken == 0)
             return [];
-        var index = context.Assembly?.Index ?? AnalysisIndexCache.ForPath(path);
-        if (!index.GetAllocationOccurrences().TryGetValue(function.MetadataToken, out var occurrences))
+        if (!assembly.Index.GetAllocationOccurrences().TryGetValue(function.MetadataToken, out var occurrences))
             return [];
 
         FindingSubject subject = occurrences.IsEmpty
-            ? new($"{path}|{function.MetadataToken:X8}", function.Name)
+            ? new($"{function.AssemblyPath}|{function.MetadataToken:X8}", function.Name)
             : ToFindingSubject(occurrences[0].Method);
         return
         [
