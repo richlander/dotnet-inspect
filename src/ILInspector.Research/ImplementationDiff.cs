@@ -436,7 +436,7 @@ public static class ImplementationDiff
 
         var typedChanges = ToIlChanges(IlDiffPrinter.ToDisplayResult(typed.Diff), subject, typed);
         return typedChanges.IsEmpty && fallbackDisplay is not null
-            ? ToIlChanges(fallbackDisplay, subject)
+            ? ToIlChanges(fallbackDisplay, subject, typed)
             : typedChanges;
     }
 

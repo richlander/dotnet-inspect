@@ -1793,7 +1793,9 @@ public class ResearchDiffTests
         Assert.Equal(ResearchChangeKind.Removed, row.Kind);
         Assert.Equal("method has no body", row.Detail);
         Assert.Same(failure, row.IlDisplayFailureRow);
-        Assert.Null(row.IlMemberDiff);
+        Assert.Same(typedDiff, row.IlMemberDiff);
+        Assert.Same(typedDiff.Diff, row.IlBodyDiff);
+        Assert.Equal(IlBodyDiffOutcome.Exact, row.IlBodyDiff!.Outcome);
     }
 
     static MethodIdentity Method(string assemblyName, Guid moduleVersionId, int metadataToken)
