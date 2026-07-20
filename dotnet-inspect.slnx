@@ -33,6 +33,7 @@
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicStateMachines/ILInspector.Decompiler.Fixtures.ClassicStateMachines.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.Ladder/ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />

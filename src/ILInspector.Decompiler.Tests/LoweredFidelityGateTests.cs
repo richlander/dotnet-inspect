@@ -121,6 +121,24 @@ public class LoweredFidelityGateTests
         // stack-slot/local temporaries. Same preview drift as the sugared gate.
         "ManualSimpleExpressionTreeFactory",
         "SimpleExpressionTreeLambda",
+        // Same expression-tree docket as the sugared gate: the parameter-dependent
+        // graph recovers to a lambda, while the manual factory fixtures below decline
+        // to honest Expression.* factory-call C# whose emitted calls recompile through
+        // the same preview compile-back temporary reshaping. Verified by running the
+        // Speed=Slow lowered fidelity gate locally.
+        "ManualParameterPlusConstantFactory",
+        "ManualCanonicalReturnedAsExpression",
+        "ManualCanonicalReturnedAsLambdaExpression",
+        "ManualCanonicalReturnedAsObject",
+        "ManualReusedParameterFactory",
+        "ManualDuplicateNameFactory",
+        "ManualUnspellableNameFactory",
+        "ManualConstantOnlyAddFactory",
+        "ManualConstantOnlySubtractFactory",
+        "ManualConstantOnlyMultiplyFactory",
+        "ManualNestedConstantSubtreeFactory",
+        "ManualConstantOnlyDivideByZeroFactory",
+        "ManualConstantOnlyRemainderOverflowFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
