@@ -24,8 +24,11 @@ public class FixtureSourceInventoryReportTests
             report.Rows.Where(row => row.Population == FixtureSourcePopulation.Dynamic),
             row => Assert.Equal(FixtureSourceInventoryStatus.Unclassified, row.Status));
         Assert.Equal(
-            DecompilerFixtureSourceInventory.DynamicCompilationSiteBaseline,
-            report.Rows.Count(row => row.Population == FixtureSourcePopulation.Dynamic));
+            DecompilerFixtureSourceInventory.ClassifiedDynamicCompilationSites.Order(),
+            report.Rows
+                .Where(row => row.Population == FixtureSourcePopulation.Dynamic)
+                .Select(row => row.Id)
+                .Order());
     }
 
     [Fact]
@@ -41,5 +44,29 @@ public class FixtureSourceInventoryReportTests
         Assert.Contains("| Dynamic |", markdown);
         Assert.Contains("\"Rows\"", json);
         Assert.Contains("\"Population\": \"Built\"", json);
+    }
+
+    [Fact]
+    public void DynamicSiteDiscovery_UsesSyntaxAndStableMemberIdentity()
+    {
+        const string source = """
+            class C
+            {
+                void M()
+                {
+                    // CSharpCompilation.Create("comment");
+                    var text = "CSharpCompilation.Create";
+                    CSharpCompilation
+                        .Create("one");
+                    CSharpCompilation.Create("two");
+                }
+            }
+            """;
+
+        Assert.Equal(
+            ["Fixture.cs::M#1", "Fixture.cs::M#2"],
+            DecompilerFixtureSourceInventory.DiscoverCSharpCompilationSites(
+                source,
+                "Fixture.cs"));
     }
 }

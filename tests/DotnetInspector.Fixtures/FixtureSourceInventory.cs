@@ -9,8 +9,17 @@ public enum FixtureSourceApplicability
     NotApplicable,
 }
 
-public sealed record FixtureSourcePolicy(FixtureSourceApplicability Applicability, string? Reason = null)
+public sealed record FixtureSourcePolicy
 {
+    FixtureSourcePolicy(FixtureSourceApplicability applicability, string? reason = null)
+    {
+        Applicability = applicability;
+        Reason = reason;
+    }
+
+    public FixtureSourceApplicability Applicability { get; }
+    public string? Reason { get; }
+
     public static FixtureSourcePolicy Unclassified { get; } = new(
         FixtureSourceApplicability.Unclassified,
         "Source applicability has not been classified.");
