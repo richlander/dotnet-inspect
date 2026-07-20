@@ -451,6 +451,23 @@ public class StackAllocInitializerPassTests
     }
 
     [Fact]
+    public void EmptySpanGetItem_Declines()
+    {
+        // get_Item(0) on a zero-length span throws IndexOutOfRangeException at the
+        // original callsite; the pass must not detach that call (and the CopyBlock)
+        // alongside a zero-element "initializer" and silently erase the exception.
+        var function = BuildCanonicalSpan(mutate: b =>
+        {
+            b.UseGetItem = true;
+            b.AllocSize = 0;
+            b.CopySize = 0;
+        });
+        new StackAllocInitializerPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+    }
+
+    [Fact]
     public void EffectfulGetItem_Declines()
     {
         var function = BuildCanonicalSpan(mutate: b =>

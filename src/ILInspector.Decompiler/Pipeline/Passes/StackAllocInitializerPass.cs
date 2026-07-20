@@ -143,7 +143,10 @@ public sealed class StackAllocInitializerPass : IIrPass
                                         allConstants = false; break;
                                     }
                                 }
-                                if (allConstants && spanLit.Children.Count == requiredElementCount)
+                                // Reject empty sources: an empty Span/ReadOnlySpan accessor call (e.g. get_Item(0))
+                                // observably throws IndexOutOfRangeException, and removing it alongside the
+                                // CopyBlock would silently erase that exception instead of preserving it.
+                                if (allConstants && requiredElementCount > 0 && spanLit.Children.Count == requiredElementCount)
                                 {
                                     elements = spanLit.Children.Cast<IrExpression>().ToList();
                                 }
