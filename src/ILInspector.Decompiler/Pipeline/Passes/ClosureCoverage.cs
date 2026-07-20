@@ -21,9 +21,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <see cref="LocalFunctionRaisingPass"/> recovers static non-capturing local
 /// functions. Capturing local-bound lambda bodies are still owed, so they render
 /// as synthesized <c>&lt;&gt;c__DisplayClass</c> / <c>g__Local|</c> shapes — an
-/// inferior-form gap the LocalRewriter register cannot show. Expression-tree
-/// lambdas are tracked here too, but deliberately declined: ExpressionLambdaRewriter
-/// emits the same public factory-call shape that source can write by hand.</para>
+/// inferior-form gap the LocalRewriter register cannot show.
+/// <see cref="ExpressionTreeLambdaRaisingPass"/> recovers the canonical
+/// homogeneous-Int32 arithmetic expression lambda: its fully-owned
+/// ExpressionLambdaRewriter factory graph (Expression.Parameter/Add/…/Lambda) is a
+/// semantics-preserving rewrite back to the source <c>p =&gt; e</c>. Captured,
+/// member-token, method-call, comparison, and non-Int32/multi-type expression
+/// graphs are still owed and stay in their honest factory-call shape (#2864).</para>
 ///
 /// <para>Synced against dotnet/roslyn
 /// <c>src/Compilers/CSharp/Portable/Lowering/ClosureConversion/</c> @ main.</para>
@@ -39,6 +43,6 @@ internal static class ClosureCoverage
     [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (allocation/stores elided); a class captured by a local function, or nested environments, still owed")]
     public static LambdaRaisingPass CapturedClosure => new();
 
-    [Completeness(CompletenessLevel.None, "Expression<Func<...>> syntax lowered by ExpressionLambdaRewriter to System.Linq.Expressions factory calls; no generated closure method or IL/PDB-independent discriminator separates it from equivalent source-authored Expression.Parameter/Add/Lambda calls, so the factory-call form is kept")]
-    public static Declined ExpressionTreeLambda => default!;
+    [Completeness(CompletenessLevel.Partial, "the canonical homogeneous-Int32 arithmetic expression lambda (parameters + Add/Subtract/Multiply/Divide/Remainder over Expression.Constant/parameter refs), whose fully-owned Expression.Parameter/Add/…/Lambda<Func<int,…,int>> factory graph is rewritten back to its source `p => e`; captured, member-token, method-call, comparison, and non-Int32/multi-type graphs stay in their honest factory-call form (still owed, #2864)")]
+    public static ExpressionTreeLambdaRaisingPass ExpressionTreeLambda => new();
 }

@@ -16,7 +16,7 @@ const string Usage =
 
       Emits a small IL Diff card over paired assemblies:
       - compared body count and self-diff empty count;
-      - pair exact-empty and changed-body counts;
+      - pair exact, operand-diff, opcode-diff, unavailable, and changed-body counts;
       - failure count and buckets;
       - top hunk kinds and opcode families;
       - capped examples rendered through IlDiffPrinter.
@@ -188,12 +188,18 @@ static IlDiffCard BuildCard(IlAssemblyDiffResult result)
         result.ComparedBodyCount,
         result.SelfDiffExactCount,
         result.PairExactCount,
+        result.PairOperandDiffCount,
+        result.PairOpcodeDiffCount,
+        result.PairUnavailableCount,
         result.ChangedBodyCount,
         result.FailureCount,
         ToCardBuckets(result.FailureBuckets),
         ToCardBuckets(result.TopHunkKinds),
         ToCardBuckets(result.TopOpcodeFamilies),
-        [.. result.Examples.Select(example => new IlDiffExample(example.Method, IlDiffPrinter.RenderUnified(example.Diff)))]);
+        [.. result.Examples.Select(example => new IlDiffExample(
+            example.Method,
+            example.Diff.Outcome,
+            IlDiffPrinter.RenderUnified(example.Diff)))]);
 }
 
 static ImmutableArray<CardBucket> Buckets(Dictionary<string, int> counts)
@@ -242,12 +248,15 @@ static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int ma
 {
     var card = Aggregate(pairs, maxExamples, snapshotPaths: true);
     return new IlDiffSnapshot(
-        SchemaVersion: 1,
+        SchemaVersion: 2,
         Summary: new IlDiffSnapshotSummary(
             PairCount: pairs.Length,
             ComparedBodyCount: card.ComparedBodyCount,
             SelfDiffEmptyCount: card.SelfDiffExactCount,
             PairExactEmptyCount: card.PairExactCount,
+            PairOperandDiffCount: card.PairOperandDiffCount,
+            PairOpcodeDiffCount: card.PairOpcodeDiffCount,
+            PairUnavailableCount: card.PairUnavailableCount,
             ChangedBodyCount: card.ChangedBodyCount,
             FailureCount: card.FailureCount),
         Pairs: pairs.Select(pair => new IlDiffSnapshotPair(
@@ -256,6 +265,9 @@ static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int ma
             ComparedBodyCount: pair.Card.ComparedBodyCount,
             SelfDiffEmptyCount: pair.Card.SelfDiffExactCount,
             PairExactEmptyCount: pair.Card.PairExactCount,
+            PairOperandDiffCount: pair.Card.PairOperandDiffCount,
+            PairOpcodeDiffCount: pair.Card.PairOpcodeDiffCount,
+            PairUnavailableCount: pair.Card.PairUnavailableCount,
             ChangedBodyCount: pair.Card.ChangedBodyCount,
             FailureCount: pair.Card.FailureCount)).ToArray(),
         FailureBuckets: card.FailureBuckets.ToArray(),
@@ -268,7 +280,7 @@ static IlDiffSnapshot ReadSnapshot(string path)
 {
     var snapshot = JsonSerializer.Deserialize<IlDiffSnapshot>(File.ReadAllText(path), SnapshotJson.Options)
         ?? throw new InvalidOperationException($"Could not read IL diff snapshot: {path}");
-    if (snapshot.SchemaVersion != 1)
+    if (snapshot.SchemaVersion != 2)
         throw new InvalidOperationException($"Unsupported IL diff snapshot schema version {snapshot.SchemaVersion}.");
     if (snapshot.Summary is null)
         throw new InvalidOperationException($"IL diff snapshot is missing a summary: {path}");
@@ -291,6 +303,9 @@ static BaselineComparison CompareSnapshots(IlDiffSnapshot baseline, IlDiffSnapsh
     AddDriftIfImproved(drift, "Failures", baseline.Summary.FailureCount, current.Summary.FailureCount, improvementWhenCurrentIsLower: true);
     AddDriftIfImproved(drift, "Self-diff empty", baseline.Summary.SelfDiffEmptyCount, current.Summary.SelfDiffEmptyCount, improvementWhenCurrentIsLower: false);
     AddDrift(drift, "Pair exact empty", baseline.Summary.PairExactEmptyCount, current.Summary.PairExactEmptyCount);
+    AddDrift(drift, "Pair operand diffs", baseline.Summary.PairOperandDiffCount, current.Summary.PairOperandDiffCount);
+    AddDrift(drift, "Pair opcode diffs", baseline.Summary.PairOpcodeDiffCount, current.Summary.PairOpcodeDiffCount);
+    AddDrift(drift, "Pair unavailable", baseline.Summary.PairUnavailableCount, current.Summary.PairUnavailableCount);
     AddDrift(drift, "Changed bodies", baseline.Summary.ChangedBodyCount, current.Summary.ChangedBodyCount);
     AddExistingFailureBucketDrift(drift, baselineFailureBuckets, currentFailureBuckets);
     AddBucketDrift(drift, "Hunk kind", baseline.HunkKindBuckets ?? [], current.HunkKindBuckets ?? []);
@@ -410,6 +425,9 @@ static List<IlDiffMetricRow> SummaryRows(int pairCount, IlDiffCard card) =>
     new("Compared bodies", Count(card.ComparedBodyCount)),
     new("Self-diff empty", Count(card.SelfDiffExactCount)),
     new("Pair exact empty", Count(card.PairExactCount)),
+    new("Pair operand diffs", Count(card.PairOperandDiffCount)),
+    new("Pair opcode diffs", Count(card.PairOpcodeDiffCount)),
+    new("Pair unavailable", Count(card.PairUnavailableCount)),
     new("Changed bodies", Count(card.ChangedBodyCount)),
     new("Failures", Count(card.FailureCount)),
 ];
@@ -425,6 +443,9 @@ static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison)
     MetricContext("Compared bodies", comparison.Baseline.Summary.ComparedBodyCount, comparison.Current.Summary.ComparedBodyCount),
     MetricGoal("Self-diff empty", comparison.Baseline.Summary.SelfDiffEmptyCount, comparison.Current.Summary.SelfDiffEmptyCount, "minimum self-diff empty", Goal.Higher),
     MetricContext("Pair exact empty", comparison.Baseline.Summary.PairExactEmptyCount, comparison.Current.Summary.PairExactEmptyCount),
+    MetricContext("Pair operand diffs", comparison.Baseline.Summary.PairOperandDiffCount, comparison.Current.Summary.PairOperandDiffCount),
+    MetricContext("Pair opcode diffs", comparison.Baseline.Summary.PairOpcodeDiffCount, comparison.Current.Summary.PairOpcodeDiffCount),
+    MetricContext("Pair unavailable", comparison.Baseline.Summary.PairUnavailableCount, comparison.Current.Summary.PairUnavailableCount),
     MetricContext("Changed bodies", comparison.Baseline.Summary.ChangedBodyCount, comparison.Current.Summary.ChangedBodyCount),
     MetricGoal("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures", Goal.Lower),
 ];
@@ -481,6 +502,9 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
     int compared = 0;
     int selfDiffExact = 0;
     int pairExact = 0;
+    int pairOperandDiff = 0;
+    int pairOpcodeDiff = 0;
+    int pairUnavailable = 0;
     int changed = 0;
     int failureCount = 0;
 
@@ -489,6 +513,9 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         compared += pair.Card.ComparedBodyCount;
         selfDiffExact += pair.Card.SelfDiffExactCount;
         pairExact += pair.Card.PairExactCount;
+        pairOperandDiff += pair.Card.PairOperandDiffCount;
+        pairOpcodeDiff += pair.Card.PairOpcodeDiffCount;
+        pairUnavailable += pair.Card.PairUnavailableCount;
         changed += pair.Card.ChangedBodyCount;
         failureCount += pair.Card.FailureCount;
         foreach (var bucket in pair.Card.FailureBuckets)
@@ -512,6 +539,9 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         compared,
         selfDiffExact,
         pairExact,
+        pairOperandDiff,
+        pairOpcodeDiff,
+        pairUnavailable,
         changed,
         failureCount,
         Buckets(failures),
@@ -527,6 +557,9 @@ static IlDiffPairSummaryRow PairSummaryRow(IlDiffPairCard pair)
         pair.Card.ComparedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.SelfDiffExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.PairOperandDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.PairOpcodeDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.PairUnavailableCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
@@ -540,6 +573,9 @@ static IlDiffSectionPairSummaryRow SectionedPairSummaryRow(IlDiffPairCard pair)
         row.Compared,
         row.SelfDiffEmpty,
         row.PairExactEmpty,
+        row.PairOperandDiffs,
+        row.PairOpcodeDiffs,
+        row.PairUnavailable,
         row.Changed,
         row.Failures);
 }
@@ -565,10 +601,10 @@ static List<IlDiffSectionBucketRow>? SectionedBucketRows(string section, Immutab
         : [.. buckets.Take(10).Select(bucket => new IlDiffSectionBucketRow(section, bucket.Name, Count(bucket.Count)))];
 
 static IlDiffExampleMarkdownView ExampleMarkdownRow(IlDiffExample example)
-    => new(example.Method, new CodeSection("diff", example.UnifiedDiff));
+    => new($"{example.Method} ({example.Outcome})", new CodeSection("diff", example.UnifiedDiff));
 
 static IlDiffExampleTableRow ExampleTableRow(IlDiffExample example)
-    => new("Examples", example.Method, example.UnifiedDiff);
+    => new("Examples", example.Method, example.Outcome.ToString(), example.UnifiedDiff);
 
 sealed record IlDiffPairCard(string OldPath, string NewPath, IlDiffCard Card);
 
@@ -576,6 +612,9 @@ sealed record IlDiffCard(
     int ComparedBodyCount,
     int SelfDiffExactCount,
     int PairExactCount,
+    int PairOperandDiffCount,
+    int PairOpcodeDiffCount,
+    int PairUnavailableCount,
     int ChangedBodyCount,
     int FailureCount,
     ImmutableArray<CardBucket> FailureBuckets,
@@ -585,7 +624,10 @@ sealed record IlDiffCard(
 
 sealed record CardBucket(string Name, int Count);
 
-sealed record IlDiffExample(string Method, string UnifiedDiff);
+sealed record IlDiffExample(
+    string Method,
+    IlBodyDiffOutcome Outcome,
+    string UnifiedDiff);
 
 [MarkoutSerializable(TitleProperty = nameof(Title), AutoFields = false)]
 sealed class IlDiffCardMarkdownView
@@ -676,6 +718,9 @@ sealed record IlDiffPairSummaryRow(
     string Compared,
     [property: MarkoutPropertyName("Self-diff empty")] string SelfDiffEmpty,
     [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
+    [property: MarkoutPropertyName("Pair operand diffs")] string PairOperandDiffs,
+    [property: MarkoutPropertyName("Pair opcode diffs")] string PairOpcodeDiffs,
+    [property: MarkoutPropertyName("Pair unavailable")] string PairUnavailable,
     string Changed,
     string Failures);
 
@@ -687,6 +732,9 @@ sealed record IlDiffSectionPairSummaryRow(
     string Compared,
     [property: MarkoutPropertyName("Self-diff empty")] string SelfDiffEmpty,
     [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
+    [property: MarkoutPropertyName("Pair operand diffs")] string PairOperandDiffs,
+    [property: MarkoutPropertyName("Pair opcode diffs")] string PairOpcodeDiffs,
+    [property: MarkoutPropertyName("Pair unavailable")] string PairUnavailable,
     string Changed,
     string Failures);
 
@@ -705,6 +753,7 @@ sealed record IlDiffExampleMarkdownView(
 sealed record IlDiffExampleTableRow(
     string Section,
     string Example,
+    string Outcome,
     [property: MarkoutPropertyName("Unified diff")] string UnifiedDiff);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
@@ -738,6 +787,9 @@ sealed record IlDiffSnapshotSummary(
     int ComparedBodyCount,
     int SelfDiffEmptyCount,
     int PairExactEmptyCount,
+    int PairOperandDiffCount,
+    int PairOpcodeDiffCount,
+    int PairUnavailableCount,
     int ChangedBodyCount,
     int FailureCount);
 
@@ -747,6 +799,9 @@ sealed record IlDiffSnapshotPair(
     int ComparedBodyCount,
     int SelfDiffEmptyCount,
     int PairExactEmptyCount,
+    int PairOperandDiffCount,
+    int PairOpcodeDiffCount,
+    int PairUnavailableCount,
     int ChangedBodyCount,
     int FailureCount);
 

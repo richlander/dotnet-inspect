@@ -777,7 +777,10 @@ public class CorpusSensorComparisonTests
     public void AlignReturnToSenderResults_PreservesFidelityContractEvidence()
     {
         var target = CompileBackResult("Method", FidelityCheck.CompileBackStatus.Exact);
-        var fidelityDiff = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []);
+        var fidelityDiff = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Exact,
+            Failure: null,
+            Rows: []);
         var rts = new ReturnToSender.Result(
             MinimalReturnToSenderPlan("Method"),
             Source: "",
@@ -797,18 +800,21 @@ public class CorpusSensorComparisonTests
     public void FidelityContractV1_ComposesAllIlBodyNormalizations()
     {
         Assert.Equal(
-            IlBodyDiffOptions.NormalizeVariableLayout
-            | IlBodyDiffOptions.NormalizeCurrentAssemblyScope
-            | IlBodyDiffOptions.NormalizePlatformAssemblyScopes,
-            FidelityCheck.ContractV1BodyDiffOptions);
+            IlBodyDiffNormalization.NormalizeVariableLayout
+            | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+            | IlBodyDiffNormalization.NormalizePlatformAssemblyScope,
+            FidelityCheck.ContractV1BodyDiffNormalization);
     }
 
     [Fact]
     public void ClassifyStatus_RequiresV1BodyEqualityForExact()
     {
-        var exact = new IlBodyDiffResult(IsExact: true, Failure: null, Rows: []);
+        var exact = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Exact,
+            Failure: null,
+            Rows: []);
         var divergent = new IlBodyDiffResult(
-            IsExact: false,
+            IlBodyDiffOutcome.OperandDiff,
             Failure: null,
             Rows:
             [
@@ -819,7 +825,7 @@ public class CorpusSensorComparisonTests
                     "Removed IL operation 'ldc.i4 5'"),
             ]);
         var unavailable = new IlBodyDiffResult(
-            IsExact: false,
+            IlBodyDiffOutcome.Unavailable,
             Failure: "body decode failed",
             Rows: []);
 

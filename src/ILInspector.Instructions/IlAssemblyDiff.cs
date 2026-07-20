@@ -14,6 +14,9 @@ public sealed record IlAssemblyDiffResult(
     int ComparedBodyCount,
     int SelfDiffExactCount,
     int PairExactCount,
+    int PairOperandDiffCount,
+    int PairOpcodeDiffCount,
+    int PairUnavailableCount,
     int ChangedBodyCount,
     int FailureCount,
     ImmutableArray<IlDiffBucket> FailureBuckets,
@@ -65,14 +68,21 @@ public static class IlAssemblyDiff
     public static IlAssemblyDiffPairResult CompareFiles(
         string oldPath,
         string newPath,
-        int maxExamples = 5)
+        int maxExamples = 5,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(oldPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(newPath);
 
         using var oldStream = File.OpenRead(oldPath);
         using var newStream = File.OpenRead(newPath);
-        return CompareStreams(oldStream, oldPath, newStream, newPath, maxExamples);
+        return CompareStreams(
+            oldStream,
+            oldPath,
+            newStream,
+            newPath,
+            maxExamples,
+            normalization);
     }
 
     public static IlAssemblyDiffPairResult CompareStreams(
@@ -80,7 +90,8 @@ public static class IlAssemblyDiff
         string oldName,
         Stream newStream,
         string newName,
-        int maxExamples = 5)
+        int maxExamples = 5,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(oldStream);
         ArgumentException.ThrowIfNullOrWhiteSpace(oldName);
@@ -89,7 +100,13 @@ public static class IlAssemblyDiff
 
         using var oldPe = new PEReader(oldStream, PEStreamOptions.LeaveOpen);
         using var newPe = new PEReader(newStream, PEStreamOptions.LeaveOpen);
-        var result = Compare(oldPe, oldPe.GetMetadataReader(), newPe, newPe.GetMetadataReader(), maxExamples);
+        var result = Compare(
+            oldPe,
+            oldPe.GetMetadataReader(),
+            newPe,
+            newPe.GetMetadataReader(),
+            maxExamples,
+            normalization);
         return new IlAssemblyDiffPairResult(oldName, newName, result);
     }
 
@@ -98,7 +115,8 @@ public static class IlAssemblyDiff
         MetadataReader oldReader,
         PEReader newPe,
         MetadataReader newReader,
-        int maxExamples = 5)
+        int maxExamples = 5,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(oldPe);
         ArgumentNullException.ThrowIfNull(oldReader);
@@ -126,6 +144,9 @@ public static class IlAssemblyDiff
 
         int compared = 0;
         int pairExact = 0;
+        int pairOperandDiff = 0;
+        int pairOpcodeDiff = 0;
+        int pairUnavailable = 0;
         int changed = 0;
         int selfDiffExact = 0;
 
@@ -133,12 +154,14 @@ public static class IlAssemblyDiff
         {
             if (!oldIndex.Methods.TryGetValue(key, out var oldHandle))
             {
+                pairUnavailable++;
                 IncrementFailure(failures, IlBodyDiffResult.OldBodyMissing());
                 continue;
             }
 
             if (!newIndex.Methods.TryGetValue(key, out var newHandle))
             {
+                pairUnavailable++;
                 IncrementFailure(failures, IlBodyDiffResult.NewBodyMissing());
                 continue;
             }
@@ -149,11 +172,13 @@ public static class IlAssemblyDiff
                 continue;
             if (oldMethod.RelativeVirtualAddress == 0)
             {
+                pairUnavailable++;
                 IncrementFailure(failures, IlBodyDiffResult.OldBodyMissing("method has no body"));
                 continue;
             }
             if (newMethod.RelativeVirtualAddress == 0)
             {
+                pairUnavailable++;
                 IncrementFailure(failures, IlBodyDiffResult.NewBodyMissing("method has no body"));
                 continue;
             }
@@ -168,11 +193,17 @@ public static class IlAssemblyDiff
             }
             catch (BadImageFormatException)
             {
+                pairUnavailable++;
                 Increment(failures, "body read failed");
                 continue;
             }
 
-            var self = IlBodyDiff.Compare(oldReader, oldBody, oldReader, oldBody);
+            var self = IlBodyDiff.Compare(
+                oldReader,
+                oldBody,
+                oldReader,
+                oldBody,
+                normalization);
             if (self.IsExact)
             {
                 selfDiffExact++;
@@ -184,20 +215,30 @@ public static class IlAssemblyDiff
                     : self);
             }
 
-            var diff = IlBodyDiff.Compare(oldReader, oldBody, newReader, newBody);
-            if (!diff.FailureRows.IsDefaultOrEmpty || diff.Failure is { Length: > 0 })
+            var diff = IlBodyDiff.Compare(
+                oldReader,
+                oldBody,
+                newReader,
+                newBody,
+                normalization);
+            if (!diff.IsAvailable)
             {
+                pairUnavailable++;
                 IncrementFailure(failures, diff);
                 continue;
             }
 
-            if (diff.IsExact)
+            if (diff.Outcome == IlBodyDiffOutcome.Exact)
             {
                 pairExact++;
                 continue;
             }
 
             changed++;
+            if (diff.Outcome == IlBodyDiffOutcome.OperandDiff)
+                pairOperandDiff++;
+            else
+                pairOpcodeDiff++;
             foreach (var row in diff.Rows)
             {
                 Increment(hunkKinds, row.Kind.ToString());
@@ -212,6 +253,9 @@ public static class IlAssemblyDiff
             compared,
             selfDiffExact,
             pairExact,
+            pairOperandDiff,
+            pairOpcodeDiff,
+            pairUnavailable,
             changed,
             failures.Values.Sum(),
             Buckets(failures),
@@ -230,7 +274,7 @@ public static class IlAssemblyDiff
         MethodDefinitionHandle newMethod,
         string? oldLabel = null,
         string? newLabel = null,
-        IlBodyDiffOptions options = IlBodyDiffOptions.None)
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(oldPe);
         ArgumentNullException.ThrowIfNull(oldReader);
@@ -261,7 +305,12 @@ public static class IlAssemblyDiff
                 "method identity resolution failed",
                 detail: string.Join("; ", identityFailures.Select(FormatIdentityFailure)))
             : oldBody.Result ?? newBody.Result
-                ?? IlBodyDiff.Compare(oldReader, oldBody.Body!, newReader, newBody.Body!, options);
+                ?? IlBodyDiff.Compare(
+                    oldReader,
+                    oldBody.Body!,
+                    newReader,
+                    newBody.Body!,
+                    normalization);
         return new IlMemberDiffResult(
             oldSubject,
             newSubject,

@@ -860,7 +860,7 @@ public static class MemberIdentity
     static TypeRef? NamedDefinition(TypeRef? type)
         => type is { Kind: TypeRefKind.GenericInstance } ? type.ElementType : type;
 
-    static bool IsSpanLikeType(TypeRef type)
+    internal static bool IsSpanLikeType(TypeRef type)
         => IsCoreLibraryOrFacadeType(type, "System", "Span`1", "System.Memory")
             || IsCoreLibraryOrFacadeType(type, "System", "ReadOnlySpan`1", "System.Memory");
 

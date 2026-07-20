@@ -1361,10 +1361,12 @@ public class DiffCommandTests
         Assert.Contains(view.Rows!, row =>
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Mechanism == "IL"
+            && row.Difference == nameof(IlBodyDiffOutcome.OperandDiff)
             && row.Evidence.Contains("ldc.i4 1", StringComparison.Ordinal));
         Assert.Contains(view.Rows!, row =>
             row.Member.Contains("CallToken", StringComparison.Ordinal)
             && row.Mechanism == "IL"
+            && row.Difference == nameof(IlBodyDiffOutcome.OperandDiff)
             && row.Evidence.Contains("System.Math::Abs", StringComparison.Ordinal));
         Assert.DoesNotContain(view.Rows!, row =>
             row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
