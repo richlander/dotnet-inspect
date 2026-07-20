@@ -14,7 +14,44 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 internal static class LibraryReport
 {
-    public static int Run(IReadOnlyList<string> assemblies, int compileCap, int maxExamples, bool json, int topPatterns, int? topLibraries)
+    public static int Run(
+        IReadOnlyList<string> assemblies,
+        int compileCap,
+        int maxExamples,
+        bool json,
+        int topPatterns,
+        int? topLibraries,
+        int methodCap)
+    {
+        var report = Evaluate(
+            assemblies,
+            compileCap,
+            maxExamples,
+            topPatterns,
+            topLibraries,
+            methodCap);
+
+        if (json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(
+                report,
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+        else
+        {
+            PrintMarkdown(report, Math.Max(1, topPatterns), topLibraries);
+        }
+
+        return report.TotalPassBugs > 0 ? 1 : 0;
+    }
+
+    internal static LibraryPortfolioReport Evaluate(
+        IReadOnlyList<string> assemblies,
+        int compileCap,
+        int maxExamples,
+        int topPatterns,
+        int? topLibraries,
+        int methodCap)
     {
         var reports = new List<AssemblyReport>();
         using var metadata = CorpusMetadata.Create(assemblies);
@@ -34,25 +71,26 @@ internal static class LibraryReport
 
         foreach (var assembly in assemblies)
         {
-            reports.Add(AnalyzeAssembly(assembly, metadata, references, parseOptions, compileOptions, compileCap, maxExamples));
+            reports.Add(AnalyzeAssembly(
+                assembly,
+                metadata,
+                references,
+                parseOptions,
+                compileOptions,
+                compileCap,
+                maxExamples,
+                methodCap));
         }
 
         int patternLimit = Math.Max(1, topPatterns);
         var selectedReports = SelectLibraries(reports, topLibraries);
-        var topPatternReports = TopPatterns(selectedReports, patternLimit, maxExamples);
-
-        if (json)
-        {
-            Console.WriteLine(JsonSerializer.Serialize(
-                new LibraryPortfolioReport(topPatternReports, selectedReports),
-                new JsonSerializerOptions { WriteIndented = true }));
-        }
-        else
-        {
-            PrintMarkdown(selectedReports, topPatternReports, patternLimit, topLibraries);
-        }
-
-        return reports.Any(r => r.PassBugs > 0) ? 1 : 0;
+        return BuildPortfolio(
+            selectedReports,
+            patternLimit,
+            maxExamples,
+            methodCap,
+            compileCap,
+            reports.Sum(report => report.PassBugs));
     }
 
     static IReadOnlyList<AssemblyReport> SelectLibraries(IReadOnlyList<AssemblyReport> reports, int? topLibraries)
@@ -75,7 +113,8 @@ internal static class LibraryReport
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         int compileCap,
-        int maxExamples)
+        int maxExamples,
+        int methodCap)
     {
         var buckets = new Dictionary<string, Bucket>(StringComparer.Ordinal);
         var report = new MutableReport(Path.GetFileName(path), path);
@@ -84,8 +123,11 @@ internal static class LibraryReport
         {
             using var source = MetadataSource.Open(path, context: metadata);
             report.Assembly = source.AssemblyName;
+            report.AvailableMethods = source.Reader.MethodDefinitions
+                .Count(handle => source.Reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0);
             var constraints = ShellConstraints.Build(source);
-            foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+            foreach (var (typeName, methodName, function) in
+                IrImporter.ImportAssemblyStableSample(source, methodCap))
             {
                 report.TotalMethods++;
                 var id = $"{typeName}::{methodName}";
@@ -251,9 +293,54 @@ internal static class LibraryReport
             .Take(topPatterns)];
     }
 
-    static void PrintMarkdown(
+    internal static LibraryPortfolioReport BuildPortfolio(
         IReadOnlyList<AssemblyReport> reports,
-        IReadOnlyList<PatternSummary> topPatterns,
+        int topPatterns,
+        int maxExamples,
+        int methodCap = int.MaxValue,
+        int semanticCompileCap = int.MaxValue,
+        int? totalPassBugs = null)
+    {
+        var allPatterns = TopPatterns(reports, int.MaxValue, maxExamples);
+        return new LibraryPortfolioReport(
+            methodCap,
+            semanticCompileCap,
+            totalPassBugs ?? reports.Sum(report => report.PassBugs),
+            [.. allPatterns.Where(pattern => IsCorrectnessDefect(pattern.Name))],
+            PromotionCandidates(reports),
+            [.. allPatterns.Take(Math.Max(1, topPatterns))],
+            reports);
+    }
+
+    static bool IsCorrectnessDefect(string pattern)
+        => pattern.StartsWith("assembly-open:", StringComparison.Ordinal)
+            || pattern.StartsWith("pass-bug:", StringComparison.Ordinal)
+            || pattern.StartsWith("validity:", StringComparison.Ordinal);
+
+    static IReadOnlyList<PromotionCandidate> PromotionCandidates(
+        IReadOnlyList<AssemblyReport> reports)
+        => [.. reports
+            .Select(report =>
+            {
+                var reasons = new List<string>();
+                if (report.PassBugs > 0)
+                    reasons.Add($"{report.PassBugs} pass bug method(s)");
+                if (report.FullMalformed > 0)
+                    reasons.Add($"{report.FullMalformed} malformed Full method(s)");
+                if (report.SemanticDefectMethods > 0)
+                    reasons.Add($"{report.SemanticDefectMethods} bound Full defect method(s)");
+                var defectPatterns = report.Patterns
+                    .Where(pattern => IsCorrectnessDefect(pattern.Name))
+                    .ToArray();
+                if (reasons.Count == 0 && defectPatterns.Length > 0)
+                    reasons.Add($"{defectPatterns.Sum(pattern => pattern.Count)} correctness defect(s)");
+                return new PromotionCandidate(report.Assembly, reasons);
+            })
+            .Where(candidate => candidate.Reasons.Count > 0)
+            .OrderBy(candidate => candidate.Assembly, StringComparer.Ordinal)];
+
+    static void PrintMarkdown(
+        LibraryPortfolioReport report,
         int patternLimit,
         int? topLibraries)
     {
@@ -262,18 +349,48 @@ internal static class LibraryReport
         if (topLibraries is { } limit)
             Console.WriteLine($"Showing top {Math.Max(1, limit)} libraries by unsupported-pattern load.");
         else
-            Console.WriteLine($"Showing all {reports.Count} libraries.");
+            Console.WriteLine($"Showing all {report.Libraries.Count} libraries.");
+        if (report.MethodCap != int.MaxValue)
+            Console.WriteLine($"Methods are a deterministic hash-ranked sample of at most {report.MethodCap} per library.");
+        if (report.SemanticCompileCap != int.MaxValue)
+            Console.WriteLine($"Semantic validity is checked for at most {report.SemanticCompileCap} Full methods per library.");
         Console.WriteLine();
 
-        Console.WriteLine($"## Top {patternLimit} unsupported patterns");
+        Console.WriteLine("## Correctness defect-class docket");
         Console.WriteLine();
-        if (topPatterns.Count == 0)
+        if (report.DefectClasses.Count == 0)
         {
             Console.WriteLine("- (none)");
         }
         else
         {
-            foreach (var pattern in topPatterns)
+            foreach (var defect in report.DefectClasses)
+                Console.WriteLine($"- **{defect.Name}**: {defect.Count} across {defect.LibraryCount} librar{(defect.LibraryCount == 1 ? "y" : "ies")} — {string.Join("; ", defect.Examples.Take(2).Select(example => $"`{example}`"))}");
+        }
+        Console.WriteLine();
+
+        Console.WriteLine("## Promotion candidates");
+        Console.WriteLine();
+        if (report.PromotionCandidates.Count == 0)
+        {
+            Console.WriteLine("- (none)");
+        }
+        else
+        {
+            foreach (var candidate in report.PromotionCandidates)
+                Console.WriteLine($"- **{candidate.Assembly}**: {string.Join("; ", candidate.Reasons)}");
+        }
+        Console.WriteLine();
+
+        Console.WriteLine($"## Top {patternLimit} unsupported patterns");
+        Console.WriteLine();
+        if (report.TopPatterns.Count == 0)
+        {
+            Console.WriteLine("- (none)");
+        }
+        else
+        {
+            foreach (var pattern in report.TopPatterns)
             {
                 Console.WriteLine($"- **{pattern.Name}**: {pattern.Count} across {pattern.LibraryCount} librar{(pattern.LibraryCount == 1 ? "y" : "ies")}");
                 foreach (var library in pattern.AffectedLibraries.Take(5))
@@ -285,28 +402,28 @@ internal static class LibraryReport
         Console.WriteLine();
         Console.WriteLine("| Assembly | Methods | Full | Fully raised | Full malformed | Bound Full defects | Pass bugs | Top patterns |");
         Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
-        foreach (var report in reports)
+        foreach (var library in report.Libraries)
         {
-            var top = report.Patterns.Take(Math.Min(3, patternLimit))
+            var top = library.Patterns.Take(Math.Min(3, patternLimit))
                 .Select(p => $"{p.Count} {Escape(p.Name)}");
-            Console.WriteLine($"| {Escape(report.Assembly)} | {report.TotalMethods} | {CountPercent(report.FullMethods, report.TotalMethods)} | {CountPercent(report.FullyRaisedMethods, report.TotalMethods)} | {report.FullMalformed} | {report.SemanticDefectMethods}/{report.SemanticChecked} | {report.PassBugs} | {string.Join("<br>", top)} |");
+            Console.WriteLine($"| {Escape(library.Assembly)} | {MethodCount(library)} | {CountPercent(library.FullMethods, library.TotalMethods)} | {CountPercent(library.FullyRaisedMethods, library.TotalMethods)} | {library.FullMalformed} | {library.SemanticDefectMethods}/{library.SemanticChecked} | {library.PassBugs} | {string.Join("<br>", top)} |");
         }
 
-        foreach (var report in reports)
+        foreach (var library in report.Libraries)
         {
             Console.WriteLine();
-            Console.WriteLine($"## {report.Assembly}");
+            Console.WriteLine($"## {library.Assembly}");
             Console.WriteLine();
-            Console.WriteLine($"Path: `{report.Path}`");
+            Console.WriteLine($"Path: `{library.Path}`");
             Console.WriteLine();
             Console.WriteLine($"Top {patternLimit} unsupported patterns:");
-            if (report.Patterns.Count == 0)
+            if (library.Patterns.Count == 0)
             {
                 Console.WriteLine("- (none)");
                 continue;
             }
 
-            foreach (var pattern in report.Patterns.Take(patternLimit))
+            foreach (var pattern in library.Patterns.Take(patternLimit))
             {
                 Console.WriteLine($"- **{pattern.Name}**: {pattern.Count}");
                 foreach (var example in pattern.Examples.Take(3))
@@ -320,6 +437,11 @@ internal static class LibraryReport
     static string CountPercent(int part, int whole)
         => whole == 0 ? "0/0" : $"{part}/{whole} ({100.0 * part / whole:F2}%)";
 
+    static string MethodCount(AssemblyReport report)
+        => report.TotalMethods == report.AvailableMethods
+            ? report.TotalMethods.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : $"{report.TotalMethods}/{report.AvailableMethods} sampled";
+
     static string Escape(string value)
         => value.Replace("|", "\\|").Replace("\n", " ");
 
@@ -327,6 +449,7 @@ internal static class LibraryReport
     {
         public string Assembly { get; set; } = assembly;
         public string Path { get; } = path;
+        public int AvailableMethods { get; set; }
         public int TotalMethods { get; set; }
         public int FullMethods { get; set; }
         public int PartialMethods { get; set; }
@@ -342,6 +465,7 @@ internal static class LibraryReport
             => new(
                 Assembly,
                 Path,
+                AvailableMethods,
                 TotalMethods,
                 FullMethods,
                 PartialMethods,
@@ -369,6 +493,7 @@ internal static class LibraryReport
 internal sealed record AssemblyReport(
     string Assembly,
     string Path,
+    int AvailableMethods,
     int TotalMethods,
     int FullMethods,
     int PartialMethods,
@@ -384,8 +509,17 @@ internal sealed record AssemblyReport(
 internal sealed record PatternReport(string Name, int Count, IReadOnlyList<string> Examples);
 
 internal sealed record LibraryPortfolioReport(
+    int MethodCap,
+    int SemanticCompileCap,
+    int TotalPassBugs,
+    IReadOnlyList<PatternSummary> DefectClasses,
+    IReadOnlyList<PromotionCandidate> PromotionCandidates,
     IReadOnlyList<PatternSummary> TopPatterns,
     IReadOnlyList<AssemblyReport> Libraries);
+
+internal sealed record PromotionCandidate(
+    string Assembly,
+    IReadOnlyList<string> Reasons);
 
 internal sealed record PatternSummary(
     string Name,

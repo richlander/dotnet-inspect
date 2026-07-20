@@ -229,6 +229,17 @@ library. Use this for the direct "which patterns are unsupported in which
 library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
+`--corpus-method-cap N` applies the existing deterministic hash-ranked sampler
+independently to each library. The report keeps ordinary fidelity residuals in
+the discovery pattern list while separately projecting correctness defect
+classes and package-promotion candidates.
+
+The weekly Deep Inspect `package-sweep` lane prepares ranks 1-10 from
+`docs/data/nuget-top-packages.json` with product-owned package acquisition and
+TFM selection, then runs this report with bounded method and semantic-validity
+caps. Its manifest records the resolved package version, TFM, selected assembly,
+cache status, and failures. This is current-package discovery evidence, not a
+checked-in baseline or PR gate.
 
 **Real-world corpus sensor** (`--diff-corpus-baseline`): the Deep Inspect
 baseline for #1166. It measures the fixed #1150 corpus — pinned NuGet assemblies

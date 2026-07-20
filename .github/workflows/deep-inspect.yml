@@ -11,8 +11,11 @@ on:
         options:
           - test
           - census
+          - package-sweep
           - nightly
           - all
+  schedule:
+    - cron: '0 9 * * 1'
 
 env:
   DOTNET_NOLOGO: true
@@ -24,6 +27,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  package-sweep:
+    name: NuGet package discovery sweep
+    if: github.event_name == 'schedule' || inputs.lane == 'package-sweep'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-package-sweep-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-package-sweep-${{ runner.os }}-${{ runner.arch }}-
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build managed tool
+        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+
+      - name: Prepare top-package slice
+        run: |
+          mkdir -p artifacts/package-sweep
+          dotnet run eng/prepare-decompiler-package-sweep.cs -- \
+            artifacts/package-sweep 1 10 \
+            | tee artifacts/package-sweep/acquisition.txt
+
+      - name: Run bounded library report
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t assemblies < artifacts/package-sweep/assemblies.txt
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --library-report \
+            --corpus-method-cap 250 \
+            --compile-cap 25 \
+            --top-patterns 25 \
+            --max-examples 3 \
+            | tee artifacts/package-sweep/report.md
+
+      - name: Upload package sweep artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deep-inspect-package-sweep
+          path: artifacts/package-sweep/
+          if-no-files-found: warn
+
   test:
     name: Test lane
     if: inputs.lane == 'test' || inputs.lane == 'all'
