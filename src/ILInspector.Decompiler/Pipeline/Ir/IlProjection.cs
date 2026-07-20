@@ -1,8 +1,8 @@
-using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -72,7 +72,7 @@ public static class IlProjection
         var (typeDef, methodDef, methodHandle) = located;
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
-        var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
+        var instructions = Decode(source.Reader, scope, imported.Body.IL.ToArray());
         return depth switch
         {
             IlProjectionDepth.Structured => RenderStructured(instructions, imported.Body),
@@ -143,53 +143,41 @@ public static class IlProjection
 
     readonly record struct Instr(int Offset, ILOpCode Op, string Name, string Operand);
 
-    static List<Instr> Decode(MetadataReader reader, GenericScope scope, ReadOnlySpan<byte> il)
+    /// <summary>
+    /// Decodes via the shared <see cref="InstructionDecoder"/> (the one decode Instructions
+    /// owns) rather than a second hand-rolled loop, so opcode sizing, branch-target
+    /// resolution, and prefix handling can't silently diverge from that substrate.
+    /// </summary>
+    static List<Instr> Decode(MetadataReader reader, GenericScope scope, byte[] il)
     {
-        var result = new List<Instr>();
-        int pos = 0;
-        while (pos < il.Length)
+        var result = new List<Instr>(il.Length);
+        foreach (var decoded in InstructionDecoder.Decode(il))
         {
-            int offset = pos;
-            int b = il[pos++];
-            var op = b == 0xFE ? (ILOpCode)(0xFE00 | il[pos++]) : (ILOpCode)b;
-            string name = op.ToString().ToLowerInvariant().Replace('_', '.');
-            result.Add(new Instr(offset, op, name, ReadOperand(reader, scope, il, op, ref pos)));
+            string name = decoded.OpCode.ToString().ToLowerInvariant().Replace('_', '.');
+            result.Add(new Instr(decoded.Offset, decoded.OpCode, name, FormatOperand(reader, scope, decoded)));
         }
         return result;
     }
 
-    static string ReadOperand(MetadataReader reader, GenericScope scope, ReadOnlySpan<byte> il, ILOpCode op, ref int pos)
+    static string FormatOperand(MetadataReader reader, GenericScope scope, DecodedInstruction decoded)
     {
-        if (op == ILOpCode.Switch)
+        if (decoded.Operand == OperandKind.InlineSwitch)
+            return $"({string.Join(", ", decoded.BranchTargets.Select(target => $"IL_{target:X4}"))})";
+        if (decoded.Branches)
+            return $"IL_{decoded.BranchTargets[0]:X4}";
+        return decoded.Operand switch
         {
-            int count = BinaryPrimitives.ReadInt32LittleEndian(il[pos..]); pos += 4;
-            int origin = pos + count * 4;
-            var targets = new string[count];
-            for (int i = 0; i < count; i++)
-            {
-                targets[i] = $"IL_{origin + BinaryPrimitives.ReadInt32LittleEndian(il[pos..]):X4}"; pos += 4;
-            }
-            return $"({string.Join(", ", targets)})";
-        }
-
-        int length = OperandLength(op);
-        if (length == 0)
-            return "";
-        var bytes = il.Slice(pos, length);
-        pos += length;
-        if (IsBranch(op))
-            return $"IL_{pos + (length == 1 ? (sbyte)bytes[0] : BinaryPrimitives.ReadInt32LittleEndian(bytes)):X4}";
-        return op switch
-        {
-            ILOpCode.Ldc_i4 => BinaryPrimitives.ReadInt32LittleEndian(bytes).ToString(),
-            ILOpCode.Ldc_i4_s => ((sbyte)bytes[0]).ToString(),
-            ILOpCode.Ldc_i8 => BinaryPrimitives.ReadInt64LittleEndian(bytes).ToString(),
-            ILOpCode.Ldc_r4 => BinaryPrimitives.ReadSingleLittleEndian(bytes).ToString(),
-            ILOpCode.Ldc_r8 => BinaryPrimitives.ReadDoubleLittleEndian(bytes).ToString(),
-            _ when IsMetadataToken(op) => ResolveToken(reader, scope, op, BinaryPrimitives.ReadInt32LittleEndian(bytes)),
-            _ when length == 1 => bytes[0].ToString(),                              // short var/arg index
-            _ when length == 2 => BinaryPrimitives.ReadUInt16LittleEndian(bytes).ToString(),  // var/arg index
-            _ => $"0x{BinaryPrimitives.ReadUInt32LittleEndian(bytes):X8}",
+            OperandKind.None => "",
+            OperandKind.ShortInlineI => ((sbyte)decoded.OperandValue).ToString(),
+            OperandKind.InlineI => ((int)decoded.OperandValue).ToString(),
+            OperandKind.InlineI8 => decoded.OperandValue.ToString(),
+            OperandKind.ShortInlineR => BitConverter.Int32BitsToSingle((int)decoded.OperandValue).ToString(),
+            OperandKind.InlineR => BitConverter.Int64BitsToDouble(decoded.OperandValue).ToString(),
+            OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
+                or OperandKind.InlineType or OperandKind.InlineTok
+                => ResolveToken(reader, scope, decoded.OpCode, (int)decoded.OperandValue),
+            OperandKind.ShortInlineVar or OperandKind.InlineVar => decoded.OperandValue.ToString(), // var/arg index
+            _ => $"0x{(uint)decoded.OperandValue:X8}",  // e.g. calli's InlineSig: not resolved, ground-truth hex
         };
     }
 
@@ -243,44 +231,6 @@ public static class IlProjection
         var f = IrImporter.ResolveField(reader, handle, scope);
         return $"{f.Type.ToDisplayString()} {f.DeclaringType.ToDisplayString()}::{f.Name}";
     }
-
-    static bool IsMetadataToken(ILOpCode op) => op is
-        ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Jmp
-        or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
-        or ILOpCode.Castclass or ILOpCode.Isinst or ILOpCode.Box or ILOpCode.Unbox or ILOpCode.Unbox_any
-        or ILOpCode.Newarr or ILOpCode.Ldobj or ILOpCode.Stobj or ILOpCode.Cpobj or ILOpCode.Initobj
-        or ILOpCode.Constrained or ILOpCode.Sizeof or ILOpCode.Mkrefany or ILOpCode.Refanyval
-        or ILOpCode.Ldelem or ILOpCode.Ldelema or ILOpCode.Stelem or ILOpCode.Ldstr or ILOpCode.Ldtoken;
-
-    static bool IsBranch(ILOpCode op) => op is
-        ILOpCode.Br or ILOpCode.Br_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s or ILOpCode.Brtrue or ILOpCode.Brtrue_s
-        or ILOpCode.Beq or ILOpCode.Beq_s or ILOpCode.Bge or ILOpCode.Bge_s or ILOpCode.Bgt or ILOpCode.Bgt_s
-        or ILOpCode.Ble or ILOpCode.Ble_s or ILOpCode.Blt or ILOpCode.Blt_s or ILOpCode.Bne_un or ILOpCode.Bne_un_s
-        or ILOpCode.Bge_un or ILOpCode.Bge_un_s or ILOpCode.Bgt_un or ILOpCode.Bgt_un_s or ILOpCode.Ble_un or ILOpCode.Ble_un_s
-        or ILOpCode.Blt_un or ILOpCode.Blt_un_s or ILOpCode.Leave or ILOpCode.Leave_s;
-
-    static int OperandLength(ILOpCode op) => op switch
-    {
-        ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 => 8,
-        ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc => 2,
-        ILOpCode.Br_s or ILOpCode.Brfalse_s or ILOpCode.Brtrue_s or ILOpCode.Beq_s or ILOpCode.Bge_s or ILOpCode.Bgt_s
-            or ILOpCode.Ble_s or ILOpCode.Blt_s or ILOpCode.Bne_un_s or ILOpCode.Bge_un_s or ILOpCode.Bgt_un_s
-            or ILOpCode.Ble_un_s or ILOpCode.Blt_un_s or ILOpCode.Leave_s
-            or ILOpCode.Ldc_i4_s or ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s or ILOpCode.Ldloc_s
-            or ILOpCode.Ldloca_s or ILOpCode.Stloc_s or ILOpCode.Unaligned => 1,
-        ILOpCode.Br or ILOpCode.Brfalse or ILOpCode.Brtrue or ILOpCode.Beq or ILOpCode.Bge or ILOpCode.Bgt
-            or ILOpCode.Ble or ILOpCode.Blt or ILOpCode.Bne_un or ILOpCode.Bge_un or ILOpCode.Bgt_un
-            or ILOpCode.Ble_un or ILOpCode.Blt_un or ILOpCode.Leave
-            or ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4 or ILOpCode.Jmp
-            or ILOpCode.Call or ILOpCode.Calli or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn
-            or ILOpCode.Ldvirtftn or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld
-            or ILOpCode.Ldsflda or ILOpCode.Stsfld or ILOpCode.Castclass or ILOpCode.Isinst or ILOpCode.Box
-            or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Newarr or ILOpCode.Ldelem or ILOpCode.Ldelema
-            or ILOpCode.Stelem or ILOpCode.Ldobj or ILOpCode.Stobj or ILOpCode.Cpobj or ILOpCode.Initobj
-            or ILOpCode.Constrained or ILOpCode.Sizeof or ILOpCode.Ldtoken or ILOpCode.Ldstr
-            or ILOpCode.Mkrefany or ILOpCode.Refanyval => 4,
-        _ => 0,
-    };
 
     static string RenderRaw(List<Instr> instructions)
     {
@@ -490,7 +440,7 @@ public static class IlProjection
         var (typeDef, methodDef, methodHandle) = located;
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
-        var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
+        var instructions = Decode(source.Reader, scope, imported.Body.IL.ToArray());
 
         var trace = new List<IlTracePoint>();
         var function = IrImporter.Build(source, imported, scope, trace);

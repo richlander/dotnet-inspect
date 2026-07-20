@@ -4,6 +4,54 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+/// <summary>
+/// Real-IL fixture for <see cref="SwitchBranchRenderingTests.Structuring_PreservesFlattenedSwitchTargetLabels"/>:
+/// an enum switch over disjoint <c>or</c>-pattern groups compiles to a mix of IL
+/// `switch` jump tables (contiguous groups) and comparison-tree branches
+/// (scattered groups), each ending in a `return` leaf — the shape the test needs
+/// from a real compiled method rather than hand-built IR. Owned by the test
+/// project so it doesn't depend on incidental shape in production code (which
+/// previously borrowed <c>IlProjection.OperandLength</c> for this before that
+/// method was deduplicated away — see issue #2898 item 2).
+/// </summary>
+static class SwitchTableFixture
+{
+    public static int Classify(System.Reflection.Metadata.ILOpCode op) => op switch
+    {
+        System.Reflection.Metadata.ILOpCode.Ldc_i8 or System.Reflection.Metadata.ILOpCode.Ldc_r8 => 8,
+        System.Reflection.Metadata.ILOpCode.Ldarg or System.Reflection.Metadata.ILOpCode.Ldarga or System.Reflection.Metadata.ILOpCode.Starg
+            or System.Reflection.Metadata.ILOpCode.Ldloc or System.Reflection.Metadata.ILOpCode.Ldloca or System.Reflection.Metadata.ILOpCode.Stloc => 2,
+        System.Reflection.Metadata.ILOpCode.Br_s or System.Reflection.Metadata.ILOpCode.Brfalse_s or System.Reflection.Metadata.ILOpCode.Brtrue_s
+            or System.Reflection.Metadata.ILOpCode.Beq_s or System.Reflection.Metadata.ILOpCode.Bge_s or System.Reflection.Metadata.ILOpCode.Bgt_s
+            or System.Reflection.Metadata.ILOpCode.Ble_s or System.Reflection.Metadata.ILOpCode.Blt_s or System.Reflection.Metadata.ILOpCode.Bne_un_s
+            or System.Reflection.Metadata.ILOpCode.Bge_un_s or System.Reflection.Metadata.ILOpCode.Bgt_un_s or System.Reflection.Metadata.ILOpCode.Ble_un_s
+            or System.Reflection.Metadata.ILOpCode.Blt_un_s or System.Reflection.Metadata.ILOpCode.Leave_s
+            or System.Reflection.Metadata.ILOpCode.Ldc_i4_s or System.Reflection.Metadata.ILOpCode.Ldarg_s or System.Reflection.Metadata.ILOpCode.Ldarga_s
+            or System.Reflection.Metadata.ILOpCode.Starg_s or System.Reflection.Metadata.ILOpCode.Ldloc_s
+            or System.Reflection.Metadata.ILOpCode.Ldloca_s or System.Reflection.Metadata.ILOpCode.Stloc_s or System.Reflection.Metadata.ILOpCode.Unaligned => 1,
+        System.Reflection.Metadata.ILOpCode.Br or System.Reflection.Metadata.ILOpCode.Brfalse or System.Reflection.Metadata.ILOpCode.Brtrue
+            or System.Reflection.Metadata.ILOpCode.Beq or System.Reflection.Metadata.ILOpCode.Bge or System.Reflection.Metadata.ILOpCode.Bgt
+            or System.Reflection.Metadata.ILOpCode.Ble or System.Reflection.Metadata.ILOpCode.Blt or System.Reflection.Metadata.ILOpCode.Bne_un
+            or System.Reflection.Metadata.ILOpCode.Bge_un or System.Reflection.Metadata.ILOpCode.Bgt_un
+            or System.Reflection.Metadata.ILOpCode.Ble_un or System.Reflection.Metadata.ILOpCode.Blt_un or System.Reflection.Metadata.ILOpCode.Leave
+            or System.Reflection.Metadata.ILOpCode.Ldc_i4 or System.Reflection.Metadata.ILOpCode.Ldc_r4 or System.Reflection.Metadata.ILOpCode.Jmp
+            or System.Reflection.Metadata.ILOpCode.Call or System.Reflection.Metadata.ILOpCode.Calli or System.Reflection.Metadata.ILOpCode.Callvirt
+            or System.Reflection.Metadata.ILOpCode.Newobj or System.Reflection.Metadata.ILOpCode.Ldftn
+            or System.Reflection.Metadata.ILOpCode.Ldvirtftn or System.Reflection.Metadata.ILOpCode.Ldfld or System.Reflection.Metadata.ILOpCode.Ldflda
+            or System.Reflection.Metadata.ILOpCode.Stfld or System.Reflection.Metadata.ILOpCode.Ldsfld
+            or System.Reflection.Metadata.ILOpCode.Ldsflda or System.Reflection.Metadata.ILOpCode.Stsfld or System.Reflection.Metadata.ILOpCode.Castclass
+            or System.Reflection.Metadata.ILOpCode.Isinst or System.Reflection.Metadata.ILOpCode.Box
+            or System.Reflection.Metadata.ILOpCode.Unbox or System.Reflection.Metadata.ILOpCode.Unbox_any or System.Reflection.Metadata.ILOpCode.Newarr
+            or System.Reflection.Metadata.ILOpCode.Ldelem or System.Reflection.Metadata.ILOpCode.Ldelema
+            or System.Reflection.Metadata.ILOpCode.Stelem or System.Reflection.Metadata.ILOpCode.Ldobj or System.Reflection.Metadata.ILOpCode.Stobj
+            or System.Reflection.Metadata.ILOpCode.Cpobj or System.Reflection.Metadata.ILOpCode.Initobj
+            or System.Reflection.Metadata.ILOpCode.Constrained or System.Reflection.Metadata.ILOpCode.Sizeof or System.Reflection.Metadata.ILOpCode.Ldtoken
+            or System.Reflection.Metadata.ILOpCode.Ldstr
+            or System.Reflection.Metadata.ILOpCode.Mkrefany or System.Reflection.Metadata.ILOpCode.Refanyval => 4,
+        _ => 0,
+    };
+}
+
 // An IL `switch` opcode the switch-raising pass could not lift into a structured
 // `switch` stays in the tree as a SwitchBranch jump table. The printer must
 // render it as valid lowered C# — a single-evaluated temp plus one `if`/`goto`
@@ -81,20 +129,19 @@ public class SwitchBranchRenderingTests
     [Fact]
     public void Structuring_PreservesFlattenedSwitchTargetLabels()
     {
-        // OperandLength has residual switch tables whose target blocks are also
-        // comparison-tree return leaves. Structuring must keep those labels
+        // SwitchTableFixture.Classify has residual switch tables whose target blocks
+        // are also comparison-tree return leaves. Structuring must keep those labels
         // available for the lowered if/goto switch rendering.
-        using var source = MetadataSource.Open(typeof(IlProjection).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(IlProjection).FullName!, "OperandLength");
+        using var source = MetadataSource.Open(typeof(SwitchTableFixture).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(SwitchTableFixture).FullName!, nameof(SwitchTableFixture.Classify));
         Assert.NotNull(function);
 
         var result = CSharpPrinter.PrintRaised(function);
         string output = result.Output ?? "";
 
         Assert.Contains("if (__dotnet_inspect_switch", output);
-        Assert.Contains("goto IL_024F;", output);
-        Assert.Contains("IL_024F:", output);
         Assert.DoesNotContain("case 0: goto", output);
+        AssertGotoTargetsHaveLabels(output);
     }
 
     [Fact]
