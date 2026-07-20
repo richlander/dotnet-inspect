@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.DecompilerHarness;
@@ -43,6 +44,8 @@ static class RealMethodTargetEnumerator
     /// authored member body.</param>
     /// <param name="IlSize">Method body IL byte length, used by difficulty
     /// scoring for the hard-IL corpus.</param>
+    /// <param name="Difficulty">Structural IL difficulty profile plus composite
+    /// score used to rank the hard-IL corpus.</param>
     internal sealed record RealMethodTarget(
         string Type,
         string Method,
@@ -50,7 +53,8 @@ static class RealMethodTargetEnumerator
         string? Signature,
         int MetadataToken,
         int ParameterCount,
-        int IlSize)
+        int IlSize,
+        IlDifficulty Difficulty)
     {
         public ReturnToSender.RequestedTarget ToRequestedTarget()
             => new(Type, Method, Overload, Signature);
@@ -109,7 +113,7 @@ static class RealMethodTargetEnumerator
 
                 int parameterCount = ParameterCount(reader, typeDef, method);
                 string? signature = ResolveUniqueSignature(reader, typeDef, methodName, methodHandle);
-                int ilSize = BodyIlSize(pe, method);
+                IlDifficulty difficulty = ComputeDifficulty(pe, reader, typeDef, method);
 
                 targets.Add(new RealMethodTarget(
                     fullType,
@@ -118,7 +122,8 @@ static class RealMethodTargetEnumerator
                     signature,
                     MetadataTokens.GetToken(methodHandle),
                     parameterCount,
-                    ilSize));
+                    difficulty.IlSize,
+                    difficulty));
             }
         }
 
@@ -188,14 +193,43 @@ static class RealMethodTargetEnumerator
             : null;
     }
 
-    static int BodyIlSize(PEReader pe, MethodDefinition method)
+    static IlDifficulty ComputeDifficulty(
+        PEReader pe,
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
     {
         if (method.RelativeVirtualAddress == 0)
+            return IlDifficulty.Empty;
+
+        try
+        {
+            var body = pe.GetMethodBody(method.RelativeVirtualAddress);
+            int ilSize = body.GetILBytes()?.Length ?? 0;
+            int localCount = LocalCount(reader, typeDef, method, body);
+            var decoded = MethodInstructions.Decode(body);
+            return IlDifficultyScorer.Score(decoded, ilSize, localCount, body.MaxStack);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return IlDifficulty.Empty;
+        }
+    }
+
+    static int LocalCount(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        MethodBodyBlock body)
+    {
+        if (body.LocalSignature.IsNil)
             return 0;
 
         try
         {
-            return pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()?.Length ?? 0;
+            return reader.GetStandaloneSignature(body.LocalSignature)
+                .DecodeLocalSignature(SignatureDecoder.Instance, GenericContext.ForMethod(reader, typeDef, method))
+                .Length;
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
