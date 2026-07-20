@@ -91,6 +91,60 @@ public class FixtureCatalogTests
     }
 
     [Fact]
+    public void DecompilerTaggedFixtures_DeclareRequiredSource()
+    {
+        var unclassified = FixtureCatalog.SelectByTag("decompiler")
+            .Where(fixture => fixture.SourcePolicy.Applicability
+                != FixtureSourceApplicability.Required)
+            .Select(fixture => fixture.Id)
+            .ToArray();
+
+        Assert.True(
+            unclassified.Length == 0,
+            $"Decompiler fixtures without required source: {string.Join(", ", unclassified)}");
+    }
+
+    [Fact]
+    public void SourceInventory_ReportsDiscoveredSourceWithoutClaimingVerification()
+    {
+        var fixtures = FixtureCatalog.SelectByTag("decompiler");
+        var report = FixtureSourceInventory.Create(fixtures);
+
+        Assert.Equal(fixtures.Count, report.Fixtures.Count);
+        Assert.Equal(fixtures.Count, report.Required);
+        Assert.Equal(fixtures.Count, report.SourceDiscovered);
+        Assert.Equal(0, report.Unresolved);
+        Assert.All(report.Fixtures, row =>
+        {
+            Assert.Equal(FixtureSourceInventoryStatus.SourceDiscovered, row.Status);
+            Assert.True(row.DiscoveredDocumentCount > 0, row.FixtureId);
+        });
+    }
+
+    [Fact]
+    public void SourceInventory_KeepsUnclassifiedAndNotApplicableVisible()
+    {
+        var unclassified = new FixtureDefinition(
+            "unclassified", "Project", "Project.dll", [], [], []);
+        var notApplicable = unclassified with
+        {
+            Id = "synthetic",
+            SourcePolicy = FixtureSourcePolicy.NotApplicable("Hand-authored invalid IL."),
+        };
+
+        var report = FixtureSourceInventory.Create([unclassified, notApplicable]);
+
+        Assert.Equal(1, report.Unresolved);
+        Assert.Contains(report.Fixtures, row =>
+            row.FixtureId == "unclassified"
+            && row.Status == FixtureSourceInventoryStatus.Unclassified);
+        Assert.Contains(report.Fixtures, row =>
+            row.FixtureId == "synthetic"
+            && row.Status == FixtureSourceInventoryStatus.NotApplicable
+            && row.Reason == "Hand-authored invalid IL.");
+    }
+
+    [Fact]
     public void SidecarAssets_ResolveTraceCoupledRunFasterAsset()
     {
         var fixture = FixtureCatalog.RunFasterAllocation;

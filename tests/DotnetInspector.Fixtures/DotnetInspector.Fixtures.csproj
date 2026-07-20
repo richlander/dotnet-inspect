@@ -8,4 +8,8 @@
     <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
+  </ItemGroup>
+
 </Project>

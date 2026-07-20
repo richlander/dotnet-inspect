@@ -10,6 +10,8 @@ public sealed record FixtureDefinition(
     IReadOnlyList<FixtureBoundary> Boundaries,
     IReadOnlyList<FixtureAsset> Assets)
 {
+    public FixtureSourcePolicy SourcePolicy { get; init; } = FixtureSourcePolicy.Unclassified;
+
     public string AssemblyPath() => FixtureCatalog.AssemblyPath(Id);
     public string ProjectDirectory() => FixtureCatalog.ProjectDirectory(Id);
     public IReadOnlyList<string> SourcePaths() => FixtureCatalog.SourcePaths(Id);
@@ -91,14 +93,14 @@ public static class FixtureIds
 
 public static class FixtureCatalog
 {
-    public static readonly FixtureDefinition DiffV1 = Fixture(
+    public static readonly FixtureDefinition DiffV1 = SourceFixture(
         FixtureIds.DiffV1,
         "DiffFixtures.V1",
         "DiffFixtureSample.dll",
         Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
 
-    public static readonly FixtureDefinition DiffV2 = Fixture(
+    public static readonly FixtureDefinition DiffV2 = SourceFixture(
         FixtureIds.DiffV2,
         "DiffFixtures.V2",
         "DiffFixtureSample.dll",
@@ -228,98 +230,98 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.AssemblyName),
         "analysis", "spoof", "assembly-name-axis", "system-runtime");
 
-    public static readonly FixtureDefinition DecompilerCheckedArithmetic = Fixture(
+    public static readonly FixtureDefinition DecompilerCheckedArithmetic = SourceFixture(
         FixtureIds.DecompilerCheckedArithmetic,
         "ILInspector.Decompiler.Fixtures.CheckedArithmetic",
         "ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "checked-arithmetic", "compiler-axis");
 
-    public static readonly FixtureDefinition DecompilerClassicAsync = Fixture(
+    public static readonly FixtureDefinition DecompilerClassicAsync = SourceFixture(
         FixtureIds.DecompilerClassicAsync,
         "ILInspector.Decompiler.Fixtures.ClassicAsync",
         "ILInspector.Decompiler.Fixtures.ClassicAsync.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "async", "classic-async", "compiler-axis", "rts-candidate");
 
-    public static readonly FixtureDefinition DecompilerClassicStateMachines = Fixture(
+    public static readonly FixtureDefinition DecompilerClassicStateMachines = SourceFixture(
         FixtureIds.DecompilerClassicStateMachines,
         "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
         "ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "async", "iterator", "classic-state-machines", "compiler-axis");
 
-    public static readonly FixtureDefinition DecompilerLadderIterator = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderIterator = SourceFixture(
         FixtureIds.DecompilerLadderIterator,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "iterator");
 
-    public static readonly FixtureDefinition DecompilerLadderRung1 = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderRung1 = SourceFixture(
         FixtureIds.DecompilerLadderRung1,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung1");
 
-    public static readonly FixtureDefinition DecompilerLadderRung2 = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderRung2 = SourceFixture(
         FixtureIds.DecompilerLadderRung2,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung2");
 
-    public static readonly FixtureDefinition DecompilerLadderRung3 = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderRung3 = SourceFixture(
         FixtureIds.DecompilerLadderRung3,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung3");
 
-    public static readonly FixtureDefinition DecompilerLadderRung4 = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderRung4 = SourceFixture(
         FixtureIds.DecompilerLadderRung4,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung4");
 
-    public static readonly FixtureDefinition DecompilerLadderRung5 = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderRung5 = SourceFixture(
         FixtureIds.DecompilerLadderRung5,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung5");
 
-    public static readonly FixtureDefinition DecompilerLadderRung9 = Fixture(
+    public static readonly FixtureDefinition DecompilerLadderRung9 = SourceFixture(
         FixtureIds.DecompilerLadderRung9,
         "ILInspector.Decompiler.Fixtures.Ladder",
         "ILInspector.Decompiler.Fixtures.Ladder.dll",
         "decompiler", "ladder", "rung9");
 
-    public static readonly FixtureDefinition DecompilerUnsafeLegacy = Fixture(
+    public static readonly FixtureDefinition DecompilerUnsafeLegacy = SourceFixture(
         FixtureIds.DecompilerUnsafeLegacy,
         "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
         "ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
         Boundaries(FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "legacy-memory-safety");
 
-    public static readonly FixtureDefinition DecompilerUnsafeNew = Fixture(
+    public static readonly FixtureDefinition DecompilerUnsafeNew = SourceFixture(
         FixtureIds.DecompilerUnsafeNew,
         "ILInspector.Decompiler.Fixtures.NewUnsafe",
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
         Boundaries(FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "updated-memory-safety");
 
-    public static readonly FixtureDefinition DecompilerUnsafeChainA = Fixture(
+    public static readonly FixtureDefinition DecompilerUnsafeChainA = SourceFixture(
         FixtureIds.DecompilerUnsafeChainA,
         "ILInspector.Decompiler.Fixtures.UnsafeChainA",
         "ILInspector.Decompiler.Fixtures.UnsafeChainA.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary, FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "chain", "updated-memory-safety");
 
-    public static readonly FixtureDefinition DecompilerUnsafeChainB = Fixture(
+    public static readonly FixtureDefinition DecompilerUnsafeChainB = SourceFixture(
         FixtureIds.DecompilerUnsafeChainB,
         "ILInspector.Decompiler.Fixtures.UnsafeChainB",
         "ILInspector.Decompiler.Fixtures.UnsafeChainB.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary, FixtureBoundary.ModuleAttribute),
         "decompiler", "unsafe", "chain", "updated-memory-safety");
 
-    public static readonly FixtureDefinition DecompilerUnsafeChainC = Fixture(
+    public static readonly FixtureDefinition DecompilerUnsafeChainC = SourceFixture(
         FixtureIds.DecompilerUnsafeChainC,
         "ILInspector.Decompiler.Fixtures.UnsafeChainC",
         "ILInspector.Decompiler.Fixtures.UnsafeChainC.dll",
@@ -606,8 +608,20 @@ public static class FixtureCatalog
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, params string[] tags)
         => new(id, projectName, assemblyFileName, tags, [], []);
 
+    static FixtureDefinition SourceFixture(string id, string projectName, string assemblyFileName, params string[] tags)
+        => Fixture(id, projectName, assemblyFileName, tags) with
+        {
+            SourcePolicy = FixtureSourcePolicy.Required,
+        };
+
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, FixtureBoundary[] boundaries, params string[] tags)
         => new(id, projectName, assemblyFileName, tags, boundaries, []);
+
+    static FixtureDefinition SourceFixture(string id, string projectName, string assemblyFileName, FixtureBoundary[] boundaries, params string[] tags)
+        => Fixture(id, projectName, assemblyFileName, boundaries, tags) with
+        {
+            SourcePolicy = FixtureSourcePolicy.Required,
+        };
 
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, string[] tags, FixtureBoundary[] boundaries, params FixtureAsset[] assets)
         => new(id, projectName, assemblyFileName, tags, boundaries, assets);

@@ -104,6 +104,7 @@ static class Program
         bool bindCheck = false;
         bool classifyDec0009 = false;
         bool generatedFixtures = false;
+        bool fixtureSourceInventory = false;
         string? generatedFixtureSelector = null;
         string? returnToSenderCatalogSelector = null;
         bool keepGeneratedFixtures = false;
@@ -230,6 +231,7 @@ static class Program
                             && !LooksLikePath(args[i + 1]))
                             generatedFixtureSelector = NextArg(args, ref i, flag);
                         break;
+                    case "--fixture-source-inventory": fixtureSourceInventory = true; break;
                     case "--keep-generated-fixtures": keepGeneratedFixtures = true; break;
                     case "--emit-corpus-baseline": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
                     case "--emit-corpus-snapshot": emitCorpusSnapshot = NextArg(args, ref i, flag); break;
@@ -295,6 +297,15 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--generated-fixtures generates its own temporary input assembly; do not pass assembly paths.");
             return GeneratedFixtures(generatedFixtureSelector, keepGeneratedFixtures, json);
+        }
+
+        if (fixtureSourceInventory)
+        {
+            if (inputs.Count > 0)
+                return Fail("--fixture-source-inventory does not accept assembly paths.");
+            Console.Write(DecompilerFixtureSourceInventory.Format(
+                DecompilerFixtureSourceInventory.Create(), json));
+            return 0;
         }
 
         if (fuzzSignatures)
@@ -1840,6 +1851,11 @@ static class Program
                                 selector, run all generated fixtures. Use
                                 "list" to list fixture IDs. Add --json for
                                 machine-readable list/results.
+          --fixture-source-inventory
+                                report source applicability for built fixtures,
+                                retained generated source, and unresolved
+                                test-local compilation sites. Add --json for the
+                                structured report.
           --keep-generated-fixtures
                                 with --generated-fixtures: keep the temporary
                                 project and print its paths.
