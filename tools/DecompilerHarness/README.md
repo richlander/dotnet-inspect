@@ -307,6 +307,56 @@ the harvested third-party source snapshots never enter main's history. Restore i
 with `bash eng/restore-authored-source-corpus.sh`, which adds a git worktree at
 `external/authored-source-corpus`.
 
+#### Hard-IL difficulty ranking (`--enumerate-real-methods`)
+
+The real-world corpus tracks the 14 pinned assemblies for affinity. The
+companion *hard-IL* corpus is instead an adversarial stress set — the
+"diabolical" real methods drawn from a much broader assembly pool and ranked by
+how hard their IL is to raise. `--enumerate-real-methods [--max-examples N]
+<assembly...>` is the inspection command behind that ranking: it enumerates the
+real-method targets in each assembly, scores every body, and prints the top
+`N` by difficulty (highest first) with the full component breakdown, e.g.:
+
+```text
+  score=   85.6  DiffFixture.Graded::NestedEh
+    params=1 il=36 blocks=27 branches=5 switch=0 eh=4 ehDepth=4 rare=0 locals=1 maxStack=2 [`0(int)]
+```
+
+Every component is a structural fact read off the shared
+`ILInspector.Instructions` substrate (IL decode + EH-aware block graph); there is
+no inspected-assembly loading and no abstract interpretation, so the scorer stays
+SRM-only and NativeAOT-friendly. A body that fails to decode records only its
+size/local/stack scalars and zero control-flow, so a decode failure never
+inflates a rank.
+
+| Component | Meaning |
+| --- | --- |
+| `il` | IL body size in bytes. |
+| `blocks` | Basic-block count from the substrate's block graph. |
+| `branches` | Instructions that branch (includes `switch`). |
+| `switch` | `switch` (jump-table) instruction count. |
+| `eh` | Exception-handling region count (catch/filter/finally/fault). |
+| `ehDepth` | Deepest exception-region nesting chain (see below). |
+| `rare` | Rare/hard-to-raise opcodes: `calli`, `cpblk`, `initblk`, `localloc`, `sizeof`, `mkrefany`, `refanyval`, `refanytype`, `arglist`, `ckfinite`, `jmp`, `cpobj`, `endfilter`, `unaligned`, `tail`. |
+| `locals` | Local-variable count. |
+| `maxStack` | Declared maximum evaluation-stack depth. |
+
+The composite `score` is ranking-only — its absolute magnitude is meaningless.
+The size-like axes (`il`, `blocks`, `branches`, `locals`) are square-root damped
+so a large dispatcher ranks high without its sheer size swamping a small but
+genuinely nasty body, while the per-feature signals the raise most often fails on
+stay linear and can dominate: exception-nesting depth carries the highest weight,
+followed by rare opcodes, switch tables, and the raw EH-region count. Because the
+components are all printed, a later selection pass can re-weight or filter on any
+single axis.
+
+`ehDepth` is the longest chain of exception regions where each region's protected
+`try` lies strictly inside another region's `try` or handler span. Sibling
+handlers on one `try` share an identical `try` span and are not counted as
+nesting each other; a `finally` that protects its sibling `catch` does deepen the
+chain, so `try/catch/finally` nested inside another `try/catch/finally` reports
+`ehDepth=4`.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |

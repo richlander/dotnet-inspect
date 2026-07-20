@@ -669,13 +669,23 @@ static class Program
 
             grandTotal += targets.Count;
             Console.WriteLine($"{Path.GetFileName(assemblyPath)}: {targets.Count} real-method targets");
-            foreach (var target in targets.Take(maxExamples))
+            // Surface the hardest methods first: the difficulty ranking is the
+            // whole point of the enumeration for the hard-IL corpus.
+            foreach (var target in targets
+                .OrderByDescending(target => target.Difficulty.Score)
+                .Take(maxExamples))
             {
                 string overload = target.Overload == 0 ? "" : $"#{target.Overload}";
                 string sig = target.Signature is null ? " (ordinal)" : $" [{target.Signature}]";
+                var difficulty = target.Difficulty;
                 Console.WriteLine(
-                    $"  {target.Type}::{target.Method}{overload}"
-                    + $" params={target.ParameterCount} il={target.IlSize}{sig}");
+                    $"  score={difficulty.Score,7:F1}  {target.Type}::{target.Method}{overload}");
+                Console.WriteLine(
+                    $"    params={target.ParameterCount} il={difficulty.IlSize} blocks={difficulty.BlockCount}"
+                    + $" branches={difficulty.BranchCount} switch={difficulty.SwitchCount}"
+                    + $" eh={difficulty.ExceptionRegionCount} ehDepth={difficulty.ExceptionNestingDepth}"
+                    + $" rare={difficulty.RareOpcodeCount} locals={difficulty.LocalCount}"
+                    + $" maxStack={difficulty.MaxStack}{sig}");
             }
         }
 
