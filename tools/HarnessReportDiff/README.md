@@ -35,9 +35,9 @@ The default Markdown card uses `Metric (goal)` labels:
 
 Counts from different sampled method populations are marked `Incomparable`
 even when the sample sizes happen to match. Corpus snapshots supply their
-per-method identities for this check. Snapshots without method identities fall
-back to the aggregate population identity and therefore cannot compare samples
-across different aggregate populations.
+per-method identities for this check. Snapshots without method identities
+cannot establish either sample or aggregate comparability, even when their
+assembly names and method counts happen to match.
 
 ## Fully raised V1
 
