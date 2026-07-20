@@ -38,6 +38,17 @@ public sealed record MethodRef(
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
 
     /// <summary>
+    /// Metadata fact: the declaring type is from the trusted platform boundary
+    /// (the core library), proven by the public-key token of its root assembly
+    /// reference, preserving exact TypeReference handles. The printer's map to a
+    /// real framework type keys off this token-anchored fact rather than the name.
+    /// <see cref="MetadataFactState.Yes"/> only for token-verified platform
+    /// MemberRefs; <see cref="MetadataFactState.Unknown"/> otherwise (a MethodDef,
+    /// MethodSpec, or a non-platform MemberRef never sets it).
+    /// </summary>
+    public MetadataFactState DeclaringTypeIsTrustedPlatform { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Whether <see cref="ParameterRefKinds"/> is known. Distinguishes "no by-ref
     /// parameters needed spelling facts" from "a MemberRef did not expose rows."
     /// </summary>
@@ -3057,15 +3068,23 @@ public sealed class StackAllocArray : IrExpression
 {
     readonly TypeRef? _resultType;
 
-    public StackAllocArray(TypeRef elementType, IrExpression count, TypeRef? resultType)
+    public StackAllocArray(TypeRef elementType, IrExpression count, TypeRef? resultType, IEnumerable<IrExpression>? elements = null)
     {
         ElementType = elementType;
         _resultType = resultType;
         AddChild(count);
+        if (elements is not null)
+        {
+            HasInitializer = true;
+            foreach (var e in elements)
+                AddChild(e);
+        }
     }
 
     public TypeRef ElementType { get; }
     public IrExpression Count => (IrExpression)Children[0];
+    public bool HasInitializer { get; }
+    public ReadOnlyMemory<IrNode> Elements => HasInitializer ? Children.Skip(1).ToArray() : default;
     public override TypeRef? ResultType => _resultType;
     public override IEnumerable<TypeRef> DirectTypes => [ElementType];
 
@@ -3635,6 +3654,23 @@ public sealed class StoreIndirect : IrNode
 }
 
 /// <summary>initobj: default-initialize the storage at an address.</summary>
+public sealed class CopyBlock : IrNode
+{
+    public CopyBlock(IrExpression destination, IrExpression source, IrExpression size)
+    {
+        AddChild(destination);
+        AddChild(source);
+        AddChild(size);
+    }
+
+    public IrExpression Destination => (IrExpression)Children[0];
+    public IrExpression Source => (IrExpression)Children[1];
+    public IrExpression Size => (IrExpression)Children[2];
+    public bool IsVolatile { get; init; }
+
+    public override string Describe() => "CopyBlock";
+}
+
 public sealed class InitObject : IrNode
 {
     public InitObject(TypeRef type, IrExpression address)
