@@ -69,6 +69,9 @@ static class Program
         string? diffNotMyTypeBaseline = null;
         string? emitHarnessReport = null;
         bool enumerateRealMethods = false;
+        bool harvestAuthoredCorpus = false;
+        string? harvestOutputPath = null;
+        int harvestTarget = 12000;
         bool censusTsv = false;
         bool censusJsonl = false;
         bool returnToSenderAb = false;
@@ -185,6 +188,11 @@ static class Program
                         diffReturnAddressBaseline = NextArg(args, ref i, flag); returnAddress = true; break;
                     case "--not-my-type": notMyType = true; break;
                     case "--enumerate-real-methods": enumerateRealMethods = true; break;
+                    case "--harvest-authored-corpus":
+                        harvestAuthoredCorpus = true;
+                        harvestOutputPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--emit-not-my-type-snapshot":
                         emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
                     case "--diff-not-my-type-baseline":
@@ -421,6 +429,9 @@ static class Program
 
         if (enumerateRealMethods)
             return RunEnumerateRealMethods(assemblies, maxExamples);
+
+        if (harvestAuthoredCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
