@@ -308,6 +308,45 @@ public sealed class CSharpPrinterReceiverTests
             "public struct S { public int X; }");
     }
 
+    [Fact]
+    public void UnboxReceiver_Nullable_KeepsCastNotUnsafeUnbox()
+    {
+        // Regression: Unsafe.Unbox<T> constrains T to a non-nullable value type
+        // (`where T : struct`), so a Nullable<T> receiver must NOT route through
+        // the intrinsic (CS0453). Nullable<T> is immutable, so the value-copy
+        // cast `((int?)o).GetValueOrDefault()` is exact and compiles.
+        var nullableInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [Int32Type]);
+        var call = new Call(
+            new MethodRef(nullableInt, "GetValueOrDefault", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(nullableInt, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(call, Int32Type, [new Parameter("o", ObjectType)]);
+
+        Assert.Contains(").GetValueOrDefault()", body);
+        Assert.DoesNotContain("Unsafe.Unbox", body);
+        AssertCompiles("public static int M(object o)", body);
+    }
+
+    [Fact]
+    public void UnboxReceiver_GenericParameter_KeepsCastNotUnsafeUnbox()
+    {
+        // Regression: Unsafe.Unbox<T> requires `where T : struct`, which an
+        // (unconstrained) open generic parameter does not satisfy (CS0453). A
+        // generic-parameter unbox receiver keeps the value-copy cast `((T)o)`.
+        var t = TypeRef.MethodGenericParameter(0, "T");
+        var call = new Call(
+            new MethodRef(ObjectType, "GetHashCode", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(t, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(call, Int32Type, [new Parameter("o", ObjectType)]);
+
+        Assert.Contains("((T)o).GetHashCode()", body);
+        Assert.DoesNotContain("Unsafe.Unbox", body);
+        AssertCompiles("public static int M<T>(object o)", body);
+    }
+
     static MethodRef Extension(string name, TypeRef receiverType)
         => new(
             TypeRef.Definition("synthetic", "", "Extensions"),

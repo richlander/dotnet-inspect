@@ -2746,9 +2746,36 @@ public sealed partial class CSharpPrinter
     /// <c>System.Runtime.CompilerServices.Unsafe.Unbox&lt;T&gt;(o)</c>, a
     /// <c>ref T</c>-returning intrinsic. Fully qualified so it resolves without a
     /// using directive.
+    /// <para>
+    /// <c>Unsafe.Unbox&lt;T&gt;</c> constrains <c>T</c> to a non-nullable value
+    /// type (<c>where T : struct</c>). Every concrete value type reaching an
+    /// <c>unbox</c> satisfies that, but <see cref="Nullable{T}"/> and an open
+    /// generic parameter do not (CS0453), so those keep the value-copy cast
+    /// <c>((T)o)</c>. The cast is exact in value and member-access positions —
+    /// <c>Nullable&lt;T&gt;</c> is immutable and an open <c>T</c> matches the
+    /// prior spelling — and in a <c>ref</c>/<c>out</c>/write place a boxed
+    /// <c>Nullable&lt;T&gt;</c>/open <c>T</c> has no valid C# form at all, so the
+    /// cast is the honest best effort.
+    /// </para>
     /// </summary>
     string UnsafeUnboxText(Unbox unbox)
-        => $"{FullyQualifiedTypeText(s_unsafeType)}.Unbox<{TypeText(unbox.Type)}>({Operand(unbox.Operand)})";
+        => CanSpellUnsafeUnbox(unbox.Type)
+            ? $"{FullyQualifiedTypeText(s_unsafeType)}.Unbox<{TypeText(unbox.Type)}>({Operand(unbox.Operand)})"
+            : $"(({TypeText(unbox.Type)}){Operand(unbox.Operand)})";
+
+    /// <summary>
+    /// Whether an <c>unbox</c> target can spell as <c>Unsafe.Unbox&lt;T&gt;</c>,
+    /// i.e. is a concrete non-nullable value type: a named value-type definition
+    /// or a non-<see cref="Nullable{T}"/> generic instance. An open generic
+    /// parameter (may be unconstrained) and any other shape fall back to the
+    /// value-copy cast to avoid the <c>where T : struct</c> violation (CS0453).
+    /// </summary>
+    static bool CanSpellUnsafeUnbox(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.Definition => true,
+        TypeRefKind.GenericInstance => !TypeFamilies.IsNullableType(type),
+        _ => false,
+    };
 
     string FixedBufferElementText(FixedBufferElementAddress address)
         => $"{FieldTarget(address.BufferField, address.Instance)}[{Expression(address.Index)}]";
