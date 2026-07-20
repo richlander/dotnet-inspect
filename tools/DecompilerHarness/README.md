@@ -6,6 +6,35 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **stdout = data, stderr = diagnostics.** A sensor's data — reports, cards, and `--json`/`--jsonl`/`--tsv` payloads — goes to stdout; status, progress, gate, and emit-confirmation messages (e.g. "Wrote …: `<path>`") go to stderr. This keeps structured stdout parseable (a `--jsonl` stream stays valid; a teed quality card stays free of stray status lines). Route status through `HarnessLog.Status(...)` rather than `Console.WriteLine` so new sensors follow the convention by default.
 
+Report-producing modes use `DecompilerHarnessReport<T>` from
+`HarnessReportProtocol` as their shared execution envelope. The envelope records
+the report identity, schema version, execution disposition, blockers, artifacts,
+and a goal-aware comparison projection. The typed payload retains each mode's
+native vocabulary: census divergence is not renamed as an RTS failure, and an
+opcode difference is not reduced to a generic failed test. A `Completed`
+disposition means the measurement completed; its payload may still contain
+regressions or failed fixtures. Markout view models project the typed payload
+and do not leak presentation annotations into the envelope or domain model.
+
+Use [Harness report diff](../HarnessReportDiff/README.md) to compare two stored
+reports or existing decompiler corpus snapshots. `--emit-harness-report <file>`
+writes the shared stored-report shape for `--return-address`, `--not-my-type`,
+`--return-to-sender-catalog`, and `--source-correspondence-census`. The diff
+tool produces the goal-aware before/after evidence card; DecompilerHarness
+remains responsible for measuring one revision at a time.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-correspondence-census \
+  --return-to-sender-fixtures rts.candidates \
+  --emit-harness-report /tmp/source.before.json \
+  --cap 100
+
+dotnet run --project tools/HarnessReportDiff -c Release -- \
+  /tmp/source.before.json /tmp/source.after.json \
+  --fail-on-regression
+```
+
 ## Modes
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.

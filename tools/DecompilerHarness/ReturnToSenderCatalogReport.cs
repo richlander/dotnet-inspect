@@ -1,4 +1,5 @@
 using System.Text;
+using DotnetInspector.HarnessReports;
 using ILInspector.Instructions;
 using ILInspector.Research;
 using Markout;
@@ -34,6 +35,16 @@ internal sealed record ReturnToSenderCatalogReportView(
 
 internal static class ReturnToSenderCatalogReport
 {
+    internal static readonly HarnessReportDescriptor Descriptor = new("return-to-sender.catalog", 1);
+
+    public static DecompilerHarnessReport<ReturnToSenderCatalogReportView> BuildReport(
+        GeneratedFixtureReturnToSenderRunResult run,
+        int maxExamples)
+    {
+        var view = Build(run, maxExamples);
+        return new(Descriptor, view, BuildComparison(run, view));
+    }
+
     public static ReturnToSenderCatalogReportView Build(GeneratedFixtureReturnToSenderRunResult run, int maxExamples)
     {
         ArgumentNullException.ThrowIfNull(run);
@@ -86,6 +97,27 @@ internal static class ReturnToSenderCatalogReport
             [.. fixtureRows.Where(row => row.Status == GeneratedFixtureReturnToSenderStatus.Pass).Take(maxExamples)]);
     }
 
+    static HarnessComparisonProjection BuildComparison(
+        GeneratedFixtureReturnToSenderRunResult run,
+        ReturnToSenderCatalogReportView view)
+    {
+        string population = HarnessPopulationKey.Create(
+            "return-to-sender.catalog",
+            run.Results.Select(row => $"{row.FixtureId}|{row.DisplayMember}"));
+
+        return new HarnessComparisonProjection(
+            "ReturnToSender generated-fixture catalog.",
+            population,
+            [
+                new("fixtures-passed", "Fixtures passed", MetricGoal.Higher, new MetricValue(view.Fixtures.Passed, view.FixtureCount), population),
+                new("fixtures-skipped", "Fixtures skipped", MetricGoal.Lower, new MetricValue(view.Fixtures.Skipped, view.FixtureCount), population),
+                new("fixtures-failed", "Fixtures failed", MetricGoal.Lower, new MetricValue(view.Fixtures.Failed, view.FixtureCount), population),
+                new("targets-passed", "Targets passed", MetricGoal.Higher, new MetricValue(view.Targets.Passed, view.TargetCount), population),
+                new("targets-skipped", "Targets skipped", MetricGoal.Lower, new MetricValue(view.Targets.Skipped, view.TargetCount), population),
+                new("targets-failed", "Targets failed", MetricGoal.Lower, new MetricValue(view.Targets.Failed, view.TargetCount), population),
+            ]);
+    }
+
     public static string RenderPlain(ReturnToSenderCatalogReportView view)
     {
         ArgumentNullException.ThrowIfNull(view);
@@ -120,7 +152,7 @@ internal static class ReturnToSenderCatalogReport
 
         var output = new StringWriter();
         MarkoutSerializer.Serialize(
-            BuildMarkoutView(view),
+            BuildMarkoutView(view, report: null),
             output,
             new MarkdownFormatter(),
             ReturnToSenderCatalogReportContext.Default,
@@ -128,9 +160,25 @@ internal static class ReturnToSenderCatalogReport
         return output.ToString();
     }
 
-    static ReturnToSenderCatalogMarkoutView BuildMarkoutView(ReturnToSenderCatalogReportView view)
+    public static string RenderMarkout(DecompilerHarnessReport<ReturnToSenderCatalogReportView> report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        var output = new StringWriter();
+        MarkoutSerializer.Serialize(
+            BuildMarkoutView(report.Payload, report),
+            output,
+            new MarkdownFormatter(),
+            ReturnToSenderCatalogReportContext.Default,
+            new MarkoutWriterOptions());
+        return output.ToString();
+    }
+
+    static ReturnToSenderCatalogMarkoutView BuildMarkoutView(
+        ReturnToSenderCatalogReportView view,
+        IDecompilerHarnessReport? report)
         => new()
         {
+            Report = report is null ? null : [.. DecompilerHarnessReportViews.Metadata(report).Select(row => new ReturnToSenderReportMetadataRow(row.Metric, row.Value))],
             Summary =
             [
                 new("Fixtures", view.Fixtures.Passed, view.Fixtures.Skipped, view.Fixtures.Failed),
@@ -331,6 +379,9 @@ internal sealed class ReturnToSenderCatalogMarkoutView
     [MarkoutIgnore]
     public string Title => "ReturnToSender Catalog";
 
+    [MarkoutSection(Name = "Report")]
+    public List<ReturnToSenderReportMetadataRow>? Report { get; init; }
+
     [MarkoutSection(Name = "Summary")]
     public List<ReturnToSenderSummaryRow>? Summary { get; init; }
 
@@ -358,6 +409,9 @@ internal sealed class ReturnToSenderCatalogMarkoutView
 
 [MarkoutSerializable]
 internal sealed record ReturnToSenderSummaryRow(string Scope, int Passed, int Skipped, int Failed);
+
+[MarkoutSerializable]
+internal sealed record ReturnToSenderReportMetadataRow(string Metric, string Value);
 
 [MarkoutSerializable]
 internal sealed record ReturnToSenderResearchEvidenceRow(string Metric, int Count);
@@ -390,6 +444,7 @@ internal sealed record ReturnToSenderPassedFixtureRow(string Fixture);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(ReturnToSenderCatalogMarkoutView))]
+[MarkoutContext(typeof(ReturnToSenderReportMetadataRow))]
 [MarkoutContext(typeof(ReturnToSenderSummaryRow))]
 [MarkoutContext(typeof(ReturnToSenderResearchEvidenceRow))]
 [MarkoutContext(typeof(ReturnToSenderActionableRow))]
