@@ -70,6 +70,7 @@ static class Program
         string? emitHarnessReport = null;
         bool enumerateRealMethods = false;
         bool harvestAuthoredCorpus = false;
+        bool harvestHardIlCorpus = false;
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
@@ -192,6 +193,10 @@ static class Program
                     case "--enumerate-real-methods": enumerateRealMethods = true; break;
                     case "--harvest-authored-corpus":
                         harvestAuthoredCorpus = true;
+                        harvestOutputPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--harvest-hard-il-corpus":
+                        harvestHardIlCorpus = true;
                         harvestOutputPath = NextArg(args, ref i, flag);
                         break;
                     case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
@@ -438,6 +443,9 @@ static class Program
 
         if (harvestAuthoredCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
+
+        if (harvestHardIlCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, hardIl: true);
 
         if (benchmarkAuthoredCorpus)
             return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);

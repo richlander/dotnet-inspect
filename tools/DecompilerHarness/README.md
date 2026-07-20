@@ -357,6 +357,43 @@ nesting each other; a `finally` that protects its sibling `catch` does deepen th
 chain, so `try/catch/finally` nested inside another `try/catch/finally` reports
 `ehDepth=4`.
 
+#### Hard-IL corpus harvest (`--harvest-hard-il-corpus`)
+
+`--harvest-hard-il-corpus <out.jsonl> [--harvest-target N]` (default 12000) builds
+the hard-IL corpus. It shares the whole authored-source harvest pipeline with
+`--harvest-authored-corpus` — the same SourceLink resolution, member-only body
+snapshot, checksum, and smallest-library-first fairness — but changes the
+*selection order*: within each library, candidates are ranked hardest-first by the
+difficulty score above (score, then IL size, as a tiebreak) before the per-type
+round-robin, so each declaring type contributes its most diabolical methods first.
+Every emitted row also carries the full `difficulty` object (the same components
+`--enumerate-real-methods` prints), so a later selection pass can re-rank or filter
+on any single axis without re-scoring. The identity (real-world) corpus omits that
+field entirely, keeping its rows schema-identical to the vendored real-world
+corpus; only hard-IL rows populate it.
+
+The hard-IL corpus draws from a much broader assembly pool than the 14 pinned
+real-world libraries. `eng/prepare-hard-il-corpus.sh` composes that pool: it runs
+the package sweep (`eng/prepare-decompiler-package-sweep.cs`, ranks 1..N from
+`docs/data/nuget-top-packages.json`, `HARD_IL_PACKAGE_COUNT` default 100) and
+unions it with the 14 pinned real-world assemblies
+(`eng/prepare-decompiler-corpus.sh`) into a single deduped `assemblies.txt`,
+preserving the sweep `manifest.json` as `sweep-manifest.json`:
+
+```bash
+bash eng/prepare-hard-il-corpus.sh /tmp/hard-il-pool
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --harvest-hard-il-corpus /tmp/hard-il-corpus.jsonl --harvest-target 12000 \
+  $(cat /tmp/hard-il-pool/assemblies.txt)
+```
+
+The result is vendored as `hard-il/corpus.jsonl` on the same
+`vendor/authored-source-corpus` orphan branch, a sibling of the real-world
+`real-world/corpus.jsonl`, and `bash eng/restore-authored-source-corpus.sh`
+restores both. Because it reuses `CorpusRecord`, the hard-IL corpus is consumable
+by `--benchmark-authored-corpus` exactly like the real-world corpus; the
+difficulty profile is selection/analysis metadata the oracle ignores.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |
