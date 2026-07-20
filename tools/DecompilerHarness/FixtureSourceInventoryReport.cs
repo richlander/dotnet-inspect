@@ -40,7 +40,7 @@ internal static class DecompilerFixtureSourceInventory
 {
     internal const int ClassifiedDynamicCompilationSiteCount = 35;
     internal const string ClassifiedDynamicCompilationSiteSetFingerprint =
-        "494845969D89C6D5B2ABDB1A2879E09E336A883CF9CB08D6EA727E1E796F76C0";
+        "DF78DDF0E75F3F3B059A9578351A89024C1F052C4004B71AC3A67C18073FE97E";
 
     public static DecompilerFixtureSourceReport Create()
     {
@@ -140,7 +140,7 @@ internal static class DecompilerFixtureSourceInventory
             string member = method is null ? "<top-level>" : MethodIdentity(method);
             string fingerprint = Convert.ToHexString(SHA256.HashData(
                 Encoding.UTF8.GetBytes(invocation.WithoutTrivia().ToFullString())))[..12];
-            string identity = $"{member}@{fingerprint}";
+            string identity = $"{member}@{invocation.SpanStart:X8}-{fingerprint}";
             int ordinal = memberOrdinals.TryGetValue(identity, out int count) ? count + 1 : 1;
             memberOrdinals[identity] = ordinal;
             sites.Add($"{relativePath}::{identity}#{ordinal}");
