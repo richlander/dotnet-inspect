@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Assembly-identity spoof axis for the expression-tree lambda raise (#2864).
+
+    A user assembly literally named "System.Linq.Expressions" (unsigned, so no
+    framework public-key-token) exposing a lookalike System.Linq.Expressions
+    .Expression factory family, plus a consumer that builds the canonical inline
+    factory graph the raise recovers. Simple-name identity would raise these
+    lookalike factory calls to real expression-tree lambda semantics; the raise
+    must key off the token-verified DeclaringTypeIsTrustedPlatform fact and decline.
+
+    Loaded by path via FixtureCatalog; deliberately NOT referenced for compilation
+    by the test project so its System.Linq.Expressions.dll never shadows the real
+    framework assembly at test runtime.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>System.Linq.Expressions</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <SignAssembly>false</SignAssembly>
+    <!-- CS0436: our System.Linq.Expressions types intentionally shadow the real ones. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

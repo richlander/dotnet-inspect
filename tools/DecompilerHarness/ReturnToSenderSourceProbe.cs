@@ -56,7 +56,7 @@ sealed record SourceCorrespondenceFinding(
     string Reason,
     string? Detail,
     string? SourceFile,
-    bool HasOpcodeDiffEvidence);
+    bool HasFidelityDiffEvidence);
 
 static partial class ReturnToSenderSourceProbe
 {
@@ -128,7 +128,9 @@ static partial class ReturnToSenderSourceProbe
                     Console.WriteLine($"      detail: {example.Detail}");
                 if (!string.IsNullOrWhiteSpace(example.SourcePath))
                     Console.WriteLine($"      source: {example.SourcePath}");
-                if (example.CompileBackStatus == FidelityCheck.CompileBackStatus.OpcodeDiff)
+                if (example.CompileBackStatus is
+                    FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff)
                 {
                     if (example.IlDiffLines is { Count: > 0 } diffLines)
                     {
@@ -236,7 +238,10 @@ static partial class ReturnToSenderSourceProbe
                 continue;
             }
 
-            if (result.Status is not (FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff))
+            if (result.Status is not (
+                FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff))
             {
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
@@ -316,7 +321,7 @@ static partial class ReturnToSenderSourceProbe
                 result.Status,
                 result.Decisions ?? [],
                 out var classificationDetail);
-            var opcodeEvidence = OpcodeEvidence(result);
+            var fidelityEvidence = FidelityEvidence(result);
             results.Add(new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
@@ -326,9 +331,9 @@ static partial class ReturnToSenderSourceProbe
                 sourceMember.SourcePath,
                 expected,
                 actual,
-                OriginalOpcodes: opcodeEvidence?.OriginalOpcodes,
-                RecompiledOpcodes: opcodeEvidence?.RecompiledOpcodes,
-                IlDiffLines: opcodeEvidence?.IlDiffLines,
+                OriginalOpcodes: fidelityEvidence?.OriginalOpcodes,
+                RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
+                IlDiffLines: fidelityEvidence?.IlDiffLines,
                 MemberAnchor: result.MemberAnchor));
         }
 
@@ -400,15 +405,22 @@ static partial class ReturnToSenderSourceProbe
     static string TargetDisplay(ReturnToSender.RequestedTarget target)
         => $"{target.Type}.{target.Method}#{target.Overload}";
 
-    static OpcodeDiffEvidence? OpcodeEvidence(ReturnToSender.Result result)
+    static FidelityDiffEvidence? FidelityEvidence(ReturnToSender.Result result)
     {
-        if (result.Status != FidelityCheck.CompileBackStatus.OpcodeDiff)
+        if (result.Status is not (
+            FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff))
+        {
             return null;
+        }
 
-        IReadOnlyList<string> diffLines = result.IlDiffDiagnostic is null
-            ? Array.Empty<string>()
-            : IlDiffPrinter.ToUnifiedLines(result.IlDiffDiagnostic);
-        return new OpcodeDiffEvidence(
+        IReadOnlyList<string> diffLines = result.Status == FidelityCheck.CompileBackStatus.OperandDiff
+            && result.FidelityDiff is not null
+                ? IlDiffPrinter.ToUnifiedLines(result.FidelityDiff)
+                : result.IlDiffDiagnostic is null
+                    ? Array.Empty<string>()
+                    : IlDiffPrinter.ToUnifiedLines(result.IlDiffDiagnostic);
+        return new FidelityDiffEvidence(
             NullIfWhiteSpace(result.OriginalOpcodes),
             NullIfWhiteSpace(result.RecompiledOpcodes),
             diffLines);
@@ -417,7 +429,7 @@ static partial class ReturnToSenderSourceProbe
     static string? NullIfWhiteSpace(string value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    sealed record OpcodeDiffEvidence(
+    sealed record FidelityDiffEvidence(
         string? OriginalOpcodes,
         string? RecompiledOpcodes,
         IReadOnlyList<string> IlDiffLines);
@@ -476,7 +488,7 @@ static partial class ReturnToSenderSourceProbe
                 reason = finding.Reason,
                 detail = finding.Detail,
                 source_file = finding.SourceFile,
-                has_opcode_diff_evidence = finding.HasOpcodeDiffEvidence,
+                has_fidelity_diff_evidence = finding.HasFidelityDiffEvidence,
             }),
             results = results.Select(result => new
             {
@@ -1028,11 +1040,13 @@ static partial class ReturnToSenderSourceProbe
             return knownReason;
         }
 
-        string statusId = status == FidelityCheck.CompileBackStatus.OpcodeDiff
-            ? "opcode_diff"
-            : status == FidelityCheck.CompileBackStatus.Exact
-                ? "exact"
-                : status.ToString().ToLowerInvariant();
+        string statusId = status switch
+        {
+            FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode_diff",
+            FidelityCheck.CompileBackStatus.OperandDiff => "operand_diff",
+            FidelityCheck.CompileBackStatus.Exact => "exact",
+            _ => status.ToString().ToLowerInvariant(),
+        };
         if (status == FidelityCheck.CompileBackStatus.OpcodeDiff
             && AllowsDynamicCallSiteClassification(shape)
             && IsDynamicCallSiteLowering(actual))
@@ -1045,7 +1059,9 @@ static partial class ReturnToSenderSourceProbe
             ? $"valid_different.{shape}.{statusId}"
             : status == FidelityCheck.CompileBackStatus.OpcodeDiff
                 ? $"valid_different.semantic_opcode_diff.{ShapeLeaf(shape)}"
-                : $"valid_different.{shape}.{statusId}";
+                : status == FidelityCheck.CompileBackStatus.OperandDiff
+                    ? $"valid_different.semantic_operand_diff.{ShapeLeaf(shape)}"
+                    : $"valid_different.{shape}.{statusId}";
         detail = $"decompiled body is Roslyn-valid but differs from the fixture source slice; classification={shape}; compile-back={status}";
         return reason;
     }
@@ -1291,6 +1307,8 @@ static partial class ReturnToSenderSourceProbe
             FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
             FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
             FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
+            FidelityCheck.CompileBackStatus.OperandDiff => "operand-diff",
+            FidelityCheck.CompileBackStatus.FidelityUnavailable => "fidelity-unavailable",
             _ => result.Status.ToString(),
         };
 }

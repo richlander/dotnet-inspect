@@ -149,6 +149,15 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("public class Class1", result.Source);
             Assert.Contains("public string Method1", result.Source);
             Assert.Contains("return \"Hello World\";", result.Source);
+            Assert.NotNull(result.FidelityDiff);
+            Assert.True(result.FidelityDiff.IsExact);
+
+            var compileBack = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                row => row.Type == "Class1" && row.Method == "get_Method1");
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, compileBack.Status);
+            Assert.NotNull(compileBack.FidelityDiff);
+            Assert.True(compileBack.FidelityDiff.IsExact);
         }
         finally
         {
@@ -677,7 +686,8 @@ public class ReturnToSenderPrototypeTests
             Assert.NotNull(result.CompileBackFloor);
             Assert.True(
                 result.Status is FidelityCheck.CompileBackStatus.Exact
-                    or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 result.Detail);
             Assert.Equal(result.CompileBackFloor.Status, result.Status);
             Assert.Contains("compile-back-floor", result.Detail);
@@ -1654,7 +1664,9 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, result.Status);
+            Assert.NotNull(result.FidelityDiff);
+            Assert.False(result.FidelityDiff.IsExact);
             Assert.DoesNotContain("already contains a definition", result.Detail ?? "", StringComparison.Ordinal);
             Assert.Equal(1, Assert.Single(result.Plan.Types).Members.Count(member => member.Name == "Value"));
             Assert.Contains("public int Value", result.Source);
@@ -1917,7 +1929,9 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("Class1", "FromOther", 0)]));
 
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             var type = Assert.Single(result.Plan.Types);
             Assert.Contains(type.SourceFacts, fact =>
@@ -2084,7 +2098,9 @@ public class ReturnToSenderPrototypeTests
                 .Single(item => item.Plan.TargetMethod.Method == "get_Sum");
 
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Pair"
@@ -4272,7 +4288,7 @@ public class ReturnToSenderPrototypeTests
                 getHashCode =>
                 {
                     Assert.True(
-                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
                     Assert.Contains("public string Name;", getHashCode.Source);
                     Assert.Contains("public string Value;", getHashCode.Source);
@@ -4289,7 +4305,7 @@ public class ReturnToSenderPrototypeTests
                 typedEquals =>
                 {
                     Assert.True(
-                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
                     Assert.Contains("public virtual bool Equals(Row other)", typedEquals.Source);
                     Assert.Contains("public string Name;", typedEquals.Source);
@@ -4330,7 +4346,9 @@ public class ReturnToSenderPrototypeTests
 
         static void AssertRecordEqualityContractRequirement(ReturnToSender.Result result)
         {
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, result.Status);
+            Assert.NotNull(result.FidelityDiff);
+            Assert.False(result.FidelityDiff.IsExact);
             var type = Assert.Single(result.Plan.Types);
             Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
             Assert.Contains(type.Members, member =>
@@ -4447,7 +4465,7 @@ public class ReturnToSenderPrototypeTests
                 getHashCode =>
                 {
                     Assert.True(
-                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
                     Assert.Contains("public string Name;", getHashCode.Source);
                     Assert.Contains("public string Value;", getHashCode.Source);
@@ -4456,7 +4474,7 @@ public class ReturnToSenderPrototypeTests
                 typedEquals =>
                 {
                     Assert.True(
-                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
                     Assert.Contains("public bool Equals(Row other)", typedEquals.Source);
                     Assert.Contains("public string Name;", typedEquals.Source);

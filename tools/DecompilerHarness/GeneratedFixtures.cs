@@ -1353,7 +1353,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordFieldReadHelpersRow",
                 "GetHashCode",
-                FidelityCheck.CompileBackStatus.Exact,
+                FidelityCheck.CompileBackStatus.OperandDiff,
                 ExpectedTargetBodyFragments:
                 [
                     "EqualityContract",
@@ -1373,7 +1373,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordFieldReadHelpersRow",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact,
+                FidelityCheck.CompileBackStatus.OperandDiff,
                 Overload: 1,
                 ExpectedTargetBodyFragments:
                 [
@@ -1393,7 +1393,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordStructFieldReadHelpersRow",
                 "GetHashCode",
-                FidelityCheck.CompileBackStatus.Exact,
+                FidelityCheck.CompileBackStatus.OperandDiff,
                 ExpectedTargetBodyFragments:
                 [
                     "this.Name",
@@ -1402,7 +1402,7 @@ internal static class GeneratedFixtureCatalog
             new(
                 "RecordStructFieldReadHelpersRow",
                 "Equals",
-                FidelityCheck.CompileBackStatus.Exact,
+                FidelityCheck.CompileBackStatus.OperandDiff,
                 Overload: 1,
                 ExpectedTargetBodyFragments:
                 [
@@ -2230,14 +2230,14 @@ internal static class GeneratedFixtureRunner
                         continue;
                     }
 
-                    bool exact = actual.Status == FidelityCheck.CompileBackStatus.Exact;
-                    var missingSourceFragment = exact
+                    bool statusMatches = actual.Status == target.ExpectedStatus;
+                    var missingSourceFragment = statusMatches
                         ? MissingSourceFragment(actual.Source, target.ExpectedSourceFragments)
                         : null;
-                    var missingTargetBodyFragment = exact
+                    var missingTargetBodyFragment = statusMatches
                         ? MissingSourceFragment(actual.TargetBody, target.ExpectedTargetBodyFragments)
                         : null;
-                    var status = exact
+                    var status = statusMatches
                         && missingSourceFragment is null
                         && missingTargetBodyFragment is null
                             ? GeneratedFixtureReturnToSenderStatus.Pass
@@ -2250,7 +2250,9 @@ internal static class GeneratedFixtureRunner
                         status,
                         actual.Status,
                         status == GeneratedFixtureReturnToSenderStatus.Pass
-                            ? "exact"
+                            ? actual.Status == FidelityCheck.CompileBackStatus.Exact
+                                ? "exact"
+                                : FailureReason(actual)
                             : missingSourceFragment is not null
                                 ? "source-fragment-missing"
                                 : missingTargetBodyFragment is not null
@@ -2314,6 +2316,8 @@ internal static class GeneratedFixtureRunner
             FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
             FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
             FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
+            FidelityCheck.CompileBackStatus.OperandDiff => "operand-diff",
+            FidelityCheck.CompileBackStatus.FidelityUnavailable => "fidelity-unavailable",
             _ => result.Status.ToString(),
         };
 

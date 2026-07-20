@@ -120,7 +120,8 @@ public class LadderRung6GateTests
 
         Assert.All(newRules.Concat(legacy), member =>
         {
-            Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
             Assert.Null(Completeness.Residual(member.Function));
             Assert.True(member.Result.Succeeded, $"{member.Name} did not print.");
         });
@@ -721,7 +722,8 @@ public class LadderRung6GateTests
     {
         var member = LoadRaisedMembers(assemblyPath, typeName)
             .Single(m => m.Name == "FixedStringFirstChar");
-        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
         Assert.Contains("fixed (char* ", member.Body);
         Assert.Contains(" = value)", member.Body);
         Assert.DoesNotContain("pinned", member.Body);
@@ -831,7 +833,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
-    public void Rung6StackallocInitializerResiduals_DegradeHonestly()
+    public void Rung6StackallocInitializerResiduals_RecoverFully()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
         AssertStackallocInitializerResiduals(LegacyUnsafePath, LegacyStackallocInitializerType);
@@ -843,19 +845,95 @@ public class LadderRung6GateTests
         foreach (var name in new[] { "StackallocPointerInitializer", "StackallocSpanInitializer" })
         {
             var member = members.Single(m => m.Name == name);
-            Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
-            var findings = DecompilerFindings.InspectFidelityCauses(
-                member.Function,
-                new FindingSubject($"{typeName}::{name}", name)) switch
-            {
-                FindingInspection<DecompilerFidelityCause>.Complete complete => complete.Findings,
-                _ => throw new InvalidOperationException("Expected a complete fidelity-cause inspection."),
-            };
-            Assert.Contains(findings, finding =>
-                finding.Payload.Code == DiagnosticIds.UnsupportedConstruct);
-            Assert.Contains("cpblk", member.Body);
-            Assert.Contains("return default;", member.Body);
+            foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            Assert.Contains("stackalloc int[] { 1, 2, 3 }", member.Body);
+            Assert.DoesNotContain("CopyBlock", member.Body);
         }
+    }
+
+    [Fact]
+    public void Rung6StackallocInitializerNegatives_DegradeHonestly()
+    {
+        AssertStackallocInitializerNegatives(NewUnsafePath, "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives");
+        AssertStackallocInitializerNegatives(LegacyUnsafePath, "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives");
+    }
+
+    static void AssertStackallocInitializerNegatives(string assemblyPath, string typeName)
+    {
+        var members = LoadRaisedMembers(assemblyPath, typeName);
+        foreach (var name in new[] { "CoalescedSpanLocal", "SourceAuthoredCopyBlock" })
+        {
+            var member = members.Single(m => m.Name == name);
+            // They should not be recovered as stackalloc array initializers!
+            Assert.DoesNotContain("stackalloc byte[] {", member.Body);
+            Assert.DoesNotContain("stackalloc int[] {", member.Body);
+
+            if (name == "CoalescedSpanLocal")
+            {
+                Assert.Contains("/* unsupported cpblk */", member.Body);
+                Assert.Equal(DecompilationFidelity.Partial, member.Function.Fidelity);
+            }
+            else
+            {
+                Assert.Contains("Unsafe.CopyBlock", member.Body);
+                foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(member.Function)) System.Console.WriteLine(node.ToString());
+Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+            }
+
+            string methodHeader = name switch
+            {
+                "CoalescedSpanLocal" => "static unsafe int CoalescedSpanLocal()",
+                "SourceAuthoredCopyBlock" => "static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)",
+                _ => $"static unsafe void {name}()"
+            };
+            var diagnostics = RecompileNewRules(methodHeader, member.Body);
+            AssertNoErrors(diagnostics, member.Body);
+        }
+    }
+
+    [Fact]
+    public void Rung6StackallocInitializerNegatives_SyntheticMismatchedSize_Degrades()
+    {
+        var function = SyntheticStackallocInitializer(sizeMismatch: true);
+        var body = CSharpPrinter.PrintRaised(function).Output ?? "";
+        Assert.Contains("/* unsupported cpblk */", body);
+        Assert.DoesNotContain("stackalloc int[] {", body);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
+    static IrFunction SyntheticStackallocInitializer(bool sizeMismatch)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var intPtr = TypeRef.Pointer(intType);
+
+        var stackAlloc = new StackAllocate(new Constant(sizeMismatch ? 16 : 12, intType));
+        var storeSlot = new StoreStackSlot(0, stackAlloc);
+
+        var loadDest = new LoadStackSlot(0, intPtr);
+        var rvaData = new byte[] { 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0 };
+        var loadField = new LoadFieldAddress(new FieldRef(TypeRef.CoreLib("Synthetic", "Blob"), "data", intType), null) { FieldRvaData = rvaData };
+
+        var copyBlock = new CopyBlock(loadDest, loadField, new Constant(12, intType));
+        var finalUsage = new StoreLocal(1, intPtr, new LoadStackSlot(0, intPtr));
+
+        var block = new Block(0);
+        block.Add(storeSlot);
+        block.Add(copyBlock);
+        block.Add(finalUsage);
+
+        var container = new BlockContainer();
+        container.Add(block);
+
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "StackallocInitializer"),
+            new MethodSignature(intPtr, [], HasThis: false, GenericParameterCount: 0),
+            System.Collections.Immutable.ImmutableArray.Create(intType, intPtr),
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = true
+        };
     }
 
     static IrFunction SyntheticStringPin(

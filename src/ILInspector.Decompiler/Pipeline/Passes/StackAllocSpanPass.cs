@@ -36,23 +36,41 @@ public sealed class StackAllocSpanPass : IIrPass
                 || !IsStackAllocPointer(pointer))
                 continue;
 
+            var elements = GetInitializerElements(pointer);
             count.Detach();
-            var raised = new StackAllocArray(element, count, newObject.ResultType);
+            var raised = new StackAllocArray(element, count, newObject.ResultType, elements);
             raised.InheritSourceOffset(newObject);
             context.Stepper.StepOver("raise Span-over-stackalloc to stackalloc T[n]", newObject);
             newObject.ReplaceWith(raised);
         }
     }
 
+    static System.Collections.Generic.IEnumerable<IrExpression>? GetInitializerElements(IrExpression pointer)
+    {
+        if (pointer is StackAllocArray { HasInitializer: true } sa)
+        {
+            var elements = sa.Elements.ToArray().Cast<IrExpression>().ToList();
+            foreach (var e in elements) e.Detach();
+            return elements;
+        }
+        if (pointer is Convert { Operand: StackAllocArray { HasInitializer: true } sa2 })
+        {
+            var elements = sa2.Elements.ToArray().Cast<IrExpression>().ToList();
+            foreach (var e in elements) e.Detach();
+            return elements;
+        }
+        return null;
+    }
+
     static bool IsStackAllocPointer(IrExpression pointer)
     {
-        if (pointer is StackAllocate)
+        if (pointer is StackAllocate or StackAllocArray)
             return true;
 
         return pointer is Convert
         {
             IsChecked: false,
-            Operand: StackAllocate,
+            Operand: StackAllocate or StackAllocArray,
             Target: { } target,
         } && IsPointerLikeTarget(target);
     }
