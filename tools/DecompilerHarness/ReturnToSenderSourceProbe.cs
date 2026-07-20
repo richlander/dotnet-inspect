@@ -225,6 +225,16 @@ static partial class ReturnToSenderSourceProbe
             ReturnToSenderSourceIndex.TryCreate(sourcePaths),
             "source index could not be built from the supplied source paths");
 
+    public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateWithIndex(
+        string assemblyPath,
+        IReadOnlyList<ReturnToSender.RequestedTarget> targets,
+        ReturnToSenderSourceIndex sourceIndex)
+        => EvaluateTargets(
+            assemblyPath,
+            targets,
+            sourceIndex,
+            "authored-source corpus row missing for target");
+
     static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
@@ -638,6 +648,42 @@ internal sealed class ReturnToSenderSourceIndex
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Builds an index directly from pre-snapshotted authored members (the vendored
+    /// authored-source corpus). Keys are derived exactly as <see cref="AddSourceFile"/>
+    /// does, so lookups from a <see cref="ReturnToSender.RequestedTarget"/> resolve
+    /// by signature when unambiguous and otherwise by (type, method, overload).
+    /// Members with no signature are indexed by overload key only.
+    /// </summary>
+    public static ReturnToSenderSourceIndex FromMembers(IEnumerable<ReturnToSenderSourceMember> sourceMembers)
+    {
+        var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var member in sourceMembers)
+        {
+            members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+
+            if (string.IsNullOrEmpty(member.Signature))
+                continue;
+
+            var signatureKey = SigKey(member.Type, member.Method, member.Signature);
+            if (ambiguousSignatures.Contains(signatureKey))
+                continue;
+            if (!membersBySignature.TryAdd(signatureKey, member))
+            {
+                membersBySignature.Remove(signatureKey);
+                ambiguousSignatures.Add(signatureKey);
+            }
+        }
+
+        return new ReturnToSenderSourceIndex(
+            members,
+            membersBySignature,
+            ambiguousSignatures,
+            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal));
     }
 
     static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)

@@ -71,6 +71,8 @@ static class Program
         bool enumerateRealMethods = false;
         bool harvestAuthoredCorpus = false;
         string? harvestOutputPath = null;
+        bool benchmarkAuthoredCorpus = false;
+        string? benchmarkCorpusPath = null;
         int harvestTarget = 12000;
         bool censusTsv = false;
         bool censusJsonl = false;
@@ -193,6 +195,10 @@ static class Program
                         harvestOutputPath = NextArg(args, ref i, flag);
                         break;
                     case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--benchmark-authored-corpus":
+                        benchmarkAuthoredCorpus = true;
+                        benchmarkCorpusPath = NextArg(args, ref i, flag);
+                        break;
                     case "--emit-not-my-type-snapshot":
                         emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
                     case "--diff-not-my-type-baseline":
@@ -432,6 +438,9 @@ static class Program
 
         if (harvestAuthoredCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
+
+        if (benchmarkAuthoredCorpus)
+            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);

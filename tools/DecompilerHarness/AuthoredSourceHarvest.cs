@@ -280,7 +280,7 @@ static class AuthoredSourceHarvest
         }
     }
 
-    static (string Name, string Version) ReadAssemblyIdentity(string assemblyPath)
+    internal static (string Name, string Version) ReadAssemblyIdentity(string assemblyPath)
     {
         try
         {
