@@ -16,6 +16,11 @@ contain regressions or failed fixtures. Markout view models project the typed
 payload and do not leak presentation annotations into the envelope or domain
 model.
 
+Use [Harness report diff](../HarnessReportDiff/README.md) to compare two stored
+corpus snapshots or generic structured reports. It produces the goal-aware
+before/after evidence card; DecompilerHarness remains responsible for measuring
+one revision at a time.
+
 ## Modes
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.
