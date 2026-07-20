@@ -171,10 +171,24 @@ static class AuthoredSourceHarvest
 
         (string name, string version) = ReadAssemblyIdentity(assemblyPath);
         SourceLinkService? source = null;
+        bool ownershipTransferred = false;
         try
         {
             source = SourceLinkService.Open(assemblyPath);
             await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
+
+            var state = new LibraryState
+            {
+                AssemblyPath = assemblyPath,
+                AssemblyName = name,
+                AssemblyVersion = version,
+                Tfm = InferTfm(assemblyPath),
+                Source = source,
+                Candidates = new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
+                    DiversifyByDeclaringType(targets)),
+            };
+            ownershipTransferred = true;
+            return state;
         }
         catch (Exception ex) when (ex is HttpRequestException
             or IOException
@@ -184,20 +198,16 @@ static class AuthoredSourceHarvest
         {
             Console.Error.WriteLine(
                 $"Warning: harvest skipped '{assemblyPath}' opening SourceLink ({ex.GetType().Name}: {ex.Message}).");
-            source?.Dispose();
             return null;
         }
-
-        return new LibraryState
+        finally
         {
-            AssemblyPath = assemblyPath,
-            AssemblyName = name,
-            AssemblyVersion = version,
-            Tfm = InferTfm(assemblyPath),
-            Source = source,
-            Candidates = new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
-                DiversifyByDeclaringType(targets)),
-        };
+            // Own the SourceLinkService until it is handed to a returned LibraryState.
+            // Any failure path (caught transient error, an unlisted exception, or the
+            // Queue/DiversifyByDeclaringType materialization throwing) disposes it here.
+            if (!ownershipTransferred)
+                source?.Dispose();
+        }
     }
 
     static async Task<CorpusRecord?> TryHarvestAsync(
