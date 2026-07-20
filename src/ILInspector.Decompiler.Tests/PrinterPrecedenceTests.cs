@@ -82,15 +82,19 @@ public class PrinterPrecedenceTests
 
     // Issue #2916: a ref-typed conditional whose arms are both genuine
     // ref-producers renders as a ref ternary (`ref a : ref b`, see Deref's
-    // Conditional case). When one arm is itself an `Unbox` — a ref-producer
-    // that otherwise spells `ref (T)x` — Deref lacked a case for it and fell
-    // through to the generic ByRef arm, which returns the raw ref-spelling
-    // unchanged. The enclosing ref ternary then prefixed its own `ref `,
-    // doubling the keyword (`ref ref (T)x`, CS1525). Not reachable from C#
-    // source (BooleanFoldingPass.FoldSlotDiamond is the only producer of a
-    // ref-typed conditional with a non-place arm), so exercised on hand-built IR.
+    // Conditional case). One arm is an `Unbox` — a managed pointer into a box.
+    // Deref previously had no case for it, so it fell through to the generic
+    // ByRef arm and emitted the node's own ref-producer spelling `ref (int)o`,
+    // which the enclosing ref ternary re-prefixed into `ref ref (int)o`
+    // (CS1525); the naive value-copy `(int)o` fixes the double keyword but is
+    // an unbox.any copy, not an assignable place, so `ref (int)o` is CS0445.
+    // Deref now spells the box place as `Unsafe.Unbox<T>(o)` (a `ref T`
+    // intrinsic), which is valid and faithful in every Deref position. Not
+    // reachable from C# source (BooleanFoldingPass.FoldSlotDiamond is the only
+    // producer of a ref-typed conditional with a non-place arm), so exercised
+    // on hand-built IR.
     [Fact]
-    public void Deref_RefConditionalWithUnboxArm_DoesNotDoubleRefKeyword()
+    public void Deref_RefConditionalWithUnboxArm_SpellsUnsafeUnbox()
     {
         var conditional = new Conditional(
             new LoadArgument(0, "flag", s_bool),
@@ -103,8 +107,10 @@ public class PrinterPrecedenceTests
             s_int,
             [new Parameter("flag", s_bool), new Parameter("o", s_object), new Parameter("n", s_int)]);
 
-        Assert.Contains("ref (int)o", output);
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
         Assert.DoesNotContain("ref ref", output);
+        Assert.DoesNotContain("ref (int)o", output);
+        AssertCompiles("public static int M(bool flag, object o, int n)", output);
     }
 
     // Issue #2302: an arm whose signedness (or width) disagrees with the numeric

@@ -2707,15 +2707,20 @@ public sealed partial class CSharpPrinter
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         FixedBufferElementAddress f => FixedBufferElementText(f),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
-        // Unbox (`unbox T`) is itself a ref-producer (`ref (T)x`, see the
-        // Expression switch below), so it also falls under the generic
-        // `ResultType.Kind: TypeRefKind.ByRef` arm further down. Without this
-        // case that generic arm renders it via `Operand`, i.e. the raw
-        // ref-spelling `ref (T)x` — so any caller that already prints its own
-        // `ref ` (a ref-typed `Deref` caller, or a ref-typed `Conditional` arm
-        // in this same switch) doubles the keyword (`ref ref (T)x`, CS1525).
-        // The dereferenced value form of an unbox is simply the cast itself.
-        Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
+        // `unbox T` yields a managed pointer *into* the box. C#'s only spelling
+        // for that place is `System.Runtime.CompilerServices.Unsafe.Unbox<T>(o)`
+        // — a `ref T`-returning intrinsic. Reading it derefs to the boxed value;
+        // a `ref `-prefixing caller (a ref-typed `Deref` caller, or a ref-typed
+        // `Conditional` arm in this same switch) gets a genuine ref place, and a
+        // write through it (`Unsafe.Unbox<T>(o) = v`, via `IndirectTarget`)
+        // stores into the box. The obvious `(T)o` alternative is an *unbox.any*
+        // copy: it reads the same value but is not an assignable place, so a
+        // `ref`/`=` context over it is CS0445/CS0131, and a `ref`-prefixing
+        // caller over the node's own ref-producer spelling `ref (T)o` doubles
+        // the keyword (`ref ref (T)o`, CS1525). `Unsafe.Unbox` is faithful in
+        // every `Deref` position; it is spelled fully qualified so it resolves
+        // without depending on an emitted using directive.
+        Unbox u => UnsafeUnboxText(u),
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
         // A ref-typed conditional is a ref ternary: the `ref` binds each arm
         // (`cond ? ref a : ref b`), not the expression as a whole — placing it
@@ -2733,6 +2738,17 @@ public sealed partial class CSharpPrinter
         { ResultType.Kind: TypeRefKind.ByRef } => Operand(address),
         _ => $"*{Operand(address)}",
     };
+
+    static readonly TypeRef s_unsafeType = TypeRef.CoreLib("System.Runtime.CompilerServices", "Unsafe");
+
+    /// <summary>
+    /// Spells an <c>unbox</c> as the managed pointer into the box:
+    /// <c>System.Runtime.CompilerServices.Unsafe.Unbox&lt;T&gt;(o)</c>, a
+    /// <c>ref T</c>-returning intrinsic. Fully qualified so it resolves without a
+    /// using directive.
+    /// </summary>
+    string UnsafeUnboxText(Unbox unbox)
+        => $"{FullyQualifiedTypeText(s_unsafeType)}.Unbox<{TypeText(unbox.Type)}>({Operand(unbox.Operand)})";
 
     string FixedBufferElementText(FixedBufferElementAddress address)
         => $"{FieldTarget(address.BufferField, address.Instance)}[{Expression(address.Index)}]";
