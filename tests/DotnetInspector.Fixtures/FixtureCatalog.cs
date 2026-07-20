@@ -80,6 +80,7 @@ public static class FixtureIds
     public const string DecompilerLadderRung4 = "decompiler.ladder.rung4";
     public const string DecompilerLadderRung5 = "decompiler.ladder.rung5";
     public const string DecompilerLadderRung9 = "decompiler.ladder.rung9";
+    public const string DecompilerTypeIdentity = "decompiler.type-identity";
     public const string DecompilerUnsafeLegacy = "decompiler.unsafe.legacy";
     public const string DecompilerUnsafeNew = "decompiler.unsafe.new";
     public const string DecompilerUnsafeChainA = "decompiler.unsafe.chain-a";
@@ -235,6 +236,13 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "checked-arithmetic", "compiler-axis");
 
+    public static readonly FixtureDefinition DecompilerTypeIdentity = Fixture(
+        FixtureIds.DecompilerTypeIdentity,
+        "ILInspector.Decompiler.Fixtures.TypeIdentity",
+        "ILInspector.Decompiler.Fixtures.TypeIdentity.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "decompiler", "type-identity", "compiler-axis");
+
     public static readonly FixtureDefinition DecompilerClassicAsync = Fixture(
         FixtureIds.DecompilerClassicAsync,
         "ILInspector.Decompiler.Fixtures.ClassicAsync",
@@ -357,6 +365,7 @@ public static class FixtureCatalog
         AnalysisSpoofSystemLinq,
         AnalysisSpoofSystemRuntime,
         DecompilerCheckedArithmetic,
+        DecompilerTypeIdentity,
         DecompilerClassicAsync,
         DecompilerClassicStateMachines,
         DecompilerLadderIterator,

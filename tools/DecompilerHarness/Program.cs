@@ -37,6 +37,7 @@ static class Program
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
+        bool fixtureSourceInventory = false;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -271,6 +272,7 @@ static class Program
                     case "--idempotence-check": idempotenceCheck = true; break;
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
+                    case "--fixture-source-inventory": fixtureSourceInventory = true; break;
                     case "--help" or "-h": PrintUsage(); return 0;
                     default: inputs.Add(args[i]); break;
                 }
@@ -289,6 +291,13 @@ static class Program
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
+
+        if (fixtureSourceInventory)
+        {
+            if (inputs.Count > 0)
+                return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
+            return FixtureSourceInventory(json);
+        }
 
         if (generatedFixtures)
         {
@@ -481,6 +490,67 @@ static class Program
 
         // Default: the pipeline's fidelity/stop-reason inventory.
         return Inventory(assemblies);
+    }
+
+    static int FixtureSourceInventory(bool json)
+    {
+        var built = FixtureCatalog.All
+            .OrderBy(fixture => fixture.Id, StringComparer.Ordinal)
+            .ToList();
+        var generated = GeneratedFixtureCatalog.Catalog
+            .OrderBy(fixture => fixture.Id, StringComparer.Ordinal)
+            .ToList();
+
+        if (json)
+        {
+            var payload = new
+            {
+                built = built.Select(fixture => new
+                {
+                    id = fixture.Id,
+                    origin = "Built",
+                    project = fixture.ProjectName,
+                    boundaries = fixture.Boundaries.Select(boundary => boundary.ToString()).ToArray(),
+                    tags = fixture.Tags.ToArray(),
+                }),
+                generated = generated.Select(fixture => new
+                {
+                    id = fixture.Id,
+                    origin = "Generated",
+                    targets = fixture.Targets.Count,
+                    tags = fixture.Tags.ToArray(),
+                }),
+                totals = new { built = built.Count, generated = generated.Count },
+            };
+            Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+
+        var text = new StringBuilder();
+        text.AppendLine("FIXTURE SOURCE INVENTORY");
+        text.AppendLine();
+        text.AppendLine($"Built fixtures (FixtureCatalog): {built.Count}");
+        foreach (var fixture in built)
+        {
+            string boundaries = fixture.Boundaries.Count == 0
+                ? "-"
+                : string.Join(",", fixture.Boundaries.Select(boundary => boundary.ToString()));
+            string tags = fixture.Tags.Count == 0 ? "-" : string.Join(",", fixture.Tags);
+            text.AppendLine($"  {fixture.Id}  project={fixture.ProjectName}  boundaries=[{boundaries}]  tags={{{tags}}}");
+        }
+
+        text.AppendLine();
+        text.AppendLine($"Generated fixtures (GeneratedFixtureCatalog): {generated.Count}");
+        foreach (var fixture in generated)
+        {
+            string tags = fixture.Tags.Count == 0 ? "-" : string.Join(",", fixture.Tags);
+            text.AppendLine($"  {fixture.Id}  targets={fixture.Targets.Count}  tags={{{tags}}}");
+        }
+
+        text.AppendLine();
+        text.AppendLine($"Totals: Built={built.Count} Generated={generated.Count}");
+        Console.Write(text.ToString());
+        return 0;
     }
 
     static int GeneratedFixtures(string? selector, bool keepArtifacts, bool json)
@@ -1700,6 +1770,12 @@ static class Program
           --slot-unifier-census   run the full pipeline and report the
                                 CSharpPrinter's own stack-slot unifier telemetry.
                                 Uses --corpus-method-cap to bound the sweep.
+          --fixture-source-inventory
+                                list the registered source-backed fixtures: Built
+                                (FixtureCatalog) and Generated
+                                (GeneratedFixtureCatalog). Use --json for a
+                                machine-readable inventory. Migrated Dynamic
+                                sites must appear here as Built or Generated.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
