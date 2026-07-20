@@ -11,6 +11,8 @@ public class IlAssemblyDiffTests
 
     public static int MemberB() => 2;
 
+    public static int MemberC(int value) => value + 1;
+
     public abstract class Bodyless
     {
         public abstract int Missing();
@@ -28,6 +30,9 @@ public class IlAssemblyDiffTests
         Assert.True(result.ComparedBodyCount > 0);
         Assert.Equal(result.ComparedBodyCount, result.SelfDiffExactCount);
         Assert.Equal(result.ComparedBodyCount, result.PairExactCount);
+        Assert.Equal(0, result.PairOperandDiffCount);
+        Assert.Equal(0, result.PairOpcodeDiffCount);
+        Assert.Equal(0, result.PairUnavailableCount);
         Assert.Equal(0, result.ChangedBodyCount);
         Assert.Equal(0, result.FailureCount);
         Assert.Empty(result.FailureBuckets);
@@ -90,6 +95,8 @@ public class IlAssemblyDiffTests
         var result = IlAssemblyDiff.CompareMembers(pe, reader, method, pe, reader, method);
 
         Assert.True(result.Diff.IsExact);
+        Assert.True(result.Diff.IsAvailable);
+        Assert.Equal(IlBodyDiffOutcome.Exact, result.Diff.Outcome);
         Assert.Equal(result.Old.Identity, result.Old.Label);
         Assert.Equal(result.Old.Identity, result.New.Identity);
         Assert.Contains(nameof(MemberA), result.Old.Identity, StringComparison.Ordinal);
@@ -113,11 +120,30 @@ public class IlAssemblyDiffTests
             newLabel: "new-member");
 
         Assert.False(result.Diff.IsExact);
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, result.Diff.Outcome);
         Assert.NotEmpty(result.Diff.Rows);
         Assert.Equal("old-member", result.Old.Label);
         Assert.Equal("new-member", result.New.Label);
         Assert.Contains(nameof(MemberA), result.Old.Identity, StringComparison.Ordinal);
         Assert.Contains(nameof(MemberB), result.New.Identity, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompareMembers_OpcodeSequenceChange_ReturnsOpcodeDiff()
+    {
+        using var stream = File.OpenRead(typeof(IlAssemblyDiffTests).Assembly.Location);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        var result = IlAssemblyDiff.CompareMembers(
+            pe,
+            reader,
+            FindMethod(reader, nameof(MemberA)),
+            pe,
+            reader,
+            FindMethod(reader, nameof(MemberC)));
+
+        Assert.Equal(IlBodyDiffOutcome.OpcodeDiff, result.Diff.Outcome);
     }
 
     [Fact]
@@ -136,6 +162,8 @@ public class IlAssemblyDiffTests
             FindMethod(reader, nameof(MemberA)));
 
         var failure = Assert.Single(result.Diff.FailureRows);
+        Assert.False(result.Diff.IsAvailable);
+        Assert.Equal(IlBodyDiffOutcome.Unavailable, result.Diff.Outcome);
         Assert.Equal(IlDiffFailureKind.OldBodyMissing, failure.Kind);
         Assert.Equal("old", failure.Side);
     }

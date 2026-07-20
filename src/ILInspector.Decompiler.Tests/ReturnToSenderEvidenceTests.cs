@@ -50,7 +50,7 @@ public class ReturnToSenderEvidenceTests
             new IlMemberDiffSubject("old-id", "old-label"),
             new IlMemberDiffSubject("new-id", "new-label"),
             new IlBodyDiffResult(
-                IsExact: false,
+                IlBodyDiffOutcome.OperandDiff,
                 Failure: null,
                 Rows:
                 [
