@@ -4,6 +4,11 @@ Fixtures are product inputs, not ad hoc test setup. They should be built by the
 normal solution graph, registered in `FixtureCatalog`, and consumed by stable
 fixture IDs rather than by test-local path arithmetic or one-off compiler calls.
 
+Decompiler fixtures additionally follow the
+[original-source plan](design/decompiler-fixture-original-source.md), which
+binds compiler-produced targets to verified compiler input rather than treating
+a current checkout source path as authoritative.
+
 ## Project-boundary rule
 
 Prefer shared fixture projects when a project is only a source bucket. Keep a
