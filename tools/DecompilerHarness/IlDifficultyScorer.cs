@@ -68,6 +68,14 @@ static class IlDifficultyScorer
     /// </summary>
     public static IlDifficulty Score(MethodInstructions decoded, int ilSize, int localCount, int maxStack)
     {
+        // A body that did not fully decode yields unreliable control-flow facts
+        // (empty or partial blocks and instructions). Scoring it on raw size
+        // alone would float undecodable junk to the top of the hard-IL ranking,
+        // so it is recorded with its true size/local/stack scalars but a zero
+        // score to sink it — a decode failure must never inflate a rank.
+        if (!decoded.IsComplete)
+            return new IlDifficulty(ilSize, 0, 0, 0, 0, 0, 0, localCount, maxStack, 0.0);
+
         int branchCount = 0;
         int switchCount = 0;
         int rareOpcodeCount = 0;
@@ -119,34 +127,59 @@ static class IlDifficultyScorer
     }
 
     /// <summary>
-    /// Maximum exception-handler nesting depth: the longest chain of regions
-    /// where each region's protected try lies wholly inside another region's try
-    /// or handler span. A flat method with no EH scores 0; a single try/catch
-    /// scores 1; a try nested inside a catch (or a try) scores 2, and so on.
+    /// Maximum exception-handler nesting depth: the longest chain of protected
+    /// <c>try</c> blocks where each is wholly contained inside another region's
+    /// try, handler, or filter span. Nesting is measured over <em>distinct</em>
+    /// try spans, so the multiple sibling handlers a single <c>try</c> emits
+    /// (each a region sharing the same try span) collapse to one level. A flat
+    /// method with no EH scores 0; a single try/catch scores 1; a try nested
+    /// inside another try/handler/filter scores 2, and so on. A
+    /// <c>try/catch/finally</c> nested inside a <c>try/catch/finally</c> scores 4
+    /// because the compiler emits the <c>finally</c> as an outer region whose try
+    /// span also protects its sibling <c>catch</c>.
     /// </summary>
     static int ExceptionNestingDepth(ImmutableArray<ExceptionRegionModel> regions)
     {
         if (regions.Length == 0)
             return 0;
 
-        int maxDepth = 0;
+        // Collapse sibling handlers: multiple catch/filter clauses on one try
+        // each emit a region with an identical try span, but together they are a
+        // single level of protection, so nesting is counted over distinct try
+        // spans only.
+        var tryScopes = new HashSet<(int Start, int End)>();
+        foreach (var region in regions)
+            tryScopes.Add((region.TryStart, region.TryEnd));
+
+        // A try can also be nested inside a handler body or a filter block. These
+        // spans are distinct per region, so no deduplication is needed; the
+        // filter span exists only for filter-kind regions.
+        var enclosingScopes = new HashSet<(int Start, int End)>();
         foreach (var region in regions)
         {
+            enclosingScopes.Add((region.HandlerStart, region.HandlerEnd));
+            if (region.Kind == HandlerKind.Filter)
+                enclosingScopes.Add((region.FilterStart, region.FilterEnd));
+        }
+
+        int maxDepth = 0;
+        foreach (var inner in tryScopes)
+        {
             int depth = 1;
-            foreach (var other in regions)
+            foreach (var outer in tryScopes)
             {
-                if (ReferenceEquals(other, region))
+                if (outer.Start == inner.Start && outer.End == inner.End)
                     continue;
 
-                // Strict containment only: sibling handlers on the same try share
-                // identical try spans and must not count as nesting each other.
-                bool nestedInTry =
-                    other.TryStart <= region.TryStart && region.TryEnd <= other.TryEnd
-                    && (other.TryStart < region.TryStart || region.TryEnd < other.TryEnd);
-                bool nestedInHandler =
-                    other.HandlerStart <= region.TryStart && region.TryEnd <= other.HandlerEnd
-                    && (other.HandlerStart < region.TryStart || region.TryEnd < other.HandlerEnd);
-                if (nestedInTry || nestedInHandler)
+                // Distinct spans: containment here is necessarily strict.
+                if (outer.Start <= inner.Start && inner.End <= outer.End)
+                    depth++;
+            }
+
+            foreach (var scope in enclosingScopes)
+            {
+                if (scope.Start <= inner.Start && inner.End <= scope.End
+                    && (scope.Start < inner.Start || inner.End < scope.End))
                     depth++;
             }
 
