@@ -129,32 +129,38 @@ public static class HarnessReportStorage
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(report);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
-        File.WriteAllText(path, JsonSerializer.Serialize(
+        File.WriteAllText(path, Serialize(
             new StoredHarnessReport(
                 report.Descriptor,
                 report.Disposition,
                 report.Blockers,
                 report.Artifacts,
-                report.Comparison),
-            JsonOptions(writeIndented: true)));
+                report.Comparison)));
+    }
+
+    public static string Serialize(StoredHarnessReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, HarnessReportJsonContext.Default.StoredHarnessReport);
     }
 
     public static StoredHarnessReport Read(JsonElement root)
-        => JsonSerializer.Deserialize<StoredHarnessReport>(root.GetRawText(), JsonOptions(writeIndented: false))
+        => JsonSerializer.Deserialize(root.GetRawText(), HarnessReportJsonContext.Default.StoredHarnessReport)
             ?? throw new InvalidOperationException("The stored harness report was empty.");
 
-    public static JsonSerializerOptions JsonOptions(bool writeIndented)
-    {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true,
-            WriteIndented = writeIndented,
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-        return options;
-    }
+    public static StructuredHarnessReport ReadStructured(JsonElement root)
+        => JsonSerializer.Deserialize(root.GetRawText(), HarnessReportJsonContext.Default.StructuredHarnessReport)
+            ?? throw new InvalidOperationException("The structured harness report was empty.");
 }
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = true,
+    WriteIndented = true,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(StoredHarnessReport))]
+[JsonSerializable(typeof(StructuredHarnessReport))]
+internal sealed partial class HarnessReportJsonContext : JsonSerializerContext;
 
 public static class HarnessPopulationKey
 {

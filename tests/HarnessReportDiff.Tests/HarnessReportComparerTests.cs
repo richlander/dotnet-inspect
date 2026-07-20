@@ -1,6 +1,5 @@
 using DotnetInspector.HarnessReportDiff;
 using DotnetInspector.HarnessReports;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace HarnessReportDiff.Tests;
@@ -129,8 +128,11 @@ public class HarnessReportComparerTests
                 "population",
                 [Metric("exact", MetricGoal.Higher, 10)]));
 
+        string json = HarnessReportStorage.Serialize(stored);
         var report = ReadJson(stored);
 
+        Assert.Contains("\"disposition\": \"Completed\"", json);
+        Assert.Contains("\"goal\": \"Higher\"", json);
         Assert.Equal(3, report.SchemaVersion);
         Assert.Equal("test.stored", report.Kind);
         Assert.Equal("exact", Assert.Single(report.Metrics).Id);
@@ -240,9 +242,7 @@ public class HarnessReportComparerTests
         string path = Path.GetTempFileName();
         try
         {
-            File.WriteAllText(
-                path,
-                JsonSerializer.Serialize(stored, HarnessReportStorage.JsonOptions(writeIndented: false)));
+            File.WriteAllText(path, HarnessReportStorage.Serialize(stored));
             return HarnessReportReader.Read(path);
         }
         finally

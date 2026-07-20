@@ -259,10 +259,7 @@ public static class HarnessReportReader
     }
 
     static StructuredHarnessReport ReadStructured(JsonElement root)
-        => JsonSerializer.Deserialize<StructuredHarnessReport>(
-            root.GetRawText(),
-            HarnessReportStorage.JsonOptions(writeIndented: false))
-            ?? throw new InvalidOperationException("The structured harness report was empty.");
+        => HarnessReportStorage.ReadStructured(root);
 
     static StructuredHarnessReport ReadCorpusSnapshot(JsonElement root)
     {
