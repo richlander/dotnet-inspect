@@ -14,6 +14,7 @@ public class PrinterPrecedenceTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
 
     static IrFunction Raised(string methodName)
     {
@@ -77,6 +78,33 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("(a ? b : c) ? d : e", output);
         Assert.DoesNotContain("a ? b : c ? d", output);
+    }
+
+    // Issue #2916: a ref-typed conditional whose arms are both genuine
+    // ref-producers renders as a ref ternary (`ref a : ref b`, see Deref's
+    // Conditional case). When one arm is itself an `Unbox` — a ref-producer
+    // that otherwise spells `ref (T)x` — Deref lacked a case for it and fell
+    // through to the generic ByRef arm, which returns the raw ref-spelling
+    // unchanged. The enclosing ref ternary then prefixed its own `ref `,
+    // doubling the keyword (`ref ref (T)x`, CS1525). Not reachable from C#
+    // source (BooleanFoldingPass.FoldSlotDiamond is the only producer of a
+    // ref-typed conditional with a non-place arm), so exercised on hand-built IR.
+    [Fact]
+    public void Deref_RefConditionalWithUnboxArm_DoesNotDoubleRefKeyword()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new Unbox(s_int, new LoadArgument(1, "o", s_object)),
+            new LoadArgumentAddress(2, "n", s_int));
+        var load = new LoadIndirect(s_int, conditional);
+
+        var output = PrintReturn(
+            load,
+            s_int,
+            [new Parameter("flag", s_bool), new Parameter("o", s_object), new Parameter("n", s_int)]);
+
+        Assert.Contains("ref (int)o", output);
+        Assert.DoesNotContain("ref ref", output);
     }
 
     // Issue #2302: an arm whose signedness (or width) disagrees with the numeric

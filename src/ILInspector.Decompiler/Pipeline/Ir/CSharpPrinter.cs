@@ -2707,6 +2707,15 @@ public sealed partial class CSharpPrinter
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         FixedBufferElementAddress f => FixedBufferElementText(f),
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        // Unbox (`unbox T`) is itself a ref-producer (`ref (T)x`, see the
+        // Expression switch below), so it also falls under the generic
+        // `ResultType.Kind: TypeRefKind.ByRef` arm further down. Without this
+        // case that generic arm renders it via `Operand`, i.e. the raw
+        // ref-spelling `ref (T)x` — so any caller that already prints its own
+        // `ref ` (a ref-typed `Deref` caller, or a ref-typed `Conditional` arm
+        // in this same switch) doubles the keyword (`ref ref (T)x`, CS1525).
+        // The dereferenced value form of an unbox is simply the cast itself.
+        Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         { ResultType.Kind: TypeRefKind.Pointer } => $"*{Operand(address)}",
         // A ref-typed conditional is a ref ternary: the `ref` binds each arm
         // (`cond ? ref a : ref b`), not the expression as a whole — placing it
