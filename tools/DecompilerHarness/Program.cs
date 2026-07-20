@@ -1853,9 +1853,8 @@ static class Program
                                 machine-readable list/results.
           --fixture-source-inventory
                                 report source applicability for built fixtures,
-                                retained generated source, and unresolved
-                                test-local compilation sites. Add --json for the
-                                structured report.
+                                and retained generated source. Add --json for
+                                the structured report.
           --keep-generated-fixtures
                                 with --generated-fixtures: keep the temporary
                                 project and print its paths.

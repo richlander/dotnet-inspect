@@ -129,16 +129,11 @@ breadth, while a non-empty pass-raised list or fixture regression alarm is a
 raise-pass or fixture-gap investigation signal, not a failed PR gate.
 
 **Fixture source inventory** (`--fixture-source-inventory`): reports source
-applicability across built catalog fixtures, retained generated fixtures, and
-test-local dynamic compilation sites. The default Markdown table summarizes
-each population; `--json` emits the typed rows. `SourceDiscovered` means source
-is present for migration and deliberately does not mean its bytes have been
-verified against a built assembly. Dynamic sites remain visible as unresolved
-until they use the shared source-retaining materializer.
-The guard recognizes the repository's current direct
-`CSharpCompilation.Create` entry point using C# syntax, and fingerprints each
-containing type, method signature, and invocation. Introducing another dynamic
-compiler entry point requires extending this inventory explicitly.
+applicability across built catalog fixtures and retained generated fixtures.
+The default Markdown table summarizes each population; `--json` emits the typed
+rows. `SourceDiscovered` means source is present for migration and deliberately
+does not mean its bytes have been verified against a built assembly. Test-local
+dynamic compilation is outside this source-verification inventory.
 
 **Generated fixtures** (`--generated-fixtures [id|prefix|list]`): builds selected
 generated-fixture catalogue entries into a temporary class library, runs the
