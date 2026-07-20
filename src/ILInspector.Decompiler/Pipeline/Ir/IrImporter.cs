@@ -1145,6 +1145,7 @@ public static class IrImporter
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
+
                     var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments) { ConstrainedTo = constrainedTo };
                     constrainedTo = null;
                     if (callee.ReturnType is { Name: "Void", Namespace: "System" })
@@ -1254,6 +1255,17 @@ public static class IrImporter
                     var address = Pop(stack);
                     SpillUnstableBeforeSideEffect(body, stack, state);
                     body.Add(new InitObject(type, address));
+                    break;
+                }
+
+                case ILOpCode.Cpblk:
+                {
+                    var size = Pop(stack);
+                    var src = Pop(stack);
+                    var dest = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new CopyBlock(dest, src, size) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
                     break;
                 }
 

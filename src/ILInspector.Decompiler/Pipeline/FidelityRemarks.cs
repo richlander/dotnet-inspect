@@ -58,6 +58,13 @@ public static class FidelityRemarks
                         $"{u.Opcode}: {u.Reason}",
                         u.Opcode);
                     continue;  // its own type checks are noise next to the explicit reason
+                case CopyBlock:
+                    yield return Cause(
+                        DiagnosticIds.UnsupportedConstruct,
+                        LocationOf(node),
+                        node,
+                        "residual cpblk (CopyBlock) without a valid C# spelling");
+                    break;
                 case LoadFunctionPointer:
                     yield return Cause(
                         DiagnosticIds.UnsupportedFunctionPointer,

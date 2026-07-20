@@ -121,6 +121,23 @@ public class TypeRefDecoderRecursionTests
     }
 
     [Fact]
+    public void PlatformTrust_SelfReferentialTypeSpecification_DoesNotStackOverflow()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x1f);
+            signature.WriteByte(0x06);
+            signature.WriteByte(0x08);
+            return metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+        });
+
+        Assert.False(IrImporter.IsTrustedPlatformMemberReference(
+            reader,
+            MetadataTokens.TypeSpecificationHandle(1)));
+    }
+
+    [Fact]
     public void OverlongTypeSpecificationBlob_DoesNotStackOverflow()
     {
         var reader = BuildMetadata(metadata =>
@@ -144,6 +161,23 @@ public class TypeRefDecoderRecursionTests
             0);
 
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
+    [Fact]
+    public void PlatformTrust_OverlongTypeSpecificationBlob_DoesNotStackOverflow()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            for (int i = 0; i < 100_000; i++)
+                signature.WriteByte(0x1d);
+            signature.WriteByte(0x08);
+            return metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+        });
+
+        Assert.False(IrImporter.IsTrustedPlatformMemberReference(
+            reader,
+            MetadataTokens.TypeSpecificationHandle(1)));
     }
 
     [Fact]

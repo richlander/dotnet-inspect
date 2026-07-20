@@ -297,6 +297,7 @@ public static class IrPasses
         // compiler-internal field name and never compiles. Kept in Lowered
         // (the CreateSpan call has no valid C# spelling).
         new RvaSpanPass(),
+        new StackAllocInitializerPass(),
         // Raise the csc lowering of `Span<T> s = stackalloc T[n]` (a localloc fed
         // to the Span<T>(void*, int) ctor) back into `stackalloc T[n]`. Left flat
         // it renders `new Span<T>(stackalloc byte[...], n)`, which never compiles
