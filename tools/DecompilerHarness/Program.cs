@@ -68,6 +68,12 @@ static class Program
         string? emitNotMyTypeSnapshot = null;
         string? diffNotMyTypeBaseline = null;
         string? emitHarnessReport = null;
+        bool enumerateRealMethods = false;
+        bool harvestAuthoredCorpus = false;
+        string? harvestOutputPath = null;
+        bool benchmarkAuthoredCorpus = false;
+        string? benchmarkCorpusPath = null;
+        int harvestTarget = 12000;
         bool censusTsv = false;
         bool censusJsonl = false;
         bool returnToSenderAb = false;
@@ -183,6 +189,16 @@ static class Program
                     case "--diff-return-address-baseline":
                         diffReturnAddressBaseline = NextArg(args, ref i, flag); returnAddress = true; break;
                     case "--not-my-type": notMyType = true; break;
+                    case "--enumerate-real-methods": enumerateRealMethods = true; break;
+                    case "--harvest-authored-corpus":
+                        harvestAuthoredCorpus = true;
+                        harvestOutputPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--benchmark-authored-corpus":
+                        benchmarkAuthoredCorpus = true;
+                        benchmarkCorpusPath = NextArg(args, ref i, flag);
+                        break;
                     case "--emit-not-my-type-snapshot":
                         emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
                     case "--diff-not-my-type-baseline":
@@ -417,6 +433,15 @@ static class Program
                 diffNotMyTypeBaseline,
                 emitHarnessReport);
 
+        if (enumerateRealMethods)
+            return RunEnumerateRealMethods(assemblies, maxExamples);
+
+        if (harvestAuthoredCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
+
+        if (benchmarkAuthoredCorpus)
+            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
+
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
@@ -619,6 +644,45 @@ static class Program
     /// up; the residual-kind docket is the prioritized work. It measures
     /// completeness, not correctness — pair it with <c>--fidelity-check</c> for fidelity.
     /// </summary>
+    // Diagnostic: enumerate real-method targets per assembly and print counts
+    // plus a small sample. Proves RealMethodTargetEnumerator against real
+    // assemblies without invoking source acquisition or the decompiler.
+    static int RunEnumerateRealMethods(List<string> assemblies, int maxExamples)
+    {
+        long grandTotal = 0;
+        foreach (string assemblyPath in assemblies)
+        {
+            IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets;
+            try
+            {
+                targets = RealMethodTargetEnumerator.Enumerate(assemblyPath);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException)
+            {
+                Console.Error.WriteLine(
+                    $"Warning: skipped '{assemblyPath}' ({ex.GetType().Name}: {ex.Message}).");
+                continue;
+            }
+
+            grandTotal += targets.Count;
+            Console.WriteLine($"{Path.GetFileName(assemblyPath)}: {targets.Count} real-method targets");
+            foreach (var target in targets.Take(maxExamples))
+            {
+                string overload = target.Overload == 0 ? "" : $"#{target.Overload}";
+                string sig = target.Signature is null ? " (ordinal)" : $" [{target.Signature}]";
+                Console.WriteLine(
+                    $"  {target.Type}::{target.Method}{overload}"
+                    + $" params={target.ParameterCount} il={target.IlSize}{sig}");
+            }
+        }
+
+        Console.WriteLine($"Total real-method targets: {grandTotal}");
+        return 0;
+    }
+
     static int CompletenessScan(List<string> assemblies, int maxExamples, bool byShape = false)
     {
         long total = 0, clean = 0, crashes = 0;
