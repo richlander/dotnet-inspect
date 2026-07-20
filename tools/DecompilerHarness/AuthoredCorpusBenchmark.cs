@@ -120,9 +120,21 @@ static class AuthoredCorpusBenchmark
         if (unmatchedRows > 0)
             Console.WriteLine($"  rows without asm   : {unmatchedRows} (no local assembly supplied)");
         Console.WriteLine($"  targets evaluated  : {evaluated}");
+        int lowering = results.Count(result => ClassifyTaste(result) == TasteBucket.Lowering);
+        int knownTaste = results.Count(result => ClassifyTaste(result) == TasteBucket.KnownTaste);
+        int frontierExact = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
+        int frontierDiff = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff);
+        int frontierUnknown = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlUnknown);
+
         Console.WriteLine();
         Console.WriteLine($"  Correct  (valid, matches authored)  : {match}");
         Console.WriteLine($"  Valid    (valid, differs)           : {different}");
+        Console.WriteLine($"    lowering (inherent, unrecoverable): {lowering}");
+        Console.WriteLine($"    known taste (documented decision) : {knownTaste}");
+        Console.WriteLine($"    frontier, IL-exact (cosmetic)     : {frontierExact}");
+        Console.WriteLine($"    frontier, IL-diff (semantic)      : {frontierDiff}");
+        if (frontierUnknown > 0)
+            Console.WriteLine($"    frontier, IL-unknown              : {frontierUnknown}");
         Console.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
         if (unavailable > 0)
             Console.WriteLine($"  Drift    (source-unavailable)       : {unavailable}");
@@ -137,21 +149,63 @@ static class AuthoredCorpusBenchmark
             Console.WriteLine($"  Correct rate       : {match}/{valid} of valid ({correctPct:F1}%)");
         }
 
-        WriteReasonBuckets("Valid-but-different reasons", results, ReturnToSenderSourceOutcome.ValidDifferent);
-        WriteReasonBuckets("Invalid reasons", results, ReturnToSenderSourceOutcome.Invalid);
-        WriteReasonBuckets("Drift reasons", results, ReturnToSenderSourceOutcome.SourceUnavailable);
+        WriteReasonBuckets("Frontier, IL-diff (semantic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff);
+        WriteReasonBuckets("Frontier, IL-exact (cosmetic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
+        WriteReasonBuckets("Lowering (inherent) reasons", results, result => ClassifyTaste(result) == TasteBucket.Lowering);
+        WriteReasonBuckets("Known-taste reasons", results, result => ClassifyTaste(result) == TasteBucket.KnownTaste);
+        WriteReasonBuckets("Invalid reasons", results, result => result.Outcome == ReturnToSenderSourceOutcome.Invalid);
+        WriteReasonBuckets("Drift reasons", results, result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable);
 
         // Nonzero exit if any target failed to round-trip or drifted from the corpus.
         return invalid == 0 && unavailable == 0 ? 0 : 1;
     }
 
+    enum TasteBucket
+    {
+        Correct,
+        Lowering,
+        KnownTaste,
+        FrontierIlExact,
+        FrontierIlDiff,
+        FrontierIlUnknown,
+        Invalid,
+        Drift,
+        Unsupported,
+    }
+
+    /// <summary>
+    /// Buckets a probe result along two taste axes. Family comes first: authored
+    /// sugar the compiler erases (<c>compiler_lowering</c>) is an inherent,
+    /// unrecoverable limit, and a documented product decision (<c>known_taste</c>)
+    /// is already accounted for. Everything else is the raise frontier, split by
+    /// whether the shape difference is free at the IL level (Exact) or carries an
+    /// opcode/operand diff (semantic).
+    /// </summary>
+    static TasteBucket ClassifyTaste(ReturnToSenderSourceProbeResult result)
+        => result.Outcome switch
+        {
+            ReturnToSenderSourceOutcome.ValidMatch => TasteBucket.Correct,
+            ReturnToSenderSourceOutcome.Invalid => TasteBucket.Invalid,
+            ReturnToSenderSourceOutcome.SourceUnavailable => TasteBucket.Drift,
+            ReturnToSenderSourceOutcome.UnsupportedTarget => TasteBucket.Unsupported,
+            ReturnToSenderSourceOutcome.ValidDifferent when result.Reason.Contains("compiler_lowering", StringComparison.Ordinal) => TasteBucket.Lowering,
+            ReturnToSenderSourceOutcome.ValidDifferent when result.Reason.Contains("known_taste", StringComparison.Ordinal) => TasteBucket.KnownTaste,
+            ReturnToSenderSourceOutcome.ValidDifferent => result.CompileBackStatus switch
+            {
+                FidelityCheck.CompileBackStatus.Exact => TasteBucket.FrontierIlExact,
+                FidelityCheck.CompileBackStatus.OpcodeDiff or FidelityCheck.CompileBackStatus.OperandDiff => TasteBucket.FrontierIlDiff,
+                _ => TasteBucket.FrontierIlUnknown,
+            },
+            _ => TasteBucket.FrontierIlUnknown,
+        };
+
     static void WriteReasonBuckets(
         string title,
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
-        ReturnToSenderSourceOutcome outcome)
+        Func<ReturnToSenderSourceProbeResult, bool> predicate)
     {
         var buckets = results
-            .Where(result => result.Outcome == outcome)
+            .Where(predicate)
             .GroupBy(result => result.Reason, StringComparer.Ordinal)
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key, StringComparer.Ordinal)
@@ -187,6 +241,14 @@ static class AuthoredCorpusBenchmark
             targetsEvaluated = results.Count,
             correct = match,
             validDifferent = different,
+            validBreakdown = new
+            {
+                lowering = results.Count(result => ClassifyTaste(result) == TasteBucket.Lowering),
+                knownTaste = results.Count(result => ClassifyTaste(result) == TasteBucket.KnownTaste),
+                frontierIlExact = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlExact),
+                frontierIlDiff = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff),
+                frontierIlUnknown = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlUnknown),
+            },
             invalid,
             drift = unavailable,
             unsupported,
@@ -196,6 +258,7 @@ static class AuthoredCorpusBenchmark
                 method = result.Target.Method,
                 overload = result.Target.Overload,
                 outcome = result.Outcome.ToString(),
+                tasteBucket = ClassifyTaste(result).ToString(),
                 compileBackStatus = result.CompileBackStatus?.ToString(),
                 reason = result.Reason,
                 detail = result.Detail,
