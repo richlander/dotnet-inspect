@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using ILInspector.CSharp;
 
 namespace ILInspector.Metadata;
 
@@ -1238,20 +1239,7 @@ public static class ApiSurfaceExtractor
     }
 
     private static string EscapeIdentifier(string name)
-        => ReservedKeywords.Contains(name) ? "@" + name : name;
-
-    private static readonly HashSet<string> ReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while",
-    };
+        => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
 
     private static string FormatDecimalLiteral(decimal value)
         => value.ToString("G29", CultureInfo.InvariantCulture) + "m";

@@ -71,7 +71,7 @@ public class UnsafeEmitterTests
     static string DecompileLegacySimulate(string method) =>
         DecompileSimulate(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
 
-    static (IrFunction Function, IReadOnlyList<Annotation> Annotations) ClassifyNew(string method)
+    static (IrFunction Function, IReadOnlyList<IAnnotation> Annotations) ClassifyNew(string method)
     {
         var source = MetadataSource.Open(typeof(NewFixtures).Assembly.Location);
         var function = IrImporter.Import(source, typeof(NewFixtures).FullName!, method);

@@ -578,6 +578,56 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitEventDeclaration_RendersFromStructuredAccessorShape()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.@event.IEvents.Changed",
+            Kind = "explicit-interface-implementation",
+            IsStatic = true,
+            IsUnsafe = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Some.event.IEvents.Changed",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" }
+                ]
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "static unsafe event System.EventHandler Some.@event.IEvents.Changed",
+            declaration);
+    }
+
+    [Fact]
+    public void ExplicitEventDeclaration_RequiresTypedAccessorShape()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Some.IEvents.Changed",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Some.IEvents.Changed"
+            }
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.DoesNotContain("Some.IEvents.Changed", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("event ", declaration, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ShortWithUsings_KeepsCollidingSimpleNamesQualified()
     {
         var type = new ApiType

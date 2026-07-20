@@ -135,18 +135,30 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public async Task EnableNetworkTrafficLogging_PrintsPolicyErrorForUnallowedVulnerabilityTraffic()
+    public async Task NetworkPolicy_BlocksUnallowedVulnerabilityTrafficAfterRecordingIt()
     {
-        var stderr = await CaptureTrafficLogAsync(
-            NetworkTrafficKind.VulnerabilityData,
-            allowTrafficKind: false);
+        using var error = new StringWriter();
+        var transport = new StubHttpMessageHandler();
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (var client = new HttpClient(new NetworkTelemetryHandler(
+            transport,
+            NetworkClientKinds.Shared)))
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.VulnerabilityData))
+        {
+            var exception = await Assert.ThrowsAsync<NetworkPolicyException>(() => client.GetAsync(
+                "https://api.nuget.org/v3/vulnerabilities/index.json",
+                TestContext.Current.CancellationToken));
+            Assert.Contains("requires explicit capability authorization", exception.Message);
+        }
 
+        var stderr = error.ToString();
         Assert.Contains(
             "Network traffic [vulnerability-data]: GET https://api.nuget.org/v3/vulnerabilities/index.json",
             stderr);
         Assert.Contains(
             "Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section",
             stderr);
+        Assert.Equal(0, transport.RequestCount);
     }
 
     [Fact]
@@ -160,6 +172,43 @@ public class HttpClientFactoryTests : IDisposable
             "Network traffic [vulnerability-data]: GET https://api.nuget.org/v3/vulnerabilities/index.json",
             stderr);
         Assert.DoesNotContain("Network policy error", stderr);
+    }
+
+    [Fact]
+    public async Task NetworkPolicy_VulnerabilityCapabilityAllowsAdvisoryTraffic()
+    {
+        using var error = new StringWriter();
+        var transport = new StubHttpMessageHandler();
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (var client = new HttpClient(new NetworkTelemetryHandler(
+            transport,
+            NetworkClientKinds.Shared)))
+        using (NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData))
+        using (NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData))
+        using (var response = await client.GetAsync(
+            "https://api.github.com/advisories/GHSA-test",
+            TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        Assert.DoesNotContain("Network policy error", error.ToString());
+        Assert.Equal(1, transport.RequestCount);
+    }
+
+    [Fact]
+    public async Task NetworkPolicy_BlocksAdvisoryTrafficWithoutVulnerabilityCapability()
+    {
+        var transport = new StubHttpMessageHandler();
+        using var client = new HttpClient(new NetworkTelemetryHandler(
+            transport,
+            NetworkClientKinds.Shared));
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.AdvisoryData);
+
+        await Assert.ThrowsAsync<NetworkPolicyException>(() => client.GetAsync(
+            "https://api.github.com/advisories/GHSA-test",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0, transport.RequestCount);
     }
 
     [Fact]
@@ -308,9 +357,14 @@ public class HttpClientFactoryTests : IDisposable
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
-            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        {
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
     }
 }

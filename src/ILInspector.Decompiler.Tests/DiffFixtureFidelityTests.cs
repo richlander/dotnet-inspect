@@ -30,7 +30,9 @@ public class DiffFixtureFidelityTests
             Assert.True(matches.Length > 0, $"Expected fidelity check to evaluate {fixture.Id}.{method}.");
             Assert.All(matches, result =>
                 Assert.True(
-                    result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    result.Status is FidelityCheck.CompileBackStatus.Exact
+                        or FidelityCheck.CompileBackStatus.OpcodeDiff
+                        or FidelityCheck.CompileBackStatus.OperandDiff,
                     $"{fixture.Id}.{method} regressed to {result.Status}: the paired diff fixture must remain decompiler compile-back checkable.\n"
                         + $"  original : {result.OriginalOpcodes}\n"
                         + $"  recompiled: {result.RecompiledOpcodes}\n"

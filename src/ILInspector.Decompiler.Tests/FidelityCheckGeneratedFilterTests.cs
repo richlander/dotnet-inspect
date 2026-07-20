@@ -669,7 +669,7 @@ public class FidelityCheckGeneratedFilterTests
             var output = writer.ToString();
 
             Assert.Equal(0, exitCode);
-            Assert.Contains("exact opcode match : 1", output);
+            Assert.Contains("exact (contract v1): 1", output);
             Assert.DoesNotContain("CS1620", output);
         }
         finally
@@ -725,7 +725,9 @@ public class FidelityCheckGeneratedFilterTests
                 results,
                 result => result.Type == "FrameworkNamespaceFixture" && result.Method == method);
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 result.Detail);
         }
     }
@@ -768,7 +770,9 @@ public class FidelityCheckGeneratedFilterTests
                 results,
                 result => result.Type == "AbstractForwardingFixture" && result.Method == method);
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 result.Detail);
         }
     }
@@ -809,7 +813,9 @@ public class FidelityCheckGeneratedFilterTests
                 results,
                 result => result.Type == "BaseAndInterfaceFixture" && result.Method == method);
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 result.Detail);
         }
     }
@@ -1101,7 +1107,9 @@ public class FidelityCheckGeneratedFilterTests
             results,
             result => result.Type == type && result.Method == method);
         Assert.True(
-            result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+            result.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
             result.Detail);
     }
 

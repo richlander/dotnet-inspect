@@ -1,3 +1,4 @@
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using DotnetInspector.Views;
@@ -169,11 +170,11 @@ public static class DiffOutputFormatter
                 "Implementation Diff",
                 view.ImplementationDiffSummary,
                 view.ImplementationDiffNote,
-                ["Member", "Mechanism", "Change", "Evidence"],
-                ["member", "mechanism", "change", "evidence"],
+                ["Member", "Mechanism", "Difference", "Change", "Evidence"],
+                ["member", "mechanism", "difference", "change", "evidence"],
                 view.ImplementationDiff?.Select(row => new[]
                 {
-                    row.Member, row.Mechanism, row.Change, row.Evidence
+                    row.Member, row.Mechanism, row.Difference, row.Change, row.Evidence
                 }));
         }
 
@@ -344,12 +345,16 @@ public static class DiffOutputFormatter
                     _ => change.Mechanism.ToString()
                 };
                 var evidenceLines = ImplementationDiff.UnifiedLines(change);
+                string difference = change.Mechanism == ResearchChangeMechanism.IlBody
+                    ? (change.IlBodyDiff?.Outcome ?? IlBodyDiffOutcome.Unavailable).ToString()
+                    : "";
                 string changeKind = change.Kind.ToString().ToLowerInvariant();
                 if (evidenceLines.IsDefaultOrEmpty)
                 {
                     rows.Add(new ImplementationDiffRow(
                         member.Subject.Display,
                         mechanism,
+                        difference,
                         changeKind,
                         change.Detail ?? change.Descriptor.Title));
                     continue;
@@ -360,6 +365,7 @@ public static class DiffOutputFormatter
                     rows.Add(new ImplementationDiffRow(
                         member.Subject.Display,
                         mechanism,
+                        difference,
                         changeKind,
                         evidence));
                 }
@@ -374,6 +380,7 @@ public static class DiffOutputFormatter
                     rows.Add(new ImplementationDiffRow(
                         member.Subject.Display,
                         "Source",
+                        "",
                         sourceComparison.IsExact ? "unavailable" : "changed",
                         sourceState));
                 }

@@ -48,7 +48,8 @@ static class ReturnToSender
         MemberAnchor? MemberAnchor = null,
         IReadOnlyList<DecompilerDecision>? Decisions = null,
         FidelityCheck.CompileBackResult? CompileBackFloor = null,
-        FaultIsolationResult? FaultIsolation = null)
+        FaultIsolationResult? FaultIsolation = null,
+        IlBodyDiffResult? FidelityDiff = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
         internal ArtifactRequest? FinalRequest { get; init; }
@@ -74,7 +75,8 @@ static class ReturnToSender
 
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
-        int total = 0, exact = 0, opcodeDiff = 0, recompileFail = 0, contextFail = 0;
+        int total = 0, exact = 0, opcodeDiff = 0, operandDiff = 0;
+        int fidelityUnavailable = 0, recompileFail = 0, contextFail = 0;
         int closureRoots = 0, closureMembers = 0, compileBackFloor = 0;
         var planningDiagnostics = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var examples = new List<string>();
@@ -128,6 +130,12 @@ static class ReturnToSender
                     case FidelityCheck.CompileBackStatus.OpcodeDiff:
                         opcodeDiff++;
                         break;
+                    case FidelityCheck.CompileBackStatus.OperandDiff:
+                        operandDiff++;
+                        break;
+                    case FidelityCheck.CompileBackStatus.FidelityUnavailable:
+                        fidelityUnavailable++;
+                        break;
                     case FidelityCheck.CompileBackStatus.RecompileFail:
                         recompileFail++;
                         break;
@@ -151,8 +159,10 @@ static class ReturnToSender
 
         Console.WriteLine($"RETURNTOSENDER over {total} property getters");
         Console.WriteLine();
-        Console.WriteLine($"  Exact         : {exact}");
+        Console.WriteLine($"  Exact (V{FidelityCheck.CurrentContractVersion})    : {exact}");
         Console.WriteLine($"  OpcodeDiff    : {opcodeDiff}");
+        Console.WriteLine($"  OperandDiff   : {operandDiff}");
+        Console.WriteLine($"  FidelityUnavailable: {fidelityUnavailable}");
         Console.WriteLine($"  RecompileFail : {recompileFail}");
         Console.WriteLine($"  ContextFail   : {contextFail}");
         Console.WriteLine();
@@ -324,8 +334,12 @@ static class ReturnToSender
             return ComparisonDelta.Rescued;
         }
 
-        bool currentChecked = current.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
-        bool rtsChecked = rts.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff;
+        bool currentChecked = current.Status is FidelityCheck.CompileBackStatus.Exact
+            or FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff;
+        bool rtsChecked = rts.Status is FidelityCheck.CompileBackStatus.Exact
+            or FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff;
         if (!currentChecked && rtsChecked)
             return ComparisonDelta.Rescued;
         if (currentChecked && !rtsChecked)
@@ -535,6 +549,21 @@ static class ReturnToSender
                 continue;
             }
 
+            if (TryFindEventAccessor(reader, typeDef, target) is { } eventTarget)
+            {
+                results.Add(CompileBackEventAccessorOrContextFail(
+                    assemblyPath,
+                    pe,
+                    reader,
+                    source,
+                    typeHandle,
+                    eventTarget.Event,
+                    eventTarget.Accessor,
+                    MemberAnchorFor(memberAnchors, eventTarget.Accessor),
+                    sourceIndex));
+                continue;
+            }
+
             if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
             {
                 results.Add(CompileBackMethodOrContextFail(
@@ -574,7 +603,9 @@ static class ReturnToSender
                     .Distinct()
                     .ToArray());
         var floorByTarget = floorRows
-            .Where(row => row.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff)
+            .Where(row => row.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff)
             .GroupBy(FloorKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         if (floorByTarget.Count == 0)
@@ -616,6 +647,7 @@ static class ReturnToSender
             RecompiledOpcodes = floor.RecompiledOpcodes,
             Detail = floorDetail,
             CompileBackFloor = floor,
+            FidelityDiff = floor.FidelityDiff,
         };
     }
 
@@ -663,6 +695,61 @@ static class ReturnToSender
         }
 
         return null;
+    }
+
+    static (EventDefinitionHandle Event, MethodDefinitionHandle Accessor)? TryFindEventAccessor(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        RequestedTarget target)
+    {
+        var accessorToEvent = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+            if (!accessors.Adder.IsNil)
+                accessorToEvent[accessors.Adder] = eventHandle;
+            if (!accessors.Remover.IsNil)
+                accessorToEvent[accessors.Remover] = eventHandle;
+        }
+
+        if (TryFindMethod(reader, typeDef, target) is { } accessorHandle
+            && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle)
+            && IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle))
+        {
+            return (foundEventHandle, accessorHandle);
+        }
+
+        return null;
+    }
+
+    static bool IsExplicitInterfaceEventAccessor(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle accessorHandle)
+    {
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != accessorHandle
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var interfaceDef = reader.GetTypeDefinition(declaration.GetDeclaringType());
+            if (!interfaceDef.Attributes.HasFlag(TypeAttributes.Interface))
+                continue;
+            foreach (var eventHandle in interfaceDef.GetEvents())
+            {
+                var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+                if (accessors.Adder == declarationHandle || accessors.Remover == declarationHandle)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -789,6 +876,42 @@ static class ReturnToSender
         }
     }
 
+    static Result CompileBackEventAccessorOrContextFail(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        EventDefinitionHandle eventHandle,
+        MethodDefinitionHandle accessorHandle,
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
+    {
+        try
+        {
+            return CompileBackEventAccessor(
+                assemblyPath,
+                pe,
+                reader,
+                source,
+                typeHandle,
+                eventHandle,
+                accessorHandle,
+                memberAnchor,
+                sourceIndex);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return ContextFailResult(
+                assemblyPath,
+                reader,
+                typeHandle,
+                accessorHandle,
+                $"{ex.GetType().Name}: {ex.Message}",
+                memberAnchor);
+        }
+    }
+
     static Result CompileBackPropertySetterOrContextFail(
         string assemblyPath,
         PEReader pe,
@@ -837,6 +960,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             getterHandle,
@@ -890,6 +1014,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             methodHandle,
@@ -907,6 +1032,61 @@ static class ReturnToSender
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: methodHandle,
+                TargetBody: targetBody,
+                FullType: fullType,
+                MethodName: methodName,
+                Overload: overload,
+                SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
+                ClosureRoots: closureRoots,
+                ClosureFacts: closureFacts));
+    }
+
+    static Result CompileBackEventAccessor(
+        string assemblyPath,
+        PEReader pe,
+        MetadataReader reader,
+        MetadataSource source,
+        TypeDefinitionHandle typeHandle,
+        EventDefinitionHandle eventHandle,
+        MethodDefinitionHandle accessorHandle,
+        MemberAnchor? memberAnchor,
+        ReturnToSenderSourceIndex? sourceIndex)
+    {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
+        var accessor = reader.GetMethodDefinition(accessorHandle);
+        string fullType = reader.GetFullTypeName(typeDef);
+        string methodName = reader.GetString(accessor.Name);
+        int overload = OverloadIndex(reader, typeDef, accessorHandle, methodName);
+
+        var function = IrImporter.Import(source, fullType, methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+
+        var original = MetadataInstructionProducer.Disassemble(pe, reader, accessor)
+            ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
+        var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
+
+        return CompileBackTarget(
+            assemblyPath,
+            pe,
+            reader,
+            typeHandle,
+            accessorHandle,
+            function,
+            targetBody,
+            fullType,
+            methodName,
+            overload,
+            originalOps,
+            memberAnchor,
+            sourceIndex,
+            (closureRoots, closureFacts) => new EventAccessorArtifactRequest(
+                AssemblyPath: assemblyPath,
+                Reader: reader,
+                Function: function,
+                TargetType: typeHandle,
+                TargetMethod: accessorHandle,
+                TargetEvent: eventHandle,
                 TargetBody: targetBody,
                 FullType: fullType,
                 MethodName: methodName,
@@ -943,6 +1123,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            pe,
             reader,
             typeHandle,
             setterHandle,
@@ -972,6 +1153,7 @@ static class ReturnToSender
 
     static Result CompileBackTarget(
         string assemblyPath,
+        PEReader originalPe,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
@@ -1046,6 +1228,15 @@ static class ReturnToSender
                 var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
                 var ilDiff = implementationDiff?.IlDiff;
                 var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
+                var fidelityDiff = BuildIlDiff(
+                    originalPe,
+                    reader,
+                    methodHandle,
+                    recompiled,
+                    fullType,
+                    methodName,
+                    overload: 0,
+                    FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
 
                 if (recompiledOps is null)
                 {
@@ -1064,20 +1255,27 @@ static class ReturnToSender
                     };
                 }
 
+                var status = FidelityCheck.ClassifyStatus(
+                    isFull: true,
+                    opcodesExact: originalOps.SequenceEqual(recompiledOps),
+                    fidelityDiff: fidelityDiff);
+                string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
+                    ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
+                    : fidelityDiff?.Failure;
+
                 return new Result(
                     plan,
                     unit,
-                    originalOps.SequenceEqual(recompiledOps)
-                        ? FidelityCheck.CompileBackStatus.Exact
-                        : FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    status,
                     originalOpcodes,
                     string.Join(" ", recompiledOps),
-                    null,
+                    detail,
                     TargetBody: targetBody.Source,
                     IlDiffDiagnostic: ilDiffDiagnostic,
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions)
+                    Decisions: targetBody.Decisions,
+                    FidelityDiff: fidelityDiff)
                 {
                     FinalRequest = sourceResult.Request,
                 };
@@ -1367,7 +1565,8 @@ static class ReturnToSender
         PEReader recompiledPe,
         string fullType,
         string methodName,
-        int overload)
+        int overload,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
@@ -1384,7 +1583,8 @@ static class ReturnToSender
             recompiled.Reader,
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
-            newLabel: $"{fullType}::{methodName}");
+            newLabel: $"{fullType}::{methodName}",
+            normalization: normalization);
     }
 
     internal static ImplementationMemberDiffResult? BuildImplementationDiff(
@@ -1523,6 +1723,7 @@ static class ReturnToSender
             MethodArtifactRequest method => method with { TargetBody = targetBody },
             PropertyGetterArtifactRequest getter => getter with { TargetBody = targetBody },
             PropertySetterArtifactRequest setter => setter with { TargetBody = targetBody },
+            EventAccessorArtifactRequest eventAccessor => eventAccessor with { TargetBody = targetBody },
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -1532,6 +1733,7 @@ static class ReturnToSender
             MethodArtifactRequest method => method with { Reader = reader },
             PropertyGetterArtifactRequest getter => getter with { Reader = reader },
             PropertySetterArtifactRequest setter => setter with { Reader = reader },
+            EventAccessorArtifactRequest eventAccessor => eventAccessor with { Reader = reader },
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 

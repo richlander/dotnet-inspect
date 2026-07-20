@@ -216,9 +216,14 @@ internal sealed class NetworkTelemetryHandler(HttpMessageHandler inner, string c
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        NetworkTelemetry.RecordRequestStarting(
+        bool allowed = NetworkTelemetry.RecordRequestStarting(
             request,
             _clientKind);
+        if (!allowed)
+        {
+            throw new NetworkPolicyException(
+                $"Network traffic '{NetworkTelemetry.CurrentTrafficKind.ToTelemetryName()}' requires explicit capability authorization. Attempted: {request.Method} {request.RequestUri}");
+        }
 
         return base.SendAsync(request, cancellationToken);
     }
@@ -241,3 +246,9 @@ internal sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHand
 /// Thrown when a network request is attempted in offline mode.
 /// </summary>
 public sealed class OfflineException(string message) : InvalidOperationException(message);
+
+/// <summary>
+/// Thrown when a request reaches the HTTP seam without the capability required
+/// by its current <see cref="NetworkTrafficKind"/>.
+/// </summary>
+public sealed class NetworkPolicyException(string message) : InvalidOperationException(message);

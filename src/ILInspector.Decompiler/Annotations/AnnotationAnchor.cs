@@ -20,12 +20,12 @@ public static class AnnotationAnchor
     /// statement range covers binds to the nearest preceding statement, so it is
     /// never dropped (positive-only: a fact is always shown somewhere).
     /// </summary>
-    public static IReadOnlyDictionary<IrNode, IReadOnlyList<Annotation>> Anchor(
-        IrFunction raised, IReadOnlyList<Annotation> annotations)
+    public static IReadOnlyDictionary<IrNode, IReadOnlyList<IAnnotation>> Anchor(
+        IrFunction raised, IReadOnlyList<IAnnotation> annotations)
     {
         var statements = ComputeSpans(raised);
 
-        var map = new Dictionary<IrNode, List<Annotation>>();
+        var map = new Dictionary<IrNode, List<IAnnotation>>();
         foreach (var annotation in annotations)
         {
             var owner = Best(statements, annotation.SourceOffset);
@@ -38,7 +38,7 @@ public static class AnnotationAnchor
 
         return map.ToDictionary(
             entry => entry.Key,
-            entry => (IReadOnlyList<Annotation>)[.. entry.Value.OrderBy(a => a.SourceOffset)]);
+            entry => (IReadOnlyList<IAnnotation>)[.. entry.Value.OrderBy(a => a.SourceOffset)]);
     }
 
     /// <summary>

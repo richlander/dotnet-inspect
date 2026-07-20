@@ -25,7 +25,7 @@ namespace ILInspector.DecompilerHarness;
 /// completeness is the <c>--gaps</c> floor).
 /// It closes the loop named in docs/decompiler.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
-/// to a different opcode stream changed the program — the worst failure class
+/// to a different contract V1 body changed the measured program shape
 /// (docs/decompiler-taste.md), invisible to the validity check.
 ///
 /// Unlike <see cref="ValidityCheck"/>'s per-method <c>__Shell</c> — which cannot
@@ -35,10 +35,16 @@ namespace ILInspector.DecompilerHarness;
 /// nested member as a throwing stub, and the one target member's real decompiled
 /// body. The C# analog of the IL round-trip suite's full-skeleton scaffold
 /// (IlasmScaffold.BuildCompilationUnit). Fields in scope mean a dropped or
-/// mis-bound field access surfaces as a true opcode diff, not a compile error.
+/// mis-bound field access surfaces as a body diff, not a compile error.
 /// </summary>
 static class FidelityCheck
 {
+    internal const int CurrentContractVersion = 1;
+    internal const IlBodyDiffNormalization ContractV1BodyDiffNormalization =
+        IlBodyDiffNormalization.NormalizeVariableLayout
+        | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+
     const int MaxTransientEmptyEmitAttempts = 3;
 
     // The render path for one source: the lowered view, or the shipped raised
@@ -68,8 +74,11 @@ static class FidelityCheck
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable);
 
-        int total = 0, full = 0, exact = 0, contextFail = 0, recompileFail = 0, diffCount = 0;
-        var diffExamples = new List<string>();
+        int total = 0, full = 0, exact = 0, contextFail = 0, recompileFail = 0;
+        int opcodeDiff = 0, operandDiff = 0, fidelityUnavailable = 0;
+        var opcodeDiffExamples = new List<string>();
+        var operandDiffExamples = new List<string>();
+        var fidelityUnavailableExamples = new List<string>();
         var recompileFailExamples = new List<string>();
         var contextFailExamples = new List<string>();
         var recompileFailCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -102,9 +111,10 @@ static class FidelityCheck
                         int effectiveCap = zeroSignal?.EffectiveCap(total) ?? cap;
                         RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
                             effectiveCap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
-                            ref recompileFail, ref diffCount, diffExamples, recompileFailExamples,
+                            ref recompileFail, ref opcodeDiff, ref operandDiff, ref fidelityUnavailable,
+                            opcodeDiffExamples, operandDiffExamples, fidelityUnavailableExamples, recompileFailExamples,
                             contextFailExamples, recompileFailCodes, phaseTimings);
-                        zeroSignal?.Observe(total, exact, diffCount, recompileFail, contextFail, recompileFailCodes);
+                        zeroSignal?.Observe(total, exact, opcodeDiff + operandDiff, recompileFail, contextFail, recompileFailCodes);
                     }
                 }
             }
@@ -116,8 +126,9 @@ static class FidelityCheck
             return Run(assemblies, cap, maxExamples, lowered, timings, zeroSignalGuard: 0);
         }
 
-        Report(total, full, exact, contextFail, recompileFail, diffCount,
-            recompileFailCodes, diffExamples, recompileFailExamples, contextFailExamples, zeroSignal);
+        Report(total, full, exact, contextFail, recompileFail, opcodeDiff, operandDiff,
+            fidelityUnavailable, recompileFailCodes, opcodeDiffExamples, operandDiffExamples,
+            fidelityUnavailableExamples, recompileFailExamples, contextFailExamples, zeroSignal);
         phaseTimings?.Report();
         return 0;
     }
@@ -153,6 +164,9 @@ static class FidelityCheck
                     target.Type, target.Method, target.Overload, target.Signature,
                     CompileBackStatus.ContextFail, "", "", "generated-member-unsupported")));
 
+        Console.WriteLine(
+            $"Changed-method delta contracts: baseline v{artifact.BaselineFidelityContractVersion}, "
+            + $"current v{artifact.CurrentFidelityContractVersion}; evaluating v{CurrentContractVersion}");
         ReportTargeted(results, allTargets.Length, maxExamples);
         return 0;
     }
@@ -209,10 +223,14 @@ static class FidelityCheck
     /// <summary>The fidelity check outcome for one method.</summary>
     public enum CompileBackStatus
     {
-        /// <summary>Recompiled to the same canonical opcode stream — the goal.</summary>
+        /// <summary>Recompiled to the same body under compile-back fidelity contract V1 — the goal.</summary>
         Exact,
         /// <summary>Rendered at Full fidelity but recompiled to a different stream (a defect).</summary>
         OpcodeDiff,
+        /// <summary>Opcode names matched, but a V1-observable operand or branch target differed.</summary>
+        OperandDiff,
+        /// <summary>The product body comparison could not produce a verdict.</summary>
+        FidelityUnavailable,
         /// <summary>Imported below Full fidelity, so an opcode diff is expected, not a defect.</summary>
         NotFull,
         /// <summary>The decompiled body did not recompile (e.g. an unbindable construct).</summary>
@@ -258,7 +276,22 @@ static class FidelityCheck
         string Type, string Method, int Overload, string Signature, CompileBackStatus Status,
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail,
         CaptureMode Capture = CaptureMode.WholeModule,
-        string? CaptureDetail = null);
+        string? CaptureDetail = null,
+        IlBodyDiffResult? FidelityDiff = null);
+
+    internal static CompileBackStatus ClassifyStatus(
+        bool isFull,
+        bool opcodesExact,
+        IlBodyDiffResult? fidelityDiff)
+    {
+        if (!opcodesExact)
+            return isFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull;
+        if (fidelityDiff is null || !fidelityDiff.IsAvailable)
+            return CompileBackStatus.FidelityUnavailable;
+        if (fidelityDiff.Outcome == IlBodyDiffOutcome.Exact)
+            return CompileBackStatus.Exact;
+        return isFull ? CompileBackStatus.OperandDiff : CompileBackStatus.NotFull;
+    }
 
     internal sealed record CompileBackTarget(
         string AssemblyPath,
@@ -270,7 +303,7 @@ static class FidelityCheck
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
     /// per rendered method, without printing. This is the testable entry point the
-    /// xunit gate uses to assert the green set stays opcode-exact; <see cref="Run"/>
+    /// xunit gate uses to assert the green set stays contract-exact; <see cref="Run"/>
     /// is the console-reporting entry point. Shares all of the skeleton-emission and
     /// opcode-comparison machinery so the two paths can never drift.
     /// </summary>
@@ -435,7 +468,10 @@ static class FidelityCheck
     }
 
     internal static bool IsUsefulCorpusSample(CompileBackResult result)
-        => result.Status is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff;
+        => result.Status is CompileBackStatus.Exact
+            or CompileBackStatus.OpcodeDiff
+            or CompileBackStatus.OperandDiff
+            or CompileBackStatus.FidelityUnavailable;
 
     sealed record MethodTarget(
         string Assembly,
@@ -565,7 +601,7 @@ static class FidelityCheck
             if (Stopped)
             {
                 string pct = StopCount == 0 ? "0" : $"{100.0 * DominantCount / StopCount:F2}%";
-                Console.WriteLine($"  zero-signal guard : stopped after {StopCount} of requested {_requestedCap}; no Exact/OpcodeDiff rows; dominant {DominantBucket}: {DominantCount} ({pct})");
+                Console.WriteLine($"  zero-signal guard : stopped after {StopCount} of requested {_requestedCap}; no Exact/OpcodeDiff/OperandDiff rows; dominant {DominantBucket}: {DominantCount} ({pct})");
             }
             else if (ProbeCompleted)
             {
@@ -705,7 +741,7 @@ static class FidelityCheck
                             if (matched.Length == 0)
                                 continue;
 
-                            var typeResults = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, treeHandle, matched);
+                            var typeResults = EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, treeHandle, matched);
                             for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
                             {
                                 var entry = matched[i];
@@ -741,14 +777,18 @@ static class FidelityCheck
     {
         int exact = rows.Count(row => row.Result.Status == CompileBackStatus.Exact);
         int opcodeDiff = rows.Count(row => row.Result.Status == CompileBackStatus.OpcodeDiff);
+        int operandDiff = rows.Count(row => row.Result.Status == CompileBackStatus.OperandDiff);
+        int fidelityUnavailable = rows.Count(row => row.Result.Status == CompileBackStatus.FidelityUnavailable);
         int notFull = rows.Count(row => row.Result.Status == CompileBackStatus.NotFull);
         int recompileFail = rows.Count(row => row.Result.Status == CompileBackStatus.RecompileFail);
         int contextFail = rows.Count(row => row.Result.Status == CompileBackStatus.ContextFail);
 
         Console.WriteLine($"CHANGED-METHOD COMPILE-BACK over {targetCount} current changed methods ({rows.Count} attempted)");
         Console.WriteLine();
-        Console.WriteLine($"  exact opcode match : {exact}");
+        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact}");
         Console.WriteLine($"  opcode diff (Full) : {opcodeDiff}");
+        Console.WriteLine($"  operand diff (Full): {operandDiff}");
+        Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable}");
         Console.WriteLine($"  not Full           : {notFull}");
         Console.WriteLine($"  recompile fail     : {recompileFail}");
         Console.WriteLine($"  context fail       : {contextFail}");
@@ -757,6 +797,8 @@ static class FidelityCheck
         PrintTargetRecompileCodes(rows);
         PrintTargetFailureBuckets(rows, CompileBackStatus.ContextFail, "  context-fail buckets:");
         PrintTargetExamples(rows, CompileBackStatus.OpcodeDiff, "Opcode-diff examples", maxExamples, includeOpcodes: true);
+        PrintTargetExamples(rows, CompileBackStatus.OperandDiff, "Operand-diff examples", maxExamples, includeOpcodes: true);
+        PrintTargetExamples(rows, CompileBackStatus.FidelityUnavailable, "Fidelity-unavailable examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.RecompileFail, "Recompile-fail examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.ContextFail, "Context-fail examples", maxExamples, includeOpcodes: false);
         PrintTargetExamples(rows, CompileBackStatus.NotFull, "Not-Full examples", maxExamples, includeOpcodes: false);
@@ -764,7 +806,7 @@ static class FidelityCheck
 
     /// <summary>
     /// The segmented "safely-capturable" bands (#1412), printed only when a
-    /// cluster mode produced provenance. A checkable row (Exact or OpcodeDiff)
+    /// cluster mode produced provenance. A checkable row (Exact, OpcodeDiff, or OperandDiff)
     /// captured whole-module needs no closure; one captured under the closure is
     /// an unrelated-sibling rescue; a ClusterBailed row failed both the
     /// whole-module attempt and the closure escalation — the principled
@@ -772,7 +814,8 @@ static class FidelityCheck
     /// </summary>
     static void PrintCaptureBands(IReadOnlyList<TargetedCompileBackResult> rows)
     {
-        static bool Checkable(CompileBackStatus s) => s is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff;
+        static bool Checkable(CompileBackStatus s)
+            => s is CompileBackStatus.Exact or CompileBackStatus.OpcodeDiff or CompileBackStatus.OperandDiff;
         int wholeModuleCheckable = rows.Count(row => row.Result.Capture == CaptureMode.WholeModule && Checkable(row.Result.Status));
         int clusterRescued = rows.Count(row => row.Result.Capture == CaptureMode.Cluster && Checkable(row.Result.Status));
         int notSafelyCapturable = rows.Count(row => row.Result.Capture == CaptureMode.ClusterBailed && !Checkable(row.Result.Status));
@@ -1113,7 +1156,7 @@ static class FidelityCheck
             return;
         if (CollectType(reader, pe, source, typeHandle, render, maxEntries) is not var (fullType, entries) || entries.Count == 0)
             return;
-        results.AddRange(EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
+        results.AddRange(EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
 
     /// <summary>
@@ -1126,7 +1169,7 @@ static class FidelityCheck
     /// for a type whose every body recompiles (a curated fixture holder).
     /// </summary>
     static List<CompileBackResult> EvaluateGrouped(
-        MetadataReader reader, ReferenceSet references,
+        MetadataReader reader, PEReader pe, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
         ClusterMode clusterMode = ClusterMode.Off, FidelityPhaseTimings? timings = null)
@@ -1146,10 +1189,10 @@ static class FidelityCheck
             var forced = new List<CompileBackResult>(entries.Count);
             foreach (var e in entries)
             {
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, receiverTypes, timings, out var captureDetail);
+                var captured = CompileOneClustered(reader, pe, references, parseOptions, compileOptions, fullType, e, typeIndex, methodIndex, namespaceIndex, receiverTypes, timings, out var captureDetail);
                 forced.Add(captured is not null
                     ? captured with { Capture = CaptureMode.Cluster, CaptureDetail = captureDetail }
-                    : CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings) with
+                    : CompileOne(reader, pe, references, parseOptions, compileOptions, fullType, e, timings) with
                     {
                         Capture = CaptureMode.ClusterBailed,
                         CaptureDetail = captureDetail,
@@ -1162,11 +1205,11 @@ static class FidelityCheck
         // forces the per-method path (the A/B baseline for the speedup).
         var results = new List<CompileBackResult>();
         bool grouped = entries.Count > 1 && Environment.GetEnvironmentVariable("CB_NOGROUP") is null;
-        if (!(grouped && TryCompileGroup(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, results, timings)))
+        if (!(grouped && TryCompileGroup(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, results, timings)))
         {
             results.Clear();
             foreach (var e in entries)
-                results.Add(CompileOne(reader, references, parseOptions, compileOptions, fullType, e, timings));
+                results.Add(CompileOne(reader, pe, references, parseOptions, compileOptions, fullType, e, timings));
         }
 
         // Escalation: reconstruct only the rows whole-module could not check —
@@ -1182,7 +1225,7 @@ static class FidelityCheck
             {
                 if (results[i].Status is not (CompileBackStatus.RecompileFail or CompileBackStatus.ContextFail))
                     continue;
-                var captured = CompileOneClustered(reader, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, receiverTypes, timings, out var captureDetail);
+                var captured = CompileOneClustered(reader, pe, references, parseOptions, compileOptions, fullType, entries[i], typeIndex, methodIndex, namespaceIndex, receiverTypes, timings, out var captureDetail);
                 results[i] = captured is not null
                     ? captured with { Capture = CaptureMode.Cluster, CaptureDetail = captureDetail }
                     : results[i] with
@@ -1197,7 +1240,7 @@ static class FidelityCheck
 
     /// <summary>Builds and compiles one grouped unit; on success appends a classified result per method and returns true.</summary>
     static bool TryCompileGroup(
-        MetadataReader reader, ReferenceSet references,
+        MetadataReader reader, PEReader pe, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
         List<CompileBackResult> results, FidelityPhaseTimings? timings)
@@ -1231,31 +1274,44 @@ static class FidelityCheck
         ms.Position = 0;
         using var rpe = new PEReader(ms);
         var disassembled = timings is null
-            ? DisassembleAndClassifyGroup(rpe, fullType, entries)
-            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(rpe, fullType, entries));
+            ? DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries)
+            : timings.MeasureOpcodeCompare(() => DisassembleAndClassifyGroup(pe, reader, rpe, fullType, entries));
         if (disassembled is null)
             return false;   // a method that compiled but cannot be found — fall to isolation
         results.AddRange(disassembled);
         return true;
     }
 
-    static List<CompileBackResult>? DisassembleAndClassifyGroup(PEReader rpe, string fullType, IReadOnlyList<Entry> entries)
+    static List<CompileBackResult>? DisassembleAndClassifyGroup(
+        PEReader originalPe,
+        MetadataReader originalReader,
+        PEReader recompiledPe,
+        string fullType,
+        IReadOnlyList<Entry> entries)
     {
         var disassembled = new List<CompileBackResult>(entries.Count);
         foreach (var e in entries)
         {
-            var rOps = FindAndDisassemble(rpe, fullType, e.Name, e.Overload)
+            var rOps = FindAndDisassemble(recompiledPe, fullType, e.Name, e.Overload)
                 ?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             if (rOps is null)
                 return null;
-            disassembled.Add(Classify(fullType, e, rOps));
+            var fidelityDiff = CompareCompileBackFidelity(
+                originalPe,
+                originalReader,
+                e.Handle,
+                recompiledPe,
+                fullType,
+                e.Name,
+                e.Overload);
+            disassembled.Add(Classify(fullType, e, rOps, fidelityDiff));
         }
         return disassembled;
     }
 
     /// <summary>The per-method fallback: build a single-target unit and classify it. Authoritative when the grouped build fails.</summary>
     static CompileBackResult CompileOne(
-        MetadataReader reader, ReferenceSet references,
+        MetadataReader reader, PEReader pe, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, Entry e, FidelityPhaseTimings? timings)
     {
@@ -1294,7 +1350,11 @@ static class FidelityCheck
             : timings.MeasureOpcodeCompare(() => FindAndDisassemble(rpe, fullType, e.Name, e.Overload)?.Select(i => CanonicalOpcode(i.OpCodeName)).ToList());
         return rOps is null
             ? new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "method-not-found")
-            : Classify(fullType, e, rOps);
+            : Classify(
+                fullType,
+                e,
+                rOps,
+                CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload));
     }
 
     // ---- Reconstruction-closure (cluster) capture (#1412, opt-in via CB_CLUSTER) ----
@@ -1608,7 +1668,7 @@ static class FidelityCheck
     /// unsafe, unbounded closure).
     /// </summary>
     static CompileBackResult? CompileOneClustered(
-        MetadataReader reader, ReferenceSet references,
+        MetadataReader reader, PEReader pe, ReferenceSet references,
         CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
         string fullType, Entry e,
         IReadOnlyDictionary<string, List<TypeDefinitionHandle>> nameIndex,
@@ -1664,7 +1724,11 @@ static class FidelityCheck
                 captureDetail = extensionFallbacks.Count == 0
                     ? null
                     : string.Join("; ", extensionFallbacks.OrderBy(static value => value, StringComparer.Ordinal));
-                return Classify(fullType, e, rOps);
+                return Classify(
+                    fullType,
+                    e,
+                    rOps,
+                    CompareCompileBackFidelity(pe, reader, e.Handle, rpe, fullType, e.Name, e.Overload));
             }
 
             var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
@@ -1903,11 +1967,15 @@ static class FidelityCheck
         return hasContent ? arity : 0;
     }
 
-    static CompileBackResult Classify(string fullType, Entry e, IReadOnlyList<string> rOps) =>
+    static CompileBackResult Classify(
+        string fullType,
+        Entry e,
+        IReadOnlyList<string> rOps,
+        IlBodyDiffResult fidelityDiff) =>
         new(fullType, e.Name, e.Overload, e.Signature,
-            e.OrigOps.SequenceEqual(rOps) ? CompileBackStatus.Exact
-                : e.IsFull ? CompileBackStatus.OpcodeDiff : CompileBackStatus.NotFull,
-            e.OrigText, string.Join(" ", rOps), null);
+            ClassifyStatus(e.IsFull, e.OrigOps.SequenceEqual(rOps), fidelityDiff),
+            e.OrigText, string.Join(" ", rOps), fidelityDiff.Failure,
+            FidelityDiff: fidelityDiff);
 
     static string? FormatDiagnostic(Diagnostic? diagnostic)
     {
@@ -1955,8 +2023,10 @@ static class FidelityCheck
         CSharpCompilationOptions compileOptions, int cap, int maxExamples,
         Func<IrFunction, DecompilerResult> render,
         ref int total, ref int full, ref int exact, ref int contextFail,
-        ref int recompileFail, ref int diffCount,
-        List<string> diffExamples, List<string> recompileFailExamples, List<string> contextFailExamples,
+        ref int recompileFail, ref int opcodeDiff, ref int operandDiff, ref int fidelityUnavailable,
+        List<string> opcodeDiffExamples, List<string> operandDiffExamples,
+        List<string> fidelityUnavailableExamples,
+        List<string> recompileFailExamples, List<string> contextFailExamples,
         SortedDictionary<string, int> recompileFailCodes,
         FidelityPhaseTimings? timings)
     {
@@ -1971,7 +2041,7 @@ static class FidelityCheck
         if (Environment.GetEnvironmentVariable("CB_TYPE") is { } filter && !fullType.Contains(filter, StringComparison.Ordinal))
             return;
 
-        var results = EvaluateGrouped(reader, references, parseOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
+        var results = EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
         for (int i = 0; i < results.Count; i++)
         {
             if (total >= cap)
@@ -1987,9 +2057,24 @@ static class FidelityCheck
                     exact++;
                     break;
                 case CompileBackStatus.OpcodeDiff:
-                    diffCount++;
-                    if (diffExamples.Count < maxExamples)
-                        diffExamples.Add($"{r.Type}::{r.Method}\n    orig : {r.OriginalOpcodes}\n    recmp: {r.RecompiledOpcodes}");
+                    opcodeDiff++;
+                    if (opcodeDiffExamples.Count < maxExamples)
+                        opcodeDiffExamples.Add($"{r.Type}::{r.Method}\n    orig : {r.OriginalOpcodes}\n    recmp: {r.RecompiledOpcodes}");
+                    break;
+                case CompileBackStatus.OperandDiff:
+                    operandDiff++;
+                    if (operandDiffExamples.Count < maxExamples)
+                    {
+                        string rows = string.Join(
+                            Environment.NewLine,
+                            r.FidelityDiff!.Rows.Take(4).Select(row => $"      {row.Message}"));
+                        operandDiffExamples.Add($"{r.Type}::{r.Method}{Environment.NewLine}{rows}");
+                    }
+                    break;
+                case CompileBackStatus.FidelityUnavailable:
+                    fidelityUnavailable++;
+                    if (fidelityUnavailableExamples.Count < maxExamples)
+                        fidelityUnavailableExamples.Add(FormatFailureExample(r));
                     break;
                 case CompileBackStatus.RecompileFail:
                     recompileFail++;
@@ -2007,15 +2092,19 @@ static class FidelityCheck
     }
 
     static void Report(
-        int total, int full, int exact, int contextFail, int recompileFail, int diffCount,
-        SortedDictionary<string, int> recompileFailCodes, List<string> diffExamples,
+        int total, int full, int exact, int contextFail, int recompileFail, int opcodeDiff,
+        int operandDiff, int fidelityUnavailable,
+        SortedDictionary<string, int> recompileFailCodes, List<string> opcodeDiffExamples,
+        List<string> operandDiffExamples, List<string> fidelityUnavailableExamples,
         List<string> recompileFailExamples, List<string> contextFailExamples, ZeroSignalGuard? zeroSignal)
     {
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         Console.WriteLine($"COMPILE-BACK over {total} rendered methods ({full} Full)");
         Console.WriteLine();
-        Console.WriteLine($"  exact opcode match : {exact} ({Pct(exact, total)})");
-        Console.WriteLine($"  opcode diff (Full) : {diffCount} — recompiled to a different stream (the docket)");
+        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)}) — EH-blind");
+        Console.WriteLine($"  opcode diff (Full) : {opcodeDiff} — recompiled to a different opcode stream");
+        Console.WriteLine($"  operand diff (Full): {operandDiff} — opcode names matched; operand or target differed");
+        Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable} — body comparison produced no verdict");
         Console.WriteLine($"  context-build fail : {contextFail} — could not emit the type skeleton");
         Console.WriteLine($"  recompile fail     : {recompileFail} — skeleton + body did not compile");
         if (recompileFailCodes.Count > 0)
@@ -2025,11 +2114,31 @@ static class FidelityCheck
                 Console.WriteLine($"    {code}: {n}");
         }
         zeroSignal?.Report();
-        if (diffExamples.Count > 0)
+        if (opcodeDiffExamples.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine(ExampleHeading("Opcode-diff examples (Full)", diffExamples.Count, diffCount));
-            foreach (var e in diffExamples)
+            Console.WriteLine(ExampleHeading("Opcode-diff examples (Full)", opcodeDiffExamples.Count, opcodeDiff));
+            foreach (var e in opcodeDiffExamples)
+                Console.WriteLine($"  {e}");
+        }
+        if (operandDiffExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine(ExampleHeading(
+                "Operand-diff examples (Full; EH-blind)",
+                operandDiffExamples.Count,
+                operandDiff));
+            foreach (var e in operandDiffExamples)
+                Console.WriteLine($"  {e}");
+        }
+        if (fidelityUnavailableExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine(ExampleHeading(
+                "Fidelity-unavailable examples",
+                fidelityUnavailableExamples.Count,
+                fidelityUnavailable));
+            foreach (var e in fidelityUnavailableExamples)
                 Console.WriteLine($"  {e}");
         }
         if (recompileFailExamples.Count > 0)
@@ -3698,6 +3807,17 @@ static class FidelityCheck
 
     static List<ILInstructionText>? FindAndDisassemble(PEReader pe, string fullType, string name, int overload)
     {
+        if (FindMethodDefinition(pe, fullType, name, overload) is not { } found)
+            return null;
+        return MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method);
+    }
+
+    static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
+        PEReader pe,
+        string fullType,
+        string name,
+        int overload)
+    {
         var reader = pe.GetMetadataReader();
         int seen = 0;
         foreach (var tdh in reader.TypeDefinitions)
@@ -3718,10 +3838,34 @@ static class FidelityCheck
                 if (mn != match)
                     continue;
                 if (seen++ == overload)
-                    return MetadataInstructionProducer.Disassemble(pe, reader, m);
+                    return (reader, mh, m);
             }
         }
         return null;
+    }
+
+    static IlBodyDiffResult CompareCompileBackFidelity(
+        PEReader originalPe,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
+        PEReader recompiledPe,
+        string fullType,
+        string methodName,
+        int overload)
+    {
+        if (FindMethodDefinition(recompiledPe, fullType, methodName, overload) is not { } recompiled)
+            return IlBodyDiffResult.NewBodyMissing("recompiled method not found");
+
+        return IlAssemblyDiff.CompareMembers(
+            originalPe,
+            originalReader,
+            originalMethod,
+            recompiledPe,
+            recompiled.Reader,
+            recompiled.Handle,
+            oldLabel: $"{fullType}::{methodName}",
+            newLabel: $"{fullType}::{methodName}",
+            normalization: ContractV1BodyDiffNormalization).Diff;
     }
 
     static string CanonicalOpcode(string op)

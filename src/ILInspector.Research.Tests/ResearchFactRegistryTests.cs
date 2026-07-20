@@ -373,12 +373,12 @@ public class ResearchFactRegistryTests
         string name,
         IReadOnlyList<string>? dependsOn = null,
         IReadOnlyList<string>? produces = null,
-        IReadOnlyList<Annotation>? facts = null) : IResearchFactProducer
+        IReadOnlyList<IAnnotation>? facts = null) : IResearchFactProducer
     {
         public string Name => name;
         public IReadOnlyList<string> Produces { get; } = produces ?? [];
         public IReadOnlyList<string> DependsOn { get; } = dependsOn ?? [];
-        public IReadOnlyList<Annotation> Produce(ResearchFactContext context) => facts ?? [];
+        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => facts ?? [];
     }
 
     sealed class CountingProducer : IResearchFactProducer
@@ -391,7 +391,7 @@ public class ResearchFactRegistryTests
         public IReadOnlyList<string> Produces { get; } = ["cost.test", "semantics.test", "cost.header.test"];
         public IReadOnlyList<string> DependsOn => [];
 
-        public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
         {
             FactCollectCount++;
             AssemblyContext = context.Assembly;
