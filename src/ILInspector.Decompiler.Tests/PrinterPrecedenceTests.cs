@@ -113,6 +113,26 @@ public class PrinterPrecedenceTests
         AssertCompiles("public static int M(bool flag, object o, int n)", output);
     }
 
+    // Issue #2916: a by-ref return of an `Unbox` is a ref-place return
+    // (`ReturnText` routes the value through `ArgumentLvalue`). An unbox is the
+    // managed pointer into the box, so the only valid spelling is the
+    // `Unsafe.Unbox<T>(o)` intrinsic; the bare cast `return ref (int)o;` is
+    // CS0445/CS1525. Hand-built IR (a ref-returning method whose body returns an
+    // unbox place).
+    [Fact]
+    public void ReturnRefUnbox_SpellsUnsafeUnbox()
+    {
+        var output = PrintReturn(
+            new Unbox(s_int, new LoadArgument(0, "o", s_object)),
+            TypeRef.ByRef(s_int),
+            [new Parameter("o", s_object)]);
+
+        Assert.Contains("return ref ", output);
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("(int)o", output);
+        AssertCompiles("public static ref int M(object o)", output);
+    }
+
     // Issue #2302: an arm whose signedness (or width) disagrees with the numeric
     // join renders CS0266 bare (`flag ? s : u` with `u` a uint at an int join).
     // The join spells the faithful same-stack-family reinterpretation cast on the

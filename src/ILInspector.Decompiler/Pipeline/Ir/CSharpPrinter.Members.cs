@@ -587,8 +587,10 @@ public sealed partial class CSharpPrinter
             return (explicitIn ? ArgumentLvalue(argument) : ArgumentPlace(argument)) is { } inPlace
                 ? explicitIn ? $"in {inPlace}" : inPlace
                 : null;
-        // `out`/`ref` require a genuine assignable lvalue; a cast (unbox) is not
-        // one (`out (T)x` is CS0206), so leave those to the default spelling.
+        // `out`/`ref` require a genuine assignable lvalue. ArgumentLvalue spells
+        // every assignable form (including an unbox, as `Unsafe.Unbox<T>(o)`);
+        // anything else is a bare value with no ref-place spelling, so leave it
+        // to the default value spelling.
         if (ArgumentLvalue(argument) is not { } place)
             return null;
         return refKind == ArgumentRefKind.Out ? $"out {place}" : $"ref {place}";
@@ -611,12 +613,22 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// The subset of <see cref="ArgumentPlace"/> that is a genuine assignable
-    /// lvalue — what <c>out</c>/<c>ref</c> demand. Excludes the <see cref="Unbox"/>
-    /// cast form (an lvalue only `in` can accept, as a value).
+    /// lvalue — what <c>out</c>/<c>ref</c> demand. An <see cref="Unbox"/> is the
+    /// managed pointer into a box; its assignable-place spelling is the
+    /// <c>Unsafe.Unbox&lt;T&gt;(o)</c> intrinsic (see <see cref="UnsafeUnboxText"/>),
+    /// valid as a <c>ref</c>/<c>out</c> target and as a ref-return. The bare cast
+    /// form <c>(T)x</c> is an <c>unbox.any</c> value, not a place (<c>out (T)x</c>
+    /// is CS0206, <c>ref (T)x</c> is CS0445), so it stays only in
+    /// <see cref="ArgumentPlace"/> for the value-accepting <c>in</c> convention.
     /// </summary>
     string? ArgumentLvalue(IrExpression argument) => argument switch
     {
         LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
+        // `unbox T` is a managed pointer into the box; the `Unsafe.Unbox<T>(o)`
+        // intrinsic is its assignable-place spelling — valid as a ref/out target
+        // and as a ref-return (a bare `(T)x` cast is an unbox.any value, so
+        // `ref (T)x` is CS0445 and `out (T)x` is CS0206).
+        Unbox u => UnsafeUnboxText(u),
         // A ref-typed value already names a place: a ref local/parameter, a
         // ref-returning call, or a ref slot the importer spilled the managed
         // pointer into (a ref argument evaluated before a later side-effecting
