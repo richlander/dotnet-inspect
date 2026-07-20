@@ -60,6 +60,7 @@ var assemblies = new List<string>(selected.Length);
 foreach (var entry in selected)
 {
     PackageExtractionResult? package = null;
+    int resultIndex = results.Count;
     try
     {
         var outcome = await PackageExtractor.ExtractPackageAsync(
@@ -144,8 +145,46 @@ foreach (var entry in selected)
     }
     finally
     {
-        if (package?.TempDir is not null)
-            Directory.Delete(package.TempDir, recursive: true);
+        if (package?.TempDir is null)
+        {
+            RecordCleanup("not-required", detail: null);
+        }
+        else
+        {
+            try
+            {
+                Directory.Delete(package.TempDir, recursive: true);
+                RecordCleanup("deleted", detail: null);
+            }
+            catch (IOException ex)
+            {
+                RecordCleanupFailure(ex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                RecordCleanupFailure(ex);
+            }
+        }
+    }
+
+    void RecordCleanupFailure(Exception exception)
+    {
+        string detail = $"{exception.GetType().Name}: {exception.Message}";
+        RecordCleanup("failed", detail);
+        Console.Error.WriteLine(
+            $"rank {entry.Rank}: {entry.Package}: temporary-directory cleanup failed: {detail}");
+    }
+
+    void RecordCleanup(string status, string? detail)
+    {
+        if (results.Count > resultIndex)
+        {
+            results[resultIndex] = results[resultIndex] with
+            {
+                CleanupStatus = status,
+                CleanupDetail = detail,
+            };
+        }
     }
 }
 
@@ -258,7 +297,9 @@ sealed record SweepPackageResult(
     string? ResolvedVersion,
     string? Tfm,
     string? AssemblyPath,
-    bool? FromCache);
+    bool? FromCache,
+    string? CleanupStatus = null,
+    string? CleanupDetail = null);
 
 [JsonSerializable(typeof(List<PackageListEntry>))]
 [JsonSerializable(typeof(PackageSweepManifest))]

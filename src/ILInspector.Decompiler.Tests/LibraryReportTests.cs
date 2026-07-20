@@ -30,6 +30,7 @@ public class LibraryReportTests
         Assert.DoesNotContain(
             portfolio.DefectClasses,
             pattern => pattern.Name == "fidelity: unsupported-node");
+        Assert.Equal("fidelity: unsupported-node", Assert.Single(portfolio.TopPatterns).Name);
         var candidate = Assert.Single(portfolio.PromotionCandidates);
         Assert.Equal("Defective", candidate.Assembly);
         Assert.Equal(
@@ -37,6 +38,7 @@ public class LibraryReportTests
                 "1 pass bug method(s)",
                 "2 malformed Full method(s)",
                 "1 bound Full defect method(s)",
+                "defect classes: validity: malformed:CS1002, pass-bug: InvalidOperationException",
             ],
             candidate.Reasons);
     }

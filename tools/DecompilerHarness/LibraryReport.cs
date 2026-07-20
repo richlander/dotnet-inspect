@@ -308,7 +308,9 @@ internal static class LibraryReport
             reports.Sum(report => report.PassBugs),
             [.. allPatterns.Where(pattern => IsCorrectnessDefect(pattern.Name))],
             PromotionCandidates(reports),
-            [.. allPatterns.Take(Math.Max(1, topPatterns))],
+            [.. allPatterns
+                .Where(pattern => !IsCorrectnessDefect(pattern.Name))
+                .Take(Math.Max(1, topPatterns))],
             displayedLibraries ?? reports);
     }
 
@@ -332,8 +334,8 @@ internal static class LibraryReport
                 var defectPatterns = report.Patterns
                     .Where(pattern => IsCorrectnessDefect(pattern.Name))
                     .ToArray();
-                if (reasons.Count == 0 && defectPatterns.Length > 0)
-                    reasons.Add($"{defectPatterns.Sum(pattern => pattern.Count)} correctness defect(s)");
+                if (defectPatterns.Length > 0)
+                    reasons.Add($"defect classes: {string.Join(", ", defectPatterns.Select(pattern => pattern.Name))}");
                 return new PromotionCandidate(report.Assembly, reasons);
             })
             .Where(candidate => candidate.Reasons.Count > 0)
