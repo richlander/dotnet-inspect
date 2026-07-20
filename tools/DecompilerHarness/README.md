@@ -275,15 +275,28 @@ assembly name, feeds the vendored authored bodies into the same
 source-correspondence oracle the on-demand census uses (through an in-memory
 `ReturnToSenderSourceIndex`), and emits a taste card (`--json` for structured
 output). Each target is `Correct` (valid, matches authored), one of four
-valid-but-different taste buckets, or `Invalid` (does not round-trip):
+valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
+diagnostic buckets below:
 
 - **lowering (inherent)** — authored used sugar the compiler erases (iterator,
   async, dynamic call site); unrecoverable from IL.
-- **known taste** — a documented product decision already explains the delta.
+- **known taste** — a documented product decision already explains the delta
+  (`known_taste` or a `known_compiler_option` such as a checked context).
 - **frontier, IL-exact (cosmetic)** — same semantics and identical IL; a pure
   surface-shape difference at the raise frontier.
 - **frontier, IL-diff (semantic)** — differs with an opcode/operand diff; worth
   scrutiny.
+- **Not-Full (uncheckable at Full)** — the decompiler body could not be graded at
+  Full fidelity (`fidelity-unavailable`/`NotFull`), so correspondence is not
+  decidable. This is a decompiler limitation, not corpus drift, so it does not
+  fail the run on its own.
+- **Drift (corpus source unresolved)** — the corpus identity no longer resolves to
+  a source slice in the pinned assembly (`source-slice-unavailable`/
+  `fixture-source-unavailable`); the corpus has drifted from the assembly.
+- **Unsupported (rts-target)** — the target is not an RTS-compilable member.
+
+The run exits nonzero when any target is `Invalid`, `Drift`, or `Unsupported`
+(round-trip failure or corpus/assembly drift). `Not-Full` alone does not fail.
 
 The corpus is vendored on the `vendor/authored-source-corpus` orphan branch so
 the harvested third-party source snapshots never enter main's history. Restore it

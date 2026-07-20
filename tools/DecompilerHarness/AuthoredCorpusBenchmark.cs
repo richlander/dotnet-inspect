@@ -107,9 +107,10 @@ static class AuthoredCorpusBenchmark
     {
         int match = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch);
         int different = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent);
-        int invalid = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid);
-        int unavailable = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable);
-        int unsupported = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget);
+        int invalid = results.Count(result => ClassifyTaste(result) == TasteBucket.Invalid);
+        int notFull = results.Count(result => ClassifyTaste(result) == TasteBucket.NotFull);
+        int drift = results.Count(result => ClassifyTaste(result) == TasteBucket.Drift);
+        int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
         int evaluated = results.Count;
         int valid = match + different;
 
@@ -136,8 +137,10 @@ static class AuthoredCorpusBenchmark
         if (frontierUnknown > 0)
             Console.WriteLine($"    frontier, IL-unknown              : {frontierUnknown}");
         Console.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
-        if (unavailable > 0)
-            Console.WriteLine($"  Drift    (source-unavailable)       : {unavailable}");
+        if (notFull > 0)
+            Console.WriteLine($"  Not-Full (uncheckable at Full)      : {notFull}");
+        if (drift > 0)
+            Console.WriteLine($"  Drift    (corpus source unresolved) : {drift}");
         if (unsupported > 0)
             Console.WriteLine($"  Unsupported (rts-target)            : {unsupported}");
         Console.WriteLine();
@@ -153,11 +156,16 @@ static class AuthoredCorpusBenchmark
         WriteReasonBuckets("Frontier, IL-exact (cosmetic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
         WriteReasonBuckets("Lowering (inherent) reasons", results, result => ClassifyTaste(result) == TasteBucket.Lowering);
         WriteReasonBuckets("Known-taste reasons", results, result => ClassifyTaste(result) == TasteBucket.KnownTaste);
-        WriteReasonBuckets("Invalid reasons", results, result => result.Outcome == ReturnToSenderSourceOutcome.Invalid);
-        WriteReasonBuckets("Drift reasons", results, result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable);
+        WriteReasonBuckets("Invalid reasons", results, result => ClassifyTaste(result) == TasteBucket.Invalid);
+        WriteReasonBuckets("Not-Full reasons", results, result => ClassifyTaste(result) == TasteBucket.NotFull);
+        WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift);
+        WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported);
 
-        // Nonzero exit if any target failed to round-trip or drifted from the corpus.
-        return invalid == 0 && unavailable == 0 ? 0 : 1;
+        // Nonzero exit if any target failed to round-trip (Invalid) or the corpus
+        // no longer corresponds to the pinned assembly (Drift/Unsupported). Not-Full
+        // is a surfaced decompiler limitation, not a corpus problem, so it does not
+        // fail the run on its own.
+        return invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
     }
 
     enum TasteBucket
@@ -169,6 +177,7 @@ static class AuthoredCorpusBenchmark
         FrontierIlDiff,
         FrontierIlUnknown,
         Invalid,
+        NotFull,
         Drift,
         Unsupported,
     }
@@ -176,20 +185,26 @@ static class AuthoredCorpusBenchmark
     /// <summary>
     /// Buckets a probe result along two taste axes. Family comes first: authored
     /// sugar the compiler erases (<c>compiler_lowering</c>) is an inherent,
-    /// unrecoverable limit, and a documented product decision (<c>known_taste</c>)
-    /// is already accounted for. Everything else is the raise frontier, split by
-    /// whether the shape difference is free at the IL level (Exact) or carries an
-    /// opcode/operand diff (semantic).
+    /// unrecoverable limit, and a documented product decision (<c>known_taste</c>
+    /// or <c>known_compiler_option</c>) is already accounted for. Everything else
+    /// is the raise frontier, split by whether the shape difference is free at the
+    /// IL level (Exact) or carries an opcode/operand diff (semantic).
+    ///
+    /// The probe collapses several statuses into <c>SourceUnavailable</c>: a
+    /// decompiler body that could not be graded at Full fidelity
+    /// (<c>fidelity-unavailable</c>/<c>NotFull</c>) is a decompiler limitation, not
+    /// corpus drift, so it gets its own <c>NotFull</c> bucket; only a genuinely
+    /// unresolved corpus identity counts as <c>Drift</c>.
     /// </summary>
     static TasteBucket ClassifyTaste(ReturnToSenderSourceProbeResult result)
         => result.Outcome switch
         {
             ReturnToSenderSourceOutcome.ValidMatch => TasteBucket.Correct,
             ReturnToSenderSourceOutcome.Invalid => TasteBucket.Invalid,
-            ReturnToSenderSourceOutcome.SourceUnavailable => TasteBucket.Drift,
+            ReturnToSenderSourceOutcome.SourceUnavailable => IsNotFullReason(result.Reason) ? TasteBucket.NotFull : TasteBucket.Drift,
             ReturnToSenderSourceOutcome.UnsupportedTarget => TasteBucket.Unsupported,
             ReturnToSenderSourceOutcome.ValidDifferent when result.Reason.Contains("compiler_lowering", StringComparison.Ordinal) => TasteBucket.Lowering,
-            ReturnToSenderSourceOutcome.ValidDifferent when result.Reason.Contains("known_taste", StringComparison.Ordinal) => TasteBucket.KnownTaste,
+            ReturnToSenderSourceOutcome.ValidDifferent when result.Reason.Contains("known_taste", StringComparison.Ordinal) || result.Reason.Contains("known_compiler_option", StringComparison.Ordinal) => TasteBucket.KnownTaste,
             ReturnToSenderSourceOutcome.ValidDifferent => result.CompileBackStatus switch
             {
                 FidelityCheck.CompileBackStatus.Exact => TasteBucket.FrontierIlExact,
@@ -198,6 +213,12 @@ static class AuthoredCorpusBenchmark
             },
             _ => TasteBucket.FrontierIlUnknown,
         };
+
+    // A SourceUnavailable row whose reason names a decompiler fidelity drop
+    // (the body could not be graded at Full) rather than a missing corpus source.
+    static bool IsNotFullReason(string reason)
+        => reason.Contains("fidelity-unavailable", StringComparison.Ordinal)
+            || reason.Equals("NotFull", StringComparison.Ordinal);
 
     static void WriteReasonBuckets(
         string title,
@@ -228,9 +249,10 @@ static class AuthoredCorpusBenchmark
     {
         int match = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch);
         int different = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent);
-        int invalid = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid);
-        int unavailable = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable);
-        int unsupported = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget);
+        int invalid = results.Count(result => ClassifyTaste(result) == TasteBucket.Invalid);
+        int notFull = results.Count(result => ClassifyTaste(result) == TasteBucket.NotFull);
+        int drift = results.Count(result => ClassifyTaste(result) == TasteBucket.Drift);
+        int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
 
         var payload = new
         {
@@ -250,7 +272,8 @@ static class AuthoredCorpusBenchmark
                 frontierIlUnknown = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlUnknown),
             },
             invalid,
-            drift = unavailable,
+            notFull,
+            drift,
             unsupported,
             rows = results.Select(result => new
             {
@@ -267,6 +290,6 @@ static class AuthoredCorpusBenchmark
         };
 
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        return invalid == 0 && unavailable == 0 ? 0 : 1;
+        return invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
     }
 }

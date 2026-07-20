@@ -170,8 +170,23 @@ static class AuthoredSourceHarvest
             return null;
 
         (string name, string version) = ReadAssemblyIdentity(assemblyPath);
-        var source = SourceLinkService.Open(assemblyPath);
-        await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
+        SourceLinkService? source = null;
+        try
+        {
+            source = SourceLinkService.Open(assemblyPath);
+            await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
+        }
+        catch (Exception ex) when (ex is HttpRequestException
+            or IOException
+            or TaskCanceledException
+            or InvalidOperationException
+            or BadImageFormatException)
+        {
+            Console.Error.WriteLine(
+                $"Warning: harvest skipped '{assemblyPath}' opening SourceLink ({ex.GetType().Name}: {ex.Message}).");
+            source?.Dispose();
+            return null;
+        }
 
         return new LibraryState
         {
