@@ -19,6 +19,11 @@ public static class InstructionDecoder
     public static ImmutableArray<DecodedInstruction> Decode(byte[] il)
     {
         ArgumentNullException.ThrowIfNull(il);
+        return Decode(il.AsSpan());
+    }
+
+    public static ImmutableArray<DecodedInstruction> Decode(ReadOnlySpan<byte> il)
+    {
         try
         {
             return DecodeCore(il);
@@ -36,7 +41,7 @@ public static class InstructionDecoder
         }
     }
 
-    static ImmutableArray<DecodedInstruction> DecodeCore(byte[] il)
+    static ImmutableArray<DecodedInstruction> DecodeCore(ReadOnlySpan<byte> il)
     {
         var builder = ImmutableArray.CreateBuilder<DecodedInstruction>();
         var reader = new ILReader(il);
@@ -115,7 +120,7 @@ public static class InstructionDecoder
     /// Reads the value of a non-branch, non-switch operand. Short variable/argument indices are
     /// unsigned (ECMA-335); only <see cref="OperandKind.ShortInlineI"/> is a signed int8.
     /// </summary>
-    static long ReadOperandValue(byte[] il, int operandOffset, OperandKind kind, int offset)
+    static long ReadOperandValue(ReadOnlySpan<byte> il, int operandOffset, OperandKind kind, int offset)
     {
         switch (kind)
         {
@@ -144,18 +149,18 @@ public static class InstructionDecoder
         }
     }
 
-    static byte ReadU8(byte[] il, int operandOffset, int offset)
+    static byte ReadU8(ReadOnlySpan<byte> il, int operandOffset, int offset)
     {
         if ((uint)operandOffset >= (uint)il.Length)
             throw new BadImageFormatException($"Truncated operand at IL_{offset:X4}");
         return il[operandOffset];
     }
 
-    static ReadOnlySpan<byte> Slice(byte[] il, int position, int size, int offset)
+    static ReadOnlySpan<byte> Slice(ReadOnlySpan<byte> il, int position, int size, int offset)
     {
         if (position < 0 || position + size > il.Length)
             throw new BadImageFormatException($"Truncated operand at IL_{offset:X4}");
-        return il.AsSpan(position, size);
+        return il.Slice(position, size);
     }
 
     static OperandKind Classify(ILOpCode opcode) => opcode switch

@@ -26,6 +26,18 @@ public class InstructionDecoderTests
     }
 
     [Fact]
+    public void Decodes_read_only_span()
+    {
+        ReadOnlySpan<byte> il = [0x17, 0x18, 0x58, 0x2A];
+
+        var instructions = InstructionDecoder.Decode(il);
+
+        Assert.Equal(
+            [ILOpCode.Ldc_i4_1, ILOpCode.Ldc_i4_2, ILOpCode.Add, ILOpCode.Ret],
+            instructions.Select(instruction => instruction.OpCode));
+    }
+
+    [Fact]
     public void Decodes_branch_targets_relative_to_next_offset()
     {
         // IL_0000 br.s IL_0003 ; IL_0002 nop ; IL_0003 ret

@@ -72,7 +72,7 @@ public static class IlProjection
         var (typeDef, methodDef, methodHandle) = located;
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
-        var instructions = Decode(source.Reader, scope, imported.Body.IL.ToArray());
+        var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
         return depth switch
         {
             IlProjectionDepth.Structured => RenderStructured(instructions, imported.Body),
@@ -148,10 +148,11 @@ public static class IlProjection
     /// owns) rather than a second hand-rolled loop, so opcode sizing, branch-target
     /// resolution, and prefix handling can't silently diverge from that substrate.
     /// </summary>
-    static List<Instr> Decode(MetadataReader reader, GenericScope scope, byte[] il)
+    static List<Instr> Decode(MetadataReader reader, GenericScope scope, ReadOnlySpan<byte> il)
     {
-        var result = new List<Instr>(il.Length);
-        foreach (var decoded in InstructionDecoder.Decode(il))
+        var decodedInstructions = InstructionDecoder.Decode(il);
+        var result = new List<Instr>(decodedInstructions.Length);
+        foreach (var decoded in decodedInstructions)
         {
             string name = decoded.OpCode.ToString().ToLowerInvariant().Replace('_', '.');
             result.Add(new Instr(decoded.Offset, decoded.OpCode, name, FormatOperand(reader, scope, decoded)));
@@ -440,7 +441,7 @@ public static class IlProjection
         var (typeDef, methodDef, methodHandle) = located;
         var imported = MethodImporter.Import(source, (TypeDefinitionHandle)methodDef.GetDeclaringType(), methodHandle);
         var scope = IrImporter.CallerScope(source.Reader, typeDef, methodDef);
-        var instructions = Decode(source.Reader, scope, imported.Body.IL.ToArray());
+        var instructions = Decode(source.Reader, scope, imported.Body.IL.AsSpan());
 
         var trace = new List<IlTracePoint>();
         var function = IrImporter.Build(source, imported, scope, trace);
