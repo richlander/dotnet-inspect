@@ -6,6 +6,7 @@ namespace DotnetInspector.Output;
 public static class CountOutput
 {
     public const string SingleSectionRequiredMessage = "Error: --count requires -S/--select to match exactly one section.";
+    public const string SectionRequiredMessage = "Error: --count requires -S/--select to match at least one section.";
 
     public static bool ValidateSingleSection(HashSet<string>? includeSections)
     {
@@ -13,6 +14,20 @@ public static class CountOutput
             return true;
 
         Console.Error.WriteLine(SingleSectionRequiredMessage);
+        return false;
+    }
+
+    /// <summary>
+    /// Validates that <c>--count</c> has selected at least one section. Unlike
+    /// <see cref="ValidateSingleSection"/> this permits multi-section selection (e.g. a
+    /// category such as <c>@Performance</c>), which renders a per-section count map.
+    /// </summary>
+    public static bool ValidateSectionsSelected(HashSet<string>? includeSections)
+    {
+        if (includeSections is { Count: >= 1 })
+            return true;
+
+        Console.Error.WriteLine(SectionRequiredMessage);
         return false;
     }
 
@@ -52,5 +67,70 @@ public static class CountOutput
     public static void WriteCountFromMarkdown(string markdown)
     {
         Console.WriteLine(CountMarkdownTableRows(markdown));
+    }
+
+    /// <summary>
+    /// Counts markdown table rows attributed to the nearest preceding <c>## Section</c> heading.
+    /// Empty (absent) sections do not appear in the returned map.
+    /// </summary>
+    public static Dictionary<string, int> CountMarkdownTableRowsBySection(string markdown)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
+        var inCodeFence = false;
+        string? currentSection = null;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+
+            if (MarkdownScan.IsCodeFence(line))
+            {
+                inCodeFence = !inCodeFence;
+                continue;
+            }
+
+            if (inCodeFence)
+                continue;
+
+            if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                currentSection = line[3..].Trim();
+                continue;
+            }
+
+            if (currentSection is null || i + 1 >= lines.Length)
+                continue;
+
+            if (!MarkdownScan.IsTableLine(line) || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
+                continue;
+
+            i += 2;
+            var rows = 0;
+            while (i < lines.Length && MarkdownScan.IsTableLine(lines[i]))
+            {
+                if (!MarkdownScan.IsSeparatorLine(lines[i]))
+                    rows++;
+                i++;
+            }
+            i--;
+
+            counts[currentSection] = counts.GetValueOrDefault(currentSection) + rows;
+        }
+
+        return counts;
+    }
+
+    /// <summary>
+    /// Emits a per-section count map (<c>| Section | Count |</c>) over <paramref name="orderedSections"/>,
+    /// reporting 0 for sections absent from the rendered markdown.
+    /// </summary>
+    public static void WriteCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
+    {
+        var counts = CountMarkdownTableRowsBySection(markdown);
+        Console.WriteLine("| Section | Count |");
+        Console.WriteLine("| ------- | ----- |");
+        foreach (var section in orderedSections)
+            Console.WriteLine($"| {section} | {counts.GetValueOrDefault(section)} |");
     }
 }

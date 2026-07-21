@@ -351,7 +351,8 @@ public static class DiscoverOutput
                 foreach (var item in items)
                     rows.Add(new DiscoveryRow(item.Name, item.Kind));
             }
-            if (string.Equals(resolved, SectionNames.PerformanceTriage, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(resolved, SectionNames.PerformanceTriage, StringComparison.OrdinalIgnoreCase)
+                || PerformanceKinds.Sections.Contains(resolved, StringComparer.OrdinalIgnoreCase))
                 rows.AddRange(PerformanceTriageQueryRows());
         }
 

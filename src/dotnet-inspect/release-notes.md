@@ -16,6 +16,18 @@
 - Adds Rung 7 `Performance Triage` shapes: `async-state-machine` (reported as
   amortized off-loop) and `materialize-in-loop` (loop-invariant
   `ToArray`/`ToList`), plus nested-type triage drilldown (#1948, #1889).
+- Decomposes the library `Performance Triage` monolith into kind-scoped
+  sections (`Performance: Boxing`, `Performance: Arrays`,
+  `Performance: Closures and delegates`, `Performance: Enumerators`,
+  `Performance: Loop hot paths`, `Performance: Allocation hotspots`,
+  `Performance: Async`) following the il-offset section model: each is opt-in
+  and absent when empty, selectable individually or as the `@Performance` group
+  (legacy `-S "Performance Triage"`/`Performance`/`Optimization Opportunities`
+  redirect to the group). Markdown carries tight ranked columns; full per-row
+  diagnostics move to the nested `performance` JSON object (retiring the
+  `optimization_opportunities` key). `--count -S @Performance` returns a
+  per-kind count map. The `type`/`member` `Performance Triage` lens is
+  unchanged (#2833).
 
 ### Output and projections
 

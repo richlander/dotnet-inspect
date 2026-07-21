@@ -299,7 +299,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(47, pipeline.AllSectionNames.Length);
+        Assert.Equal(54, pipeline.AllSectionNames.Length);
         Assert.Contains("AI", pipeline.AllSectionNames);
         Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Aspire", pipeline.AllSectionNames);
@@ -329,7 +329,15 @@ public class SectionPipelineTests
         Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
-        Assert.Contains("Performance Triage", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Arrays", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Closures and delegates", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Enumerators", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Loop hot paths", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Allocation hotspots", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Async", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Other", pipeline.AllSectionNames);
+        Assert.DoesNotContain("Performance Triage", pipeline.AllSectionNames);
         Assert.Contains("Resource Triage", pipeline.AllSectionNames);
         Assert.Contains("Return Address Context", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
@@ -505,12 +513,14 @@ public class SectionPipelineTests
             ]
         };
 
+        // capturing-delegate buckets into the "Closures and delegates" kind section.
+        const string section = "Performance: Closures and delegates";
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Performance Triage" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
-        Assert.DoesNotContain("Performance Triage", effective);
-        Assert.Contains("Performance Triage", selected);
+        Assert.DoesNotContain(section, effective);
+        Assert.Contains(section, selected);
     }
 
     [Fact]

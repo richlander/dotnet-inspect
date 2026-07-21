@@ -26,6 +26,38 @@ public static class OutputFormatter
         return sw.ToString();
     }
 
+    /// <summary>
+    /// Collapses the repeated per-section header that Markout emits when several sections sharing
+    /// one row view (the @Performance kind sections) are rendered as tabular output, producing a
+    /// single header followed by continuous rows. jsonl output has no header line and is returned
+    /// unchanged.
+    /// </summary>
+    internal static string CollapseRepeatedTabularHeaders(string rendered)
+    {
+        if (string.IsNullOrEmpty(rendered))
+            return rendered;
+
+        var trailingNewline = rendered.EndsWith('\n');
+        var lines = rendered.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
+        var header = lines[0];
+        if (header.Length == 0 || header[0] == '{')
+            return rendered;
+
+        var kept = new List<string> { header };
+        for (var i = 1; i < lines.Length; i++)
+        {
+            // Drop a blank line that only separates a repeated header block.
+            if (lines[i].Length == 0 && i + 1 < lines.Length && lines[i + 1] == header)
+                continue;
+            if (lines[i] == header)
+                continue;
+            kept.Add(lines[i]);
+        }
+
+        var result = string.Join('\n', kept);
+        return trailingNewline ? result + '\n' : result;
+    }
+
     public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, RowWindow? maxRows = null)
     {
         // Row-limiting operates on the rendered text, so the capped path must materialize
@@ -240,7 +272,15 @@ public static class OutputFormatter
             else if (selectInfo)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            CountOutput.WriteCountFromMarkdown(markdown);
+            if (options.IncludeSections is { Count: > 1 })
+            {
+                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+            }
+            else
+            {
+                CountOutput.WriteCountFromMarkdown(markdown);
+            }
             return;
         }
 
@@ -284,9 +324,25 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteTable(Console.Out, !options.NoHeader,
-                (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
-                options.Rows);
+            if (writerOpts.IncludeSections is { Count: > 1 }
+                && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
+            {
+                // The @Performance kind sections share one row view, so render them as a single
+                // tabular table by collapsing the repeated per-section header.
+                var sw = new StringWriter();
+                MarkoutSerializer.Serialize(auditView, sw, new TableFormatter(!options.NoHeader), InspectionContext.Default, writerOpts);
+                var collapsed = CollapseRepeatedTabularHeaders(sw.ToString());
+                collapsed = LimitRenderedTableRows(collapsed, options.Rows, hasHeader: !options.Jsonl && !options.NoHeader);
+                Console.Out.Write(collapsed);
+                if (collapsed.Length > 0 && !collapsed.EndsWith('\n'))
+                    Console.Out.WriteLine();
+            }
+            else
+            {
+                WriteTable(Console.Out, !options.NoHeader,
+                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
+                    options.Rows);
+            }
         }
     }
 
@@ -316,7 +372,15 @@ public static class OutputFormatter
             else if (selectInfo)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            CountOutput.WriteCountFromMarkdown(markdown);
+            if (options.IncludeSections is { Count: > 1 })
+            {
+                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+            }
+            else
+            {
+                CountOutput.WriteCountFromMarkdown(markdown);
+            }
             return;
         }
 

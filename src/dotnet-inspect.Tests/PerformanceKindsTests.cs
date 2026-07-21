@@ -1,0 +1,71 @@
+using DotnetInspector.Options;
+using DotnetInspector.Sections;
+
+namespace DotnetInspector.Tests;
+
+public class PerformanceKindsTests
+{
+    [Fact]
+    public void Sections_MatchStructuredKeyOrdering()
+    {
+        Assert.Equal(
+            [
+                SectionNames.PerformanceBoxing,
+                SectionNames.PerformanceArrays,
+                SectionNames.PerformanceClosures,
+                SectionNames.PerformanceEnumerators,
+                SectionNames.PerformanceLoops,
+                SectionNames.PerformanceHotspots,
+                SectionNames.PerformanceAsync,
+                SectionNames.PerformanceOther,
+            ],
+            PerformanceKinds.Sections);
+    }
+
+    [Fact]
+    public void EveryKnownShape_MapsToNonOtherSection()
+    {
+        foreach (var shape in PerformanceTriageOptions.KnownShapes)
+        {
+            var section = PerformanceKinds.SectionForShape(shape);
+            Assert.NotEqual(SectionNames.PerformanceOther, section);
+            Assert.Contains(section, PerformanceKinds.Sections);
+        }
+    }
+
+    [Fact]
+    public void UnmappedShape_RoutesToOther_SoScanIsNeverLossy()
+    {
+        Assert.Equal(SectionNames.PerformanceOther, PerformanceKinds.SectionForShape("brand-new-shape"));
+        Assert.Equal(SectionNames.PerformanceOther, PerformanceKinds.SectionForShape(null));
+    }
+
+    [Fact]
+    public void StructuredKeys_AreUniquePerSection()
+    {
+        var keys = PerformanceKinds.Sections
+            .Select(PerformanceKinds.StructuredKey)
+            .ToArray();
+
+        Assert.Equal(keys.Length, keys.Distinct().Count());
+    }
+
+    [Fact]
+    public void StructuredKey_HasNoAmpersand_SoJsonAndMarkdownMatch()
+    {
+        // The closures section name intentionally drops "&" (markout HTML-escapes it); the JSON key
+        // stays snake_case.
+        Assert.Equal("closures_and_delegates", PerformanceKinds.StructuredKey(SectionNames.PerformanceClosures));
+        Assert.DoesNotContain('&', SectionNames.PerformanceClosures);
+    }
+
+    [Fact]
+    public void AllShareCommonView_TrueForPerformanceKinds_FalseOtherwise()
+    {
+        Assert.True(PerformanceKinds.AllShareCommonView(PerformanceKinds.Sections));
+        Assert.True(PerformanceKinds.AllShareCommonView([SectionNames.PerformanceBoxing]));
+        Assert.False(PerformanceKinds.AllShareCommonView([]));
+        Assert.False(PerformanceKinds.AllShareCommonView(
+            [SectionNames.PerformanceBoxing, "Top Leverage"]));
+    }
+}

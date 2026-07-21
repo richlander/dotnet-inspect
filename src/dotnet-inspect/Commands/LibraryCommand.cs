@@ -106,7 +106,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+        if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
         if (options.Count && (options.Print || options.PrintAll))
