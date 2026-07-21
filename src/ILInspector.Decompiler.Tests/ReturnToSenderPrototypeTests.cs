@@ -78,6 +78,16 @@ public class ReturnToSenderPrototypeTests
             Assert.NotNull(result.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.NotNull(result.Comparison);
+            Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
+            Assert.Equal(4, result.Comparison.Members.Length);
+            Assert.All(result.Comparison.Members, comparison =>
+            {
+                Assert.Equal(RoundTripEvidenceStatus.Exact, comparison.CSharpStatus);
+                Assert.NotEqual(IlBodyDiffOutcome.Unavailable, comparison.IlStatus);
+            });
+            Assert.Equal(2, result.Comparison.Members.Count(comparison => comparison.IlStatus == IlBodyDiffOutcome.Exact));
+            Assert.Equal(2, result.Comparison.Members.Count(comparison => comparison.IlStatus == IlBodyDiffOutcome.OperandDiff));
         }
         finally
         {
@@ -118,6 +128,9 @@ public class ReturnToSenderPrototypeTests
                 diagnostic => diagnostic.Reason == "declaration-not-represented"
                               && diagnostic.Detail == "Unrelated.Echo");
             Assert.DoesNotContain("Echo", result.Source, StringComparison.Ordinal);
+            Assert.NotNull(result.Comparison);
+            Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
+            Assert.Single(result.Comparison.Members);
         }
         finally
         {

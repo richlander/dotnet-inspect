@@ -79,6 +79,7 @@ static class ReturnToSender
         public bool BodyComplete
             => BodyPolicy != RoundTripBodyPolicy.Full
                || FullBodies.All(body => body.Status == MemberBodyProductionStatus.Complete);
+        public RoundTripComparisonResult? Comparison { get; init; }
         public RoundTripCompilationProvenance? Compilation { get; init; }
         [JsonIgnore]
         public byte[]? DonorPe { get; init; }
@@ -582,7 +583,21 @@ static class ReturnToSender
         var reader = pe.GetMetadataReader();
         var module = reader.GetModuleDefinition();
         var address = MetadataMethodAddress.Create(reader, finalRequest.TargetMethod);
-        var target = new RoundTripTarget(address, anchor);
+        var targets = new List<RoundTripTarget> { new(address, anchor) };
+        if (result.BodyPolicy == RoundTripBodyPolicy.Full)
+        {
+            var anchors = MemberAnchorsByMethodToken(pe);
+            var included = new HashSet<MetadataMethodAddress> { address };
+            foreach (var body in result.FullBodies)
+            {
+                if (body.Status != MemberBodyProductionStatus.Complete || !included.Add(body.Method))
+                    continue;
+                var method = reader.GetMethodDefinition(body.Method.Handle);
+                var bodyAnchor = MemberAnchorFor(anchors, body.Method.Handle)
+                    ?? ApiMemberIdentity.CreateMethodAnchor(reader, method.GetDeclaringType(), method);
+                targets.Add(new RoundTripTarget(body.Method, bodyAnchor));
+            }
+        }
         var initializer = finalRequest.TargetBody.ConstructorChain is { } chain
             ? CSharpFormatter.ParseConstructorInitializer(chain)
             : null;
@@ -597,10 +612,25 @@ static class ReturnToSender
         return RoundTripRequest.Create(
             RoundTripArtifactIdentity.FromFile(assemblyPath, "return-to-sender"),
             new RoundTripModuleIdentity(reader.GetString(module.Name), address.ModuleVersionId),
-            [target],
+            targets,
             scope,
-            RoundTripBodyPolicy.Selected,
+            result.BodyPolicy,
             [replacement]);
+    }
+
+    static Result AttachRoundTripComparison(string assemblyPath, Result result)
+    {
+        if (result.BodyPolicy != RoundTripBodyPolicy.Full
+            || result.Compilation is null
+            || result.DonorPe is null
+            || result.FinalRequest is null
+            || result.MemberAnchor is null)
+            return result;
+        var request = CreateRoundTripRequest(assemblyPath, result, result.Scope);
+        return result with
+        {
+            Comparison = RoundTripComparison.Compare(request, result.DonorPe, result.Compilation),
+        };
     }
 
     public static IReadOnlyList<Result> CompileBackTargets(
@@ -750,6 +780,7 @@ static class ReturnToSender
                 BodyPolicy = bodyPolicy,
                 UnsupportedDeclarations = unsupportedDeclarations,
             })
+            .Select(result => AttachRoundTripComparison(assemblyPath, result))
             .ToArray();
         return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, scopedResults) : scopedResults;
     }
