@@ -44,6 +44,7 @@
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
     <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
+    <ProjectReference Include="..\..\tools\RoundTripCompilation\RoundTripCompilation.csproj" />
   </ItemGroup>
 
   <!--

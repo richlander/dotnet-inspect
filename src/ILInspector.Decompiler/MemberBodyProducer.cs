@@ -8,6 +8,49 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler;
 
+public enum MemberBodyProductionStatus
+{
+    Complete,
+    Absent,
+    Failed,
+}
+
+/// <summary>
+/// A method-definition address scoped to the module that owns its metadata row.
+/// Raw metadata handles contain only a table row and cannot by themselves detect
+/// accidental use with another reader.
+/// </summary>
+public readonly record struct MemberBodyAddress(Guid ModuleVersionId, MethodDefinitionHandle Method)
+{
+    public static MemberBodyAddress Create(Pipeline.MetadataSource source, MethodDefinitionHandle method)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var module = source.Reader.GetModuleDefinition();
+        return new MemberBodyAddress(source.Reader.GetGuid(module.Mvid), method);
+    }
+}
+
+/// <summary>
+/// Product-owned result for one metadata-addressed C# method body. The body is a
+/// typed increment for <see cref="TypeShellProducer"/>/<see cref="CSharpTypePrinter"/>;
+/// it never contains or reconstructs the surrounding declaration.
+/// </summary>
+public sealed record MemberBodyProductionResult(
+    MemberBodyProductionStatus Status,
+    CSharpBlockBody? Body,
+    DecompilerResult Projection)
+{
+    public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
+
+    /// <summary>
+    /// The raised product IR that produced <see cref="Body"/>. Kept internal so
+    /// trusted product/harness consumers can derive typed closure evidence from
+    /// the exact projection without re-importing or reverse-engineering source;
+    /// the public result remains fully materialized and metadata-lifetime-free.
+    /// </summary>
+    internal Pipeline.IrFunction? RaisedFunction { get; init; }
+}
+
 /// <summary>
 /// Projects a whole type as one C# listing: the type declaration, field
 /// declarations (including non-public fields, for context the bodies
@@ -20,6 +63,107 @@ public static class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
+
+    /// <summary>
+    /// Produces the typed C# body increment for one method in a live metadata
+    /// source. The handle is session-bound and must belong to
+    /// <paramref name="source"/>. Abstract, extern, and other bodyless methods
+    /// return <see cref="MemberBodyProductionStatus.Absent"/>; import, raising,
+    /// or rendering failures remain visible as <see cref="MemberBodyProductionStatus.Failed"/>.
+    /// </summary>
+    public static MemberBodyProductionResult ProduceBody(
+        Pipeline.MetadataSource source,
+        MemberBodyAddress address)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var module = source.Reader.GetModuleDefinition();
+        if (address.ModuleVersionId != source.Reader.GetGuid(module.Mvid))
+        {
+            return Failed(
+                DiagnosticIds.ContextUnavailable,
+                "method address belongs to a different metadata module");
+        }
+        var methodHandle = address.Method;
+        if (methodHandle.IsNil)
+        {
+            return Failed(DiagnosticIds.ContextUnavailable, "method handle is nil");
+        }
+        int rowNumber = MetadataTokens.GetRowNumber(methodHandle);
+        if (rowNumber <= 0 || rowNumber > source.Reader.GetTableRowCount(TableIndex.MethodDef))
+        {
+            return Failed(
+                DiagnosticIds.ContextUnavailable,
+                "method handle is outside this metadata source");
+        }
+
+        MethodDefinition method;
+        try
+        {
+            method = source.Reader.GetMethodDefinition(methodHandle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return Failed(DiagnosticIds.ContextUnavailable, $"method handle is not valid for this metadata source: {ex.Message}");
+        }
+
+        if (method.RelativeVirtualAddress == 0)
+        {
+            return new MemberBodyProductionResult(
+                MemberBodyProductionStatus.Absent,
+                Body: null,
+                DecompilerResult.Failure(
+                    DiagnosticIds.ContextUnavailable,
+                    "method has no IL body"));
+        }
+
+        try
+        {
+            var function = Pipeline.IrImporter.Import(source, methodHandle);
+            if (function is null)
+            {
+                return Failed(
+                    DiagnosticIds.ContextUnavailable,
+                    "method body could not be imported");
+            }
+
+            var projection = Pipeline.CSharpPrinter.PrintRaised(
+                function,
+                importMethodBody: methodRef => Pipeline.IrImporter.Import(source, methodRef));
+            if (projection.Output is null)
+            {
+                return new MemberBodyProductionResult(
+                    MemberBodyProductionStatus.Failed,
+                    Body: null,
+                    projection);
+            }
+
+            var initializer = projection.ConstructorChain is { } chain
+                ? CSharpFormatter.ParseConstructorInitializer(chain)
+                : null;
+            var body = new CSharpBlockBody(projection.Output.TrimEnd(), initializer)
+            {
+                RequiresAsyncModifier = projection.RequiresAsyncBodyModifier,
+                RequiresUnsafeModifier = projection.RequiresUnsafeBodyModifier,
+            };
+            return new MemberBodyProductionResult(
+                MemberBodyProductionStatus.Complete,
+                body,
+                projection)
+            {
+                RaisedFunction = function,
+            };
+        }
+        catch (Exception ex)
+        {
+            return Failed(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        static MemberBodyProductionResult Failed(string id, string message)
+            => new(
+                MemberBodyProductionStatus.Failed,
+                Body: null,
+                DecompilerResult.Failure(id, message));
+    }
 
     /// <summary>
     /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>

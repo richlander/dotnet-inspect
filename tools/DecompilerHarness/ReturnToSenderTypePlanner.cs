@@ -379,19 +379,33 @@ public static class CompileBackSourceComposer
 {
     internal static ProductTargetBody CreateTargetBody(
         MetadataSource source,
-        IrFunction function,
+        MethodDefinitionHandle methodHandle,
         string fullType,
-        string methodName)
+        string methodName,
+        out IrFunction function)
     {
-        var printed = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
-        if (printed.Output is null)
-            throw new InvalidOperationException($"Could not print {fullType}::{methodName}.");
+        var produced = MemberBodyProducer.ProduceBody(
+            source,
+            MemberBodyAddress.Create(source, methodHandle));
+        if (produced.Status != MemberBodyProductionStatus.Complete
+            || produced.Body is null
+            || produced.RaisedFunction is null)
+        {
+            string detail = produced.Projection.Diagnostics.Count == 0
+                ? produced.Status.ToString()
+                : string.Join("; ", produced.Projection.Diagnostics);
+            throw new InvalidOperationException($"Could not produce {fullType}::{methodName}: {detail}.");
+        }
+        function = produced.RaisedFunction;
         // The printer lifts an explicit base(...)/this(...) constructor-chain call
         // out of the body into ConstructorChain (chain calls are invalid as body
         // statements). Carry it so the reconstructed target constructor re-emits
         // the initializer; dropping it silently compiles an empty body and loses
         // the constructor-chain opcodes (issue #2678).
-        return new ProductTargetBody(printed.Output, printed.Decisions, printed.ConstructorChain);
+        return new ProductTargetBody(
+            produced.Body.Source,
+            produced.Projection.Decisions,
+            produced.Projection.ConstructorChain);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"

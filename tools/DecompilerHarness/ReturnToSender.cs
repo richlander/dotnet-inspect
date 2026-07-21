@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 
 using DotnetInspector.Services;
+using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -966,9 +967,7 @@ static class ReturnToSender
         string methodName = reader.GetString(getter.Name);
         int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, getterHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1020,9 +1019,7 @@ static class ReturnToSender
         string methodName = reader.GetString(method.Name);
         int overload = OverloadIndex(reader, typeDef, methodHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, methodHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, method)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1074,9 +1071,7 @@ static class ReturnToSender
         string methodName = reader.GetString(accessor.Name);
         int overload = OverloadIndex(reader, typeDef, accessorHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, accessorHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, accessor)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1099,12 +1094,15 @@ static class ReturnToSender
             if (siblingMethod.RelativeVirtualAddress != 0)
             {
                 siblingMethodName = reader.GetString(siblingMethod.Name);
-                int siblingOverload = OverloadIndex(reader, typeDef, siblingHandle, siblingMethodName);
-                var siblingFunction = IrImporter.Import(source, fullType, siblingMethodName, siblingOverload);
                 var siblingOriginal = MetadataInstructionProducer.Disassemble(pe, reader, siblingMethod);
-                if (siblingFunction is not null && siblingOriginal is not null)
+                if (siblingOriginal is not null)
                 {
-                    siblingBody = CompileBackSourceComposer.CreateTargetBody(source, siblingFunction, fullType, siblingMethodName);
+                    siblingBody = CompileBackSourceComposer.CreateTargetBody(
+                        source,
+                        siblingHandle,
+                        fullType,
+                        siblingMethodName,
+                        out _);
                     siblingOriginalOps = siblingOriginal.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
                 }
             }
@@ -1161,9 +1159,7 @@ static class ReturnToSender
         string methodName = reader.GetString(setter.Name);
         int overload = OverloadIndex(reader, typeDef, setterHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, setterHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, setter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1232,23 +1228,89 @@ static class ReturnToSender
         };
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         const int maxRoots = 200;
-        const int maxIterations = 80;
-        Diagnostic? firstError = null;
         string originalOpcodes = string.Join(" ", originalOps);
 
         ProductArtifact Compose()
             => CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
 
-        for (int iteration = 0; iteration < maxIterations; iteration++)
+        var firstArtifact = Compose();
+        if (firstArtifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } initialIdentityDiagnostic)
         {
-            var sourceResult = Compose();
-            var plan = sourceResult.Plan;
+            return new Result(
+                firstArtifact.Plan,
+                firstArtifact.Source,
+                FidelityCheck.CompileBackStatus.ContextFail,
+                originalOpcodes,
+                "",
+                $"{initialIdentityDiagnostic.Reason}: {initialIdentityDiagnostic.Detail}",
+                TargetBody: targetBody.Source,
+                MemberAnchor: memberAnchor,
+                Decisions: targetBody.Decisions)
+            {
+                FinalRequest = firstArtifact.Request,
+            };
+        }
 
-            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
+        bool firstArtifactPending = true;
+        CompileBackPlanningDiagnostic? identityFailure = null;
+        var compilationResult = RoundTripCompilationEngine.Compile(
+            compose: () =>
+            {
+                if (firstArtifactPending)
+                {
+                    firstArtifactPending = false;
+                    return firstArtifact;
+                }
+                return Compose();
+            },
+            source: artifact => artifact.Source,
+            references,
+            parseOptions,
+            compileOptions,
+            grow: (artifact, errors, semanticModel) =>
+            {
+                if (artifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identity)
+                {
+                    identityFailure = identity;
+                    return RoundTripGrowthResult.Stop("type-identity");
+                }
+
+                var growth = AddClosureRoots(
+                    errors,
+                    semanticModel,
+                    indexes,
+                    reader.GetString(typeDef.Namespace),
+                    TopLevelRootOf(reader, typeHandle),
+                    closureRoots,
+                    closureFacts);
+                int effectiveRootCount = EffectiveClosureRootCount(artifact, closureRoots);
+                string? reason = effectiveRootCount > maxRoots
+                    ? "closure-root-budget"
+                    : !growth.Grew
+                        ? ClosureDiagnosticEvidence.FailureReason(
+                        "closure-stalled",
+                            growth.UnextractedDiagnosticIds)
+                        : null;
+                return reason is null
+                    ? RoundTripGrowthResult.Continue
+                    : RoundTripGrowthResult.Stop(reason);
+            },
+            new RoundTripCompilationOptions
+            {
+                AssemblyName = "return-to-sender",
+                MaxIterations = 80,
+            });
+
+        var sourceResult = compilationResult.Artifact;
+        var plan = sourceResult.Plan;
+        string unit = sourceResult.Source;
+        if (!compilationResult.Succeeded || compilationResult.PeImage is null)
+        {
+            if (identityFailure is { } identityDiagnostic)
             {
                 return new Result(
                     plan,
-                    sourceResult.Source,
+                    unit,
                     FidelityCheck.CompileBackStatus.ContextFail,
                     originalOpcodes,
                     "",
@@ -1261,128 +1323,18 @@ static class ReturnToSender
                 };
             }
 
-            string unit = sourceResult.Source;
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = compilation.Emit(ms);
-            if (emit.Success)
-            {
-                var recompiledBytes = ms.ToArray();
-                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
-                using var recompiled = new PEReader(recompiledStream);
-                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
-                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
-                    .ToArray();
-                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
-                var ilDiff = implementationDiff?.IlDiff;
-                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
-                var fidelityDiff = BuildIlDiff(
-                    originalPe,
-                    reader,
-                    methodHandle,
-                    recompiled,
-                    fullType,
-                    methodName,
-                    overload: 0,
-                    FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
-
-                if (recompiledOps is null)
-                {
-                    return new Result(
-                        plan,
-                        unit,
-                        FidelityCheck.CompileBackStatus.ContextFail,
-                        originalOpcodes,
-                        "",
-                        "method-not-found",
-                        TargetBody: targetBody.Source,
-                        MemberAnchor: memberAnchor,
-                        Decisions: targetBody.Decisions)
-                    {
-                        FinalRequest = sourceResult.Request,
-                    };
-                }
-
-                var siblingAccessor = sibling is { } siblingRequest
-                    ? ComputeSiblingAccessorEvidence(recompiled, fullType, siblingRequest.MethodName, siblingRequest.OriginalOpcodes)
-                    : null;
-
-                var status = FidelityCheck.ClassifyStatus(
-                    isFull: true,
-                    opcodesExact: originalOps.SequenceEqual(recompiledOps),
-                    fidelityDiff: fidelityDiff);
-                string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
-                    ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
-                    : fidelityDiff?.Failure;
-
-                return new Result(
-                    plan,
-                    unit,
-                    status,
-                    originalOpcodes,
-                    string.Join(" ", recompiledOps),
-                    detail,
-                    TargetBody: targetBody.Source,
-                    IlDiffDiagnostic: ilDiffDiagnostic,
-                    IlDiff: ilDiff,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions,
-                    SiblingAccessor: siblingAccessor,
-                    FidelityDiff: fidelityDiff)
-                {
-                    FinalRequest = sourceResult.Request,
-                };
-            }
-
-            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
-            firstError ??= errors.FirstOrDefault();
-            var growth = AddClosureRoots(
-                errors,
-                compilation.GetSemanticModel(tree),
-                indexes,
-                reader.GetString(typeDef.Namespace),
-                TopLevelRootOf(reader, typeHandle),
-                closureRoots,
-                closureFacts);
-            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
-            if (!growth.Grew || effectiveRootCount > maxRoots)
-            {
-                string reason = effectiveRootCount > maxRoots
-                    ? "closure-root-budget"
-                    : ClosureDiagnosticEvidence.FailureReason(
-                        "closure-stalled",
-                        growth.UnextractedDiagnosticIds);
-                var error = errors.FirstOrDefault() ?? firstError;
-                var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
-                return new Result(
-                    plan,
-                    unit,
-                    FidelityCheck.CompileBackStatus.RecompileFail,
-                    originalOpcodes,
-                    "",
-                    $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: targetBody.Source,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions,
-                    FaultIsolation: faultIsolation)
-                {
-                    FinalRequest = sourceResult.Request,
-                };
-            }
-        }
-
-        {
-            var sourceResult = Compose();
-            var plan = sourceResult.Plan;
+            var error = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
+                ? compilationResult.FirstError
+                : compilationResult.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                    ?? compilationResult.FirstError;
             var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
             return new Result(
                 plan,
-                sourceResult.Source,
+                unit,
                 FidelityCheck.CompileBackStatus.RecompileFail,
                 originalOpcodes,
                 "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
+                $"{compilationResult.StopReason}: {FormatDiagnostic(error)}",
                 TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
                 Decisions: targetBody.Decisions,
@@ -1391,6 +1343,72 @@ static class ReturnToSender
                 FinalRequest = sourceResult.Request,
             };
         }
+
+        var recompiledBytes = compilationResult.PeImage;
+        using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
+        using var recompiled = new PEReader(recompiledStream);
+        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+        var ilDiff = implementationDiff?.IlDiff;
+        var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
+        var fidelityDiff = BuildIlDiff(
+            originalPe,
+            reader,
+            methodHandle,
+            recompiled,
+            fullType,
+            methodName,
+            overload: 0,
+            FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
+
+        if (recompiledOps is null)
+        {
+            return new Result(
+                plan,
+                unit,
+                FidelityCheck.CompileBackStatus.ContextFail,
+                originalOpcodes,
+                "",
+                "method-not-found",
+                TargetBody: targetBody.Source,
+                MemberAnchor: memberAnchor,
+                Decisions: targetBody.Decisions)
+            {
+                FinalRequest = sourceResult.Request,
+            };
+        }
+
+        var siblingAccessor = sibling is { } siblingRequest
+            ? ComputeSiblingAccessorEvidence(recompiled, fullType, siblingRequest.MethodName, siblingRequest.OriginalOpcodes)
+            : null;
+
+        var status = FidelityCheck.ClassifyStatus(
+            isFull: true,
+            opcodesExact: originalOps.SequenceEqual(recompiledOps),
+            fidelityDiff: fidelityDiff);
+        string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
+            ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
+            : fidelityDiff?.Failure;
+
+        return new Result(
+            plan,
+            unit,
+            status,
+            originalOpcodes,
+            string.Join(" ", recompiledOps),
+            detail,
+            TargetBody: targetBody.Source,
+            IlDiffDiagnostic: ilDiffDiagnostic,
+            IlDiff: ilDiff,
+            MemberAnchor: memberAnchor,
+            Decisions: targetBody.Decisions,
+            SiblingAccessor: siblingAccessor,
+            FidelityDiff: fidelityDiff)
+        {
+            FinalRequest = sourceResult.Request,
+        };
     }
 
     /// <summary>
