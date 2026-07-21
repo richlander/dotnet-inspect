@@ -379,6 +379,7 @@ public class ApiMemberIdentityTests
     [Theory]
     [InlineData("void M(SetTree<T> t', FSharpList<T> acc)", "M:N.C.M(SetTree<T>,FSharpList<T>)")]
     [InlineData("void M(System.Int32 x' = 5, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x=', System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
     [InlineData("void M(System.String s\" = \"a,b\", System.Int32 y)", "M:N.C.M(System.String,System.Int32)")]
     public void FallbackCanonicalSignature_TreatsQuotesOutsideDefaultsAsOrdinary(string signature, string expected)
     {

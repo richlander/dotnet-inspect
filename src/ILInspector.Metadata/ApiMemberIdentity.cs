@@ -707,7 +707,8 @@ public static class ApiMemberIdentity
             else if (c == ']') { if (bracketDepth > 0) bracketDepth--; }
             else if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0)
             {
-                if (c == '=')
+                if (c == '=' && i > 0 && paramSection[i - 1] == ' '
+                    && i + 1 < paramSection.Length && paramSection[i + 1] == ' ')
                 {
                     inDefaultValue = true;
                 }
