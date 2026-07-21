@@ -17,10 +17,9 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
-        if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
+        if (context.Assembly is not { } assembly || function.MetadataToken == 0)
             return [];
-        var index = context.Assembly?.Index ?? AnalysisIndexCache.ForPath(path);
-        if (!index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences)
+        if (!assembly.Index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences)
             || occurrences.IsEmpty)
             return [];
         var subject = ResearchMemberIdentity.SubjectFromMethod(occurrences[0].Method);

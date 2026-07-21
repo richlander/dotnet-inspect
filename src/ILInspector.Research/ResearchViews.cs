@@ -57,9 +57,7 @@ public static partial class ResearchViews
                 : IrImporter.Import(request.Source, request.MethodToken.Value))
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
-            var assembly = imported.AssemblyPath is { Length: > 0 } path
-                ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
-                : null;
+            var assembly = ResolveAssemblyContext(imported);
             var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
             var context = new ResearchFactContext(request.Source, imported, assembly);
             var facts = effectiveRegistry.Collect(context);
@@ -147,18 +145,21 @@ public static partial class ResearchViews
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-        return CollectFacts(
-            source,
-            imported,
-            imported.AssemblyPath is { Length: > 0 } path
-                ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
-                : null,
-            registry);
+        return CollectFacts(source, imported, ResolveAssemblyContext(imported), registry);
     }
+
+    /// <summary>
+    /// Every entry point resolves the assembly context through this seam, so producers see a
+    /// consistent Assembly (or a consistent absence) rather than each re-deriving it independently.
+    /// </summary>
+    static ResearchAssemblyContext? ResolveAssemblyContext(IrFunction imported)
+        => imported.AssemblyPath is { Length: > 0 } path
+            ? ResearchAssemblyContextCache.ForIndex(AnalysisIndexCache.ForPath(path))
+            : null;
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)
-        => (registry ?? ResearchFactRegistry.Default).Collect(new ResearchFactContext(source, imported));
+        => CollectFacts(source, imported, ResolveAssemblyContext(imported), registry);
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchAssemblyContext? assembly, ResearchFactRegistry? registry = null)
@@ -170,10 +171,7 @@ public static partial class ResearchViews
     {
         var imported = IrImporter.Import(source, type, method, overloadIndex, publicOnly)
             ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
-        ResearchAssemblyContext? assembly = imported.AssemblyPath is { Length: > 0 } path
-            ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
-            : null;
-        var context = new ResearchFactContext(source, imported, assembly);
+        var context = new ResearchFactContext(source, imported, ResolveAssemblyContext(imported));
         var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
         var facts = effectiveRegistry.Collect(context);
         var headerFacts = effectiveRegistry.CollectHeaderFacts(context);
