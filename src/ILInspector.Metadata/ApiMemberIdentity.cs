@@ -667,7 +667,7 @@ public static class ApiMemberIdentity
             return signature;
 
         int parenEnd = signature.LastIndexOf(')');
-        if (parenEnd < 0)
+        if (parenEnd < parenStart + 1)
             return signature;
 
         string prefix = signature[..(parenStart + 1)];

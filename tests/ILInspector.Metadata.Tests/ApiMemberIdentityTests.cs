@@ -362,6 +362,20 @@ public class ApiMemberIdentityTests
             ApiMemberIdentity.GetCanonicalSignature(type, member));
     }
 
+    [Theory]
+    [InlineData("void M)(int a")]
+    [InlineData("foo)bar(")]
+    [InlineData("void M) int a")]
+    public void FallbackCanonicalSignature_DoesNotThrowOnMalformedParentheses(string signature)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        var canonical = ApiMemberIdentity.GetCanonicalSignature(type, member);
+
+        Assert.False(string.IsNullOrEmpty(canonical));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
