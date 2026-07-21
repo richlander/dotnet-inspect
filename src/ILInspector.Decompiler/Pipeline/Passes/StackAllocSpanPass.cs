@@ -1,5 +1,8 @@
 namespace ILInspector.Decompiler.Pipeline;
 
+using System.Collections.Generic;
+using System.Linq;
+
 /// <summary>
 /// Raises the compiler's lowering of <c>Span&lt;T&gt; s = stackalloc T[n]</c> back
 /// into a source-level <c>stackalloc T[n]</c>. The source form lowers to a
@@ -18,6 +21,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// compiled — so the pass runs unconditionally. Whether the result needs an
 /// <c>unsafe</c> context (only under <c>[SkipLocalsInit]</c>, per the stackalloc
 /// rule) is decided later by the printer.</para>
+///
+/// <para>The pointer argument is usually the stackalloc directly, but
+/// <see cref="StackAllocInitializerPass"/> (#2869) can leave the recovered
+/// initializer sitting behind a compiler-owned stack slot indirection instead
+/// — <c>slot = stackalloc T[n] {...}; ...; new Span&lt;T&gt;((void*)slot, n)</c> —
+/// because that pass only replaces the slot's stored value, never the later
+/// constructor call. This pass also resolves that indirection, but only when the
+/// slot is exclusively owned by the one store/load pair reaching this
+/// constructor (see <see cref="TryResolveOwnedSlotSource"/>), so the allocation
+/// is never moved out from under some other reader or writer of the slot.</para>
 /// </summary>
 public sealed class StackAllocSpanPass : IIrPass
 {
@@ -25,6 +38,15 @@ public sealed class StackAllocSpanPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        var storesBySlot = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function)
+            .OfType<StoreStackSlot>()
+            .GroupBy(s => s.Slot)
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var loadsBySlot = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function)
+            .OfType<LoadStackSlot>()
+            .GroupBy(s => s.Slot)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var newObject in function.Descendants.OfType<NewObject>().ToList())
         {
             if (!MemberIdentity.IsStackAllocSpanConstructor(newObject, out var element))
@@ -32,20 +54,84 @@ public sealed class StackAllocSpanPass : IIrPass
 
             // Span<T>(void* pointer, int length): the pointer is the stackalloc,
             // the length is the logical element count.
-            if (newObject.Arguments is not [{ } pointer, var count]
-                || !IsStackAllocPointer(pointer))
+            if (newObject.Arguments is not [{ } pointer, var count])
                 continue;
 
-            var elements = GetInitializerElements(pointer);
+            StoreStackSlot? ownedStore = null;
+            IEnumerable<IrExpression>? elements;
+
+            if (IsStackAllocPointer(pointer))
+            {
+                elements = GetInitializerElements(pointer);
+            }
+            else if (TryResolveOwnedSlotSource(pointer, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
+            {
+                elements = GetInitializerElements(slotSource);
+            }
+            else
+            {
+                continue;
+            }
+
             count.Detach();
             var raised = new StackAllocArray(element, count, newObject.ResultType, elements);
             raised.InheritSourceOffset(newObject);
             context.Stepper.StepOver("raise Span-over-stackalloc to stackalloc T[n]", newObject);
             newObject.ReplaceWith(raised);
+            ownedStore?.Detach();
         }
     }
 
-    static System.Collections.Generic.IEnumerable<IrExpression>? GetInitializerElements(IrExpression pointer)
+    /// <summary>
+    /// Resolves a Span constructor's pointer argument through a compiler-owned
+    /// stack slot indirection. Only raises when the slot is exclusively owned by
+    /// this one store/load pair — no other store or load of the slot anywhere in
+    /// the function — and the store precedes the load's statement in the same
+    /// block, so detaching the store cannot move or discard the allocation from
+    /// under some other reader or writer, nor reorder any other observable effect.
+    /// </summary>
+    static bool TryResolveOwnedSlotSource(
+        IrExpression pointer,
+        Dictionary<int, List<StoreStackSlot>> storesBySlot,
+        Dictionary<int, List<LoadStackSlot>> loadsBySlot,
+        out IrExpression source,
+        out StoreStackSlot? ownedStore)
+    {
+        source = null!;
+        ownedStore = null;
+
+        LoadStackSlot? load = pointer as LoadStackSlot;
+        if (load == null && pointer is Convert { IsChecked: false, Operand: LoadStackSlot loadOperand, Target: { } target } && IsPointerLikeTarget(target))
+            load = loadOperand;
+        if (load == null)
+            return false;
+
+        if (!storesBySlot.TryGetValue(load.Slot, out var stores) || stores.Count != 1)
+            return false;
+        if (!loadsBySlot.TryGetValue(load.Slot, out var loads) || loads.Count != 1 || loads[0] != load)
+            return false;
+
+        var store = stores[0];
+        if (!IsStackAllocPointer(store.Value) || store.Parent is not Block parentBlock)
+            return false;
+
+        var loadStatement = GetStatement(load);
+        if (loadStatement == null || loadStatement.Parent != parentBlock || loadStatement.ChildIndex <= store.ChildIndex)
+            return false; // Escaped, reordered, or not yet defined at this use.
+
+        source = store.Value;
+        ownedStore = store;
+        return true;
+    }
+
+    static IrNode? GetStatement(IrNode node)
+    {
+        while (node.Parent != null && node.Parent is not Block)
+            node = node.Parent;
+        return node.Parent is Block ? node : null;
+    }
+
+    static IEnumerable<IrExpression>? GetInitializerElements(IrExpression pointer)
     {
         if (pointer is StackAllocArray { HasInitializer: true } sa)
         {
