@@ -667,7 +667,7 @@ public static class ApiMemberIdentity
             return signature;
 
         int parenEnd = signature.LastIndexOf(')');
-        if (parenEnd < 0)
+        if (parenEnd < parenStart + 1)
             return signature;
 
         string prefix = signature[..(parenStart + 1)];
@@ -676,18 +676,55 @@ public static class ApiMemberIdentity
         if (string.IsNullOrEmpty(paramSection))
             return signature;
 
+        // The signature is a lossy display string. Parameter names (F# quoted
+        // identifiers may contain spaces, '=', quotes, brackets, angle brackets,
+        // parentheses, and commas), array-rank/type spellings, and default-value
+        // literals can all contain characters that look structural, so no parser can
+        // be fully robust here. Every deviation from main's splitter risks changing
+        // the canonical signature for some compiler-emittable name (e.g. splitting
+        // main's combined <(...)> depth into independent counters regresses an F#
+        // name like ``x<)`` where '<' and ')' cross-cancel). This fallback therefore
+        // reproduces main's splitter EXACTLY, adding only the one thing #2940 needs:
+        // it skips a leading attribute list ("[Optional, DateTimeConstant(ticks)]
+        // type name") so the comma inside it does not split the parameter list.
+        //
+        // Bracket nesting is tracked ONLY inside that leading attribute list, at the
+        // very start of a parameter. Once the first real (non-space, non-'[') type
+        // character is seen, tracking reverts to main's single combined depth counter
+        // over '<'/'>'/'('/')' , so brackets in array types ("int[]") or in F#
+        // quoted names ("x[") are ordinary text, and generic/tuple commas stay
+        // protected — identical to main. String/char literal and default-value
+        // tracking are deliberately omitted: any such heuristic is defeatable by a
+        // quote or delimiter inside a name, which main treats as ordinary.
         List<string> paramTypes = [];
         int depth = 0;
+        int attrBracketDepth = 0;
         int lastSplit = 0;
+        bool inLeadingAttributes = true;
         for (int i = 0; i < paramSection.Length; i++)
         {
             char c = paramSection[i];
+
+            if (inLeadingAttributes)
+            {
+                if (c == '[') { attrBracketDepth++; continue; }
+                if (attrBracketDepth > 0)
+                {
+                    if (c == ']') attrBracketDepth--;
+                    continue; // characters inside the attribute list (incl. commas) are skipped
+                }
+                if (c == ' ') continue; // still in the leading region, between/after attribute lists
+                inLeadingAttributes = false; // first real type character; fall through to main's logic
+            }
+
             if (c == '<' || c == '(') depth++;
             else if (c == '>' || c == ')') depth--;
             else if (c == ',' && depth == 0)
             {
                 paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
                 lastSplit = i + 1;
+                attrBracketDepth = 0;
+                inLeadingAttributes = true;
             }
         }
         paramTypes.Add(ExtractParamType(paramSection[lastSplit..].Trim()));
@@ -696,24 +733,7 @@ public static class ApiMemberIdentity
     }
 
     static string ExtractParamType(string param)
-    {
-        int eqIndex = param.IndexOf('=');
-        if (eqIndex >= 0)
-            param = param[..eqIndex].Trim();
-
-        int depth = 0;
-        int lastSpace = -1;
-        for (int i = 0; i < param.Length; i++)
-        {
-            char c = param[i];
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ' ' && depth == 0)
-                lastSpace = i;
-        }
-
-        return lastSpace > 0 ? param[..lastSpace] : param;
-    }
+        => ExtractSignatureParameterType(param);
 
     public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
     {
