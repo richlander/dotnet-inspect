@@ -676,38 +676,38 @@ public static class ApiMemberIdentity
         if (string.IsNullOrEmpty(paramSection))
             return signature;
 
+        // The signature is a lossy display string, so parameter names (which F#
+        // quoted identifiers allow to contain spaces, '=', quotes, brackets, and
+        // commas) and default-value literals can both contain characters that look
+        // structural. We only need to protect the one construct #2940 introduces:
+        // the comma inside a DateTimeConstant attribute list ("[Optional,
+        // DateTimeConstant(ticks)] type name"). We therefore track angle/paren/
+        // bracket nesting to keep that comma intact, but stop counting structural
+        // delimiters once a formatter-emitted default value begins (the exact
+        // " = " separator that ApiSurfaceExtractor.FormatParameter writes). Inside a
+        // default we neither interpret nor balance its characters, matching the
+        // behavior on main so a default's brackets never suppress a real comma. We
+        // deliberately do not track string/char literals: any such heuristic is
+        // defeatable by a quote inside a parameter name pairing with a quote in a
+        // later parameter's default, and would regress compiler-emitted F# names.
         List<string> paramTypes = [];
         int angleDepth = 0;
         int parenDepth = 0;
         int bracketDepth = 0;
         int lastSplit = 0;
-        bool inString = false;
-        bool inChar = false;
         bool inDefaultValue = false;
         for (int i = 0; i < paramSection.Length; i++)
         {
             char c = paramSection[i];
-            if (inString)
-            {
-                if (c == '\\') i++;
-                else if (c == '"') inString = false;
-            }
-            else if (inChar)
-            {
-                if (c == '\\') i++;
-                else if (c == '\'') inChar = false;
-            }
-            else if (inDefaultValue && c == '"') inString = true;
-            else if (inDefaultValue && c == '\'') inChar = true;
-            else if (c == '<') angleDepth++;
-            else if (c == '>') { if (angleDepth > 0) angleDepth--; }
-            else if (c == '(') parenDepth++;
-            else if (c == ')') { if (parenDepth > 0) parenDepth--; }
-            else if (c == '[') bracketDepth++;
-            else if (c == ']') { if (bracketDepth > 0) bracketDepth--; }
+            if (!inDefaultValue && c == '<') angleDepth++;
+            else if (!inDefaultValue && c == '>') { if (angleDepth > 0) angleDepth--; }
+            else if (!inDefaultValue && c == '(') parenDepth++;
+            else if (!inDefaultValue && c == ')') { if (parenDepth > 0) parenDepth--; }
+            else if (!inDefaultValue && c == '[') bracketDepth++;
+            else if (!inDefaultValue && c == ']') { if (bracketDepth > 0) bracketDepth--; }
             else if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0)
             {
-                if (c == '=' && i > 0 && paramSection[i - 1] == ' '
+                if (!inDefaultValue && c == '=' && i > 0 && paramSection[i - 1] == ' '
                     && i + 1 < paramSection.Length && paramSection[i + 1] == ' ')
                 {
                     inDefaultValue = true;

@@ -332,7 +332,6 @@ public class ApiMemberIdentityTests
     [Theory]
     [InlineData("void M(System.String text = \"]\", System.Int32 count = 0)")]
     [InlineData("void M(System.String text = \"[\", System.Int32 count = 0)")]
-    [InlineData("void M(System.String text = \"a,b\", System.Int32 count = 0)")]
     [InlineData("void M(System.String text = \"<>()\", System.Int32 count = 0)")]
     [InlineData("void M(System.String text = \"a\\\"]b\", System.Int32 count = 0)")]
     [InlineData("void M(System.String text = \"ok\", System.Int32 count = 0)")]
@@ -380,8 +379,24 @@ public class ApiMemberIdentityTests
     [InlineData("void M(SetTree<T> t', FSharpList<T> acc)", "M:N.C.M(SetTree<T>,FSharpList<T>)")]
     [InlineData("void M(System.Int32 x' = 5, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
     [InlineData("void M(System.Int32 x=', System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
-    [InlineData("void M(System.String s\" = \"a,b\", System.Int32 y)", "M:N.C.M(System.String,System.Int32)")]
     public void FallbackCanonicalSignature_TreatsQuotesOutsideDefaultsAsOrdinary(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Theory]
+    // An F# double-backtick identifier can legally contain spaces, '=', and an
+    // apostrophe (e.g. ``x = '``), which the formatter emits verbatim. The default
+    // separator " = " inside such a name must not cause the following apostrophe to
+    // be read as a char literal that swallows the parameter-separating comma. This
+    // is compiler-emittable and was handled correctly on main; the fallback must not
+    // regress it.
+    [InlineData("void M(System.Int32 x = ', System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x = \", System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    public void FallbackCanonicalSignature_DoesNotInterpretQuotesInDefaultRegion(string signature, string expected)
     {
         var type = new ApiType { Namespace = "N", Name = "C" };
         var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
