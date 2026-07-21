@@ -7,6 +7,7 @@ using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -386,7 +387,7 @@ public static class CompileBackSourceComposer
     {
         var produced = MemberBodyProducer.ProduceBody(
             source,
-            MemberBodyAddress.Create(source, methodHandle));
+            MetadataMethodAddress.Create(source.Reader, methodHandle));
         if (produced.Status != MemberBodyProductionStatus.Complete
             || produced.Body is null
             || produced.RaisedFunction is null)

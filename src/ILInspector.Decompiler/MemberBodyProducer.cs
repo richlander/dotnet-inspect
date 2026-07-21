@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler;
 
@@ -13,21 +14,6 @@ public enum MemberBodyProductionStatus
     Complete,
     Absent,
     Failed,
-}
-
-/// <summary>
-/// A method-definition address scoped to the module that owns its metadata row.
-/// Raw metadata handles contain only a table row and cannot by themselves detect
-/// accidental use with another reader.
-/// </summary>
-public readonly record struct MemberBodyAddress(Guid ModuleVersionId, MethodDefinitionHandle Method)
-{
-    public static MemberBodyAddress Create(Pipeline.MetadataSource source, MethodDefinitionHandle method)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        var module = source.Reader.GetModuleDefinition();
-        return new MemberBodyAddress(source.Reader.GetGuid(module.Mvid), method);
-    }
 }
 
 /// <summary>
@@ -73,17 +59,16 @@ public static class MemberBodyProducer
     /// </summary>
     public static MemberBodyProductionResult ProduceBody(
         Pipeline.MetadataSource source,
-        MemberBodyAddress address)
+        MetadataMethodAddress address)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var module = source.Reader.GetModuleDefinition();
-        if (address.ModuleVersionId != source.Reader.GetGuid(module.Mvid))
+        if (!address.BelongsTo(source.Reader))
         {
             return Failed(
                 DiagnosticIds.ContextUnavailable,
                 "method address belongs to a different metadata module");
         }
-        var methodHandle = address.Method;
+        var methodHandle = address.Handle;
         if (methodHandle.IsNil)
         {
             return Failed(DiagnosticIds.ContextUnavailable, "method handle is nil");

@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -61,7 +62,7 @@ public sealed class MemberBodyProducerTypedBodyTests
         using var source = MetadataSource.OpenWithoutSymbols(AssemblyPath);
         using var otherSource = MetadataSource.OpenWithoutSymbols(typeof(object).Assembly.Location);
         var otherMethod = otherSource.Reader.MethodDefinitions.First();
-        var wrongReaderAddress = MemberBodyAddress.Create(otherSource, otherMethod);
+        var wrongReaderAddress = MetadataMethodAddress.Create(otherSource.Reader, otherMethod);
 
         var result = MemberBodyProducer.ProduceBody(source, wrongReaderAddress);
 
@@ -130,7 +131,7 @@ public sealed class MemberBodyProducerTypedBodyTests
     }
 
     static MemberBodyProductionResult ProduceBody(MetadataSource source, MethodDefinitionHandle method)
-        => MemberBodyProducer.ProduceBody(source, MemberBodyAddress.Create(source, method));
+        => MemberBodyProducer.ProduceBody(source, MetadataMethodAddress.Create(source.Reader, method));
 }
 
 public sealed class TypedBodySpecimen
