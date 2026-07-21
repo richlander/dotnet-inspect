@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Instructions;
@@ -23,12 +24,25 @@ public enum RoundTripComparisonStatus
     Failed,
 }
 
+public sealed record RoundTripCSharpEvidence(
+    ImmutableArray<CSharpDiffRow> Rows,
+    ImmutableArray<CSharpDiffFailureRow> FailureRows,
+    ImmutableArray<CSharpIdentityResolutionFailure> IdentityFailures);
+
+public sealed record RoundTripIlEvidence(
+    IlBodyDiffOutcome Outcome,
+    string? Failure,
+    ImmutableArray<IlDiffRow> Rows,
+    ImmutableArray<IlDiffFailureRow> FailureRows);
+
 public sealed record RoundTripMemberComparison(
     RoundTripTarget Target,
     MethodCorrespondenceResult Correspondence,
     RoundTripEvidenceStatus CSharpStatus,
     IlBodyDiffOutcome IlStatus,
-    ImplementationMemberDiffResult? Evidence,
+    RoundTripCSharpEvidence? CSharpDiff,
+    RoundTripIlEvidence? IlDiff,
+    [property: JsonIgnore] ImplementationMemberDiffResult? Evidence,
     string? CSharpFailure,
     string? IlFailure);
 
@@ -79,6 +93,8 @@ public static class RoundTripComparison
                         correspondence,
                         RoundTripEvidenceStatus.Unavailable,
                         IlBodyDiffOutcome.Unavailable,
+                        CSharpDiff: null,
+                        IlDiff: null,
                         Evidence: null,
                         CSharpFailure: correspondence.Failure,
                         IlFailure: correspondence.Failure));
@@ -106,6 +122,8 @@ public static class RoundTripComparison
                     correspondence,
                     csharpStatus,
                     evidence.IlDiff?.Diff.Outcome ?? IlBodyDiffOutcome.Unavailable,
+                    ToEvidence(evidence.CSharpDiff),
+                    ToEvidence(evidence.IlDiff?.Diff),
                     evidence,
                     CSharpFailure: csharpStatus == RoundTripEvidenceStatus.Unavailable
                         ? InspectionFailure(oldInspection, newInspection)
@@ -152,6 +170,26 @@ public static class RoundTripComparison
             failures.Add($"new failed: {newFailed.Error.Reason}");
         return failures.Count == 0 ? null : string.Join("; ", failures);
     }
+
+    static RoundTripCSharpEvidence? ToEvidence(CSharpBodyDiffResult? diff)
+        => diff is null
+            ? null
+            : new RoundTripCSharpEvidence(
+                Normalize(diff.Rows),
+                Normalize(diff.FailureRows),
+                Normalize(diff.IdentityFailures));
+
+    static RoundTripIlEvidence? ToEvidence(IlBodyDiffResult? diff)
+        => diff is null
+            ? null
+            : new RoundTripIlEvidence(
+                diff.Outcome,
+                diff.Failure,
+                Normalize(diff.Rows),
+                Normalize(diff.FailureRows));
+
+    static ImmutableArray<T> Normalize<T>(ImmutableArray<T> values)
+        => values.IsDefault ? [] : values;
 
     static string HashFile(string path)
     {

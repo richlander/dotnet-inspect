@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.MetadataPrimitives;
 
@@ -10,6 +11,8 @@ public readonly record struct MetadataMethodAddress(
     Guid ModuleVersionId,
     MethodDefinitionHandle Handle)
 {
+    public int Token => MetadataTokens.GetToken(Handle);
+
     public static MetadataMethodAddress Create(
         MetadataReader reader,
         MethodDefinitionHandle handle)

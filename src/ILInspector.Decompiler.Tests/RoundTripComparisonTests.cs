@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using DotnetInspector.RoundTripCompilation;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -26,6 +27,9 @@ public sealed class RoundTripComparisonTests
         Assert.Equal(RoundTripEvidenceStatus.Exact, member.CSharpStatus);
         Assert.Equal(IlBodyDiffOutcome.Exact, member.IlStatus);
         Assert.NotNull(member.Evidence);
+        string json = JsonSerializer.Serialize(result);
+        Assert.Contains("\"cSharpStatus\":0", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"\"token\":{request.Targets[0].Method.Token}", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
