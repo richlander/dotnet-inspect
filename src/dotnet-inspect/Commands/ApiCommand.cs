@@ -521,18 +521,6 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    internal static AssemblyDependencyResolver PlatformAssemblyResolver(string startingDll, string? projectAssetsPath = null, string? targetFramework = null)
-    {
-        return new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(startingDll)
-        {
-            ProjectAssetsPath = projectAssetsPath,
-            TargetFramework = targetFramework,
-            IncludeDepsJsonAssets = false,
-            IncludeAspNetCoreSharedFramework = false,
-            PreferImplementationAssemblies = true,
-        });
-    }
-
     internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
@@ -681,17 +669,21 @@ public class ApiCommand
                         && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
+                {
+                    var analysisInspection = new ApiMemberAnalysisInspection(
+                        mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
-                        requestedSections, mo4.PdbPath, mo4.IncludeSections,
-                        mo4.CallerScopeAssemblies, mo4);
+                        requestedSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
+                }
             }
 
             // Type-scope analysis sections share one index build per type (built lazily, only
             // when such a section is requested) instead of opening one session per section.
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                typeAnalysisIndex ??= ApiOutputFormatter.OpenTypeAnalysisIndex(options.DllPath!, GetRequestedMemberSections(type, options), type);
+                typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
+                    options.DllPath!, GetRequestedMemberSections(type, options), type, options);
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -703,7 +695,11 @@ public class ApiCommand
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.ExceptionRegions)
                     || options.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {
-                ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, options.IncludeSections);
+                var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
+                    exceptionRegionsDllPath,
+                    type.Members.Where(member => member.MetadataToken is not null
+                        && ApiMemberSectionDescriptors.IsMethodLike(member)));
+                ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegions, options.IncludeSections);
             }
 
             if (options.DllPath is not null
@@ -760,7 +756,7 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            var resolver = PlatformAssemblyResolver(typeDllPath, options.ProjectAssetsPath, options.Tfm);
+            var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.MemberBodyProducer.Project(
                 type, typeDllPath, options.PdbPath, resolver, metadata).Output;
@@ -1352,11 +1348,16 @@ public class ApiCommand
                         && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
+                {
+                    var analysisInspection = new ApiMemberAnalysisInspection(
+                        memberOptions.DllPath!, methods, requestedSections,
+                        memberOptions.CallerScopeAssemblies, memberOptions);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
-                        requestedSections, memberOptions.PdbPath, memberOptions.IncludeSections,
-                        memberOptions.CallerScopeAssemblies, memberOptions);
+                        requestedSections, analysisInspection, memberOptions.PdbPath,
+                        memberOptions.IncludeSections, memberOptions);
+                }
 
                 if (memberOptions.MethodSource != null && requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
                 {
@@ -1368,7 +1369,8 @@ public class ApiCommand
 
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                typeAnalysisIndex ??= ApiOutputFormatter.OpenTypeAnalysisIndex(renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type);
+                typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
+                    renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions);
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
@@ -1380,7 +1382,12 @@ public class ApiCommand
                 && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.ExceptionRegions)
                     || renderOptions.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {
-                ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegionsDllPath, renderOptions.IncludeSections);
+                var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
+                    exceptionRegionsDllPath,
+                    type.Members.Where(member => member.MetadataToken is not null
+                        && ApiMemberSectionDescriptors.IsMethodLike(member)));
+                ApiOutputFormatter.PopulateTypeExceptionRegions(
+                    view, type, exceptionRegions, renderOptions.IncludeSections);
             }
 
             if (renderOptions.DllPath is not null
