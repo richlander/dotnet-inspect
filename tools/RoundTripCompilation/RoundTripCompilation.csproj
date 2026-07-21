@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <ProjectReference Include="../../src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
+    <ProjectReference Include="../../src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
   </ItemGroup>
 
 </Project>
