@@ -592,6 +592,43 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void SlotWithInstanceFieldStore_DoesNotRaise()
+    {
+        // An instance field store evaluates its receiver (Instance) before its
+        // Value -- unlike StoreLocal/StoreStackSlot/StoreArgument/a static
+        // StoreField, which have no other evaluated operand. Even though
+        // Value is exactly the constructor call, the receiver's evaluation
+        // (here GetTarget()) would move to run before the allocation instead
+        // of after it.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var getTarget = new Call(new MethodRef(Holder, "GetTarget", Holder, [], HasThis: false), isVirtual: false, []);
+        var field = new FieldRef(Holder, "Value", newObject.ResultType!);
+        var storeField = new StoreField(field, getTarget, newObject);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(storeField);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void SlotWithUninitializedArrayDynamicUnrelatedCountMismatch_DoesNotRaise()
     {
         // Neither the source's own (dynamic) Count nor the constructor's
@@ -612,6 +649,33 @@ public class StackAllocSpanPassTests
         var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.False(unraised.HasInitializer); // still the store's un-raised value
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithUninitializedArrayCountDifferingByConvertUnsigned_DoesNotRaise()
+    {
+        // The source's dynamic Count and the constructor's length argument
+        // are both `(int)(double)n`, but one conversion chain is unsigned
+        // (conv.r.un) and the other is signed -- these produce different
+        // results for the same bit pattern (e.g. 0x80000000), so they must
+        // not be treated as the same quantity merely because their shapes and
+        // target types otherwise match.
+        var doubleType = TypeRef.CoreLib("System", "Double");
+        var sourceCount = new IrConvert(Int32, isChecked: false, isUnsigned: false, new IrConvert(doubleType, isChecked: false, isUnsigned: true, new LoadLocal(0, Int32)));
+        var ctorCount = new IrConvert(Int32, isChecked: false, isUnsigned: false, new IrConvert(doubleType, isChecked: false, isUnsigned: false, new LoadLocal(0, Int32)));
+        var conversionStackAllocArray = new StackAllocArray(Int32, sourceCount, TypeRef.Pointer(Int32));
+        var conversionStore = new StoreStackSlot(0, conversionStackAllocArray);
+        var conversionNewObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), ctorCount);
+
+        var conversionFunction = BuildSlot(conversionStore, conversionNewObject);
+
+        new StackAllocSpanPass().Run(conversionFunction, PassContext.None);
+
+        var conversionConstruction = Assert.Single(conversionFunction.Descendants.OfType<NewObject>());
+        Assert.Same(conversionNewObject, conversionConstruction);
+        var conversionUnraised = Assert.Single(conversionFunction.Descendants.OfType<StackAllocArray>());
+        Assert.False(conversionUnraised.HasInitializer); // still the store's un-raised value
+        conversionFunction.CheckInvariant();
     }
 
     [Fact]

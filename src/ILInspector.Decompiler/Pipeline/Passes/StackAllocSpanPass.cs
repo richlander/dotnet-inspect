@@ -190,12 +190,16 @@ public sealed class StackAllocSpanPass : IIrPass
     }
 
     /// <summary>
-    /// The single expression a linear (single-evaluation) statement holds, or
-    /// null for any other node (a loop/switch/if header, or any other
-    /// control-construct GetStatement can return). Requiring the constructor
-    /// call be exactly this expression -- not merely nested somewhere inside
-    /// it -- proves nothing else in the statement evaluates before, instead
-    /// of, or conditionally relative to the moved allocation.
+    /// The single expression a linear (single-evaluation) statement holds when
+    /// the value being stored/returned/thrown is the *only* operand the
+    /// statement evaluates, or null otherwise (a loop/switch/if header, any
+    /// other control-construct GetStatement can return, or a statement shape
+    /// -- an instance field/indirect/element store -- that evaluates another
+    /// operand, such as the receiver/address/array-and-index, before its
+    /// value). Requiring the constructor call be exactly this expression --
+    /// not merely nested somewhere inside it -- proves nothing else in the
+    /// statement evaluates before, instead of, or conditionally relative to
+    /// the moved allocation.
     /// </summary>
     static IrExpression? GetHeldExpression(IrNode statement) => statement switch
     {
@@ -204,11 +208,9 @@ public sealed class StackAllocSpanPass : IIrPass
         Throw s => s.Value,
         StoreLocal s => s.Value,
         StoreStackSlot s => s.Value,
-        StoreField s => s.Value,
-        StoreIndirect s => s.Value,
+        StoreField { HasInstance: false } s => s.Value, // a static field store has no receiver evaluated before Value
         StoreArgument s => s.Value,
-        StoreElement s => s.Value,
-        _ => null,
+        _ => null, // StoreIndirect (Address before Value), StoreElement (Array/Index before Value), and an instance StoreField (Instance before Value) each evaluate another operand first
     };
 
     /// <summary>
@@ -230,7 +232,8 @@ public sealed class StackAllocSpanPass : IIrPass
         (Unary x, Unary y) => x.Kind == y.Kind && StructurallyEqual(x.Operand, y.Operand),
         (Binary x, Binary y) => x.Kind == y.Kind && x.IsChecked == y.IsChecked && x.IsUnsigned == y.IsUnsigned
             && StructurallyEqual(x.Left, y.Left) && StructurallyEqual(x.Right, y.Right),
-        (Convert x, Convert y) => x.Target.Equals(y.Target) && x.IsChecked == y.IsChecked && StructurallyEqual(x.Operand, y.Operand),
+        (Convert x, Convert y) => x.Target.Equals(y.Target) && x.IsChecked == y.IsChecked && x.IsUnsigned == y.IsUnsigned
+            && StructurallyEqual(x.Operand, y.Operand),
         _ => false,
     };
 
