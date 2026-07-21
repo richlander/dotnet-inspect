@@ -45,11 +45,10 @@ budget. The new harness may reuse that algorithm for closure policy feedback,
 but it should not turn RTS into another C# shell generator.
 
 The broader tools-only reuse plan, including peer `cluster` and `all` scopes,
-selected versus full body policy, IL/C# diffing, and bounded method-body
-transplantation, is described in
-[C# member recompilation and assembly patching](csharp-member-recompilation.md).
-ReturnToSender is one consumer of that capability; it is not the general
-compilation or patching abstraction.
+selected versus full body policy, and layered IL/C# comparison, is described in
+[C# assembly round-trip testing](csharp-member-recompilation.md). ReturnToSender
+is one consumer of that capability; it is not the general compilation
+abstraction.
 
 The new harness should:
 
