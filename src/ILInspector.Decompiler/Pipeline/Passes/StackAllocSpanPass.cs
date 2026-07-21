@@ -275,16 +275,28 @@ public sealed class StackAllocSpanPass : IIrPass
         return unwrappedSize is Constant { Value: int sizeValue }
             && unwrappedCount is Constant { Value: int countValue }
             && GetSizeOf(element) is { } elementSize
-            && sizeValue == countValue * elementSize;
+            && (long)sizeValue == (long)countValue * elementSize; // checked-width product: an int-width product can wrap around and falsely match a truncated size
     }
 
     static bool IsCountTimesElementSize(IrExpression countOperand, IrExpression sizeOfOperand, IrExpression count, TypeRef element)
         => sizeOfOperand is SizeOf sizeOf && sizeOf.Type.Equals(element) && StructurallyEqual(countOperand, count);
 
+    /// <summary>
+    /// Strips only <see cref="Convert"/> wrappers proven value-preserving --
+    /// C# implicit integer widening from the operand's own result type to the
+    /// conversion's target -- so a narrowing or sign-changing conversion (e.g.
+    /// <c>(byte)someLargerValue</c>) is never silently discarded: that would
+    /// let two expressions that produce different values at runtime compare
+    /// as structurally equal.
+    /// </summary>
     static IrExpression Unconvert(IrExpression expression)
     {
-        while (expression is Convert { IsChecked: false } convert)
+        while (expression is Convert { IsChecked: false } convert
+            && convert.Operand.ResultType is { } operandType
+            && CSharpConversionRules.IsImplicitIntegerWidening(operandType, convert.Target))
+        {
             expression = convert.Operand;
+        }
         return expression;
     }
 

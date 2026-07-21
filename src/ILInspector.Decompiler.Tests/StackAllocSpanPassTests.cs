@@ -213,6 +213,46 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void DirectPointerWithByteSizeCountOverflow_DoesNotRaise()
+    {
+        // A 4-byte StackAllocate against a huge int Span count
+        // (1_073_741_825) would satisfy `sizeValue == countValue * elementSize`
+        // if that product were computed in int-width arithmetic (it wraps
+        // around to 4) -- the product must be checked/widened so a wrapped
+        // false match can never pass as proof.
+        const int hugeCount = 1_073_741_825; // 1_073_741_825 * 4 == 4_294_967_300, which wraps to 4 in Int32 arithmetic
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(new Constant(4, Int32)), count: hugeCount));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithNarrowingConvertInByteSize_DoesNotRaise()
+    {
+        // The byte size is `unchecked((byte)257) * sizeof(int)` (== 1 * 4 ==
+        // 4 bytes), and the constructor's count is 257 -- the same 257
+        // literal appears on both sides, but only after passing through a
+        // narrowing, value-changing (byte) conversion on the size side.
+        // Unconvert must not strip that conversion when comparing the
+        // multiply's operand to count: doing so would treat 4 reserved bytes
+        // as proof of 257 int elements (1028 bytes), reserving far more
+        // memory than the original stackalloc.
+        var narrowedLiteral = new IrConvert(Byte, isChecked: false, isUnsigned: false, new Constant(257, Int32));
+        var size = new Binary(BinaryKind.Multiply, isChecked: false, isUnsigned: false, narrowedLiteral, new SizeOf(Int32));
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size), count: 257));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void DirectPointerWithInitializerCountMismatch_DoesNotRaise()
     {
         // Same defect as the slot-indirection case's
