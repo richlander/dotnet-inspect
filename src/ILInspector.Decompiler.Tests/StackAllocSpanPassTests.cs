@@ -155,23 +155,30 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
-    public void DirectPointerWithDynamicPureSize_Raises()
+    public void DirectPointerWithDynamicPureSize_DoesNotRaise()
     {
         // A dynamic-but-pure size (a local read, or arithmetic over one -- the
-        // common `stackalloc byte[n]` shape, e.g. n * sizeof(T) after
-        // StackAllocInitializerPass/import) must still raise: requiring a
-        // literal Constant here would reject this very common real-world
-        // pattern and reintroduce the original invalid-Full CS8346 shape this
-        // pass exists to fix. The size's own `n` and the constructor's count
-        // argument are the same LoadLocal(0), matching the canonical
-        // `count * sizeof(element)` byte-size shape the compiler emits.
+        // `stackalloc byte[n]` shape) is deliberately declined on this direct
+        // (non-initializer) StackAllocate path: IsProvenByteSize only accepts
+        // a literal-constant size/count pair. This is a scoped limitation,
+        // not an oversight -- a real compiled `stackalloc int[n]` (no
+        // initializer) emits a `checked unsigned` multiply over an
+        // int-to-nuint convert chain that isn't a safe-to-strip implicit C#
+        // conversion, and for primitive element types a folded literal
+        // Constant element size rather than a symbolic SizeOf node; recognizing
+        // that real shape soundly needs compiled-fixture validation this pass
+        // does not yet have, so it declines conservatively instead of raising
+        // on an unproven synthetic shape (see issue tracking this follow-up).
+        // The size's own `n` and the constructor's count argument are the
+        // same LoadLocal(0), which would have matched a canonical
+        // `count * sizeof(element)` byte-size shape if one were recognized.
         var size = new Binary(BinaryKind.Multiply, isChecked: false, isUnsigned: false, new LoadLocal(0, Int32), new SizeOf(Int32));
         var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size), new LoadLocal(0, Int32)));
 
         new StackAllocSpanPass().Run(function, PassContext.None);
 
-        Assert.Single(function.Descendants.OfType<StackAllocArray>());
-        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
         function.CheckInvariant();
     }
 
@@ -213,6 +220,44 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void DirectPointerWithNegativeConstantCount_DoesNotRaise()
+    {
+        // size = -4, count = -1, element = int: -4 == -1 * 4 passes the
+        // arithmetic check, but a negative array length is invalid C#
+        // (CS0247) -- both the size and the count must be nonnegative before
+        // accepting the literal-constant fallback.
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(new Constant(-4, Int32)), count: -1));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithUninitializedArrayNegativeConstantCount_DoesNotRaise()
+    {
+        // Same defect as DirectPointerWithNegativeConstantCount, but for an
+        // uninitialized StackAllocArray source's own literal Count: -1 == -1
+        // passes the equality check, but a negative array length is invalid
+        // C# (CS0247).
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(-1, Int32), TypeRef.Pointer(Int32));
+        var store = new StoreStackSlot(0, stackAllocArray);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: -1);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.False(unraised.HasInitializer); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void DirectPointerWithByteSizeCountOverflow_DoesNotRaise()
     {
         // A 4-byte StackAllocate against a huge int Span count
@@ -233,17 +278,16 @@ public class StackAllocSpanPassTests
     [Fact]
     public void DirectPointerWithNarrowingConvertInByteSize_DoesNotRaise()
     {
-        // The byte size is `unchecked((byte)257) * sizeof(int)` (== 1 * 4 ==
-        // 4 bytes), and the constructor's count is 257 -- the same 257
-        // literal appears on both sides, but only after passing through a
-        // narrowing, value-changing (byte) conversion on the size side.
-        // Unconvert must not strip that conversion when comparing the
-        // multiply's operand to count: doing so would treat 4 reserved bytes
-        // as proof of 257 int elements (1028 bytes), reserving far more
-        // memory than the original stackalloc.
-        var narrowedLiteral = new IrConvert(Byte, isChecked: false, isUnsigned: false, new Constant(257, Int32));
-        var size = new Binary(BinaryKind.Multiply, isChecked: false, isUnsigned: false, narrowedLiteral, new SizeOf(Int32));
-        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size), count: 257));
+        // The byte size is `unchecked((byte)257)` (== 1), and the
+        // constructor's count is 257 against a 1-byte element -- the same
+        // 257 literal appears on both sides, but only after passing through
+        // a narrowing, value-changing (byte) conversion on the size side.
+        // Unconvert must not strip that conversion when reducing the size to
+        // a literal constant: doing so would treat the byte 1 as proof of
+        // 257 elements, reserving 257x more memory than the original
+        // stackalloc actually allocated.
+        var narrowedSize = new IrConvert(Byte, isChecked: false, isUnsigned: false, new Constant(257, Int32));
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(narrowedSize), count: 257, elementType: Byte));
 
         new StackAllocSpanPass().Run(function, PassContext.None);
 

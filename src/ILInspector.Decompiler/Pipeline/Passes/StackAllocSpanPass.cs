@@ -127,7 +127,7 @@ public sealed class StackAllocSpanPass : IIrPass
                     // dynamic quantities (e.g. two different locals) could
                     // silently pass each other off as the same count.
                     var agrees = sourceArray.Count is Constant { Value: int sourceCount }
-                        ? count is Constant { Value: int ctorCount } && ctorCount == sourceCount
+                        ? sourceCount >= 0 && count is Constant { Value: int ctorCount } && ctorCount == sourceCount
                         : StructurallyEqual(sourceArray.Count, count);
                     if (!agrees)
                         continue;
@@ -249,37 +249,35 @@ public sealed class StackAllocSpanPass : IIrPass
     /// same allocation as the constructor's <paramref name="count"/> element
     /// argument under <paramref name="element"/>'s size, so raising doesn't
     /// silently reserve a different number of bytes than the constructor's
-    /// count implies. Accepts either the canonical compiler shape --
-    /// <paramref name="size"/> structurally is <c>count * sizeof(element)</c>
-    /// (either operand order, seeing through unchecked <see cref="Convert"/>
-    /// wrappers), which needs no numeric knowledge of the element's size and
-    /// so works for any element type including generic/struct types -- or,
-    /// when both sides are literal constants, requires a known fixed
-    /// primitive byte size for <paramref name="element"/> and an exact
-    /// arithmetic match.
+    /// count implies. Requires both to be literal, nonnegative constants and
+    /// a known fixed primitive byte size for <paramref name="element"/>, with
+    /// an exact arithmetic match.
+    ///
+    /// <para>This only recognizes the literal-constant case
+    /// (<c>stackalloc byte[4]</c>) -- not a dynamic size, even a provably
+    /// pure one (<c>stackalloc int[n]</c>). The real compiler shape for a
+    /// dynamic count is a <c>checked unsigned</c> multiply over an
+    /// <c>int</c>-to-<c>nuint</c> convert chain that isn't an implicit C#
+    /// conversion (so isn't safe to strip generically) and, for primitive
+    /// element types, an already-folded <see cref="Constant"/> element size
+    /// rather than a symbolic <see cref="SizeOf"/> node -- recognizing that
+    /// shape soundly needs real compiled-fixture validation this pass does
+    /// not yet have, so it declines rather than risk a silent size mismatch.
+    /// A dynamic count reaching this pass through a <see cref="StackAllocArray"/>
+    /// source (the initializer/slot path) is unaffected: that count is
+    /// already an element count, not a byte size, so no arithmetic proof is
+    /// needed there.</para>
     /// </summary>
     static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
     {
         var unwrappedSize = Unconvert(size);
         var unwrappedCount = Unconvert(count);
 
-        if (unwrappedSize is Binary { Kind: BinaryKind.Multiply, IsChecked: false } multiply)
-        {
-            var left = Unconvert(multiply.Left);
-            var right = Unconvert(multiply.Right);
-            if (IsCountTimesElementSize(left, right, unwrappedCount, element)
-                || IsCountTimesElementSize(right, left, unwrappedCount, element))
-                return true;
-        }
-
-        return unwrappedSize is Constant { Value: int sizeValue }
-            && unwrappedCount is Constant { Value: int countValue }
+        return unwrappedSize is Constant { Value: int sizeValue } && sizeValue >= 0
+            && unwrappedCount is Constant { Value: int countValue } && countValue >= 0
             && GetSizeOf(element) is { } elementSize
             && (long)sizeValue == (long)countValue * elementSize; // checked-width product: an int-width product can wrap around and falsely match a truncated size
     }
-
-    static bool IsCountTimesElementSize(IrExpression countOperand, IrExpression sizeOfOperand, IrExpression count, TypeRef element)
-        => sizeOfOperand is SizeOf sizeOf && sizeOf.Type.Equals(element) && StructurallyEqual(countOperand, count);
 
     /// <summary>
     /// Strips only <see cref="Convert"/> wrappers proven value-preserving --
@@ -339,10 +337,14 @@ public sealed class StackAllocSpanPass : IIrPass
     /// <see cref="IsSideEffectFree"/>. This pass always discards that size/count
     /// expression (the constructor's own <c>length</c> argument is used
     /// instead) — detaching and dropping an expression with an unproven side
-    /// effect would silently erase it. A plain dynamic size (a local/argument
-    /// read, or arithmetic over one, e.g. <c>stackalloc byte[n]</c>) is common
-    /// and provably pure, so this does not require a literal constant.
-    /// Returning the unwrapped node (rather than a possibly-<c>Convert</c>-
+    /// effect would silently erase it. This gate only proves purity, not
+    /// that the discarded expression agrees with the constructor's
+    /// <c>length</c>: for <see cref="StackAllocArray"/> that agreement is
+    /// checked separately below (by count or by <see cref="StructurallyEqual"/>),
+    /// and for <see cref="StackAllocate"/> it is checked by
+    /// <see cref="IsProvenByteSize"/>, which declines a dynamic (non-literal)
+    /// size even though it would pass this purity gate -- see its own doc
+    /// comment for why. Returning the unwrapped node (rather than a possibly-<c>Convert</c>-
     /// wrapped <paramref name="pointer"/>) is required so later checks that
     /// pattern-match on <see cref="StackAllocArray"/> (element type,
     /// initializer count) see through the wrapper instead of silently skipping
