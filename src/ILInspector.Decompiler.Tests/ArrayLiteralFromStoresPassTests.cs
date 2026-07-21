@@ -264,4 +264,28 @@ public class ArrayLiteralFromStoresPassTests
         Assert.Equal(1, ArrayLiteralCount(function));
         function.CheckInvariant();
     }
+
+    // A deconstruction assignment re-targeting a pre-existing local (not a
+    // StoreLocal) between the allocation and the fill run overwrites the
+    // place through a structured node the pass must also recognize as a
+    // write, or it would fold the fill run onto the wrong array reference
+    // (adversarial review finding).
+    [Fact]
+    public void DeconstructionAssignmentOverwritesPlaceBeforeFillRun_DoesNotFold()
+    {
+        var call = new ExpressionStatement(new Call(Sink(1), isVirtual: false, [new LoadLocal(0, ObjectArray)]));
+        var deconstruct = new DeconstructionAssignment(
+            [DeconstructionTarget.Local(0, ObjectArray, isDeclared: false), DeconstructionTarget.Local(1, Object, isDeclared: true)],
+            new Call(new MethodRef(Derived, "MethodReturningTuple", Object, [], HasThis: false), isVirtual: false, []));
+        var function = Build(
+            new StoreLocal(0, ObjectArray, new NewArray(Object, new Constant(1, TypeRef.CoreLib("System", "Int32")))),
+            deconstruct,
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), new Constant(0, TypeRef.CoreLib("System", "Int32")), new Constant("A", StringType)),
+            call);
+
+        RunPass(function);
+
+        Assert.Equal(0, ArrayLiteralCount(function));
+        function.CheckInvariant();
+    }
 }
