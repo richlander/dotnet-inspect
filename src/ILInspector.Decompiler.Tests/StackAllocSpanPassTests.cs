@@ -136,6 +136,62 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DirectPointerWithEffectfulSize_DoesNotRaise()
+    {
+        // Same defect as the slot-indirection case's SlotWithEffectfulSize --
+        // the direct pointer's own size expression is discarded and replaced
+        // by the constructor's count argument, so a non-constant/effectful
+        // size must not be silently dropped here either.
+        var sizeEffect = new Call(new MethodRef(Holder, "SizeEffect", Int32, [], HasThis: false), isVirtual: false, []);
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(sizeEffect)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "SizeEffect"); // side effect preserved
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithInitializerCountMismatch_DoesNotRaise()
+    {
+        // Same defect as the slot-indirection case's
+        // SlotWithInitializerCountMismatch -- the pointer's own initializer
+        // element count and the constructor's independent length argument
+        // must agree before raising.
+        var elements = new IrExpression[] { new Constant(1, Int32), new Constant(2, Int32), new Constant(3, Int32) };
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(3, Int32), TypeRef.Pointer(Int32), elements);
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), stackAllocArray, count: 1));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(3, unraised.Elements.Length); // still the pointer's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithElementTypeMismatch_DoesNotRaise()
+    {
+        // Same defect as the slot-indirection case's
+        // SlotWithElementTypeMismatch -- the pointer's own initializer element
+        // type and the constructor's Span<T> type argument must agree before
+        // raising.
+        var elements = new IrExpression[] { new Constant(300, Int32) };
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(1, Int32), TypeRef.Pointer(Int32), elements);
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), stackAllocArray, count: 1, elementType: Byte));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal("int", unraised.ElementType.ToDisplayString()); // still the pointer's un-raised value
+        function.CheckInvariant();
+    }
+
     // #2907: StackAllocInitializerPass (#2869) recovers an initializer into a
     // stackalloc-through-slot shape (`slot = stackalloc T[n] {...}`) but only
     // replaces the slot's stored value -- never the later Span constructor call
@@ -348,6 +404,79 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void SlotWithNonAdjacentStatement_DoesNotRaise()
+    {
+        // Even with a constant size, a statement between the store and the
+        // load's statement could itself throw, run out of stack, or otherwise
+        // observe or alter state before the allocation would occur -- moving
+        // the allocation to the load's site changes when (and whether) it
+        // executes relative to that statement. Requiring the load's statement
+        // to be the store's immediate successor rules this out entirely.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var marker = new Call(new MethodRef(Holder, "Marker", Void, [], HasThis: false), isVirtual: false, []);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+
+        var function = BuildSlot(store, marker, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithConvertWrappedInitializerCountMismatch_DoesNotRaise()
+    {
+        // Same defect as SlotWithInitializerCountMismatch_DoesNotRaise, but the
+        // store's value is Convert-wrapped: the count/element-type checks must
+        // see through the wrapper to the underlying StackAllocArray, not
+        // silently skip validation because the wrapper doesn't itself match
+        // the `is StackAllocArray` pattern.
+        var elements = new IrExpression[] { new Constant(1, Int32), new Constant(2, Int32), new Constant(3, Int32) };
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(3, Int32), TypeRef.Pointer(Int32), elements);
+        var wrapped = new IrConvert(VoidPointer, isChecked: false, isUnsigned: false, stackAllocArray);
+        var store = new StoreStackSlot(0, wrapped);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(3, unraised.Elements.Length); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithElementTypeMismatch_DoesNotRaise()
+    {
+        // The store's recovered initializer is int[], but the constructor's
+        // Span<T> type argument is byte -- these are independent expressions
+        // that could disagree in adversarial IR (unlike the direct-pointer
+        // case, where the element type comes from the same stackalloc node).
+        // Raising would silently reinterpret the stored int elements as a
+        // byte-typed initializer.
+        var elements = new IrExpression[] { new Constant(300, Int32) };
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(1, Int32), TypeRef.Pointer(Int32), elements);
+        var store = new StoreStackSlot(0, stackAllocArray);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1, elementType: Byte);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal("int", unraised.ElementType.ToDisplayString()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void SlotThroughNonStackallocStore_DoesNotRaise()
     {
         var store = new StoreStackSlot(0, new Call(new MethodRef(Holder, "GetPointer", VoidPointer, [], HasThis: false), isVirtual: false, []));
@@ -362,12 +491,12 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
-    static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, int count)
-        => StackAllocSpanConstructorWithPointer(spanDefinition, pointer, count);
+    static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, int count, TypeRef? elementType = null)
+        => StackAllocSpanConstructorWithPointer(spanDefinition, pointer, count, elementType);
 
-    static NewObject StackAllocSpanConstructorWithPointer(TypeRef spanDefinition, IrExpression pointer, int count)
+    static NewObject StackAllocSpanConstructorWithPointer(TypeRef spanDefinition, IrExpression pointer, int count, TypeRef? elementType = null)
     {
-        var span = TypeRef.GenericInstance(spanDefinition, [Int32]);
+        var span = TypeRef.GenericInstance(spanDefinition, [elementType ?? Int32]);
         var ctor = new MethodRef(span, ".ctor", Void, [VoidPointer, Int32], HasThis: true);
         return new NewObject(ctor, [pointer, new Constant(count, Int32)]);
     }

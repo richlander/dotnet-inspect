@@ -58,30 +58,44 @@ public sealed class StackAllocSpanPass : IIrPass
                 continue;
 
             StoreStackSlot? ownedStore = null;
-            IEnumerable<IrExpression>? elements;
+            IrExpression source;
 
-            if (IsStackAllocPointer(pointer))
+            if (TryNormalizeConstantStackAlloc(pointer, out var directSource))
             {
-                elements = GetInitializerElements(pointer);
+                source = directSource;
             }
             else if (TryResolveOwnedSlotSource(pointer, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
             {
-                // The slot's recovered elements (if any) must agree with this
-                // constructor's own length argument -- they're independent
-                // expressions in the tree (unlike the direct-pointer case, where
-                // the same stackalloc node feeds both the elements and the
-                // length), so nothing else proves they describe the same span.
-                if (slotSource is StackAllocArray { HasInitializer: true } slotArray
-                    && (count is not Constant { Value: int expectedCount } || expectedCount != slotArray.Elements.Length))
-                {
-                    continue;
-                }
-
-                elements = GetInitializerElements(slotSource);
+                source = slotSource;
             }
             else
             {
                 continue;
+            }
+
+            // A recovered initializer's element count and element type must
+            // agree with this constructor's own length argument and Span<T>
+            // type argument. Once the pointer is resolved (whether directly or
+            // through a slot), the source's elements and the constructor's
+            // count/element-type are independent expressions in the tree --
+            // nothing else proves they describe the same span, so a mismatch
+            // here would silently change the observable Span.Length or
+            // reinterpret the initializer under the wrong element type.
+            IEnumerable<IrExpression>? elements;
+            if (source is StackAllocArray { HasInitializer: true } sourceArray)
+            {
+                if (!sourceArray.ElementType.Equals(element)
+                    || count is not Constant { Value: int expectedCount }
+                    || expectedCount != sourceArray.Elements.Length)
+                {
+                    continue;
+                }
+
+                elements = GetInitializerElements(sourceArray);
+            }
+            else
+            {
+                elements = null;
             }
 
             count.Detach();
@@ -97,9 +111,11 @@ public sealed class StackAllocSpanPass : IIrPass
     /// Resolves a Span constructor's pointer argument through a compiler-owned
     /// stack slot indirection. Only raises when the slot is exclusively owned by
     /// this one store/load pair — no other store or load of the slot anywhere in
-    /// the function — and the store precedes the load's statement in the same
-    /// block, so detaching the store cannot move or discard the allocation from
-    /// under some other reader or writer, nor reorder any other observable effect.
+    /// the function — and the load's statement is the store's immediate
+    /// successor in the same block, so detaching the store cannot move or
+    /// discard the allocation from under some other reader or writer, and no
+    /// other statement can sit between them to observe or reorder past the
+    /// allocation.
     /// </summary>
     static bool TryResolveOwnedSlotSource(
         IrExpression pointer,
@@ -123,14 +139,14 @@ public sealed class StackAllocSpanPass : IIrPass
             return false;
 
         var store = stores[0];
-        if (!HasConstantSizeStackAlloc(store.Value) || store.Parent is not Block parentBlock)
+        if (!TryNormalizeConstantStackAlloc(store.Value, out var normalized) || store.Parent is not Block parentBlock)
             return false;
 
         var loadStatement = GetStatement(load);
-        if (loadStatement == null || loadStatement.Parent != parentBlock || loadStatement.ChildIndex <= store.ChildIndex)
-            return false; // Escaped, reordered, or not yet defined at this use.
+        if (loadStatement == null || loadStatement.Parent != parentBlock || loadStatement.ChildIndex != store.ChildIndex + 1)
+            return false; // Escaped, reordered, or not adjacent to the store: some other statement could sit between them and observe or alter state before the load.
 
-        source = store.Value;
+        source = normalized;
         ownedStore = store;
         return true;
     }
@@ -142,59 +158,44 @@ public sealed class StackAllocSpanPass : IIrPass
         return node.Parent is Block ? node : null;
     }
 
-    static IEnumerable<IrExpression>? GetInitializerElements(IrExpression pointer)
+    static IEnumerable<IrExpression> GetInitializerElements(StackAllocArray source)
     {
-        if (pointer is StackAllocArray { HasInitializer: true } sa)
-        {
-            var elements = sa.Elements.ToArray().Cast<IrExpression>().ToList();
-            foreach (var e in elements) e.Detach();
-            return elements;
-        }
-        if (pointer is Convert { Operand: StackAllocArray { HasInitializer: true } sa2 })
-        {
-            var elements = sa2.Elements.ToArray().Cast<IrExpression>().ToList();
-            foreach (var e in elements) e.Detach();
-            return elements;
-        }
-        return null;
+        var elements = source.Elements.ToArray().Cast<IrExpression>().ToList();
+        foreach (var e in elements) e.Detach();
+        return elements;
     }
 
     /// <summary>
-    /// Like <see cref="IsStackAllocPointer"/>, but additionally requires the
-    /// allocation's byte size (<see cref="StackAllocate.Size"/>) or element count
-    /// (<see cref="StackAllocArray.Count"/>) to be a <see cref="Constant"/>. This
-    /// pass discards that expression entirely when raising through a slot
-    /// indirection (the constructor's own <c>length</c> argument is used
-    /// instead) — detaching and dropping it silently erases any side effect it
-    /// carries and can reorder any effect it precedes. In the direct-pointer
-    /// case the expression is never discarded (it's the same node the printer
-    /// spells as the stackalloc's own length), so no such check is needed there.
+    /// Resolves a Span constructor's pointer argument to a stackalloc, whether
+    /// direct or <c>Convert</c>-wrapped, unwrapping the wrapper to return the
+    /// underlying <see cref="StackAllocate"/> or <see cref="StackAllocArray"/>
+    /// node itself, and requires its byte size (<see cref="StackAllocate.Size"/>)
+    /// or element count (<see cref="StackAllocArray.Count"/>) to be a
+    /// <see cref="Constant"/>. This pass always discards that size/count
+    /// expression (the constructor's own <c>length</c> argument is used
+    /// instead) — detaching and dropping a non-constant size/count would
+    /// silently erase any side effect it carries. Returning the unwrapped node
+    /// (rather than a possibly-<c>Convert</c>-wrapped <paramref name="pointer"/>)
+    /// is required so later checks that pattern-match on
+    /// <see cref="StackAllocArray"/> (element type, initializer count) see
+    /// through the wrapper instead of silently skipping validation.
     /// </summary>
-    static bool HasConstantSizeStackAlloc(IrExpression pointer)
+    static bool TryNormalizeConstantStackAlloc(IrExpression pointer, out IrExpression normalized)
     {
         var candidate = pointer;
         if (candidate is Convert { IsChecked: false, Operand: StackAllocate or StackAllocArray, Target: { } target } converted && IsPointerLikeTarget(target))
             candidate = converted.Operand;
 
-        return candidate switch
+        switch (candidate)
         {
-            StackAllocate { Size: Constant } => true,
-            StackAllocArray { Count: Constant } => true,
-            _ => false,
-        };
-    }
-
-    static bool IsStackAllocPointer(IrExpression pointer)
-    {
-        if (pointer is StackAllocate or StackAllocArray)
-            return true;
-
-        return pointer is Convert
-        {
-            IsChecked: false,
-            Operand: StackAllocate or StackAllocArray,
-            Target: { } target,
-        } && IsPointerLikeTarget(target);
+            case StackAllocate { Size: Constant }:
+            case StackAllocArray { Count: Constant }:
+                normalized = candidate;
+                return true;
+            default:
+                normalized = null!;
+                return false;
+        }
     }
 
     static bool IsPointerLikeTarget(TypeRef target)
