@@ -13,6 +13,8 @@ public class PrinterPrecedenceTests
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
+    static readonly TypeRef s_nuint = TypeRef.CoreLib("System", "UIntPtr");
+    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
 
     static IrFunction Raised(string methodName)
@@ -361,6 +363,49 @@ public class PrinterPrecedenceTests
         AssertCompiles("public static int M(int x, int y)", output);
     }
 
+    // Issue #2929: unbox yields a managed reference into the box. Converting
+    // that reference to nuint must preserve the address, not read and convert
+    // the boxed value.
+    [Fact]
+    public void ConvertNativeUInt_Unbox_SpellsPointerIntoBox()
+    {
+        var result = PrintReturnResult(
+            new ILInspector.Decompiler.Pipeline.Convert(
+                s_nuint,
+                isChecked: false,
+                isUnsigned: false,
+                new Unbox(s_int, new LoadArgument(0, "o", s_object))),
+            s_nuint,
+            [new Parameter("o", s_object)]);
+        string output = result.Output!;
+
+        Assert.Contains(
+            "return (nuint)System.Runtime.CompilerServices.Unsafe.AsPointer(ref System.Runtime.CompilerServices.Unsafe.Unbox<int>(o));",
+            output);
+        Assert.DoesNotContain("(nuint)(ref (int)o)", output);
+        Assert.True(result.RequiresUnsafeBodyModifier);
+        AssertCompiles("public static unsafe nuint M(object o)", output);
+    }
+
+    [Fact]
+    public void ConvertNativeUInt_Value_RemainsOrdinarySafeCast()
+    {
+        var result = PrintReturnResult(
+            new ILInspector.Decompiler.Pipeline.Convert(
+                s_nuint,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(0, "value", s_uint)),
+            s_nuint,
+            [new Parameter("value", s_uint)]);
+        string output = result.Output!;
+
+        Assert.Contains("return (nuint)value;", output);
+        Assert.DoesNotContain("Unsafe.", output);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        AssertCompiles("public static nuint M(uint value)", output);
+    }
+
     // AssertCompiles/Recompile shape already used by DataflowFactsTests,
     // EnumCastPrinterTests, and MixedSignComparisonTests; reused here rather
     // than reimplemented.
@@ -394,6 +439,12 @@ public class PrinterPrecedenceTests
     }
 
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
+        => PrintReturnResult(value, returnType, parameters).Output!;
+
+    static DecompilerResult PrintReturnResult(
+        IrExpression value,
+        TypeRef returnType,
+        ImmutableArray<Parameter> parameters)
     {
         var block = new Block();
         block.Add(new Return(value));
@@ -405,6 +456,6 @@ public class PrinterPrecedenceTests
             new MethodSignature(returnType, parameters, HasThis: false, GenericParameterCount: 0),
             [],
             body);
-        return CSharpPrinter.Print(function).Output!;
+        return CSharpPrinter.Print(function);
     }
 }
