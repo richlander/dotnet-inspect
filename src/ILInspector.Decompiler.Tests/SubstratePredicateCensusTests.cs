@@ -36,6 +36,8 @@ public class SubstratePredicateCensusTests
             "List form of the pass-owned duplicated-tail comparison; kept local with SameTailExpression so the admitted tail expression set stays tied to this rewrite.",
         [new("UnionSwitchExpressionPass.cs", "SameTailNode")] =
             "Statement form of the pass-owned duplicated-tail comparison; it accepts only StoreLocal/ExpressionStatement/Return tails for this rewrite.",
+        [new("ArrayLiteralFromStoresPass.cs", "IsInsideRange")] =
+            "Position-based containment over one block's direct-child index range (the array-literal fill run), not a subtree/place-identity check — distinct from ReferenceOwnership.IsInside.",
     };
 
     [Fact]

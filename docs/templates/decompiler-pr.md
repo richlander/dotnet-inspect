@@ -60,8 +60,13 @@ only after checking with dotnet-inspect (relying on SourceLink).
 
 ### Before
 
+<!--
+Include the method signature line, matching Original source's shape, not just
+the body — a bare body is harder to line up against Original source.
+-->
+
 ```csharp
-// short failing or lower-quality output
+// short failing or lower-quality output, with its method signature
 ```
 
 - Valid: {True/False}
@@ -71,8 +76,10 @@ only after checking with dotnet-inspect (relying on SourceLink).
 
 ### After
 
+<!-- Include the method signature line here too, for the same reason. -->
+
 ```csharp
-// output produced by this PR, including an honest fallback when not fully raised
+// output produced by this PR, including an honest fallback when not fully raised, with its method signature
 ```
 
 - Valid: {True/False}
