@@ -288,7 +288,14 @@ public static class ResearchDiff
             oldSurface,
             newSurface,
             new FindingSubject("api", "API surface"),
-            new ApiDiffOptions(apiScope));
+            new ApiDiffOptions(apiScope),
+            // Opt into the extension static/instance projection tier: the Finding framework
+            // defaults acceptanceThreshold to 100 (exact-only) by design, so production API
+            // diffing must explicitly accept this tier's confidence to ever promote its soft
+            // candidates -- otherwise the fuzzy match this diff is built to recognize never
+            // fires, and the physical member it describes is double-reported as removed via
+            // its two identity atoms instead.
+            memberAcceptanceThreshold: MetadataFindings.ExtensionInstanceMatchTier.Confidence);
         var diff = findings.ApiDiff;
         builder.ApiComparison = findings;
         foreach (var failure in diff.InspectionFailures)

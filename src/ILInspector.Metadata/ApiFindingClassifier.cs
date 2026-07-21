@@ -43,8 +43,10 @@ public static class ApiFindingClassifier
 
         var changesByType = new Dictionary<string, List<ApiChange>>(StringComparer.Ordinal);
         var wholeTypeTransition = BuildWholeTypeTransitionSets(typesComplete);
+        bool oldIdentityIncomplete = oldSurface.InspectionFailures.Count > 0;
+        bool newIdentityIncomplete = newSurface.InspectionFailures.Count > 0;
 
-        ClassifyTypes(typesComplete, options, changesByType);
+        ClassifyTypes(typesComplete, options, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
         ClassifyMembers(membersComplete, options, wholeTypeTransition, changesByType);
 
         List<TypeDiff> typeDiffs = [];
@@ -78,6 +80,8 @@ public static class ApiFindingClassifier
     static void ClassifyTypes(
         FindingComparison<ApiTypeHandle>.Complete types,
         ApiDiffOptions options,
+        bool oldIdentityIncomplete,
+        bool newIdentityIncomplete,
         Dictionary<string, List<ApiChange>> changesByType)
     {
         foreach (var pair in types.Pairs)
@@ -85,7 +89,11 @@ public static class ApiFindingClassifier
             switch ((object)pair.Value)
             {
                 case PairFinding<ApiTypeHandle>.Added added:
-                    if (ApiDiffAnalyzer.IncludesSignature(options))
+                    // Mirrors the legacy analyzer's own oldIdentityIncomplete skip: if the old
+                    // surface failed to resolve identity for some type(s), a type that's
+                    // "only in new" may really be a type whose old-side identity just failed
+                    // to decode, not a genuine addition.
+                    if (ApiDiffAnalyzer.IncludesSignature(options) && !oldIdentityIncomplete)
                     {
                         Bucket(changesByType, added.New.Payload.TypeFullName).Add(new ApiChange(
                             ChangeKind.TypeAdded,
@@ -96,7 +104,11 @@ public static class ApiFindingClassifier
                     break;
 
                 case PairFinding<ApiTypeHandle>.Removed removed:
-                    if (ApiDiffAnalyzer.IncludesSignature(options))
+                    // Mirrors the legacy analyzer's own newIdentityIncomplete skip (see
+                    // ApiSurfaceRelationshipFailureTests.ApiDiff_IncompleteNewIdentityDoesNotClaimOldTypeWasRemoved):
+                    // a type that's "only in old" may really be a type whose new-side identity
+                    // just failed to decode (e.g. a metadata cycle), not a genuine removal.
+                    if (ApiDiffAnalyzer.IncludesSignature(options) && !newIdentityIncomplete)
                     {
                         Bucket(changesByType, removed.Old.Payload.TypeFullName).Add(new ApiChange(
                             ChangeKind.TypeRemoved,
@@ -159,19 +171,27 @@ public static class ApiFindingClassifier
         // (or new) member to enable soft-key projection matching (e.g. an extension method
         // gets both its own hard "extension:" selector atom -- unmatched, becoming Removed --
         // and a receiver-projected atom that fuzzy-matches a real instance method, becoming
-        // Changed). Both atoms share the same content Fingerprint. Without deduplicating by
-        // fingerprint, the same physical member would be reported twice: once via the
-        // Removed/Added atom and again via the fuzzy Changed pair.
-        var oldFingerprintsInFuzzyMatch = new HashSet<string>(StringComparer.Ordinal);
-        var newFingerprintsInFuzzyMatch = new HashSet<string>(StringComparer.Ordinal);
+        // Changed). Both atoms share the same content CanonicalSignature. Without
+        // deduplicating by canonical signature, the same physical member would be reported
+        // twice: once via the Removed/Added atom and again via the fuzzy Changed pair.
+        //
+        // Deliberately keyed on the full CanonicalSignature string rather than Fingerprint:
+        // Fingerprint is a 10-hex-char (40-bit) truncated SHA256 digest, so at real-corpus
+        // member counts an unrelated member's fingerprint can collide with a fuzzy-matched
+        // member's fingerprint (birthday bound ~2^20 members for a 50% collision chance) and
+        // silently suppress that unrelated member's genuine Added/Removed change. The full
+        // signature string carries no such collision risk and is already available on the
+        // payload at zero extra cost.
+        var oldSignaturesInFuzzyMatch = new HashSet<string>(StringComparer.Ordinal);
+        var newSignaturesInFuzzyMatch = new HashSet<string>(StringComparer.Ordinal);
         foreach (var pair in members.Pairs)
         {
             if (pair.Value is IMatchedPairFinding { Match: not null } && pair is PairFinding<ApiMemberHandle>.Changed fuzzy)
             {
-                if (fuzzy.Old.Payload.Fingerprint is { } oldFingerprint)
-                    oldFingerprintsInFuzzyMatch.Add(oldFingerprint);
-                if (fuzzy.New.Payload.Fingerprint is { } newFingerprint)
-                    newFingerprintsInFuzzyMatch.Add(newFingerprint);
+                if (fuzzy.Old.Payload.CanonicalSignature is { } oldSignature)
+                    oldSignaturesInFuzzyMatch.Add(oldSignature);
+                if (fuzzy.New.Payload.CanonicalSignature is { } newSignature)
+                    newSignaturesInFuzzyMatch.Add(newSignature);
             }
         }
 
@@ -181,12 +201,13 @@ public static class ApiFindingClassifier
             {
                 case PairFinding<ApiMemberHandle>.Added added:
                     if (ApiDiffAnalyzer.IncludesSignature(options)
+                        && !IsCompilerGeneratedMember(added.New.Payload)
                         && !wholeTypeTransition.Added.Contains(added.New.Payload.TypeFullName)
-                        && !(added.New.Payload.Fingerprint is { } addedFingerprint && newFingerprintsInFuzzyMatch.Contains(addedFingerprint)))
+                        && !(added.New.Payload.CanonicalSignature is { } addedSignature && newSignaturesInFuzzyMatch.Contains(addedSignature)))
                     {
                         Bucket(changesByType, added.New.Payload.TypeFullName).Add(new ApiChange(
                             ChangeKind.MemberAdded,
-                            ChangeClassification.Additive,
+                            MemberAddedClassification(added.New.Payload),
                             $"Member '{added.New.Payload.MemberName}' was added",
                             Subject: ApiChangeSubject.Member(null, null, added.New.Payload.Type, added.New.Payload.Member)));
                     }
@@ -194,8 +215,9 @@ public static class ApiFindingClassifier
 
                 case PairFinding<ApiMemberHandle>.Removed removed:
                     if (ApiDiffAnalyzer.IncludesSignature(options)
+                        && !IsCompilerGeneratedMember(removed.Old.Payload)
                         && !wholeTypeTransition.Removed.Contains(removed.Old.Payload.TypeFullName)
-                        && !(removed.Old.Payload.Fingerprint is { } removedFingerprint && oldFingerprintsInFuzzyMatch.Contains(removedFingerprint)))
+                        && !(removed.Old.Payload.CanonicalSignature is { } removedSignature && oldSignaturesInFuzzyMatch.Contains(removedSignature)))
                     {
                         Bucket(changesByType, removed.Old.Payload.TypeFullName).Add(new ApiChange(
                             ChangeKind.MemberRemoved,
@@ -206,10 +228,14 @@ public static class ApiFindingClassifier
                     break;
 
                 case PairFinding<ApiMemberHandle>.Present present:
-                    ClassifyMatchedMember(present.Old.Payload, present.New.Payload, options, changesByType);
+                    if (!IsCompilerGeneratedMember(present.Old.Payload))
+                        ClassifyMatchedMember(present.Old.Payload, present.New.Payload, options, changesByType);
                     break;
 
                 case PairFinding<ApiMemberHandle>.Changed changed:
+                    if (IsCompilerGeneratedMember(changed.Old.Payload) || IsCompilerGeneratedMember(changed.New.Payload))
+                        break;
+
                     var match = ((IMatchedPairFinding)pair.Value).Match;
                     if (match is null)
                     {
@@ -242,7 +268,7 @@ public static class ApiFindingClassifier
                             {
                                 Bucket(changesByType, changed.New.Payload.TypeFullName).Add(new ApiChange(
                                     ChangeKind.MemberAdded,
-                                    ChangeClassification.Additive,
+                                    MemberAddedClassification(changed.New.Payload),
                                     $"Member '{changed.New.Payload.MemberName}' was added",
                                     Subject: ApiChangeSubject.Member(null, null, changed.New.Payload.Type, changed.New.Payload.Member)));
                             }
@@ -252,6 +278,28 @@ public static class ApiFindingClassifier
             }
         }
     }
+
+    /// <summary>
+    /// Legacy <c>ApiDiffAnalyzer.CompareMembers</c> drops compiler-generated members (backing
+    /// fields, enum <c>value__</c> slots, closure/state-machine artifacts -- see
+    /// <see cref="MemberFilters.IsCompilerGenerated"/>) via its own <c>FilterMembers</c> before
+    /// matching, since they are not part of the authored API surface. The Finding lane's member
+    /// producer deliberately does not apply this heuristic itself (it is a raw, unfiltered
+    /// census -- see <c>MetadataFindingsTests.ApiSurfaceMembersAreNotFilteredByNameHeuristics</c>),
+    /// so classification is where this policy must be applied instead.
+    /// </summary>
+    static bool IsCompilerGeneratedMember(ApiMemberHandle handle)
+        => MemberFilters.IsCompilerGenerated(handle.MemberName);
+
+    /// <summary>
+    /// Adding a member to an interface is potentially breaking (existing implementers must
+    /// add it too); adding a member to a class/struct/enum is purely additive. Mirrors the
+    /// legacy analyzer's own <c>newType.Kind == "interface"</c> check in <c>CompareMembers</c>.
+    /// </summary>
+    static ChangeClassification MemberAddedClassification(ApiMemberHandle newHandle)
+        => newHandle.Type.Kind == "interface"
+            ? ChangeClassification.PotentiallyBreaking
+            : ChangeClassification.Additive;
 
     static void ClassifyMatchedMember(
         ApiMemberHandle oldHandle,

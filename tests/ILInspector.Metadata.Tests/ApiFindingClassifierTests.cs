@@ -147,6 +147,56 @@ public class ApiFindingClassifierTests
         Assert.All(memberChanges, c => Assert.Equal(ChangeKind.MemberSignatureChanged, c.Kind));
     }
 
+    [Fact]
+    public void MemberAdded_ToInterface_IsPotentiallyBreakingNotAdditive()
+    {
+        var oldSurface = Surface(Type("IWidget", kind: "interface"));
+        var newSurface = Surface(Type("IWidget", kind: "interface", members: [Method("Run", "void Run()")]));
+
+        var options = new ApiDiffOptions(ApiDiffScope.All);
+        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
+        var classified = ClassifyFor(oldSurface, newSurface, options);
+
+        // Legacy: adding a member to an interface is PotentiallyBreaking (existing
+        // implementers must add it too), not Additive.
+        var legacyChange = Assert.Single(legacy.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
+        Assert.Equal(ChangeClassification.PotentiallyBreaking, legacyChange.Classification);
+
+        var classifiedChange = Assert.Single(classified.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
+        Assert.Equal(ChangeClassification.PotentiallyBreaking, classifiedChange.Classification);
+    }
+
+    [Fact]
+    public void MemberAdded_ToClass_RemainsAdditive()
+    {
+        var oldSurface = Surface(Type("Widget"));
+        var newSurface = Surface(Type("Widget", members: [Method("Run", "void Run()")]));
+
+        var classified = ClassifyFor(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.All));
+
+        var classifiedChange = Assert.Single(classified.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
+        Assert.Equal(ChangeClassification.Additive, classifiedChange.Classification);
+    }
+
+    [Fact]
+    public void CompilerGeneratedMembers_DoNotSurfaceAsApiChanges()
+    {
+        // Backing field for an auto-property (matches MemberFilters.IsCompilerGenerated's
+        // "__BackingField" heuristic) that only exists on the new side. The Finding lane's
+        // raw member census intentionally does not filter it (see
+        // MetadataFindingsTests.ApiSurfaceMembersAreNotFilteredByNameHeuristics), so
+        // classification -- not the producer -- must apply the legacy analyzer's own
+        // FilterMembers policy.
+        var oldSurface = Surface(Type("Widget"));
+        var newSurface = Surface(Type("Widget", members: [Method("<Name>k__BackingField", "string <Name>k__BackingField")]));
+
+        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.All));
+        var classified = ClassifyFor(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.All));
+
+        Assert.DoesNotContain(legacy.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
+        Assert.DoesNotContain(classified.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
+    }
+
     static ApiDiff ClassifyFor(ApiSurface oldSurface, ApiSurface newSurface, ApiDiffOptions options)
     {
         var comparison = MetadataFindings.CompareApi(oldSurface, newSurface, Subject, options, memberAcceptanceThreshold: 85);

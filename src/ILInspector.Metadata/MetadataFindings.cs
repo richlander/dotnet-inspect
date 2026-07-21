@@ -312,33 +312,23 @@ public static partial class MetadataFindings
         ApiSurface surface,
         FindingSubject subject)
     {
-        return surface.InspectionFailures.Count == 0
-            ? InspectApiTypes(surface, subject)
-            : new FindingInspection<ApiTypeHandle>.Failed(
-                ApiInspectionError(surface, subject));
+        // ApiSurface.Types already excludes the entities recorded in InspectionFailures (see
+        // AssemblyReader/ApiSurfaceExtractor) -- the surface itself is the healthy subset, and
+        // InspectionFailures is structured metadata about what was skipped, not a signal that
+        // nothing usable was extracted. Mirrors the legacy analyzer's per-type-skip: a failure
+        // affecting some types must not discard the comparison for every type that did load.
+        return InspectApiTypes(surface, subject);
     }
 
     static FindingInspection<ApiMemberHandle> InspectApiMembersForComparison(
         ApiSurface surface,
         FindingSubject subject)
     {
-        return surface.InspectionFailures.Count == 0
-            ? InspectApiMembers(surface, subject)
-            : new FindingInspection<ApiMemberHandle>.Failed(
-                ApiInspectionError(surface, subject));
+        // See BuildRawTypesComparison's InspectApiTypesForComparison: the surface's Members
+        // are already the healthy subset, so a recorded InspectionFailure elsewhere must not
+        // collapse the whole-side comparison to Failed.
+        return InspectApiMembers(surface, subject);
     }
-
-    static InspectionError ApiInspectionError(
-        ApiSurface surface,
-        FindingSubject subject)
-        => new(
-            subject,
-            InspectionDescriptor,
-            string.Join(
-                "; ",
-                surface.InspectionFailures.Select(failure =>
-                    $"{failure.Operation} 0x{failure.SubjectToken:X8} "
-                    + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}")));
 
     static ImmutableArray<PairFinding<ApiTypeHandle>> ApplyTypeFacetChanges(
         ImmutableArray<PairFinding<ApiTypeHandle>> pairs,
