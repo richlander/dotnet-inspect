@@ -51,6 +51,20 @@ public static class MemberBodyProducer
     static readonly CSharpFormatter TerminatedDeclarationFormatter = CreateDeclarationFormatter(terminateMemberDeclaration: true);
 
     /// <summary>
+    /// Resolves one module-scoped method address into another live metadata
+    /// source without exposing either source's borrowed metadata reader.
+    /// </summary>
+    public static MethodCorrespondenceResult ResolveCorrespondence(
+        Pipeline.MetadataSource source,
+        MetadataMethodAddress method,
+        Pipeline.MetadataSource target)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(target);
+        return MethodCorrespondenceResolver.Resolve(source.Reader, method, target.Reader);
+    }
+
+    /// <summary>
     /// Produces the typed C# body increment for one method in a live metadata
     /// source. The handle is session-bound and must belong to
     /// <paramref name="source"/>. Abstract, extern, and other bodyless methods
