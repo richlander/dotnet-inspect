@@ -16,7 +16,6 @@ public class PrinterPrecedenceTests
     static readonly TypeRef s_nuint = TypeRef.CoreLib("System", "UIntPtr");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
-    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
 
     static IrFunction Raised(string methodName)
     {
