@@ -578,6 +578,8 @@ public static class CompileBackSourceComposer
             {
                 if (member.MetadataToken is { } methodToken)
                 {
+                    if (!HasConcreteBody(methodToken))
+                        continue;
                     var produced = Produce(methodToken, $"{request.Type.FullName}.{member.Name}");
                     if (produced.Body is { } body)
                         policies[member] = new CSharpMemberPolicy(member, CSharpBodyPolicy.Full, body);
@@ -586,14 +588,18 @@ public static class CompileBackSourceComposer
 
                 if (member.AdderToken is not null || member.RemoverToken is not null)
                 {
-                    var adder = member.AdderToken is { } adderToken
+                    bool concreteAdder = member.AdderToken is { } adderHandle && HasConcreteBody(adderHandle);
+                    bool concreteRemover = member.RemoverToken is { } removerHandle && HasConcreteBody(removerHandle);
+                    if (!concreteAdder && !concreteRemover)
+                        continue;
+                    var adder = member.AdderToken is { } adderToken && concreteAdder
                         ? Produce(adderToken, $"{request.Type.FullName}.add_{member.Name}")
                         : default;
-                    var remover = member.RemoverToken is { } removerToken
+                    var remover = member.RemoverToken is { } removerToken && concreteRemover
                         ? Produce(removerToken, $"{request.Type.FullName}.remove_{member.Name}")
                         : default;
-                    bool adderReady = member.AdderToken is null || adder.Body is not null;
-                    bool removerReady = member.RemoverToken is null || remover.Body is not null;
+                    bool adderReady = !concreteAdder || adder.Body is not null;
+                    bool removerReady = !concreteRemover || remover.Body is not null;
                     if (adderReady && removerReady)
                     {
                         policies[member] = new CSharpMemberPolicy(
@@ -608,14 +614,18 @@ public static class CompileBackSourceComposer
 
                 if (member.GetterToken is null && member.SetterToken is null)
                     continue;
-                var getter = member.GetterToken is { } getterToken
+                bool concreteGetter = member.GetterToken is { } getterHandle && HasConcreteBody(getterHandle);
+                bool concreteSetter = member.SetterToken is { } setterHandle && HasConcreteBody(setterHandle);
+                if (!concreteGetter && !concreteSetter)
+                    continue;
+                var getter = member.GetterToken is { } getterToken && concreteGetter
                     ? Produce(getterToken, $"{request.Type.FullName}.get_{member.Name}")
                     : default;
-                var setter = member.SetterToken is { } setterToken
+                var setter = member.SetterToken is { } setterToken && concreteSetter
                     ? Produce(setterToken, $"{request.Type.FullName}.set_{member.Name}")
                     : default;
-                bool getterReady = member.GetterToken is null || getter.Body is not null;
-                bool setterReady = member.SetterToken is null || setter.Body is not null;
+                bool getterReady = !concreteGetter || getter.Body is not null;
+                bool setterReady = !concreteSetter || setter.Body is not null;
                 if (getterReady && setterReady)
                 {
                     policies[member] = new CSharpMemberPolicy(
@@ -656,6 +666,12 @@ public static class CompileBackSourceComposer
                     $"{member}: {failure}"));
             }
             return (produced.Body, produced.Status);
+        }
+
+        bool HasConcreteBody(int token)
+        {
+            var handle = MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff);
+            return artifact.Reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
         }
     }
 
@@ -3984,7 +4000,7 @@ public static class CompileBackSourceComposer
                     || name == ".cctor"
                     || (name.Contains('<', StringComparison.Ordinal)
                         && CSharpNaming.MethodName(name) == name)
-                    || name.Contains('.', StringComparison.Ordinal))
+                    || (name != ".ctor" && name.Contains('.', StringComparison.Ordinal)))
                 {
                     continue;
                 }

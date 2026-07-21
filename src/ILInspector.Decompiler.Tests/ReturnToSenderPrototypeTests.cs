@@ -19,6 +19,74 @@ namespace ILInspector.Decompiler.Tests;
 public class ReturnToSenderPrototypeTests
 {
     [Fact]
+    public void CompileBackTargets_AllFullReconstructsUnrelatedExplicitInterfaceEventAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+
+            public sealed class EventSource : IEvents
+            {
+                private Action? _changed;
+
+                event Action IEvents.Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.True(
+                result.FullBodies.Count != 0,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            var adder = Assert.Single(result.FullBodies, body => body.Member == "EventSource.add_IEvents.Changed");
+            var remover = Assert.Single(result.FullBodies, body => body.Member == "EventSource.remove_IEvents.Changed");
+            Assert.Equal(MemberBodyProductionStatus.Complete, adder.Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, remover.Status);
+            Assert.Contains("event Action IEvents.Changed", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("public event Action IEvents.Changed", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Combine", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Remove", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.NotNull(result.DonorPe);
+            Assert.NotNull(result.Comparison);
+            Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
+            Assert.Contains(result.Comparison.Members, member =>
+                member.Target.Method == adder.Method
+                && member.CSharpStatus != RoundTripEvidenceStatus.Unavailable
+                && member.IlStatus != IlBodyDiffOutcome.Unavailable);
+            Assert.Contains(result.Comparison.Members, member =>
+                member.Target.Method == remover.Method
+                && member.CSharpStatus != RoundTripEvidenceStatus.Unavailable
+                && member.IlStatus != IlBodyDiffOutcome.Unavailable);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllFullReconstructsUnrelatedEventAccessors()
     {
         var assemblyPath = CompileFixture("""
