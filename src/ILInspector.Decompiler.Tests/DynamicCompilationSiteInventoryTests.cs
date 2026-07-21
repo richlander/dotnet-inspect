@@ -56,6 +56,9 @@ public sealed class DynamicCompilationSiteInventoryTests
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
 
+            // Product-output validity under varying compilation options.
+            ["ExpressionTreeLambdaTests.cs"] = (2, "Product-output validity: compiles synthesized expression-tree source and checks diagnostics/emit under varying compilation options (e.g. overflow checks)."),
+
             // Bespoke positive-source gates sharing one helper, each asserting
             // many per-fact expectations over a runtime-varying compilation
             // rather than a single addressable target type/member.
@@ -68,10 +71,10 @@ public sealed class DynamicCompilationSiteInventoryTests
 
     // Fingerprint. Migration of CompileBackTypeIdentity to the Built fixture
     // FixtureIds.DecompilerTypeIdentity removed exactly one file and one site.
-    //   Before (origin/main): 29 files, 35 sites.
-    //   After  (this change):  28 files, 34 sites.
-    const int ExpectedDynamicFiles = 28;
-    const int ExpectedDynamicSites = 34;
+    //   Before (origin/main): 30 files, 37 sites.
+    //   After  (this change):  29 files, 36 sites.
+    const int ExpectedDynamicFiles = 29;
+    const int ExpectedDynamicSites = 36;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
