@@ -340,6 +340,11 @@ public static class IrPasses
         // Last: any function-pointer load still standing fed something other
         // than a delegate constructor — record the honest residual diagnostic.
         new FunctionPointerDiagnosticsPass(),
+        // A value read of an unboxed managed pointer (unbox T; ldobj T) is the
+        // same operation as unbox.any T; normalize it so the printer spells the
+        // universally valid cast for a value read and reserves the
+        // Unsafe.Unbox<T> intrinsic for genuine ref/out/write places.
+        new UnboxValueReadPass(),
         // calli through a non-spellable operand (untyped/instance/convention
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
