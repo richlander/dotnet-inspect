@@ -68,15 +68,13 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
             ["ReturnToSenderPrototypeTests.cs"] = (1, "Runtime construction: builds a shell input assembly asserting 30+ facts."),
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
+            ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
         };
 
-    // Fingerprint. #2925 adds UnboxValueReadPassTests.cs (1 site): a
-    // product-output validity gate that compiles the normalized unbox value-read
-    // source per case.
-    //   Before (#2925 base): 29 files, 36 sites.
-    //   After  (this change): 30 files, 37 sites.
-    const int ExpectedDynamicFiles = 30;
-    const int ExpectedDynamicSites = 37;
+    // Fingerprint. The round-trip comparison fixture adds one exact-donor
+    // compilation site to the post-#2925 inventory.
+    const int ExpectedDynamicFiles = 31;
+    const int ExpectedDynamicSites = 38;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

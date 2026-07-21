@@ -19,6 +19,72 @@ namespace ILInspector.Decompiler.Tests;
 public class ReturnToSenderPrototypeTests
 {
     [Fact]
+    public void CompileBackTargets_AllFullReconstructsUnrelatedEventAccessors()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public static class Target
+            {
+                public static int Run() => 1;
+            }
+
+            public static class Unrelated
+            {
+                private static Action? _changed;
+
+                public static event Action Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            var adder = Assert.Single(result.FullBodies, body => body.Member == "Unrelated.add_Changed");
+            var remover = Assert.Single(result.FullBodies, body => body.Member == "Unrelated.remove_Changed");
+            Assert.Equal(MemberBodyProductionStatus.Complete, adder.Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, remover.Status);
+            Assert.Contains("Delegate.Combine", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Remove", result.Source, StringComparison.Ordinal);
+            Assert.NotNull(result.Comparison);
+            Assert.Contains(result.Comparison.Members, member =>
+                member.Target.Method == adder.Method && member.CSharpStatus != RoundTripEvidenceStatus.Unavailable);
+            Assert.Contains(result.Comparison.Members, member =>
+                member.Target.Method == remover.Method && member.CSharpStatus != RoundTripEvidenceStatus.Unavailable);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRejectsMultiplePrimaryTargets()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() => ReturnToSender.CompileBackTargets(
+            typeof(ReturnToSenderPrototypeTests).Assembly.Location,
+            [
+                new ReturnToSender.RequestedTarget("One", "M", 0),
+                new ReturnToSender.RequestedTarget("Two", "M", 0),
+            ],
+            RoundTripScope.All,
+            RoundTripBodyPolicy.Full));
+
+        Assert.Contains("exactly one primary target", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompileBackTargets_AllFullReconstructsEveryConcreteMethodBody()
     {
         var assemblyPath = CompileFixture("""
@@ -130,7 +196,14 @@ public class ReturnToSenderPrototypeTests
             Assert.DoesNotContain("Echo", result.Source, StringComparison.Ordinal);
             Assert.NotNull(result.Comparison);
             Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
-            Assert.Single(result.Comparison.Members);
+            Assert.Equal(2, result.Comparison.Members.Length);
+            var unavailable = Assert.Single(
+                result.Comparison.Members,
+                member => member.Target.Method == failure.Method);
+            Assert.Equal(RoundTripEvidenceStatus.Unavailable, unavailable.CSharpStatus);
+            Assert.Equal(IlBodyDiffOutcome.Unavailable, unavailable.IlStatus);
+            Assert.Contains("not represented", unavailable.CSharpFailure, StringComparison.Ordinal);
+            Assert.Contains("not represented", unavailable.IlFailure, StringComparison.Ordinal);
         }
         finally
         {

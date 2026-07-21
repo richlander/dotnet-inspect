@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -590,7 +591,7 @@ static class ReturnToSender
             var included = new HashSet<MetadataMethodAddress> { address };
             foreach (var body in result.FullBodies)
             {
-                if (body.Status != MemberBodyProductionStatus.Complete || !included.Add(body.Method))
+                if (!included.Add(body.Method))
                     continue;
                 var method = reader.GetMethodDefinition(body.Method.Handle);
                 var bodyAnchor = MemberAnchorFor(anchors, body.Method.Handle)
@@ -627,9 +628,36 @@ static class ReturnToSender
             || result.MemberAnchor is null)
             return result;
         var request = CreateRoundTripRequest(assemblyPath, result, result.Scope);
+        var comparison = RoundTripComparison.Compare(request, result.DonorPe, result.Compilation);
+        var productionFailures = result.FullBodies
+            .Where(body => body.Status != MemberBodyProductionStatus.Complete)
+            .GroupBy(body => body.Method)
+            .ToDictionary(group => group.Key, group => group.First());
+        if (comparison.Status == RoundTripComparisonStatus.Completed && productionFailures.Count != 0)
+        {
+            comparison = comparison with
+            {
+                Members = comparison.Members.Select(member =>
+                {
+                    if (!productionFailures.TryGetValue(member.Target.Method, out var production))
+                        return member;
+                    string failure = production.Failure ?? $"body production was {production.Status}";
+                    return member with
+                    {
+                        CSharpStatus = RoundTripEvidenceStatus.Unavailable,
+                        IlStatus = IlBodyDiffOutcome.Unavailable,
+                        CSharpDiff = null,
+                        IlDiff = null,
+                        Evidence = null,
+                        CSharpFailure = failure,
+                        IlFailure = failure,
+                    };
+                }).ToImmutableArray(),
+            };
+        }
         return result with
         {
-            Comparison = RoundTripComparison.Compare(request, result.DonorPe, result.Compilation),
+            Comparison = comparison,
         };
     }
 
@@ -667,6 +695,11 @@ static class ReturnToSender
     {
         if (targets.Count == 0)
             return [];
+        if (bodyPolicy == RoundTripBodyPolicy.Full && targets.Count != 1)
+        {
+            throw new NotSupportedException(
+                "Full body policy currently requires exactly one primary target; coherent target-set reconstruction is not yet supported.");
+        }
 
         var results = new List<Result>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));

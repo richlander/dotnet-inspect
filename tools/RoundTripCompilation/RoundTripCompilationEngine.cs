@@ -96,7 +96,8 @@ public static class RoundTripCompilationEngine
             throw new ArgumentOutOfRangeException(nameof(options), "MaxIterations must be positive.");
         if (string.IsNullOrWhiteSpace(options.AssemblyName))
             throw new ArgumentException("AssemblyName must be non-empty.", nameof(options));
-        var provenance = CreateProvenance(references, parseOptions, compilationOptions);
+        var frozenReferences = FreezeReferences(references, out var referenceProvenance);
+        var provenance = CreateProvenance(referenceProvenance, parseOptions, compilationOptions);
 
         Diagnostic? firstError = null;
         ImmutableArray<Diagnostic> lastDiagnostics = [];
@@ -110,7 +111,7 @@ public static class RoundTripCompilationEngine
             var compilation = CSharpCompilation.Create(
                 options.AssemblyName,
                 [tree],
-                references,
+                frozenReferences,
                 compilationOptions);
             using var output = new MemoryStream();
             var emit = compilation.Emit(output);
@@ -160,7 +161,7 @@ public static class RoundTripCompilationEngine
     }
 
     static RoundTripCompilationProvenance CreateProvenance(
-        IReadOnlyList<MetadataReference> references,
+        ImmutableArray<RoundTripReferenceProvenance> references,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compilationOptions)
         => new(
@@ -179,32 +180,47 @@ public static class RoundTripCompilationEngine
             compilationOptions.AllowUnsafe,
             compilationOptions.NullableContextOptions.ToString(),
             compilationOptions.Deterministic,
-            references.Select((reference, ordinal) => ReferenceProvenance(reference, ordinal)).ToImmutableArray());
+            references);
 
-    static RoundTripReferenceProvenance ReferenceProvenance(MetadataReference reference, int ordinal)
+    static ImmutableArray<MetadataReference> FreezeReferences(
+        IReadOnlyList<MetadataReference> references,
+        out ImmutableArray<RoundTripReferenceProvenance> provenance)
     {
-        string? path = (reference as PortableExecutableReference)?.FilePath;
-        string? hash = null;
-        Guid? mvid = null;
-        if (path is { Length: > 0 } && File.Exists(path))
+        var frozen = ImmutableArray.CreateBuilder<MetadataReference>(references.Count);
+        var rows = ImmutableArray.CreateBuilder<RoundTripReferenceProvenance>(references.Count);
+        for (int ordinal = 0; ordinal < references.Count; ordinal++)
         {
-            using var stream = File.OpenRead(path);
-            hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-            stream.Position = 0;
-            using var pe = new PEReader(stream, PEStreamOptions.LeaveOpen);
-            if (pe.HasMetadata)
+            var reference = references[ordinal];
+            string? path = (reference as PortableExecutableReference)?.FilePath;
+            string? hash = null;
+            Guid? mvid = null;
+            MetadataReference frozenReference = reference;
+            if (path is { Length: > 0 } && File.Exists(path))
             {
-                var reader = pe.GetMetadataReader();
-                mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+                byte[] image = File.ReadAllBytes(path);
+                hash = Convert.ToHexString(SHA256.HashData(image)).ToLowerInvariant();
+                using var pe = new PEReader(ImmutableArray.Create(image));
+                if (pe.HasMetadata)
+                {
+                    var reader = pe.GetMetadataReader();
+                    mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+                }
+                frozenReference = MetadataReference.CreateFromImage(
+                    ImmutableArray.Create(image),
+                    reference.Properties,
+                    filePath: path);
             }
+            frozen.Add(frozenReference);
+            rows.Add(new RoundTripReferenceProvenance(
+                ordinal,
+                reference.Display ?? path ?? $"reference:{ordinal}",
+                path is null ? null : System.IO.Path.GetFullPath(path),
+                hash,
+                mvid,
+                reference.Properties.Aliases.ToImmutableArray(),
+                reference.Properties.EmbedInteropTypes));
         }
-        return new RoundTripReferenceProvenance(
-            ordinal,
-            reference.Display ?? path ?? $"reference:{ordinal}",
-            path is null ? null : System.IO.Path.GetFullPath(path),
-            hash,
-            mvid,
-            reference.Properties.Aliases.ToImmutableArray(),
-            reference.Properties.EmbedInteropTypes);
+        provenance = rows.ToImmutable();
+        return frozen.ToImmutable();
     }
 }

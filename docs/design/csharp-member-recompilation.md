@@ -192,6 +192,12 @@ successful stubs.
 broad whole-module round-trip lane and is expected to expose a substantially
 larger unsupported frontier.
 
+The initial `full` harness lane accepts exactly one primary target. A caller
+supplying more than one receives an explicit unsupported-operation failure;
+the harness must not compile one donor per target and present those artifacts
+as a coherent target-set round trip. A later target-set implementation must
+plan all replacements into one typed artifact and compile one donor.
+
 ## Architecture
 
 ```text

@@ -373,7 +373,9 @@ public sealed record CompileBackMemberRequirement(
     string? SiblingTargetBody = null,
     int? MetadataToken = null,
     int? GetterToken = null,
-    int? SetterToken = null)
+    int? SetterToken = null,
+    int? AdderToken = null,
+    int? RemoverToken = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -579,6 +581,28 @@ public static class CompileBackSourceComposer
                     var produced = Produce(methodToken, $"{request.Type.FullName}.{member.Name}");
                     if (produced.Body is { } body)
                         policies[member] = new CSharpMemberPolicy(member, CSharpBodyPolicy.Full, body);
+                    continue;
+                }
+
+                if (member.AdderToken is not null || member.RemoverToken is not null)
+                {
+                    var adder = member.AdderToken is { } adderToken
+                        ? Produce(adderToken, $"{request.Type.FullName}.add_{member.Name}")
+                        : default;
+                    var remover = member.RemoverToken is { } removerToken
+                        ? Produce(removerToken, $"{request.Type.FullName}.remove_{member.Name}")
+                        : default;
+                    bool adderReady = member.AdderToken is null || adder.Body is not null;
+                    bool removerReady = member.RemoverToken is null || remover.Body is not null;
+                    if (adderReady && removerReady)
+                    {
+                        policies[member] = new CSharpMemberPolicy(
+                            member,
+                            CSharpBodyPolicy.Full,
+                            new CSharpEventBody(
+                                adder.Body is { } adderBody ? CSharpAccessorBody.Block(adderBody.Source) : CSharpAccessorBody.Throw,
+                                remover.Body is { } removerBody ? CSharpAccessorBody.Block(removerBody.Source) : CSharpAccessorBody.Throw));
+                    }
                     continue;
                 }
 
@@ -1705,6 +1729,8 @@ public static class CompileBackSourceComposer
             MetadataToken = member.MetadataToken,
             GetterToken = member.GetterToken,
             SetterToken = member.SetterToken,
+            AdderToken = member.AdderToken,
+            RemoverToken = member.RemoverToken,
         };
         if (member.Kind != CompileBackMemberKind.Field)
         {
@@ -3895,6 +3921,58 @@ public static class CompileBackSourceComposer
                         : MethodAccessibility(accessorMethod),
                     GetterToken: accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken: accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)));
+            }
+
+            foreach (var eventHandle in typeDef.GetEvents())
+            {
+                var eventDefinition = reader.GetEventDefinition(eventHandle);
+                var accessors = eventDefinition.GetAccessors();
+                if (!accessors.Adder.IsNil)
+                    accessorMethods.Add(accessors.Adder);
+                if (!accessors.Remover.IsNil)
+                    accessorMethods.Add(accessors.Remover);
+
+                string eventName = reader.GetString(eventDefinition.Name);
+                if (eventName.Contains('<', StringComparison.Ordinal))
+                    continue;
+                int existingEventIndex = members.FindIndex(member =>
+                    member.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
+                    && member.Identity.Method == Identifier(eventName));
+                int? adderToken = accessors.Adder.IsNil ? null : MetadataTokens.GetToken(accessors.Adder);
+                int? removerToken = accessors.Remover.IsNil ? null : MetadataTokens.GetToken(accessors.Remover);
+                if (existingEventIndex >= 0)
+                {
+                    var existing = members[existingEventIndex];
+                    members[existingEventIndex] = existing with
+                    {
+                        AdderToken = existing.AdderToken ?? adderToken,
+                        RemoverToken = existing.RemoverToken ?? removerToken,
+                    };
+                    continue;
+                }
+
+                var representative = !accessors.Adder.IsNil ? accessors.Adder : accessors.Remover;
+                if (representative.IsNil)
+                    continue;
+                string accessorName = reader.GetString(reader.GetMethodDefinition(representative).Name);
+                var eventRequirement = EventRequirement(
+                    reader,
+                    typeDef,
+                    requirement.Type,
+                    eventHandle,
+                    accessorName,
+                    "closure-event");
+                if (eventRequirement is null)
+                    continue;
+                var explicitEvent = eventName.Contains('.', StringComparison.Ordinal)
+                    ? ExplicitInterfaceEvent(reader, typeDef, representative)
+                    : null;
+                members.Add(eventRequirement with
+                {
+                    AdderToken = adderToken,
+                    RemoverToken = removerToken,
+                    ExplicitInterfaceMemberName = explicitEvent?.QualifiedName,
+                });
             }
 
             int overload = 0;

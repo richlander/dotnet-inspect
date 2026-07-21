@@ -87,4 +87,37 @@ public sealed class RoundTripCompilationEngineTests
         Assert.Equal("closure-iteration-budget", result.StopReason);
         Assert.Null(result.PeImage);
     }
+
+    [Fact]
+    public void Compile_UsesTheSameReferenceBytesRecordedByProvenance()
+    {
+        string referencePath = Path.Combine(Path.GetTempPath(), $"round-trip-reference-{Guid.NewGuid():N}.dll");
+        File.Copy(typeof(object).Assembly.Location, referencePath);
+        try
+        {
+            bool mutated = false;
+            var result = RoundTripCompilationEngine.Compile(
+                compose: () =>
+                {
+                    File.WriteAllBytes(referencePath, []);
+                    mutated = true;
+                    return "public class Target { public object M() => new object(); }";
+                },
+                source: artifact => artifact,
+                [MetadataReference.CreateFromFile(referencePath)],
+                ParseOptions,
+                CompilationOptions,
+                grow: (_, _, _) => RoundTripGrowthResult.Stop("unexpected"));
+
+            Assert.True(mutated);
+            Assert.Equal(RoundTripCompilationStatus.Succeeded, result.Status);
+            var reference = Assert.Single(result.Provenance.References);
+            Assert.NotNull(reference.Sha256);
+            Assert.NotNull(reference.ModuleVersionId);
+        }
+        finally
+        {
+            File.Delete(referencePath);
+        }
+    }
 }

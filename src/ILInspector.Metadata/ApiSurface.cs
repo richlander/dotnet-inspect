@@ -384,6 +384,14 @@ public class ApiMember
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
 
+    /// <summary>
+    /// MethodDef tokens of an event's add/remove accessors when known.
+    /// </summary>
+    [JsonIgnore]
+    public int? AdderToken { get; set; }
+    [JsonIgnore]
+    public int? RemoverToken { get; set; }
+
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
     public bool IsAbstract { get; set; }
