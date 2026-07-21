@@ -10,19 +10,28 @@ using ILInspector.Metadata;
 namespace ILInspector.DecompilerHarness;
 
 /// <summary>
-/// Harvests the authored-source correspondence corpus: for a fixed set of input
-/// assemblies (the real-world corpus libraries), enumerate real-method targets,
-/// resolve each target's authoritative authored source through SourceLink, and
-/// snapshot the checksum-verified member body to a vendored JSONL corpus. Because
-/// the authored body is captured at generation time, benchmark runs that consume
-/// the corpus are fully offline.
+/// Harvests authored-source correspondence corpora: for a set of input
+/// assemblies, enumerate real-method targets, resolve each target's
+/// authoritative authored source through SourceLink, and snapshot the
+/// checksum-verified member body to a vendored JSONL corpus. Because the
+/// authored body is captured at generation time, benchmark runs that consume the
+/// corpus are fully offline.
 ///
-/// Selection is identity-only and biased toward small libraries: candidates are
-/// ordered by round-robin across declaring types within each library, then pulled
-/// round-robin across libraries in ascending candidate-count order so a few large
-/// libraries do not drown out the small ones. Source content is fetched last, only
-/// to snapshot and verify; a failed or unavailable fetch simply advances to the
-/// next candidate, so every emitted row has real, checksum-verified source.
+/// Two selection policies share this harvester. Both order libraries by ascending
+/// candidate count so a few large libraries do not drown out the small ones, and
+/// both round-robin across declaring types so no single type dominates a
+/// library's contribution. They differ only in what each type contributes next:
+/// <list type="bullet">
+/// <item>The <em>CIVIL</em> corpus (Curated Index of Varied IL, identity-only)
+/// keeps candidates in enumeration order.</item>
+/// <item>The <em>EVIL</em> corpus (Edge-case Verification of IL Legibility)
+/// orders each type's candidates by descending IL difficulty score, so each
+/// library contributes its most diabolical methods first, and attaches the
+/// difficulty profile to every emitted row.</item>
+/// </list>
+/// Source content is fetched last, only to snapshot and verify; a failed or
+/// unavailable fetch simply advances to the next candidate, so every emitted row
+/// has real, checksum-verified source.
 /// </summary>
 static class AuthoredSourceHarvest
 {
@@ -40,7 +49,12 @@ static class AuthoredSourceHarvest
         string? SourceUrl,
         string? ChecksumAlgorithm,
         string? Checksum,
-        string AuthoredBody);
+        string AuthoredBody,
+        // Omitted for the CIVIL (identity) corpus so its rows stay
+        // schema-identical to the vendored corpus; populated only for EVIL.
+        [property: System.Text.Json.Serialization.JsonIgnore(
+            Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        IlDifficulty? Difficulty = null);
 
     sealed class LibraryState
     {
@@ -52,10 +66,10 @@ static class AuthoredSourceHarvest
         public required Queue<RealMethodTargetEnumerator.RealMethodTarget> Candidates { get; init; }
     }
 
-    public static int Run(IReadOnlyList<string> assemblies, string outputPath, int target)
-        => RunAsync(assemblies, outputPath, target).GetAwaiter().GetResult();
+    public static int Run(IReadOnlyList<string> assemblies, string outputPath, int target, bool evil = false)
+        => RunAsync(assemblies, outputPath, target, evil).GetAwaiter().GetResult();
 
-    static async Task<int> RunAsync(IReadOnlyList<string> assemblies, string outputPath, int target)
+    static async Task<int> RunAsync(IReadOnlyList<string> assemblies, string outputPath, int target, bool evil)
     {
         if (assemblies.Count == 0)
         {
@@ -72,7 +86,7 @@ static class AuthoredSourceHarvest
         {
             foreach (string assemblyPath in assemblies)
             {
-                var library = TryOpenLibrary(assemblyPath, httpClient).GetAwaiter().GetResult();
+                var library = TryOpenLibrary(assemblyPath, httpClient, evil).GetAwaiter().GetResult();
                 if (library is not null)
                     libraries.Add(library);
             }
@@ -114,7 +128,7 @@ static class AuthoredSourceHarvest
                     var candidate = library.Candidates.Dequeue();
                     attempts++;
 
-                    var record = await TryHarvestAsync(library, candidate, fetcher);
+                    var record = await TryHarvestAsync(library, candidate, fetcher, evil);
                     if (record is null)
                     {
                         skipped++;
@@ -130,7 +144,7 @@ static class AuthoredSourceHarvest
 
             await writer.FlushAsync();
 
-            Console.WriteLine($"AUTHORED-SOURCE HARVEST -> {outputPath}");
+            Console.WriteLine($"{(evil ? "EVIL" : "AUTHORED-SOURCE")} HARVEST -> {outputPath}");
             Console.WriteLine($"  target        : {target}");
             Console.WriteLine($"  resolved      : {resolved}");
             Console.WriteLine($"  attempts      : {attempts}");
@@ -149,7 +163,7 @@ static class AuthoredSourceHarvest
         }
     }
 
-    static async Task<LibraryState?> TryOpenLibrary(string assemblyPath, HttpClient httpClient)
+    static async Task<LibraryState?> TryOpenLibrary(string assemblyPath, HttpClient httpClient, bool evil)
     {
         IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets;
         try
@@ -185,7 +199,7 @@ static class AuthoredSourceHarvest
                 Tfm = InferTfm(assemblyPath),
                 Source = source,
                 Candidates = new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
-                    DiversifyByDeclaringType(targets)),
+                    DiversifyByDeclaringType(targets, evil)),
             };
             ownershipTransferred = true;
             return state;
@@ -213,7 +227,8 @@ static class AuthoredSourceHarvest
     static async Task<CorpusRecord?> TryHarvestAsync(
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetcher fetcher)
+        SourceFetcher fetcher,
+        bool evil)
     {
         var subject = new FindingSubject(
             $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
@@ -266,18 +281,29 @@ static class AuthoredSourceHarvest
             SourceUrl: authored.Document?.ResolvedUrl,
             ChecksumAlgorithm: authored.Document?.ChecksumAlgorithm,
             Checksum: authored.Document?.Checksum,
-            AuthoredBody: body);
+            AuthoredBody: body,
+            Difficulty: evil ? candidate.Difficulty : null);
     }
 
     // Round-robin across declaring types so no single type dominates a library's
-    // contribution to the corpus.
+    // contribution to the corpus. For the EVIL corpus, each type's candidates
+    // are ordered by descending IL difficulty first, so a type contributes its
+    // most diabolical methods before its easy ones while the round-robin still
+    // spreads the budget across types.
     static IEnumerable<RealMethodTargetEnumerator.RealMethodTarget> DiversifyByDeclaringType(
-        IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets)
+        IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets,
+        bool rankByDifficulty)
     {
+        IEnumerable<RealMethodTargetEnumerator.RealMethodTarget> ordered = rankByDifficulty
+            ? targets
+                .OrderByDescending(target => target.Difficulty.Score)
+                .ThenByDescending(target => target.Difficulty.IlSize)
+            : targets;
+
         var byType = new Dictionary<string, Queue<RealMethodTargetEnumerator.RealMethodTarget>>(
             StringComparer.Ordinal);
         var order = new List<string>();
-        foreach (var target in targets)
+        foreach (var target in ordered)
         {
             if (!byType.TryGetValue(target.Type, out var queue))
             {
