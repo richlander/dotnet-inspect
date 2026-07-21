@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
@@ -224,7 +223,7 @@ public static class ReachingDefinitions
 
         foreach (var instruction in instructions)
         {
-            if (TryReadLocalSlot(il, instruction.OpCode, instruction.OperandOffset, out var access)
+            if (TryReadLocalSlot(instruction.OpCode, instruction.OperandValue, out var access)
                 && access.Store)
             {
                 AddDefinition(new SlotKey(access.Slot, access.Argument), instruction.Offset);
@@ -252,7 +251,7 @@ public static class ReachingDefinitions
             {
                 if (instruction.Offset < blocks[i].Start || instruction.Offset >= blocks[i].End)
                     continue;
-                if (!TryReadLocalSlot(il, instruction.OpCode, instruction.OperandOffset, out var access))
+                if (!TryReadLocalSlot(instruction.OpCode, instruction.OperandValue, out var access))
                     continue;
 
                 var key = new SlotKey(access.Slot, access.Argument);
@@ -320,7 +319,10 @@ public static class ReachingDefinitions
             current.ExceptWith(ids);
     }
 
-    static bool TryReadLocalSlot(byte[] il, ILOpCode opcode, int operandOffset, out LocalAccess access)
+    // Slot/argument index operands are already decoded onto DecodedInstruction.OperandValue
+    // by the shared InstructionDecoder substrate; re-reading raw IL bytes here would duplicate
+    // that decode instead of reusing it.
+    static bool TryReadLocalSlot(ILOpCode opcode, long operandValue, out LocalAccess access)
     {
         access = default;
         switch (opcode)
@@ -329,43 +331,29 @@ public static class ReachingDefinitions
             case ILOpCode.Ldloc_1: access = new(1, Argument: false, Store: false, Address: false); return true;
             case ILOpCode.Ldloc_2: access = new(2, Argument: false, Store: false, Address: false); return true;
             case ILOpCode.Ldloc_3: access = new(3, Argument: false, Store: false, Address: false); return true;
-            case ILOpCode.Ldloc_s: access = new(ReadByteAt(il, operandOffset), Argument: false, Store: false, Address: false); return true;
-            case ILOpCode.Ldloc: access = new(ReadUInt16At(il, operandOffset), Argument: false, Store: false, Address: false); return true;
-            case ILOpCode.Ldloca_s: access = new(ReadByteAt(il, operandOffset), Argument: false, Store: false, Address: true); return true;
-            case ILOpCode.Ldloca: access = new(ReadUInt16At(il, operandOffset), Argument: false, Store: false, Address: true); return true;
+            case ILOpCode.Ldloc_s: access = new((int)operandValue, Argument: false, Store: false, Address: false); return true;
+            case ILOpCode.Ldloc: access = new((int)operandValue, Argument: false, Store: false, Address: false); return true;
+            case ILOpCode.Ldloca_s: access = new((int)operandValue, Argument: false, Store: false, Address: true); return true;
+            case ILOpCode.Ldloca: access = new((int)operandValue, Argument: false, Store: false, Address: true); return true;
             case ILOpCode.Stloc_0: access = new(0, Argument: false, Store: true, Address: false); return true;
             case ILOpCode.Stloc_1: access = new(1, Argument: false, Store: true, Address: false); return true;
             case ILOpCode.Stloc_2: access = new(2, Argument: false, Store: true, Address: false); return true;
             case ILOpCode.Stloc_3: access = new(3, Argument: false, Store: true, Address: false); return true;
-            case ILOpCode.Stloc_s: access = new(ReadByteAt(il, operandOffset), Argument: false, Store: true, Address: false); return true;
-            case ILOpCode.Stloc: access = new(ReadUInt16At(il, operandOffset), Argument: false, Store: true, Address: false); return true;
+            case ILOpCode.Stloc_s: access = new((int)operandValue, Argument: false, Store: true, Address: false); return true;
+            case ILOpCode.Stloc: access = new((int)operandValue, Argument: false, Store: true, Address: false); return true;
             case ILOpCode.Ldarg_0: access = new(0, Argument: true, Store: false, Address: false); return true;
             case ILOpCode.Ldarg_1: access = new(1, Argument: true, Store: false, Address: false); return true;
             case ILOpCode.Ldarg_2: access = new(2, Argument: true, Store: false, Address: false); return true;
             case ILOpCode.Ldarg_3: access = new(3, Argument: true, Store: false, Address: false); return true;
-            case ILOpCode.Ldarg_s: access = new(ReadByteAt(il, operandOffset), Argument: true, Store: false, Address: false); return true;
-            case ILOpCode.Ldarg: access = new(ReadUInt16At(il, operandOffset), Argument: true, Store: false, Address: false); return true;
-            case ILOpCode.Ldarga_s: access = new(ReadByteAt(il, operandOffset), Argument: true, Store: false, Address: true); return true;
-            case ILOpCode.Ldarga: access = new(ReadUInt16At(il, operandOffset), Argument: true, Store: false, Address: true); return true;
-            case ILOpCode.Starg_s: access = new(ReadByteAt(il, operandOffset), Argument: true, Store: true, Address: false); return true;
-            case ILOpCode.Starg: access = new(ReadUInt16At(il, operandOffset), Argument: true, Store: true, Address: false); return true;
+            case ILOpCode.Ldarg_s: access = new((int)operandValue, Argument: true, Store: false, Address: false); return true;
+            case ILOpCode.Ldarg: access = new((int)operandValue, Argument: true, Store: false, Address: false); return true;
+            case ILOpCode.Ldarga_s: access = new((int)operandValue, Argument: true, Store: false, Address: true); return true;
+            case ILOpCode.Ldarga: access = new((int)operandValue, Argument: true, Store: false, Address: true); return true;
+            case ILOpCode.Starg_s: access = new((int)operandValue, Argument: true, Store: true, Address: false); return true;
+            case ILOpCode.Starg: access = new((int)operandValue, Argument: true, Store: true, Address: false); return true;
             default:
                 return false;
         }
-    }
-
-    static byte ReadByteAt(byte[] il, int offset)
-    {
-        if ((uint)offset >= (uint)il.Length)
-            throw new BadImageFormatException($"Malformed IL at IL_{offset:X4}");
-        return il[offset];
-    }
-
-    static int ReadUInt16At(byte[] il, int offset)
-    {
-        if (offset < 0 || offset + 2 > il.Length)
-            throw new BadImageFormatException($"Malformed IL operand at IL_{offset:X4}");
-        return BinaryPrimitives.ReadUInt16LittleEndian(il.AsSpan(offset));
     }
 
     readonly record struct SlotKey(int Slot, bool IsArgument);
