@@ -21,6 +21,15 @@ public class AssemblyDependencyResolverTests
 
         Assert.NotNull(resolved);
         Assert.Equal(current.Name + ".dll", Path.GetFileName(resolved.Path));
+
+        var future = resolver.Resolve(
+            new AssemblyReferenceIdentity(
+                current.Name!,
+                new Version(current.Version!.Major + 1, 0, 0, 0),
+                null,
+                token),
+            AssemblyResolutionScope.Platform);
+        Assert.Null(future);
     }
 
     [Fact]

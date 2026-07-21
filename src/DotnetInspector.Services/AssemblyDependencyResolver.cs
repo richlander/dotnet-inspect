@@ -161,9 +161,9 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
                 continue;
 
-            bool requireVersion = scope != AssemblyResolutionScope.Platform
-                || !_options.AllowPlatformAssemblyVersionRollForward;
-            if (!MatchesIdentity(identity, dependency.Path, requireVersion))
+            bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
+                && _options.AllowPlatformAssemblyVersionRollForward;
+            if (!MatchesIdentity(identity, dependency.Path, allowVersionRollForward))
                 continue;
 
             return new ResolvedAssemblyReference(
@@ -183,8 +183,10 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
                 identity.Name,
                 useRuntimeAssemblies: _options.PreferImplementationAssemblies);
-            bool requireVersion = !_options.AllowPlatformAssemblyVersionRollForward;
-            if (path is not null && MatchesIdentity(identity, path, requireVersion))
+            if (path is not null && MatchesIdentity(
+                identity,
+                path,
+                _options.AllowPlatformAssemblyVersionRollForward))
             {
                 return new ResolvedAssemblyReference(
                     identity,
@@ -197,7 +199,10 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         return null;
     }
 
-    static bool MatchesIdentity(AssemblyReferenceIdentity expected, string path, bool requireVersion = true)
+    static bool MatchesIdentity(
+        AssemblyReferenceIdentity expected,
+        string path,
+        bool allowVersionRollForward = false)
     {
         if (expected.Version is null
             && string.IsNullOrEmpty(expected.Culture)
@@ -212,7 +217,9 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
         if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (requireVersion && expected.Version is not null && actual.Version != expected.Version)
+        if (expected.Version is not null
+            && actual.Version != expected.Version
+            && (!allowVersionRollForward || actual.Version < expected.Version))
             return false;
         if (!CultureMatches(expected.Culture, actual.Culture))
             return false;
