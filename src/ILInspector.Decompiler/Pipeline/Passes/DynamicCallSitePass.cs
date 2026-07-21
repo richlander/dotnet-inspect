@@ -96,6 +96,36 @@ public sealed class DynamicCallSitePass : IIrPass
     }
 
     /// <summary>
+    /// Proves the <c>typeof(...)</c> binder-context argument against the body's
+    /// declaring type. The direct case (an ordinary method) requires exact
+    /// equality. When the body is instead a compiler-generated environment
+    /// method (a capturing lambda's display-class instance method, or an
+    /// iterator/async state-machine's <c>MoveNext</c>), the binder context is
+    /// authored against the enclosing type the compiler captured from — proven
+    /// here via the declaring type's own metadata-decoded
+    /// <see cref="TypeRef.EnclosingType"/> chain (never by parsing the
+    /// generated type's <c>+</c>-joined name), and only once the declaring
+    /// type's <c>[CompilerGenerated]</c> attribute evidence
+    /// (<see cref="IrFunction.DeclaringTypeCompilerGenerated"/>) and a
+    /// corroborating generated-name shape both hold.
+    /// </summary>
+    static bool IsProvenBinderContext(TypeRef context, IrFunction function)
+    {
+        if (context.Equals(function.DeclaringType))
+            return true;
+
+        if (function.DeclaringTypeCompilerGenerated != MetadataFactState.Yes)
+            return false;
+
+        var declaringType = function.DeclaringType;
+        if (!GeneratedCodeIdentity.IsDisplayClassName(declaringType)
+            && !GeneratedCodeIdentity.IsIteratorStateMachineTypeName(declaringType))
+            return false;
+
+        return declaringType.EnclosingType is { } enclosing && context.Equals(enclosing);
+    }
+
+    /// <summary>
     /// Identifies a cache lazy-init guard and proves its polarity: the setup arm
     /// must be the arm the runtime selects when the cache is still null.
     /// <c>if (!cache) { setup } else {}</c> puts setup in the then arm;
@@ -218,7 +248,7 @@ public sealed class DynamicCallSitePass : IIrPass
         // --- [1] Context definition: typeof(DeclaringType) ---
         if (!TryDefinitionKey(statements[1], out var contextKey, out var contextValue))
             return false;
-        if (contextValue is not TypeOf contextTypeOf || !contextTypeOf.Type.Equals(function.DeclaringType))
+        if (contextValue is not TypeOf contextTypeOf || !IsProvenBinderContext(contextTypeOf.Type, function))
             return false;
 
         // The two setup definitions occupy distinct storage (no duplicate
