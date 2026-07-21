@@ -111,6 +111,49 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void FallbackCanonicalSignature_DisambiguatesIndexers_AfterJsonRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var liveType = surface.Types.Single(t => t.Name.EndsWith(nameof(IndexerFixture), StringComparison.Ordinal));
+        var liveIndexers = liveType.Members
+            .Where(member => member.Kind == "property" && member.SignatureModel is { Parameters.Count: > 0 })
+            .ToList();
+        Assert.Equal(2, liveIndexers.Count);
+
+        // Round-trip through JSON. SignatureModel is [JsonIgnore], so the deserialized
+        // members have no SignatureModel and exercise the raw-signature fallback path.
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var roundTrippedType = roundTripped.Types.Single(t => t.Name.EndsWith(nameof(IndexerFixture), StringComparison.Ordinal));
+        var roundTrippedIndexers = roundTrippedType.Members
+            .Where(member => member.Kind == "property" && member.Signature != null && member.Signature.Contains("this[", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, roundTrippedIndexers.Count);
+        Assert.All(roundTrippedIndexers, member => Assert.Null(member.SignatureModel));
+
+        // The fallback must still disambiguate by parameter type on the round-tripped
+        // surface (parsed from the raw "this[...]" signature text), and -- critically --
+        // must produce the EXACT SAME canonical signatures as the live-assembly path, so a
+        // JSON-persisted baseline pairs correctly against a live-extracted assembly.
+        var liveCanonicals = liveIndexers
+            .Select(member => ApiMemberIdentity.GetCanonicalSignature(liveType, member))
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+        var roundTrippedCanonicals = roundTrippedIndexers
+            .Select(member => ApiMemberIdentity.GetCanonicalSignature(roundTrippedType, member))
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(2, roundTrippedCanonicals.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(liveCanonicals, roundTrippedCanonicals);
+        Assert.Contains(roundTrippedCanonicals, canonical => canonical.Contains("(int)", StringComparison.Ordinal));
+        Assert.Contains(roundTrippedCanonicals, canonical => canonical.Contains("(string)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void GetCanonicalSignature_OrdinaryPropertyFormatIsUnchangedByIndexerFix()
     {
         var type = new ApiType { Namespace = "N", Name = "C" };
