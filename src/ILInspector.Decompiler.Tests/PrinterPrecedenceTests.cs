@@ -16,6 +16,7 @@ public class PrinterPrecedenceTests
     static readonly TypeRef s_nuint = TypeRef.CoreLib("System", "UIntPtr");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
 
     static IrFunction Raised(string methodName)
     {
@@ -79,6 +80,82 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("(a ? b : c) ? d : e", output);
         Assert.DoesNotContain("a ? b : c ? d", output);
+    }
+
+    // Issue #2916: a ref-typed conditional whose arms are both genuine
+    // ref-producers renders as a ref ternary (`ref a : ref b`, see Deref's
+    // Conditional case). One arm is an `Unbox` — a managed pointer into a box.
+    // Deref previously had no case for it, so it fell through to the generic
+    // ByRef arm and emitted the node's own ref-producer spelling `ref (int)o`,
+    // which the enclosing ref ternary re-prefixed into `ref ref (int)o`
+    // (CS1525); the naive value-copy `(int)o` fixes the double keyword but is
+    // an unbox.any copy, not an assignable place, so `ref (int)o` is CS0445.
+    // Deref now spells the box place as `Unsafe.Unbox<T>(o)` (a `ref T`
+    // intrinsic), which is valid and faithful in every Deref position. Not
+    // reachable from C# source (BooleanFoldingPass.FoldSlotDiamond is the only
+    // producer of a ref-typed conditional with a non-place arm), so exercised
+    // on hand-built IR.
+    [Fact]
+    public void Deref_RefConditionalWithUnboxArm_SpellsUnsafeUnbox()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new Unbox(s_int, new LoadArgument(1, "o", s_object)),
+            new LoadArgumentAddress(2, "n", s_int));
+        var load = new LoadIndirect(s_int, conditional);
+
+        var output = PrintReturn(
+            load,
+            s_int,
+            [new Parameter("flag", s_bool), new Parameter("o", s_object), new Parameter("n", s_int)]);
+
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("ref ref", output);
+        Assert.DoesNotContain("ref (int)o", output);
+        AssertCompiles("public static int M(bool flag, object o, int n)", output);
+    }
+
+    // Issue #2916: a by-ref return of an `Unbox` is a ref-place return
+    // (`ReturnText` routes the value through `ArgumentLvalue`). An unbox is the
+    // managed pointer into the box, so the only valid spelling is the
+    // `Unsafe.Unbox<T>(o)` intrinsic; the bare cast `return ref (int)o;` is
+    // CS0445/CS1525. Hand-built IR (a ref-returning method whose body returns an
+    // unbox place).
+    [Fact]
+    public void ReturnRefUnbox_SpellsUnsafeUnbox()
+    {
+        var output = PrintReturn(
+            new Unbox(s_int, new LoadArgument(0, "o", s_object)),
+            TypeRef.ByRef(s_int),
+            [new Parameter("o", s_object)]);
+
+        Assert.Contains("return ref ", output);
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("(int)o", output);
+        AssertCompiles("public static ref int M(object o)", output);
+    }
+
+    // Review (#2925): a ref-place (here a by-ref return) of a *generic-parameter*
+    // unbox must keep the faithful `Unsafe.Unbox<T>(o)` intrinsic — the place
+    // substrates (`ArgumentLvalue`/`Deref`) stay ungated. `Unsafe.Unbox<T>`
+    // compiles for a `where T : struct` parameter, whereas the value-copy cast
+    // `ref (T)o` is CS0445; a ref-place has no valid cast form, so the intrinsic
+    // is the only faithful spelling. (The value-position member receiver falls
+    // back to the cast for a generic parameter instead — see
+    // CSharpPrinterReceiverTests.UnboxReceiver_GenericParameter_KeepsCastNotUnsafeUnbox.)
+    [Fact]
+    public void ReturnRefUnbox_GenericParameter_SpellsUnsafeUnbox()
+    {
+        var t = TypeRef.MethodGenericParameter(0, "T");
+        var output = PrintReturn(
+            new Unbox(t, new LoadArgument(0, "o", s_object)),
+            TypeRef.ByRef(t),
+            [new Parameter("o", s_object)]);
+
+        Assert.Contains("return ref ", output);
+        Assert.Contains("Unsafe.Unbox<T>(o)", output);
+        Assert.DoesNotContain("ref (T)o", output);
+        AssertCompiles("public static ref T M<T>(object o) where T : struct", output);
     }
 
     // Issue #2302: an arm whose signedness (or width) disagrees with the numeric
