@@ -33,6 +33,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
+            ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
             ["MemberNameCollisionRenderingTests.cs"] = (1, "Product-output validity: compiles rendered colliding-member source."),
             ["MixedSignComparisonTests.cs"] = (1, "Product-output validity: compiles synthesized mixed-sign comparison source."),
             ["MultiDimensionalArrayPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced multidim-array source."),
@@ -72,9 +73,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     // Fingerprint. Migration of CompileBackTypeIdentity to the Built fixture
     // FixtureIds.DecompilerTypeIdentity removed exactly one file and one site.
     //   Before (origin/main): 30 files, 37 sites.
-    //   After  (this change):  29 files, 36 sites.
-    const int ExpectedDynamicFiles = 29;
-    const int ExpectedDynamicSites = 36;
+    //   After  (that change):  29 files, 36 sites.
+    // #2935 adds FluentChainFormattingTests, one product-output-validity site
+    // that recompiles the printer's broken fluent-chain output, restoring the
+    // count to 30 files, 37 sites.
+    const int ExpectedDynamicFiles = 30;
+    const int ExpectedDynamicSites = 37;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

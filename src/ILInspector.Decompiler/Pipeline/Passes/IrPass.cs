@@ -256,6 +256,14 @@ public static class IrPasses
         // ubiquitous params-array-argument spill) into a single ArrayLiteral
         // store.
         new ArrayLiteralFromStoresPass(),
+        // With the array-argument spill folded to an ArrayLiteral, re-compose a
+        // spilled fluent call chain: fold each single-use scratch temp (the
+        // spilled receiver and any trailing argument temps) back into the chained
+        // call it feeds, so `S1 = Root.A(); S2 = S1.B(); S2.C(arg)` lands as one
+        // `Root.A().B().C(arg)` chain. Effect-order-safe by the same proof
+        // ConstructorChainArgumentPass uses; runs after the array fold so the
+        // argument temp already holds a foldable literal.
+        new FluentChainRecompositionPass(),
         // Any direct .ctor call still standing after the constructor-chain and
         // struct-constructor raises has no faithful C# statement spelling. Mark
         // it as an explicit residual before the printer can leak invalid

@@ -341,6 +341,85 @@ public sealed partial class CSharpPrinter
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
     }
 
+    // Taste class 3 (no IL anchor): once a re-composed fluent chain is long, the
+    // runtime style oracle (a wide .editorconfig) breaks each chained call onto
+    // its own line under a continuation indent; a chain that still fits stays
+    // inline. The threshold is the dotnet/runtime max line width; it is a pure
+    // formatting tiebreaker, so it never changes which tokens are emitted.
+    const int FluentChainWrapWidth = 120;
+    const int FluentChainMinSegments = 2;
+
+    /// <summary>
+    /// True when <see cref="CallText"/> renders <paramref name="call"/> through
+    /// the plain <c>{ReceiverText(receiver)}.Member(args)</c> tail — the only
+    /// form whose text is guaranteed to be prefixed by its receiver's text, which
+    /// the chain-splitting substring arithmetic relies on. Excludes operators,
+    /// extension sugar, constrained/static calls, <c>this</c>/base and pointer
+    /// receivers, constructor chains, and delegate <c>Invoke</c>.
+    /// </summary>
+    bool IsPlainInstanceChainSegment(Call call)
+    {
+        if (!call.Callee.HasThis || call.Arguments.Count < 1)
+            return false;
+        if (call.Callee.Name is ".ctor")
+            return false;
+        var receiver = call.Arguments[0];
+        if (call.Callee.Name is "Invoke" && receiver is Lambda)
+            return false;
+        if (receiver is LoadArgument { Index: 0, Name: "this" })
+            return false;
+        return PointerMethodReceiver(receiver) is null;
+    }
+
+    /// <summary>
+    /// Renders an instance-call chain rooted at <paramref name="root"/> as one
+    /// call per line — the head receiver on the first line, each
+    /// <c>.Member(args)</c> segment indented one continuation level beneath it —
+    /// when the chain has at least <see cref="FluentChainMinSegments"/> chained
+    /// segments and its single-line form would exceed
+    /// <see cref="FluentChainWrapWidth"/>. Returns null (render inline) otherwise.
+    /// Each line's text is spliced out of the single-line <see cref="CallText"/>
+    /// by length arithmetic, so the broken form is token-identical to the inline
+    /// form: only whitespace differs and the IL is unchanged.
+    /// </summary>
+    string? FluentChainLines(Call root, string prefix, string suffix, int indent)
+    {
+        var segments = new List<Call>();
+        IrExpression current = root;
+        while (current is Call call && IsPlainInstanceChainSegment(call))
+        {
+            segments.Add(call);
+            current = call.Arguments[0];
+        }
+        if (segments.Count < FluentChainMinSegments)
+            return null;
+        segments.Reverse();
+
+        string rootText = CallText(root);
+        if (indent * 4 + prefix.Length + rootText.Length + suffix.Length <= FluentChainWrapWidth)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        var sb = new System.Text.StringBuilder();
+        string headText = ReceiverText(segments[0].Arguments[0]);
+        sb.Append(pad).Append(prefix).Append(headText);
+        string previous = headText;
+        foreach (var segment in segments)
+        {
+            string full = CallText(segment);
+            // full always starts with `previous` (an outer plain instance call's
+            // text is `{ReceiverText(receiver)}.Member(args)`, and the receiver's
+            // text is exactly `previous`); the tail is this segment's `.Member(args)`.
+            if (!full.StartsWith(previous, System.StringComparison.Ordinal))
+                return null;
+            sb.Append('\n').Append(continuation).Append(full, previous.Length, full.Length - previous.Length);
+            previous = full;
+        }
+        sb.Append(suffix);
+        return sb.ToString();
+    }
+
     /// <summary>
     /// A rectangular (multi-dimensional) array element/creation pseudo-member.
     /// The CLR models <c>int[,]</c> element get/set/address and construction as
