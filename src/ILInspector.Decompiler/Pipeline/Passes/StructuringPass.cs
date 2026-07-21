@@ -179,7 +179,7 @@ public sealed class StructuringPass : IIrPass
             {
                 continue;
             }
-            if (IsScatteredDispatch(blocks, conditionalPredecessorIndices[offset]))
+            if (IsScatteredDispatch(blocks, conditionalPredecessorIndices[offset], fallenInto, branchTargets))
                 scatteredReturnDispatchTargets.Add(offset);
         }
 
@@ -1120,13 +1120,23 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>
     /// Whether the conditional predecessors of a shared return are scattered
-    /// across nesting levels (a <c>return</c>/<c>throw</c> arm sits between two of
-    /// them in block order) rather than forming a single contiguous
-    /// <c>&amp;&amp;</c>/<c>||</c> guard chain. An interleaved terminator means at
-    /// least one guard reaches the return from a region strict nesting would
-    /// close before the return, so the return must be duplicated into each guard.
+    /// across nesting levels (a <c>return</c>/<c>throw</c> dispatch arm sits
+    /// between two of them in block order) rather than forming a single
+    /// contiguous <c>&amp;&amp;</c>/<c>||</c> guard chain. A qualifying arm must be
+    /// reached only by its guard falling through (in <paramref name="fallenInto"/>
+    /// and not a <paramref name="branchTargets"/> target); a terminator reached as
+    /// a branch target is an arm of a reconverging diamond nested inside a
+    /// short-circuit condition (e.g. a <c>throw</c> expression), which combines
+    /// cleanly under one guard and must not force duplication. An interleaved
+    /// dispatch arm means at least one guard reaches the return from a region
+    /// strict nesting would close before the return, so the return must be
+    /// duplicated into each guard.
     /// </summary>
-    static bool IsScatteredDispatch(IReadOnlyList<Block> blocks, List<int> predecessorIndices)
+    static bool IsScatteredDispatch(
+        IReadOnlyList<Block> blocks,
+        List<int> predecessorIndices,
+        HashSet<int> fallenInto,
+        HashSet<int> branchTargets)
     {
         int lo = int.MaxValue;
         int hi = int.MinValue;
@@ -1140,8 +1150,20 @@ public sealed class StructuringPass : IIrPass
             if (predecessorIndices.Contains(i))
                 continue;
             var block = blocks[i];
-            if (block.Children.Count > 0 && block.Children[^1] is Return or Throw)
+            if (block.Children.Count == 0 || block.Children[^1] is not (Return or Throw))
+                continue;
+            // A genuine dispatch arm is the fall-through else of its own guard:
+            // control reaches it only by the preceding guard's conditional branch
+            // falling through, never by an explicit branch that targets it. A
+            // terminator reached as a branch target is instead an arm of a
+            // reconverging diamond nested inside a short-circuit `&&`/`||`
+            // condition (e.g. a `throw` expression), which combines cleanly under
+            // one guard and must not force duplication (the #640-style canary).
+            if (fallenInto.Contains(block.StartOffset)
+                && !branchTargets.Contains(block.StartOffset))
+            {
                 return true;
+            }
         }
         return false;
     }
