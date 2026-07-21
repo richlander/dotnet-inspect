@@ -864,6 +864,29 @@ work.
   **hits** — the methods that exercise it, copied from the report, with a couple
   of example renders. The hits are the owner's ready-made test set and definition
   of done (the count goes to zero).
+- **Acquire every code block with `dotnet-inspect`, not by hand.** Both the
+  current render and the authoritative endpoint should be verbatim tool output
+  for the same member, so the owner and reviewers judge the raise against real
+  code instead of a paraphrase:
+  - Current render: `-S "Decompiled Source"` (the lowered C# the product emits
+    today).
+  - **Original source** (the endpoint the raise aims at): prefer C# via
+    `-S "Original Source"` (SourceLink-backed); when SourceLink cannot supply it
+    (no PDB, no source server, or a non-C# source language), fall back to the raw
+    `IL` section (`-S "IL"`) — IL is a valid, if lower-level, authoritative
+    anchor.
+
+  ```bash
+  dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Original Source"
+  ```
+
+  A raise issue is a before→after comparison, so include the Original source
+  section — the same anchor the
+  [decompiler PR template](templates/decompiler-pr.md) requires — not just the
+  current render and a hand-written "fully raised" goal. An issue with only those
+  two is the common failure mode: it leaves reviewers unable to check the goal
+  against ground truth. State explicitly when neither C# source nor IL is
+  obtainable and why.
 - **One pattern, one agent, end to end.** A pattern maps to one pass family, so an
   agent can own building out that raise — discovery, the pass, the fixtures, the
   bring-down — without touching another agent's area. Where a pattern's

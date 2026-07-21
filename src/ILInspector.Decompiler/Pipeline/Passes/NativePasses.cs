@@ -73,12 +73,16 @@ internal static class NativePasses
     public static RedundantBranchEliminationPass RedundantBranchElimination => new();
     [Native(NativeCategory.EmitArtifact, "identity conversions dropped (ldlen; conv.i4 array-length idiom)")]
     public static IdentityConvertPass IdentityConvert => new();
+    [Native(NativeCategory.EmitArtifact, "a boxed value read encoded as the two-op unbox; ldobj managed-pointer idiom normalized to the equivalent unbox.any")]
+    public static UnboxValueReadPass UnboxValueRead => new();
     [Native(NativeCategory.EmitArtifact, "constant-data RVA blob (exact BCL RuntimeHelpers.CreateSpan) back to a span literal")]
     public static RvaSpanPass RvaSpan => new();
     [Native(NativeCategory.EmitArtifact, "cpblk initialization over a localloc reconstructed to a typed stackalloc initializer")]
     public static StackAllocInitializerPass StackAllocInitializer => new();
     [Native(NativeCategory.EmitArtifact, "the lazy <>9__ delegate cache (non-capturing lambda / static method group) collapsed to a bare delegate creation")]
     public static LambdaCachePass LambdaCache => new();
+    [Native(NativeCategory.EmitArtifact, "dynamic call site cache initialization scaffolding reconstructed to dynamic IR nodes")]
+    public static DynamicCallSitePass DynamicCallSite => new();
     [Native(NativeCategory.EmitArtifact, "the finalizer try/finally + base.Finalize() scaffold emitted for ~T() collapsed back to the destructor body")]
     public static DestructorRecoveryPass DestructorRecovery => new();
     [Native(NativeCategory.EmitArtifact, "classic async state-machine kickoff/MoveNext scaffolding reconstructed to async/await body")]

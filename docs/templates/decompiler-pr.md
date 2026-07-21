@@ -20,13 +20,24 @@ makes this a before→after comparison, not a snapshot of only the raised output
 a snapshot cannot reveal a regression that leaves the After invalid or
 behavior-changing.
 
-Look for the authoritative original source with `dotnet-inspect`, including
-through SourceLink:
+Acquire each code block from `dotnet-inspect` rather than paraphrasing or
+hand-transcribing, so every render in the PR is verbatim product output for the
+same `{Type} {MethodSelector} {scope}`:
+
+- Original source: `-S "Original Source"` (SourceLink-backed C#). Prefer C#;
+  when SourceLink cannot supply it (no PDB, no source server, or a non-C# source
+  language), fall back to the raw `IL` section (`-S "IL"`) — IL is a valid, if
+  lower-level, authoritative anchor.
+- Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
+- After: `-S "Decompiled Source"` at this PR's head (the post-change output).
+
+Only Fully raised is authored by hand — it is the intended endpoint, not a
+current render.
 
 dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Original Source"
 
-When original source is available, keep Original source immediately before
-Before and include the relevant C#.
+Keep Original source immediately before Before. Omit the Original source section
+only when neither C# source nor IL is obtainable, and say so explicitly.
 
 Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
@@ -50,19 +61,24 @@ For focused invalid-Full / burndown row fixes, prefer
 ### Original source
 
 <!--
-Required when authoritative original source is available. Delete this section
-only after checking with dotnet-inspect (relying on SourceLink).
+Expected for every raise PR. Acquire with dotnet-inspect: prefer C# via
+`-S "Original Source"` (SourceLink); fall back to the raw IL section
+(`-S "IL"`) when SourceLink cannot supply C#. Omit only after checking and
+finding neither C# source nor IL is obtainable — say so explicitly rather than
+silently deleting this section.
 -->
 
 ```csharp
-// authoritative original source
+// authoritative original source (C# preferred; raw IL is an acceptable fallback)
 ```
 
 ### Before
 
 <!--
-Include the method signature line, matching Original source's shape, not just
-the body — a bare body is harder to line up against Original source.
+Acquire with `dotnet-inspect -S "Decompiled Source"` at the base commit, rather
+than hand-transcribing. Include the method signature line, matching Original
+source's shape, not just the body — a bare body is harder to line up against
+Original source.
 -->
 
 ```csharp
@@ -76,7 +92,10 @@ the body — a bare body is harder to line up against Original source.
 
 ### After
 
-<!-- Include the method signature line here too, for the same reason. -->
+<!--
+Acquire with `dotnet-inspect -S "Decompiled Source"` at this PR's head. Include
+the method signature line here too, for the same reason.
+-->
 
 ```csharp
 // output produced by this PR, including an honest fallback when not fully raised, with its method signature

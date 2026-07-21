@@ -103,6 +103,9 @@ public static class GeneratedCodeIdentity
         }
     }
 
+    public static bool IsDynamicCallSiteContainerType(TypeRef type)
+        => LeafTypeName(MetadataTypeName(type)).StartsWith("<>o__", StringComparison.Ordinal);
+
     public static bool IsIteratorStateMachineTypeName(TypeRef type)
         => LeafTypeName(MetadataTypeName(type)).Contains(">d__", StringComparison.Ordinal);
 

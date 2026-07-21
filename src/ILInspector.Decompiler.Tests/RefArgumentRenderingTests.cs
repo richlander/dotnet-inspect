@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 public class RefArgumentRenderingTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
 
     static IrFunction BuildSlotByRefCall(ArgumentRefKind refKind)
     {
@@ -71,5 +72,54 @@ public class RefArgumentRenderingTests
 
         Assert.Contains("return ref V_0;", output);
         Assert.DoesNotContain("return V_0;", output);
+    }
+
+    // Issue #2916: an `Unbox` passed to a `ref`/`out` parameter is the managed
+    // pointer into the box, so it must spell as the `Unsafe.Unbox<T>(o)`
+    // intrinsic — a genuine ref-place. `ArgumentLvalue` used to exclude `Unbox`,
+    // leaving these positions to the default `ref (T)x` spelling, which is
+    // CS0445/CS0206. (`Unsafe.Unbox<int>(o)` validity in every ref-place is
+    // compile-verified in PrinterPrecedenceTests.ReturnRefUnbox_SpellsUnsafeUnbox
+    // and the PR's csc probe.)
+    static IrFunction BuildUnboxByRefCall(ArgumentRefKind refKind)
+    {
+        var refInt = TypeRef.ByRef(Int32);
+        var callee = new MethodRef(
+            TypeRef.CoreLib("System", "Sample"),
+            "Exchange",
+            Int32,
+            [refInt, Int32],
+            HasThis: false)
+        {
+            ParameterRefKinds = [refKind, ArgumentRefKind.Value],
+        };
+        // Exchange(ref/out unbox<int>(o), 5)
+        var call = new Call(callee, isVirtual: false, [new Unbox(Int32, new LoadArgument(0, "o", Object)), new Constant(5, Int32)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("o", Object)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("System", "Holder"), signature, [], container);
+    }
+
+    [Fact]
+    public void RefArgumentUnbox_SpellsUnsafeUnbox()
+    {
+        var output = CSharpPrinter.Print(BuildUnboxByRefCall(ArgumentRefKind.Ref)).Output;
+
+        Assert.Contains("Exchange(ref ", output);
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("ref (int)o", output);
+    }
+
+    [Fact]
+    public void OutArgumentUnbox_SpellsUnsafeUnbox()
+    {
+        var output = CSharpPrinter.Print(BuildUnboxByRefCall(ArgumentRefKind.Out)).Output;
+
+        Assert.Contains("Exchange(out ", output);
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("out (int)o", output);
     }
 }

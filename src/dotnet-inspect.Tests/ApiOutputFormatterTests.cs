@@ -15,7 +15,7 @@ using Xunit;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Locks the <see cref="ApiOutputFormatter.SameType"/> matching used to scope
+/// Locks the <see cref="ApiAnalysisInspection.SameType"/> matching used to scope
 /// render rows (and, since #2233, the type-targeted decode gate) to a single
 /// type. The regression under test (#2238): the old predicate normalized nested
 /// names by blindly replacing '+' with '.', which dropped rows for a
@@ -40,7 +40,7 @@ public class ApiOutputFormatterTests
         var apiType = Type(ns: null, name: "A+B", metadataName: "A+B");
         var typeRef = TypeRef.Definition(Asm, "", "A+B");
 
-        Assert.True(ApiOutputFormatter.SameType(typeRef, apiType));
+        Assert.True(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class ApiOutputFormatterTests
         var apiType = Type(ns: "N", name: "Outer.Inner", metadataName: "Outer+Inner");
         var typeRef = TypeRef.Definition(Asm, "N", "Outer+Inner");
 
-        Assert.True(ApiOutputFormatter.SameType(typeRef, apiType));
+        Assert.True(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class ApiOutputFormatterTests
         var apiType = Type(ns: "N", name: "Outer.Inner", metadataName: null);
         var typeRef = TypeRef.Definition(Asm, "N", "Outer+Inner");
 
-        Assert.True(ApiOutputFormatter.SameType(typeRef, apiType));
+        Assert.True(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public class ApiOutputFormatterTests
         var apiType = Type(ns: null, name: "A+B", metadataName: "A+B");
         var typeRef = TypeRef.Definition(Asm, "", "A+B");
 
-        Assert.True(ApiOutputFormatter.SameType(typeRef, apiType));
+        Assert.True(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class ApiOutputFormatterTests
         var apiType = Type(ns: "N1", name: "A+B", metadataName: "A+B");
         var typeRef = TypeRef.Definition(Asm, "N2", "A+B");
 
-        Assert.False(ApiOutputFormatter.SameType(typeRef, apiType));
+        Assert.False(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class ApiOutputFormatterTests
         var apiType = Type(ns: null, name: "A+B", metadataName: "A+B");
         var typeRef = TypeRef.SzArray(TypeRef.Definition(Asm, "", "A+B"));
 
-        Assert.False(ApiOutputFormatter.SameType(typeRef, apiType));
+        Assert.False(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
     [Fact]
@@ -436,7 +436,7 @@ public class ApiOutputFormatterTests
         // The reconstructed metadata name is exactly what a TypeRef would carry,
         // so SameType reconciles the two without any string surgery.
         var typeRef = TypeRef.Definition(Asm, inner.Namespace ?? "", "PlusFixtureOuter+Inner");
-        Assert.True(ApiOutputFormatter.SameType(typeRef, inner));
+        Assert.True(ApiAnalysisInspection.SameType(typeRef, inner));
     }
 
     // --- Filtered projections must carry MetadataName to the analysis path ---
@@ -454,7 +454,7 @@ public class ApiOutputFormatterTests
         var filtered = ApiCommand.BuildFilteredTypeForSections(type, new ApiOptions());
 
         Assert.Equal("A+B", filtered.MetadataName);
-        Assert.True(ApiOutputFormatter.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
+        Assert.True(ApiAnalysisInspection.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
     }
 
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---
@@ -508,7 +508,7 @@ public class ApiOutputFormatterTests
             // End-to-end: the row would previously be dropped because
             // "A+B".Replace('+','.') == "A.B" != "A+B". It now matches.
             var typeRef = TypeRef.Definition(Asm, "", "A+B");
-            Assert.True(ApiOutputFormatter.SameType(typeRef, apiType));
+            Assert.True(ApiAnalysisInspection.SameType(typeRef, apiType));
         }
         finally
         {

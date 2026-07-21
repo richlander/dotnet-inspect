@@ -169,6 +169,7 @@ public static class IrPasses
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.
         new LockSugarPass(),
+        new DynamicCallSitePass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
         // Raise csc's arity-2 tuple-valued ==/!= lowering after boolean folding
@@ -380,6 +381,17 @@ public static class IrPasses
         // their sinks like any local (slice 5b-2; the assertion diff caught
         // the reverse ordering leaving them bare).
         new SlotMaterializationPass(),
+        // A value read of an unboxed managed pointer (unbox T; ldobj T) is the
+        // same operation as unbox.any T; normalize it to the universal value
+        // cast so the printer spells (T)o and reserves the ref-only
+        // Unsafe.Unbox<T> intrinsic for genuine ref/out/write places. This runs
+        // AFTER the final slot-collapsing passes (ExpressionInliningPass /
+        // StackSlotCopyPropagationPass): a spilled `ref T S = unbox o` slot only
+        // collapses to LoadIndirect(Unbox) once those inline it, so an earlier
+        // run would leave that re-formed value read spelled as the CS0453
+        // intrinsic. It stays BEFORE CoercionInsertionPass so the minted
+        // UnboxAny value is coerced at its sink like any other.
+        new UnboxValueReadPass(),
         new CoercionInsertionPass(),
     ];
 

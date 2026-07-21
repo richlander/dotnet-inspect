@@ -83,6 +83,15 @@ internal sealed class CrossAssemblyTypeResolver
 
     public FieldRef Upgrade(FieldRef field)
     {
+        if (field.DeclaringTypeCompilerGenerated == MetadataFactState.Unknown && field.DeclaringType is { Assembly: not null })
+        {
+            var dtType = NamedDefinition(field.DeclaringType);
+            if (dtType is not null && dtType.Assembly != TypeRefDecoder.Canonical(_selfSimpleName) && Locate(dtType) is { } location && _context.Open(location) is { } assembly && assembly.TryGetType(location.FullTypeName, out var handle))
+            {
+                var typeDef = assembly.Reader.GetTypeDefinition(handle);
+                field = field with { DeclaringTypeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(assembly.Reader, typeDef.GetCustomAttributes()) ? MetadataFactState.Yes : MetadataFactState.No };
+            }
+        }
         if (field.BackingPropertyName is not null
             || CSharpNaming.BackingFieldProperty(field.Name) is null)
         {

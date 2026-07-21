@@ -128,6 +128,34 @@ public class LambdaRaisingPassTests
         Assert.DoesNotContain("new Func", output);
     }
 
+    // #2945: a hoisted field read in the outer body (`if (map is null)`) is
+    // substituted back to the captured source, so the whole environment elides
+    // and the lambda raises — the SetAction/GetCompletions CS1001 closure-stall.
+    [Fact]
+    public void CapturedFieldReadInOuterBody_ElidesEnvironmentAndSubstitutesRead()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CapturedParamReadInOuterBody));
+
+        Assert.Contains("if (map is null)", output);        // outer read substituted map <- V_0.map
+        Assert.Contains("=>", output);                       // lambda raised
+        Assert.DoesNotContain("DisplayClass", output);       // environment elided
+        Assert.DoesNotContain("new Func", output);
+        Assert.DoesNotContain("b__", output);                // no un-raised lambda-method reference
+    }
+
+    // Negative: the captured parameter is reassigned in the outer body, a second
+    // store to the hoisted field. The single-store guard must keep the
+    // environment lowered so the mutation is not lost to value substitution.
+    [Fact]
+    public void CapturedFieldReassignedInOuterBody_StaysLowered()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CapturedParamReassignedInOuterBody));
+
+        Assert.Contains("DisplayClass", output);   // environment kept
+        Assert.Contains("new Func", output);        // delegate creation survives
+        Assert.Contains("b__", output);             // lambda method reference not raised
+    }
+
     [Fact]
     public void LambdaNameLookalikeWithoutCompilerGeneratedMetadata_IsNotRaised()
     {

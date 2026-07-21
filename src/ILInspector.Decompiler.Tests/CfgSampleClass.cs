@@ -579,6 +579,34 @@ public class CfgSampleClass
     public static (System.Func<int, int>, System.Func<int, int>) SharedCaptureLambdas(int n)
         => (x => x + n, y => y - n);
 
+    // The captured parameter is also read in the outer body (the null-check),
+    // which the compiler routes through the hoisted field (`V_0.map is null`).
+    // That outer field read is neither a capture store nor a lambda target, so
+    // the environment is elided by substituting the read back to the captured
+    // source. Passing the delegate as a later argument (after `7`) forces the
+    // compiler to spill the display class to a local (`stloc`), reproducing the
+    // #2945 EVIL CS1001 closure-stall shape (System.CommandLine Command.SetAction,
+    // Command.GetCompletions) rather than the dup-carried stack form.
+    public static int CapturedParamReadInOuterBody(System.Func<int, int> map)
+    {
+        if (map is null)
+            throw new System.ArgumentNullException(nameof(map));
+        return ApplySeed(7, x => map(x) + 1);
+    }
+
+    static int ApplySeed(int seed, System.Func<int, int> f) => f(seed);
+
+    // Negative: the captured parameter is reassigned in the outer body after the
+    // lambda captures it. The reassignment is a second store to the hoisted
+    // field, so the single-store guard must keep the environment lowered even
+    // though an outer read is present.
+    public static int CapturedParamReassignedInOuterBody(System.Func<int, int> map)
+    {
+        int first = ApplySeed(7, x => map(x) + 1);
+        map = static x => x;
+        return first + ApplySeed(8, map);
+    }
+
     // Boundary fixtures for the lambda surface: each exercises a distinct
     // LambdaRaisingPass guard. When a later slice lifts a guard, flip its
     // scorecard entry to recovered in that PR.
