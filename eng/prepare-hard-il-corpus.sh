@@ -54,9 +54,15 @@ bash "$root/eng/prepare-decompiler-corpus.sh" "$work/real-world.txt"
 
 # 3. Union, de-duplicated, deterministic order.
 #    Real-world assemblies lead so shared affinity is stable regardless of which
-#    packages the sweep resolves.
-cat "$work/real-world.txt" "$outdir/sweep/assemblies.txt" \
-    | awk 'NF && !seen[$0]++' > "$outdir/assemblies.txt"
+#    packages the sweep resolves. Dedup on the assembly file name (not the full
+#    path): the harvester and benchmark key libraries by assembly name, so an
+#    assembly reachable via two pool sources (e.g. a package that is both a
+#    real-world pin and a top-N sweep hit) must contribute one library, not two.
+#    Real-world leading means its pinned version wins the overlap.
+sweep_list="$outdir/sweep/assemblies.txt"
+[ -f "$sweep_list" ] || sweep_list=/dev/null
+cat "$work/real-world.txt" "$sweep_list" \
+    | awk -F/ '$0 != "" && !seen[$NF]++' > "$outdir/assemblies.txt"
 
 # Surface the sweep manifest at the top level so resolved versions/TFMs are easy
 # to find (it also remains at <outdir>/sweep/manifest.json).
