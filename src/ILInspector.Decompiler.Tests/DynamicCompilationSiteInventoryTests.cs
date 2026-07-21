@@ -177,7 +177,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             if (fileName == "DynamicCompilationSiteInventoryTests.cs")
                 continue;
 
-            int occurrences = Regex.Matches(File.ReadAllText(path), @"CSharpCompilation\.Create\(").Count;
+            int occurrences = Regex.Matches(File.ReadAllText(path), @"CSharpCompilation\s*\.\s*Create\s*\(").Count;
             if (occurrences > 0)
                 counts[fileName] = occurrences;
         }

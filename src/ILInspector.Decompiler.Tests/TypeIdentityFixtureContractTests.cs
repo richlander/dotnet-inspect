@@ -58,6 +58,9 @@ public sealed class TypeIdentityFixtureContractTests
         Assert.Contains("Outer", typeNames);        // nesting container
         Assert.Contains("Inner", typeNames);        // nested type
         Assert.Contains("Widget", typeNames);       // public type in @for.@class
-        Assert.Contains(typeNames, name => name.StartsWith('<')); // file-local mangled type
+        // File-local Widget is emitted with a compiler-mangled name that starts
+        // with '<' and ends with "__Widget" — distinct from the always-present
+        // <Module> — so this proves the file-local shape itself was not dropped.
+        Assert.Contains(typeNames, name => name.StartsWith('<') && name.EndsWith("__Widget", StringComparison.Ordinal));
     }
 }
