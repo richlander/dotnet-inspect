@@ -11,6 +11,8 @@ public class ArrayLiteralFromStoresPassTests
 {
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef ObjectArray = TypeRef.SzArray(Object);
+    static readonly TypeRef StringType = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef StringArray = TypeRef.SzArray(StringType);
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Derived = TypeRef.CoreLib("System", "MyType");
 
@@ -202,6 +204,64 @@ public class ArrayLiteralFromStoresPassTests
 
         Assert.Equal(0, ArrayLiteralCount(function));
         Assert.Equal(1, NewArrayCount(function));
+        function.CheckInvariant();
+    }
+
+    // A fill value that reads the place itself (a self-referential
+    // `tmp[0] = tmp;`) must not fold: ArrayLiteral evaluates every element
+    // before the combined store commits the array reference, so a folded
+    // element reading the place would observe the place's *prior* value
+    // instead of the array being built (adversarial review finding).
+    [Fact]
+    public void FillValueReadsThePlaceItself_DoesNotFold()
+    {
+        var call = new ExpressionStatement(new Call(Sink(1), isVirtual: false, [new LoadLocal(0, ObjectArray)]));
+        var function = Build(
+            new StoreLocal(0, ObjectArray, new NewArray(Object, new Constant(1, TypeRef.CoreLib("System", "Int32")))),
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), new Constant(0, TypeRef.CoreLib("System", "Int32")), new LoadLocal(0, ObjectArray)),
+            call);
+
+        RunPass(function);
+
+        Assert.Equal(0, ArrayLiteralCount(function));
+        function.CheckInvariant();
+    }
+
+    // Array covariance: `object[] tmp = new string[1];` is legal C#, and each
+    // stelem is runtime-checked (ArrayTypeMismatchException on a non-string
+    // value). Folding to `object[] tmp = new string[] { value };` would
+    // require every value to typecheck against string, which the pass cannot
+    // prove — decline whenever the declared local's array type differs from
+    // the allocated array's element type (adversarial review finding).
+    [Fact]
+    public void CovariantArrayDeclaredTypeDiffersFromAllocatedElementType_DoesNotFold()
+    {
+        var call = new ExpressionStatement(new Call(Sink(1), isVirtual: false, [new LoadLocal(0, ObjectArray)]));
+        var function = Build(
+            new StoreLocal(0, ObjectArray, new NewArray(StringType, new Constant(1, TypeRef.CoreLib("System", "Int32")))),
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), new Constant(0, TypeRef.CoreLib("System", "Int32")), new Call(Effect("A"), isVirtual: false, [])),
+            call);
+
+        RunPass(function);
+
+        Assert.Equal(0, ArrayLiteralCount(function));
+        function.CheckInvariant();
+    }
+
+    // The non-covariant case (declared local type matches the allocated
+    // element type exactly, here both string[]) still folds normally.
+    [Fact]
+    public void MatchingDeclaredAndAllocatedElementType_StillFolds()
+    {
+        var call = new ExpressionStatement(new Call(Sink(1), isVirtual: false, [new LoadLocal(0, StringArray)]));
+        var function = Build(
+            new StoreLocal(0, StringArray, new NewArray(StringType, new Constant(1, TypeRef.CoreLib("System", "Int32")))),
+            new StoreElement(StringType, new LoadLocal(0, StringArray), new Constant(0, TypeRef.CoreLib("System", "Int32")), new Call(new MethodRef(Derived, "S", StringType, [], HasThis: false), isVirtual: false, [])),
+            call);
+
+        RunPass(function);
+
+        Assert.Equal(1, ArrayLiteralCount(function));
         function.CheckInvariant();
     }
 }

@@ -66,6 +66,16 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
         if (newArray.Length is not Constant { Value: int length } || length is <= 0 or > MaxLength)
             return false;
 
+        // The place's declared element type must match the allocated array's
+        // element type. Arrays are covariant (T[] tmp = new U[n]; is legal
+        // when U : T), so a store element's value can be a T that is not a
+        // valid U — folding into `new U[] { ... }` would spell an initializer
+        // whose elements don't typecheck against U, or silently drop the
+        // runtime ArrayTypeMismatchException the original stelem could throw.
+        var placeElementType = PlaceElementType(block, seedIndex, place);
+        if (placeElementType is null || !placeElementType.Equals(newArray.ElementType))
+            return false;
+
         // Find the contiguous fill run somewhere later in the same block: n
         // consecutive StoreElement statements targeting this place, in
         // increasing constant-index order starting at 0.
@@ -82,6 +92,19 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
         for (int k = 0; k < length; k++)
         {
             if (!IsElementStore(block.Children[start + k], place, k))
+                return false;
+        }
+
+        // No fill value may itself read, write, or address the place: an
+        // ArrayLiteral evaluates every element before the combined store
+        // commits the array reference, so a value that observes the place
+        // (e.g. a self-referential `tmp[0] = tmp;`) would read whatever the
+        // place held before this statement — not the array being built —
+        // once folded.
+        for (int k = 0; k < length; k++)
+        {
+            var value = ((StoreElement)block.Children[start + k]).Value;
+            if (value.Descendants.Prepend(value).Any(n => IsLoad(n, place) || IsAddressOrWrite(n, place)))
                 return false;
         }
 
@@ -144,6 +167,21 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
 
     static TypeRef ArrayLocalType(Block block, int seedIndex)
         => ((StoreLocal)block.Children[seedIndex]).Type;
+
+    // The place's element type as declared at the allocation site. Stack
+    // slots carry no independent declared array type (only the allocation's
+    // own type reaches every load), so they always match trivially. A local
+    // declares its own array type, which — thanks to array covariance — can
+    // differ from the allocated array's element type (e.g. `object[] tmp =
+    // new string[n];`); folding must decline rather than spell an initializer
+    // whose elements don't typecheck against the narrower declared type.
+    static TypeRef? PlaceElementType(Block block, int seedIndex, (bool IsSlot, int Index, IrExpression Value) place)
+    {
+        if (place.IsSlot)
+            return ((NewArray)place.Value).ElementType;
+        var local = (StoreLocal)block.Children[seedIndex];
+        return local.Type is { Kind: TypeRefKind.SzArray, ElementType: { } element } ? element : null;
+    }
 
     static bool IsElementStore(IrNode node, (bool IsSlot, int Index, IrExpression Value) place, int expectedIndex)
         => node is StoreElement { Index: Constant { Value: int idx } } store
