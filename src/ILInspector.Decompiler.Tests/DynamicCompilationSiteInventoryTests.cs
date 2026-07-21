@@ -33,6 +33,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
+            ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
             ["MemberNameCollisionRenderingTests.cs"] = (1, "Product-output validity: compiles rendered colliding-member source."),
             ["MixedSignComparisonTests.cs"] = (1, "Product-output validity: compiles synthesized mixed-sign comparison source."),
             ["MultiDimensionalArrayPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced multidim-array source."),
@@ -70,13 +71,15 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
         };
 
-    // Fingerprint. #2925 adds UnboxValueReadPassTests.cs (1 site): a
-    // product-output validity gate that compiles the normalized unbox value-read
-    // source per case.
-    //   Before (#2925 base): 29 files, 36 sites.
-    //   After  (this change): 30 files, 37 sites.
-    const int ExpectedDynamicFiles = 30;
-    const int ExpectedDynamicSites = 37;
+    // Fingerprint. Two independent +1 site additions stack on the 29 files /
+    // 36 sites base (after CompileBackTypeIdentity migrated to a Built fixture):
+    //   #2925 adds UnboxValueReadPassTests.cs (1 site): compiles the normalized
+    //     unbox value-read source (cast vs Unsafe.Unbox) per case.
+    //   #2935 adds FluentChainFormattingTests.cs (1 site): recompiles the
+    //     printer's broken fluent-chain output.
+    //   Combined: 31 files, 38 sites.
+    const int ExpectedDynamicFiles = 31;
+    const int ExpectedDynamicSites = 38;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

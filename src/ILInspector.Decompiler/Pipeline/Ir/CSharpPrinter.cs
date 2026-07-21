@@ -1756,7 +1756,10 @@ public sealed partial class CSharpPrinter
             return;
         }
         if (Statement(node) is { } line)
-            sb.Append(pad).AppendLine(line);
+        {
+            if (!TryAppendFluentChain(sb, node, line, indent))
+                sb.Append(pad).AppendLine(line);
+        }
     }
 
     /// <summary>
@@ -2030,6 +2033,66 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
+    /// <summary>
+    /// Emits <paramref name="node"/> as a broken fluent chain (one call per line)
+    /// when it is a chain-valued statement long enough to wrap, returning true
+    /// after appending; false to fall through to the flat single-line emit. The
+    /// broken form is only chosen when the flat statement <paramref name="line"/>
+    /// is exactly <c>prefix + chain + ";"</c>, so any coercion cast, compound
+    /// assignment, ref rebind, or discard the renderer added around the chain
+    /// keeps the statement inline — breaking never drops or reshapes a token.
+    /// </summary>
+    bool TryAppendFluentChain(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (!TryFluentChainStatement(node, out var root, out var prefix))
+            return false;
+        if (line != prefix + CallText(root) + ";")
+            return false;
+        if (FluentChainLines(root, prefix, ";", indent) is not { } broken)
+            return false;
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Recognizes the statement positions whose value is a bare instance-call
+    /// chain — an expression statement, a <c>return</c>, or a (non-ref) local or
+    /// stack-slot store — and yields the chain root plus the exact statement
+    /// prefix the flat renderer prints before it. The caller re-derives the flat
+    /// text and only breaks the chain when it matches, so the prefix here need
+    /// only cover the common (cast-free) spelling.
+    /// </summary>
+    bool TryFluentChainStatement(IrNode node, out Call root, out string prefix)
+    {
+        switch (node)
+        {
+            case ExpressionStatement { Expression: Call { Callee.Name: not ".ctor" } call } when IsStatementExpression(call):
+                root = call;
+                prefix = "";
+                return true;
+            case Return { Value: Call call }:
+                root = call;
+                prefix = "return ";
+                return true;
+            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: Call call } store:
+                root = call;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
+                    : $"{LocalName(store.Index)} = ";
+                return true;
+            case StoreStackSlot store when store.Value is Call call && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+                root = call;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
+                    : $"{StackSlotName(store)} = ";
+                return true;
+            default:
+                root = null!;
+                prefix = "";
+                return false;
+        }
+    }
+
     string? Statement(IrNode node) => node switch
     {
         ExpressionStatement
