@@ -117,10 +117,12 @@ order and requests one coherent compilation artifact. It uses the same product
 artifact provider, typed declaration requests, C# printer, compiler, and result
 model as `cluster`.
 
-Unsupported declarations remain visible. An `all` artifact is complete only if
-every declaration required by the selected body policy was either represented
-or reported through an explicit supported preservation boundary. Omission is not
-success.
+An `all` artifact is declaration-complete only when every supported declaration
+in the target module is represented. Unsupported declarations remain visible and
+make the scope outcome incomplete; they are not silently omitted. Independently,
+the body-policy outcome records whether every concrete member that requires a
+real body under `selected` or `full` produced one. Declaration completeness and
+body completeness are separate fields.
 
 ### Cross-scope comparison
 
@@ -280,9 +282,21 @@ separate fields.
 
 ### C# arbiter
 
-`CSharpBodyDiff` compares product-decompiled bodies and reports its native exact,
-changed, or failed evidence. The round-trip system preserves the producer-owned
-rows and failure state.
+The C# arbiter is a total round-trip envelope over producer-native inspection and
+diff evidence:
+
+- `Exact` requires `Complete` body inspections at both endpoints, successful
+  typed member correspondence, no producer failure rows, and an exact
+  `CSharpBodyDiff`;
+- `Changed` requires `Complete` body inspections at both endpoints and preserves
+  the producer-owned diff rows;
+- `Unavailable` retains the endpoint's `Absent` or `Failed` inspection, identity
+  failure, or decompilation/diff failure reason.
+
+This precondition is deliberate: `CSharpBodyDiffResult.IsExact` alone is not the
+arbiter because an empty native diff can also arise when a body fingerprint is
+absent. The round-trip envelope consumes the retained Finding inspection state
+and preserves all producer-owned rows and failures.
 
 C# equality is useful for spelling and decompiler stability. It does not prove
 that authored source, reconstructed source, or compiled behavior is equivalent.
@@ -303,7 +317,7 @@ evidence.
 
 The first implementation may record coarse declaration/API changes already
 available from product metadata comparison, but no strict metadata or PE verdict
-is required for round-trip success.
+is required for collecting the initial round-trip evidence.
 
 Future measured needs may add:
 
@@ -415,8 +429,8 @@ smallest focused product and harness checks that prove their claims.
 3. Which existing `ImplementationDiff` results should be retained directly, and
    which need a round-trip-specific envelope for provenance?
 4. Is cluster/all A/B opt-in per consumer or an explicit round-trip report mode?
-5. What makes an `all` artifact incomplete versus supported with an explicit
-   declaration-preservation boundary?
+5. Which declaration shapes are unsupported in `all`, and how should the typed
+   incomplete-scope result group them?
 6. Which corpus and fixture populations should establish the initial practical
    success baseline?
 
