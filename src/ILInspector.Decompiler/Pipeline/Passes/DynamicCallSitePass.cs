@@ -280,9 +280,10 @@ public sealed class DynamicCallSitePass : IIrPass
 
         // The delegate receiver is the boxed object the runtime consumes. csc
         // only ever passes a value expression here; decline any address or
-        // pointer value that the printer cannot spell as a dynamic receiver,
-        // including one hidden behind a conversion, merge, or spill.
-        if (ContainsUnraisableReceiver(function, receiver))
+        // pointer value the printer cannot spell as a dynamic receiver,
+        // including one hidden behind a conversion, merge, or spill. The
+        // authoritative check lives in the printer layer that owns C# spelling.
+        if (!CSharpSpellability.IsDynamicCastableValue(function, receiver))
         {
             receiver = null!;
             memberName = null!;
@@ -700,135 +701,6 @@ public sealed class DynamicCallSitePass : IIrPass
         }
 
         return true;
-    }
-
-    enum ReceiverPlaceKind { Argument, Local, StackSlot }
-
-    // Follow transparent conversions, merge expressions, and body-local
-    // definitions to find a receiver value the printer cannot cast to dynamic.
-    // Deleting the cache guard can make a preceding spill adjacent to the raised
-    // use, so this proof must account for values a later inliner would expose.
-    static bool ContainsUnraisableReceiver(IrFunction function, IrExpression receiver)
-    {
-        var pending = new Stack<IrExpression>();
-        var seenPlaces = new HashSet<(ReceiverPlaceKind Kind, int Index)>();
-        var bodyNodes = GenericDeclarationPatternProof
-            .DescendantsOutsideNestedFunctions(function).ToList();
-        pending.Push(receiver);
-
-        while (pending.Count > 0)
-        {
-            var expr = pending.Pop();
-            if (IsUnraisableReceiver(expr))
-                return true;
-
-            switch (expr)
-            {
-                case Coerce coerce:
-                    pending.Push(coerce.Operand);
-                    break;
-                case Convert convert:
-                    pending.Push(convert.Operand);
-                    break;
-                case CastClass cast:
-                    pending.Push(cast.Operand);
-                    break;
-                case Box box:
-                    pending.Push(box.Operand);
-                    break;
-                case IsInstance isInstance:
-                    pending.Push(isInstance.Operand);
-                    break;
-                case UnboxAny unbox:
-                    pending.Push(unbox.Operand);
-                    break;
-                case Conditional conditional:
-                    pending.Push(conditional.Condition);
-                    // A ref conditional is a legal value expression: C#
-                    // implicitly dereferences the selected arm. Non-ref merges
-                    // cannot legally hide an address-valued arm.
-                    if (conditional.ResultType?.Kind != TypeRefKind.ByRef)
-                    {
-                        pending.Push(conditional.WhenTrue);
-                        pending.Push(conditional.WhenFalse);
-                    }
-                    break;
-                case Coalesce coalesce:
-                    pending.Push(coalesce.Left);
-                    pending.Push(coalesce.Right);
-                    break;
-                case SwitchExpression switchExpression:
-                    pending.Push(switchExpression.Value);
-                    foreach (var arm in switchExpression.Arms)
-                        pending.Push(arm.Value);
-                    break;
-                case TupleSwitchExpression tupleSwitch:
-                    foreach (var component in tupleSwitch.Components)
-                        pending.Push(component);
-                    foreach (var arm in tupleSwitch.Arms)
-                        pending.Push(arm.Value);
-                    break;
-                case UnionSwitchExpression unionSwitch:
-                    pending.Push(unionSwitch.Value);
-                    foreach (var arm in unionSwitch.Arms)
-                    {
-                        if (arm.Guard is { } guard)
-                            pending.Push(guard);
-                        pending.Push(arm.Value);
-                    }
-                    if (unionSwitch.NullValue is { } nullValue)
-                        pending.Push(nullValue);
-                    if (unionSwitch.DefaultValue is { } defaultValue)
-                        pending.Push(defaultValue);
-                    break;
-                case LoadArgument load
-                    when seenPlaces.Add((ReceiverPlaceKind.Argument, load.Index)):
-                    foreach (var store in bodyNodes.OfType<StoreArgument>())
-                        if (store.Index == load.Index)
-                            pending.Push(store.Value);
-                    break;
-                case LoadLocal load
-                    when seenPlaces.Add((ReceiverPlaceKind.Local, load.Index)):
-                    foreach (var store in bodyNodes.OfType<StoreLocal>())
-                        if (store.Index == load.Index)
-                            pending.Push(store.Value);
-                    break;
-                case LoadStackSlot load
-                    when seenPlaces.Add((ReceiverPlaceKind.StackSlot, load.Slot)):
-                    foreach (var store in bodyNodes.OfType<StoreStackSlot>())
-                        if (store.Slot == load.Slot)
-                            pending.Push(store.Value);
-                    break;
-            }
-        }
-
-        return false;
-    }
-
-    // A receiver the printer cannot spell as a value cast to `dynamic`:
-    //  - address / managed-pointer expressions the printer spells with a leading
-    //    `ref` (`ref x`, `ref buf[i]`),
-    //  - a raw function-pointer load (rendered as an `ldftn` comment), or
-    //  - any expression whose value is an unmanaged pointer or function pointer
-    //    (`int*`, `delegate*<...>`), which has no conversion to `dynamic`
-    //    (CS0030).
-    // A `ByRef` receiver is implicitly dereferenced by C#, so it is raisable when
-    // its element is a value/reference type (`((dynamic)r).Member` is valid) but
-    // unraisable when the element is itself a pointer/function pointer (`ref int*`
-    // still yields `int*`), so look through `ByRef` and local-signature `Pinned`
-    // wrappers before the pointer check. The peel is a bounded loop over the
-    // finite result-type tree so no crafted shape can slip a pointer through.
-    static bool IsUnraisableReceiver(IrExpression expr)
-    {
-        if (expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
-            or LoadElementAddress or FixedBufferElementAddress
-            or LoadFunctionPointer or Unbox)
-            return true;
-
-        var type = expr.ResultType;
-        while (type?.Kind is TypeRefKind.ByRef or TypeRefKind.Pinned)
-            type = type.ElementType;
-        return type?.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer;
     }
 
     static bool ContainsReference<T>(IReadOnlyList<T> nodes, T node) where T : class

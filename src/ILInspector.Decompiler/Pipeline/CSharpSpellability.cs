@@ -1,14 +1,22 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Final-output C# spelling checks for metadata names the printer would emit
-/// bare. These are honest-degradation predicates, not rewrite gates: when a
-/// compiler-generated or otherwise unspeakable metadata name survives raising,
-/// the method is no longer Full-fidelity C#.
+/// Final-output C# spelling checks the printer relies on. Two kinds:
+/// <list type="bullet">
+/// <item>metadata names the printer would emit bare (honest-degradation
+/// predicates, not rewrite gates: an unspeakable compiler-generated name that
+/// survives raising makes the method no longer Full-fidelity C#), and</item>
+/// <item>value-category spellability — whether the printer can spell an
+/// expression as a plain value the compiler converts to <c>dynamic</c> — the
+/// authoritative predicate passes consult before lifting an expression into a
+/// value sink, so each pass asks one question instead of re-deriving the walk.</item>
+/// </list>
 /// </summary>
 internal static class CSharpSpellability
 {
     internal readonly record struct NameIssue(string Discriminator, string Reason);
+
+    enum PlaceKind { Argument, Local, StackSlot }
 
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
@@ -53,6 +61,143 @@ internal static class CSharpSpellability
             LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Whether the printer can spell <paramref name="expression"/> as a value the
+    /// compiler implicitly converts to <c>dynamic</c> (<c>(dynamic)expr</c>).
+    /// Follows transparent conversions, value-merges (both conditional / switch
+    /// arms), and body-local reaching definitions to their leaf value-producers;
+    /// the expression is spellable only when every reachable node is itself a
+    /// printer-spellable dynamic-castable value. Deleting a cache guard can make a
+    /// preceding spill adjacent to the raised use, so the walk accounts for values
+    /// a later inliner would expose.
+    /// <para>
+    /// The printer renders such a value through <c>Operand</c> / <c>Expression</c>
+    /// (for example the <c>DynamicGetMember</c> receiver). In that switch the
+    /// address / <c>unbox</c> place leaves render with a leading <c>ref</c> and
+    /// <c>LoadFunctionPointer</c> renders as an <c>ldftn</c> comment placeholder;
+    /// none is a value convertible to <c>dynamic</c>.
+    /// </para>
+    /// </summary>
+    public static bool IsDynamicCastableValue(IrFunction function, IrExpression expression)
+    {
+        var pending = new Stack<IrExpression>();
+        var seenPlaces = new HashSet<(PlaceKind Kind, int Index)>();
+        var bodyNodes = GenericDeclarationPatternProof
+            .DescendantsOutsideNestedFunctions(function).ToList();
+        pending.Push(expression);
+
+        while (pending.Count > 0)
+        {
+            var expr = pending.Pop();
+            if (!HasDynamicCastableValueCategory(expr))
+                return false;
+
+            switch (expr)
+            {
+                case Coerce coerce:
+                    pending.Push(coerce.Operand);
+                    break;
+                case Convert convert:
+                    pending.Push(convert.Operand);
+                    break;
+                case CastClass cast:
+                    pending.Push(cast.Operand);
+                    break;
+                case Box box:
+                    pending.Push(box.Operand);
+                    break;
+                case IsInstance isInstance:
+                    pending.Push(isInstance.Operand);
+                    break;
+                case UnboxAny unbox:
+                    pending.Push(unbox.Operand);
+                    break;
+                case Conditional conditional:
+                    pending.Push(conditional.Condition);
+                    // Both arms render through the same Operand/Expression path
+                    // (ConditionalText), which carries no ByRef special case, so
+                    // both must be spellable regardless of the conditional's
+                    // result type. A `ref`-typed merge whose arm is an address /
+                    // `unbox` place would otherwise render with a leading `ref`
+                    // the compiler rejects (a `ref` of a cast, or a doubled
+                    // keyword), so its arms are inspected here rather than skipped.
+                    pending.Push(conditional.WhenTrue);
+                    pending.Push(conditional.WhenFalse);
+                    break;
+                case Coalesce coalesce:
+                    pending.Push(coalesce.Left);
+                    pending.Push(coalesce.Right);
+                    break;
+                case SwitchExpression switchExpression:
+                    pending.Push(switchExpression.Value);
+                    foreach (var arm in switchExpression.Arms)
+                        pending.Push(arm.Value);
+                    break;
+                case TupleSwitchExpression tupleSwitch:
+                    foreach (var component in tupleSwitch.Components)
+                        pending.Push(component);
+                    foreach (var arm in tupleSwitch.Arms)
+                        pending.Push(arm.Value);
+                    break;
+                case UnionSwitchExpression unionSwitch:
+                    pending.Push(unionSwitch.Value);
+                    foreach (var arm in unionSwitch.Arms)
+                    {
+                        if (arm.Guard is { } guard)
+                            pending.Push(guard);
+                        pending.Push(arm.Value);
+                    }
+                    if (unionSwitch.NullValue is { } nullValue)
+                        pending.Push(nullValue);
+                    if (unionSwitch.DefaultValue is { } defaultValue)
+                        pending.Push(defaultValue);
+                    break;
+                case LoadArgument load
+                    when seenPlaces.Add((PlaceKind.Argument, load.Index)):
+                    foreach (var store in bodyNodes.OfType<StoreArgument>())
+                        if (store.Index == load.Index)
+                            pending.Push(store.Value);
+                    break;
+                case LoadLocal load
+                    when seenPlaces.Add((PlaceKind.Local, load.Index)):
+                    foreach (var store in bodyNodes.OfType<StoreLocal>())
+                        if (store.Index == load.Index)
+                            pending.Push(store.Value);
+                    break;
+                case LoadStackSlot load
+                    when seenPlaces.Add((PlaceKind.StackSlot, load.Slot)):
+                    foreach (var store in bodyNodes.OfType<StoreStackSlot>())
+                        if (store.Slot == load.Slot)
+                            pending.Push(store.Value);
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    // A single node's value category, mirroring the printer's value-expression
+    // arms. The printer spells an address / `unbox` place with a leading `ref`
+    // (`ref x`, `ref buf[i]`, `ref (T)o`) and a raw function-pointer load as an
+    // `ldftn` comment, so none is a value convertible to `dynamic`. A `ByRef`
+    // receiver is implicitly dereferenced, so it stays spellable when its element
+    // is a value/reference type but not when the element is itself a pointer /
+    // function pointer (`ref int*` still yields `int*`, CS0030); peel `ByRef` and
+    // local-signature `Pinned` wrappers over the finite result-type tree before
+    // the pointer check so no crafted shape slips a pointer through.
+    static bool HasDynamicCastableValueCategory(IrExpression expr)
+    {
+        if (expr is LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
+            or LoadElementAddress or FixedBufferElementAddress
+            or LoadFunctionPointer or Unbox)
+            return false;
+
+        var type = expr.ResultType;
+        while (type?.Kind is TypeRefKind.ByRef or TypeRefKind.Pinned)
+            type = type.ElementType;
+        return type?.Kind is not (TypeRefKind.Pointer or TypeRefKind.FunctionPointer);
     }
 
     static IEnumerable<TypeRef> RenderedTypes(IrNode node)

@@ -1044,16 +1044,38 @@ public class DynamicCallSitePassTests
     }
 
     [Fact]
-    public void ReceiverRefConditional_StillRaises()
+    public void ReceiverRefConditionalWithAddressArms_Declines()
     {
         var f = LoadCanonicalFunction();
         InvokeCall(f).Arguments[2].ReplaceWith(new Conditional(
             new Constant(true, TypeRef.CoreLib("System", "Boolean")),
             new LoadLocalAddress(300, ObjectType),
             new LoadLocalAddress(301, ObjectType)));
-        // A ref conditional is a legal value expression; C# implicitly
-        // dereferences the selected arm when it is used as the dynamic value.
-        Assert.True(RunPass(f));
+        // The receiver renders through the same Operand/Expression path as any
+        // value (ConditionalText carries no ByRef special case), so both arms
+        // render with a leading `ref` — `((dynamic)(cond ? ref l300 : ref l301))`.
+        // An `unbox` arm in that position spells `ref (int)o`, which is CS0445
+        // ("cannot modify the result of an unboxing conversion"), so the shared
+        // predicate must inspect both arms rather than trusting the ref merge.
+        // It cannot cheaply tell a legal address arm from an illegal one there,
+        // so it conservatively declines every address-arm ref conditional; these
+        // shapes are adversarial-IL-only and declining is safe.
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void ReceiverRefConditionalHidingUnboxArm_Declines()
+    {
+        var f = LoadCanonicalFunction();
+        InvokeCall(f).Arguments[2].ReplaceWith(new Conditional(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            new Unbox(Int32Type, new LoadLocal(300, ObjectType)),
+            new Unbox(Int32Type, new LoadLocal(301, ObjectType))));
+        // The #2916 bug: the old gate skipped both arms when the conditional was
+        // ByRef-typed, so a hidden `unbox` slipped through and raised to
+        // `((dynamic)(cond ? ref (int)l300 : ref (int)l301)).Length` — CS0445.
+        // The shared predicate now reaches the `Unbox` leaves and declines.
+        Assert.False(RunPass(f));
     }
 
     [Fact]
