@@ -373,8 +373,20 @@ public static class ApiMemberIdentity
             _ => "M"
         };
 
-        if (member.Kind is "property" or "field" or "event")
+        if (member.Kind is "field" or "event")
             return $"{kindCode}:{declaringType}.{member.Name}";
+
+        if (member.Kind == "property")
+        {
+            // An indexer is a property with parameters. Two indexer overloads on the same
+            // type (e.g. this[int] and this[string]) otherwise collide on "P:Type.Item" and
+            // get paired by declaration order instead of by actual parameter signature.
+            // The raw-signature path can't reliably locate a bracketed parameter list the
+            // way ExtractCanonicalParameterList locates a parenthesized one, so this
+            // degraded fallback (SignatureModel absent) intentionally keeps the pre-existing
+            // parameterless format rather than guessing at bracket parsing.
+            return $"{kindCode}:{declaringType}.{member.Name}";
+        }
 
         var signature = member.Signature ?? member.ReturnType ?? member.Name;
         var memberName = member.Kind == "constructor"
@@ -403,9 +415,23 @@ public static class ApiMemberIdentity
             _ => "M"
         };
 
-        if (member.Kind is "property" or "field" or "event")
+        if (member.Kind is "field" or "event")
         {
             canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}";
+            return true;
+        }
+
+        if (member.Kind == "property")
+        {
+            // An indexer is a property with parameters -- include them in identity so
+            // overloaded indexers (e.g. this[int] vs this[string]) don't collide on
+            // "P:Type.Item" and get paired by declaration order instead of by their actual
+            // parameter signature. Ordinary (parameterless) properties are unaffected: their
+            // canonical signature format is unchanged from before this check existed.
+            var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
+                ? NormalizeCanonicalParameters(propertySignature.ParameterTypesSummary)
+                : "";
+            canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}{indexerParameters}";
             return true;
         }
 

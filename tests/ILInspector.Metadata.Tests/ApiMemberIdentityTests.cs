@@ -83,6 +83,50 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void GetMemberAnchor_DisambiguatesOverloadedIndexersByParameterType()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var type = surface.Types.Single(t => t.Name.EndsWith(nameof(IndexerFixture), StringComparison.Ordinal));
+        var indexers = type.Members
+            .Where(member => member.Kind == "property" && member.SignatureModel is { Parameters.Count: > 0 })
+            .ToList();
+
+        // Two indexer overloads that differ only by parameter type: this[int] and this[string].
+        Assert.Equal(2, indexers.Count);
+
+        var anchors = indexers
+            .Select(member => ApiMemberIdentity.GetMemberAnchor(type, member))
+            .ToList();
+
+        // Parameter types must be part of the canonical identity, so the two indexers get
+        // distinct canonical signatures and fingerprints instead of colliding on "P:Type.Item"
+        // and being paired by declaration order.
+        Assert.Equal(2, anchors.Select(anchor => anchor.CanonicalSignature).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(2, anchors.Select(anchor => anchor.Fingerprint).Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(anchors, anchor => anchor.CanonicalSignature.Contains("(int)", StringComparison.Ordinal));
+        Assert.Contains(anchors, anchor => anchor.CanonicalSignature.Contains("(string)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GetCanonicalSignature_OrdinaryPropertyFormatIsUnchangedByIndexerFix()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var property = new ApiMember
+        {
+            Name = "Name",
+            Kind = "property",
+            Signature = "string Name { get; set; }",
+        };
+
+        Assert.Equal("P:N.C.Name", ApiMemberIdentity.GetCanonicalSignature(type, property));
+        Assert.True(ApiMemberIdentity.TryGetCanonicalSignature(type, property, out var tryResult));
+        Assert.Equal("P:N.C.Name", tryResult);
+    }
+
+    [Fact]
     public void GetMemberAnchor_DisambiguatesDegradedPlaceholderFromGenuineSignature()
     {
         var type = new ApiType { Namespace = "N", Name = "C" };
@@ -215,5 +259,12 @@ public class ApiMemberIdentityTests
         public static explicit operator int(ConversionOperatorFixture value) => 0;
 
         public static explicit operator long(ConversionOperatorFixture value) => 0;
+    }
+
+    sealed class IndexerFixture
+    {
+        public int this[int index] => index;
+
+        public int this[string key] => key.Length;
     }
 }
