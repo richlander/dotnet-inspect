@@ -2709,11 +2709,14 @@ public sealed partial class CSharpPrinter
         LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
         // `unbox T` yields a managed pointer *into* the box. C#'s only spelling
         // for that place is `System.Runtime.CompilerServices.Unsafe.Unbox<T>(o)`
-        // — a `ref T`-returning intrinsic. Reading it derefs to the boxed value;
-        // a `ref `-prefixing caller (a ref-typed `Deref` caller, or a ref-typed
-        // `Conditional` arm in this same switch) gets a genuine ref place, and a
-        // write through it (`Unsafe.Unbox<T>(o) = v`, via `IndirectTarget`)
-        // stores into the box. The obvious `(T)o` alternative is an *unbox.any*
+        // — a `ref T`-returning intrinsic. A *pure value read* of that place
+        // (`ldobj(unbox T)`) is normalized to `unbox.any` upstream by
+        // `UnboxValueReadPass` and spells the universal cast `(T)o`, so this arm
+        // is reached only for a genuine place: a `ref `-prefixing caller (a
+        // ref-typed `Deref` caller, or a ref-typed `Conditional` arm in this same
+        // switch) gets a genuine ref place, and a write through it
+        // (`Unsafe.Unbox<T>(o) = v`, via `IndirectTarget`) stores into the box.
+        // The obvious `(T)o` alternative is an *unbox.any*
         // copy: it reads the same value but is not an assignable place, so a
         // `ref`/`=` context over it is CS0445/CS0131, and a `ref`-prefixing
         // caller over the node's own ref-producer spelling `ref (T)o` doubles
