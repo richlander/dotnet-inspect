@@ -422,6 +422,22 @@ public class ApiMemberIdentityTests
         Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
     }
 
+    [Theory]
+    // main uses a single combined depth counter over '<'/'>'/'('/')' , so an F#
+    // quoted name like ``x<)`` (emitted verbatim as "System.Int32 x<)") relies on
+    // '<' and ')' cross-cancelling to keep depth at 0 at the separator comma.
+    // Splitting that into independent angle/paren counters dropped the second
+    // parameter; the fallback must preserve main's combined-counter behavior.
+    [InlineData("void M(System.Int32 x<), System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x)<, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    public void FallbackCanonicalSignature_PreservesCombinedAngleParenDepth(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)

@@ -680,27 +680,27 @@ public static class ApiMemberIdentity
         // identifiers may contain spaces, '=', quotes, brackets, angle brackets,
         // parentheses, and commas), array-rank/type spellings, and default-value
         // literals can all contain characters that look structural, so no parser can
-        // be fully robust here. This fallback therefore matches main's splitter
-        // exactly except for the one construct #2940 introduces: a comma inside a
-        // leading attribute list ("[Optional, DateTimeConstant(ticks)] type name").
+        // be fully robust here. Every deviation from main's splitter risks changing
+        // the canonical signature for some compiler-emittable name (e.g. splitting
+        // main's combined <(...)> depth into independent counters regresses an F#
+        // name like ``x<)`` where '<' and ')' cross-cancel). This fallback therefore
+        // reproduces main's splitter EXACTLY, adding only the one thing #2940 needs:
+        // it skips a leading attribute list ("[Optional, DateTimeConstant(ticks)]
+        // type name") so the comma inside it does not split the parameter list.
         //
-        // Bracket nesting is tracked ONLY inside a leading attribute list, at the
-        // very start of a parameter, so that comma does not split the list. Brackets
-        // appearing later — array types like "int[]" or an F# quoted-identifier name
-        // like ``x[`` — are left untracked, exactly as on main; tracking them would
-        // regress those compiler-emittable names. Angle/paren nesting is tracked as
-        // on main (to keep generic/tuple commas intact), and structural counting is
-        // frozen once a formatter-emitted default begins (the exact " = " separator)
-        // so a default's delimiters never suppress a real comma. String/char literal
-        // tracking is deliberately omitted: it is defeatable by a quote in a name
-        // pairing with a quote in a later parameter's default.
+        // Bracket nesting is tracked ONLY inside that leading attribute list, at the
+        // very start of a parameter. Once the first real (non-space, non-'[') type
+        // character is seen, tracking reverts to main's single combined depth counter
+        // over '<'/'>'/'('/')' , so brackets in array types ("int[]") or in F#
+        // quoted names ("x[") are ordinary text, and generic/tuple commas stay
+        // protected — identical to main. String/char literal and default-value
+        // tracking are deliberately omitted: any such heuristic is defeatable by a
+        // quote or delimiter inside a name, which main treats as ordinary.
         List<string> paramTypes = [];
-        int angleDepth = 0;
-        int parenDepth = 0;
+        int depth = 0;
         int attrBracketDepth = 0;
         int lastSplit = 0;
         bool inLeadingAttributes = true;
-        bool inDefaultValue = false;
         for (int i = 0; i < paramSection.Length; i++)
         {
             char c = paramSection[i];
@@ -714,30 +714,17 @@ public static class ApiMemberIdentity
                     continue; // characters inside the attribute list (incl. commas) are skipped
                 }
                 if (c == ' ') continue; // still in the leading region, between/after attribute lists
-                inLeadingAttributes = false; // first real type character; fall through to normal handling
+                inLeadingAttributes = false; // first real type character; fall through to main's logic
             }
 
-            if (!inDefaultValue && c == '<') angleDepth++;
-            else if (!inDefaultValue && c == '>') { if (angleDepth > 0) angleDepth--; }
-            else if (!inDefaultValue && c == '(') parenDepth++;
-            else if (!inDefaultValue && c == ')') { if (parenDepth > 0) parenDepth--; }
-            else if (angleDepth == 0 && parenDepth == 0)
+            if (c == '<' || c == '(') depth++;
+            else if (c == '>' || c == ')') depth--;
+            else if (c == ',' && depth == 0)
             {
-                if (!inDefaultValue && c == '=' && i > 0 && paramSection[i - 1] == ' '
-                    && i + 1 < paramSection.Length && paramSection[i + 1] == ' ')
-                {
-                    inDefaultValue = true;
-                }
-                else if (c == ',')
-                {
-                    paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
-                    lastSplit = i + 1;
-                    angleDepth = 0;
-                    parenDepth = 0;
-                    attrBracketDepth = 0;
-                    inLeadingAttributes = true;
-                    inDefaultValue = false;
-                }
+                paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
+                lastSplit = i + 1;
+                attrBracketDepth = 0;
+                inLeadingAttributes = true;
             }
         }
         paramTypes.Add(ExtractParamType(paramSection[lastSplit..].Trim()));
