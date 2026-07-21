@@ -123,4 +123,47 @@ public class FluentChainRecompositionPassTests
         Assert.Equal(3, StackStores(function));
         function.CheckInvariant();
     }
+
+    // #2935 review (deferred-lambda soundness): an order-sensitive spill whose one
+    // load sits inside a lambda argument of the sink must not fold. Since lambda
+    // raising substitutes a captured outer local as an in-body load of that local,
+    // the load is `IsInside` the sink call yet evaluated in a deferred, separately
+    // scoped body; folding the eager `Effect()` store into it would turn an
+    // always-run effect into a deferred one. The fold must decline and keep the
+    // spill as a statement.
+    [Fact]
+    public void SpillCapturedByLambdaArgument_IsNotFolded()
+    {
+        var effect = new MethodRef(Holder, "Effect", Str, [], HasThis: false);
+        var funcType = TypeRef.CoreLib("System", "Func`1");
+        var use = new MethodRef(Chain, "Use", Chain, [funcType], HasThis: true);
+
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block();
+        // The captured spill prints as an in-body load of the outer slot 1.
+        lambdaBlock.Add(new Return(new LoadStackSlot(1, Str)));
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(funcType, [], [], [], false, false, lambdaBody);
+
+        var function = BuildMethod(
+            new StoreStackSlot(0, Static(Current)),
+            new StoreStackSlot(1, Static(effect)),
+            new ExpressionStatement(Instance(use, new LoadStackSlot(0, Chain), lambda)));
+
+        RunPass(function);
+
+        // Neither spill folds: the run gathering stops at the lambda-captured spill,
+        // so both stores survive and the lambda body still reads the outer slot
+        // rather than an inlined Effect() call.
+        Assert.Equal(2, StackStores(function));
+        var block = Assert.IsType<Block>(Assert.IsType<BlockContainer>(function.Body).Children[0]);
+        var effectStore = Assert.IsType<StoreStackSlot>(block.Children[1]);
+        Assert.Equal(1, effectStore.Slot);
+        Assert.IsType<Call>(effectStore.Value);
+        var sink = Assert.IsType<Call>(Assert.IsType<ExpressionStatement>(block.Children[2]).Expression);
+        var sinkLambda = Assert.IsType<Lambda>(sink.Arguments[1]);
+        var lambdaReturn = Assert.IsType<Return>(Assert.IsType<Block>(sinkLambda.Body.Children[0]).Children[0]);
+        Assert.IsType<LoadStackSlot>(lambdaReturn.Value);
+        function.CheckInvariant();
+    }
 }

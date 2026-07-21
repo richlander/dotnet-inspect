@@ -178,7 +178,35 @@ static class SpilledReceiverFold
             return null;
         }
         var load = record.Loads[0];
-        return ReferenceOwnership.IsInside(load, call) ? load : null;
+        if (!ReferenceOwnership.IsInside(load, call))
+            return null;
+
+        // The load must sit in the same body as the sink. A load reached only by
+        // crossing a nested-function boundary (a lambda or local function passed as
+        // an argument/receiver) is evaluated in a deferred, separately-scoped body:
+        // folding the eager, unconditional pre-call store into it would turn an
+        // always-run effect into a deferred (or, if the delegate is never invoked,
+        // absent) one, and the function-scope usage map cannot speak for that body's
+        // own slot numbering. Since lambda raising, a captured outer local prints as
+        // an in-body load of that local, so this shape is reachable; decline it.
+        return CrossesNestedFunctionBoundary(load, call) ? null : load;
+    }
+
+    /// <summary>
+    /// True when a <see cref="Lambda"/> or <see cref="LocalFunctionStatement"/> body
+    /// lies on the parent chain strictly between <paramref name="load"/> and
+    /// <paramref name="call"/> — i.e. the load is inside a nested function that is
+    /// itself nested inside the sink call. A load and sink in the same nested body
+    /// (the boundary sitting above the call) does not cross and is unaffected.
+    /// </summary>
+    static bool CrossesNestedFunctionBoundary(IrNode load, IrExpression call)
+    {
+        for (var current = load.Parent; current is not null && !ReferenceEquals(current, call); current = current.Parent)
+        {
+            if (current is Lambda or LocalFunctionStatement)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
