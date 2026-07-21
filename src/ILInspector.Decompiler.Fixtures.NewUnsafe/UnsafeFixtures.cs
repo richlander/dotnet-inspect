@@ -53,6 +53,22 @@ public struct FixedBufferResiduals
         }
     }
 
+    public void WriteAtNestedIndex()
+    {
+        unsafe
+        {
+            Data[Data[1]] = 1;
+        }
+    }
+
+    public void WriteAtNestedZeroIndex()
+    {
+        unsafe
+        {
+            Data[Data[0]] = 1;
+        }
+    }
+
     public int ReadAtThroughFixedAddress(int index)
     {
         unsafe
@@ -395,6 +411,38 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public static class StackallocInitializerNegatives
+{
+    public static int CoalescedSpanLocal()
+    {
+        unsafe {
+            int* a = stackalloc int[] { 1, 2, 3 };
+            int* b = stackalloc int[] { 4, 5, 6 };
+            return a[0] + b[0];
+        }
+    }
+
+    public static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)
+    {
+        unsafe {
+            System.Runtime.CompilerServices.Unsafe.CopyBlock(dest, src, 10);
+        }
+    }
+
+    // Boolean/floating-point RVA elements are not covered by RvaSpanPass's shared
+    // primitive decoder in a bit-preserving way (Boolean canonicalizes to true/false,
+    // NaN payloads collapse), so StackAllocInitializerPass declines these element
+    // types until that decoder round-trips exactly.
+    public static unsafe bool StackallocBooleanInitializer()
+    {
+        unsafe
+        {
+            bool* values = stackalloc bool[] { true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false };
+            return values[0] || values[2];
+        }
+    }
+}
+
 public static class PointerArithmeticFixtures
 {
     public static int PointerIncrement(int* p)
@@ -475,15 +523,8 @@ public static class UnsafeFixtures
         }
     }
 
-    // A method declared `unsafe` with NO pointers in its signature is still
-    // *requires-unsafe* under the new rules: the compiler stamps it with
-    // `RequiresUnsafeAttribute`. There is no unsafe operation in its own body,
-    // so it needs no block here.
     public static unsafe int Risky() => 42;
 
-    // Calling a requires-unsafe member needs an unsafe context even though no
-    // pointer crosses the call boundary. The call — not any intrinsic op — is
-    // what forces the block.
     public static int CallRisky()
     {
         unsafe

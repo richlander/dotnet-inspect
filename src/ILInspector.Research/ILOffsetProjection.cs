@@ -39,6 +39,9 @@ public enum ILOffsetProjectionFailureKind
     CallsiteUnavailable,
     ReturnAddressUnavailable,
     SourceUnavailable,
+    AllocationAnalysisUnavailable,
+    SafetyAnalysisUnavailable,
+    CostAnalysisUnavailable,
 }
 
 /// <summary>A typed projection failure with command-independent diagnostic text.</summary>

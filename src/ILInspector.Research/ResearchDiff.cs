@@ -89,7 +89,8 @@ public static class ResearchDiff
                     detail: row.Message,
                     category: ResearchChangeCategory.IlBody,
                     ilFailureRow: row,
-                    ilDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(row));
+                    ilDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(row),
+                    ilBodyDiff: diff);
             }));
         }
         else if (diff.Failure is { Length: > 0 } failure)
@@ -100,7 +101,8 @@ public static class ResearchDiff
                 Descriptor("il.diff.failed", "IL diff failed"),
                 ResearchChangeKind.Failed,
                 detail: failure,
-                category: ResearchChangeCategory.IlBody));
+                category: ResearchChangeCategory.IlBody,
+                ilBodyDiff: diff));
         }
 
         if (!diff.Rows.IsDefaultOrEmpty)
@@ -122,7 +124,8 @@ public static class ResearchDiff
                         detail: row.Message,
                         category: ResearchChangeCategory.IlBody,
                         ilRow: row,
-                        ilDisplayRows: [IlDiffPrinter.ToDisplayRow(row)]);
+                        ilDisplayRows: [IlDiffPrinter.ToDisplayRow(row)],
+                        ilBodyDiff: diff);
                 }));
         }
 
@@ -285,7 +288,14 @@ public static class ResearchDiff
             oldSurface,
             newSurface,
             new FindingSubject("api", "API surface"),
-            new ApiDiffOptions(apiScope));
+            new ApiDiffOptions(apiScope),
+            // Opt into the extension static/instance projection tier: the Finding framework
+            // defaults acceptanceThreshold to 100 (exact-only) by design, so production API
+            // diffing must explicitly accept this tier's confidence to ever promote its soft
+            // candidates -- otherwise the fuzzy match this diff is built to recognize never
+            // fires, and the physical member it describes is double-reported as removed via
+            // its two identity atoms instead.
+            memberAcceptanceThreshold: MetadataFindings.ExtensionInstanceMatchTier.Confidence);
         var diff = findings.ApiDiff;
         builder.ApiComparison = findings;
         foreach (var failure in diff.InspectionFailures)
@@ -833,12 +843,14 @@ public static class ResearchDiff
                 {
                     if (!oldAvailable && !newAvailable)
                         continue;
+                    var unavailable = !oldAvailable
+                        ? IlBodyDiffResult.OldBodyMissing(oldReason)
+                        : IlBodyDiffResult.NewBodyMissing(newReason);
                     AddIlFailureEvidence(
                         builder,
                         subject,
-                        !oldAvailable
-                            ? IlBodyDiffResult.OldBodyMissing(oldReason).FailureRows[0]
-                            : IlBodyDiffResult.NewBodyMissing(newReason).FailureRows[0]);
+                        unavailable.FailureRows[0],
+                        unavailable);
                     continue;
                 }
 
@@ -863,7 +875,7 @@ public static class ResearchDiff
                 if (!diff.FailureRows.IsDefaultOrEmpty)
                 {
                     foreach (var failure in diff.FailureRows)
-                        AddIlFailureEvidence(builder, subject, failure);
+                        AddIlFailureEvidence(builder, subject, failure, diff);
                     if (diff.Rows.IsDefaultOrEmpty)
                         continue;
                 }
@@ -872,7 +884,8 @@ public static class ResearchDiff
                     AddIlFailureEvidence(
                         builder,
                         subject,
-                        new IlDiffFailureRow(IlDiffFailureKind.DecodeFailure, diff.Failure));
+                        new IlDiffFailureRow(IlDiffFailureKind.DecodeFailure, diff.Failure),
+                        diff);
                     if (diff.Rows.IsDefaultOrEmpty)
                         continue;
                 }
@@ -903,7 +916,8 @@ public static class ResearchDiff
                         oldIlOffset: removed.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
                         newIlOffset: added.Select(row => (int?)row.Operation.Offset).FirstOrDefault(offset => offset is not null),
                         category: ResearchChangeCategory.IlBody,
-                        ilDisplayRows: displayRows));
+                        ilDisplayRows: displayRows,
+                        ilBodyDiff: diff));
                 }
             }
         }
@@ -1027,7 +1041,11 @@ public static class ResearchDiff
     static string RetainedIlComparisonKey(string assemblyKey, string methodKey)
         => $"{assemblyKey}\u001f{methodKey}";
 
-    static void AddIlFailureEvidence(ResultBuilder builder, ResearchSubjectKey subject, IlDiffFailureRow failure)
+    static void AddIlFailureEvidence(
+        ResultBuilder builder,
+        ResearchSubjectKey subject,
+        IlDiffFailureRow failure,
+        IlBodyDiffResult diff)
     {
         var kind = Direction(failure.Kind);
         if (kind == ResearchChangeKind.Failed)
@@ -1048,7 +1066,8 @@ public static class ResearchDiff
             detail: failure.Detail ?? failure.Message,
             category: ResearchChangeCategory.IlBody,
             ilFailureRow: failure,
-            ilDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(failure)));
+            ilDisplayFailureRow: IlDiffPrinter.ToDisplayFailureRow(failure),
+            ilBodyDiff: diff));
     }
 
     static void AddCSharpDiff(

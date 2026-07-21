@@ -111,7 +111,10 @@ public class IlDiffPrinterTests
     [Fact]
     public void ToDisplayResult_TreatsDefaultResultRowsAsEmpty()
     {
-        var diff = new IlBodyDiffResult(IsExact: false, Failure: "legacy failure", Rows: default);
+        var diff = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Unavailable,
+            Failure: "legacy failure",
+            Rows: default);
 
         var display = IlDiffPrinter.ToDisplayResult(diff);
 
@@ -129,7 +132,7 @@ public class IlDiffPrinterTests
             new CanonicalIlOperation(0, "nop", Operand: null),
             "Removed IL operation 'nop'");
         var diff = new IlBodyDiffResult(
-            IsExact: false,
+            IlBodyDiffOutcome.Unavailable,
             Failure: "partial decode failed",
             Rows: [row]);
 

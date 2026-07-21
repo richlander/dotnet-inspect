@@ -1144,10 +1144,18 @@ public class DiffCommandTests
             MemberFilter = ["GenericChoice<T>"]
         });
 
+        // The generic overload's added parameter changes its identity (CanonicalSignature
+        // includes the parameter list), so the Finding lane's own correspondence -- not the
+        // legacy analyzer's (Name, Kind) fallback -- reports it as a conservative
+        // MemberRemoved + MemberAdded pair rather than a single MemberSignatureChanged (see
+        // issue #2893 classification port). Both changes describe the generic overload; the
+        // unrelated non-generic `GenericChoice(string)` overload is unchanged and excluded.
         var typeDiff = Assert.Single(diff.TypeDiffs);
-        var change = Assert.Single(typeDiff.Changes);
-        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
-        Assert.Contains("<T>", change.NewValue);
+        Assert.Equal(2, typeDiff.Changes.Count);
+        Assert.Contains(typeDiff.Changes, c => c.Kind == ChangeKind.MemberRemoved
+            && c.Subject?.OldMember?.CanonicalSignature?.Contains("<T>") == true);
+        Assert.Contains(typeDiff.Changes, c => c.Kind == ChangeKind.MemberAdded
+            && c.Subject?.NewMember?.CanonicalSignature?.Contains("<T>") == true);
     }
 
     private static DiffCommand.RankedAnalysisRow Ranked(string member, string signal, int magnitude, int direction, bool inBoth, bool inLoop = false)
@@ -1361,10 +1369,12 @@ public class DiffCommandTests
         Assert.Contains(view.Rows!, row =>
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Mechanism == "IL"
+            && row.Difference == nameof(IlBodyDiffOutcome.OperandDiff)
             && row.Evidence.Contains("ldc.i4 1", StringComparison.Ordinal));
         Assert.Contains(view.Rows!, row =>
             row.Member.Contains("CallToken", StringComparison.Ordinal)
             && row.Mechanism == "IL"
+            && row.Difference == nameof(IlBodyDiffOutcome.OperandDiff)
             && row.Evidence.Contains("System.Math::Abs", StringComparison.Ordinal));
         Assert.DoesNotContain(view.Rows!, row =>
             row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));

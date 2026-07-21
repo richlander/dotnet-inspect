@@ -4,6 +4,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Inspectors;
@@ -26,7 +27,8 @@ internal static class PackageInspector
         bool forceLatest = false,
         Verbosity verbosity = Verbosity.Minimal,
         string? nupkgPath = null,
-        bool fetchMetadata = false)
+        bool fetchMetadata = false,
+        NuGetSourceOptions? sourceOptions = null)
     {
         fetchMetadata = !isLocalFile && (fetchMetadata || verbosity >= Verbosity.Detailed);
 
@@ -42,7 +44,8 @@ internal static class PackageInspector
             {
                 if (fetchMetadata)
                 {
-                    var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
+                    var metadata = await PackageMetadataService.FetchAllMetadataAsync(
+                        httpClient, packageName, version, logger.Log, forceLatest, sourceOptions);
                     ApplyMetadata(cached, metadata);
                 }
                 return cached;
@@ -129,7 +132,8 @@ internal static class PackageInspector
         if (result.IsRidSpecificPointerPackage && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
             string? localDir = isLocalFile ? Path.GetDirectoryName(Path.GetFullPath(localFilePath!)) : null;
-            await RidPackageVerifier.VerifyAsync(httpClient, result, result.Version, localDir, logger);
+            await RidPackageVerifier.VerifyAsync(
+                httpClient, result, result.Version, localDir, logger, sourceOptions);
         }
 
         // Extract build date from nupkg (only on cache miss)
@@ -148,7 +152,8 @@ internal static class PackageInspector
         // Fetch package metadata from NuGet (only at detailed verbosity)
         if (fetchMetadata)
         {
-            var metadata = await PackageMetadataService.FetchAllMetadataAsync(httpClient, packageName, version, logger.Log, forceLatest);
+            var metadata = await PackageMetadataService.FetchAllMetadataAsync(
+                httpClient, packageName, version, logger.Log, forceLatest, sourceOptions);
             ApplyMetadata(result, metadata);
         }
 

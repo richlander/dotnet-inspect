@@ -141,6 +141,34 @@ public class FixedBufferElementAccessPassTests
 
     [Theory]
     [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerNestedFixedBufferIndex_RaisesInsideOutAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "WriteAtNestedIndex");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(2, function.Descendants.OfType<FixedBufferElementAddress>().Count());
+        Assert.Contains("Data[Data[1]] = 1;", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
+    public void CompilerNestedZeroFixedBufferIndex_RaisesInsideOutAndReachesFull(string assemblyPath, string typeName)
+    {
+        var function = Raised(assemblyPath, typeName, "WriteAtNestedZeroIndex");
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(2, function.Descendants.OfType<FixedBufferElementAddress>().Count());
+        Assert.Contains("Data[Data[0]] = 1;", output);
+        Assert.DoesNotContain("FixedElementField", output);
+        Assert.DoesNotContain("Unsafe.Add", output);
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedBufferFixtures))]
     public void CompilerFixedBufferAddressInFixedInitializer_RendersSourceAddress(string assemblyPath, string typeName)
     {
         var function = Raised(assemblyPath, typeName, "ReadAtThroughFixedAddress");

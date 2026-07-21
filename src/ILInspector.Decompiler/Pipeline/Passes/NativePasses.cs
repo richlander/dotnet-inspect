@@ -73,8 +73,12 @@ internal static class NativePasses
     public static RedundantBranchEliminationPass RedundantBranchElimination => new();
     [Native(NativeCategory.EmitArtifact, "identity conversions dropped (ldlen; conv.i4 array-length idiom)")]
     public static IdentityConvertPass IdentityConvert => new();
+    [Native(NativeCategory.EmitArtifact, "a boxed value read encoded as the two-op unbox; ldobj managed-pointer idiom normalized to the equivalent unbox.any")]
+    public static UnboxValueReadPass UnboxValueRead => new();
     [Native(NativeCategory.EmitArtifact, "constant-data RVA blob (exact BCL RuntimeHelpers.CreateSpan) back to a span literal")]
     public static RvaSpanPass RvaSpan => new();
+    [Native(NativeCategory.EmitArtifact, "cpblk initialization over a localloc reconstructed to a typed stackalloc initializer")]
+    public static StackAllocInitializerPass StackAllocInitializer => new();
     [Native(NativeCategory.EmitArtifact, "the lazy <>9__ delegate cache (non-capturing lambda / static method group) collapsed to a bare delegate creation")]
     public static LambdaCachePass LambdaCache => new();
     [Native(NativeCategory.EmitArtifact, "dynamic call site cache initialization scaffolding reconstructed to dynamic IR nodes")]
@@ -91,6 +95,8 @@ internal static class NativePasses
     public static PatternGuardedShortCircuitPass PatternGuardedShortCircuit => new();
     [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
     public static CatchVariableScopePass CatchVariableScope => new();
+    [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array) folded back to one array-literal expression, placed at the fill run's position")]
+    public static ArrayLiteralFromStoresPass ArrayLiteralFromStores => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

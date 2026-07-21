@@ -14,7 +14,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["semantics.callee", "safety.callee"];
     public IReadOnlyList<string> DependsOn { get; } = [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
         if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
             return [];

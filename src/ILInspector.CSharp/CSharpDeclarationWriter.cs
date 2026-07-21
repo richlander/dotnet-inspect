@@ -790,7 +790,7 @@ internal static class CSharpDeclarationWriter
                     i++;
                 string token = text[start..i];
                 bool alreadyEscaped = start > 0 && text[start - 1] == '@';
-                sb.Append(!alreadyEscaped && s_csharpReservedKeywords.Contains(token) ? EscapeIdentifier(token) : token);
+                sb.Append(!alreadyEscaped && CSharpKeywords.RequiresDeclarationEscape(token) ? EscapeIdentifier(token) : token);
                 continue;
             }
             sb.Append(text[i++]);
@@ -1376,7 +1376,7 @@ internal static class CSharpDeclarationWriter
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
     public static string EscapeIdentifier(string name)
-        => s_csharpReservedKeywords.Contains(name) ? "@" + name : name;
+        => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -1706,7 +1706,7 @@ internal static class CSharpDeclarationWriter
                 return null;
             var ns = value[..lastDot];
             var simple = StripArity(value[(lastDot + 1)..]);
-            if (s_csharpReservedKeywords.Contains(simple))
+            if (CSharpKeywords.RequiresDeclarationEscape(simple))
                 return null;
             return new TypeRef(value, ns, simple);
         }
@@ -1727,17 +1727,4 @@ internal static class CSharpDeclarationWriter
         "class", "class?", "struct", "unmanaged", "notnull", "new()", "default", "allows ref struct",
     };
 
-    // Keep synchronized with MetadataDeclarationQuery's legacy compatibility escaper.
-    static readonly HashSet<string> s_csharpReservedKeywords = new(StringComparer.Ordinal)
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
-        "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
-        "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
-        "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
-        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
-        "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true",
-        "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual",
-        "void", "volatile", "while", "await", "record", "required", "init", "file", "scoped",
-    };
 }

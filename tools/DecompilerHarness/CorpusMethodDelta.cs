@@ -54,6 +54,8 @@ internal sealed record CorpusMethodDeltaArtifact(
     DateTimeOffset GeneratedUtc,
     DateTimeOffset BaselineGeneratedUtc,
     DateTimeOffset CurrentGeneratedUtc,
+    int BaselineFidelityContractVersion,
+    int CurrentFidelityContractVersion,
     bool BaselineHasMethodDetails,
     bool CurrentHasMethodDetails,
     IReadOnlyList<CorpusMethodDeltaRow> ChangedMethods);

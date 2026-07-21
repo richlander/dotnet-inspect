@@ -50,7 +50,7 @@ public sealed class MethodBodyInspectionSession
     /// and <paramref name="includeOpportunities"/> gate the two expensive whole-assembly analysis
     /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
     /// on unless the caller knows no requested section consumes them (see
-    /// <c>ApiOutputFormatter.AnalysisScopeFor</c>). <paramref name="bodyScope"/>, when non-null,
+    /// <see cref="ApiAnalysisInspection.AnalysisScopeFor"/>). <paramref name="bodyScope"/>, when non-null,
     /// restricts body decoding to the given method tokens (a single-member "targeted" build); it is
     /// only valid when every requested section's facts are local to those members (Calls / Unsafe
     /// Operations / Allocation-Safety-Cost facts) — reverse/aggregate sections require a full build.

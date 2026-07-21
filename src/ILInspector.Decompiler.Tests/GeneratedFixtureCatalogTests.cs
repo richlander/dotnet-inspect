@@ -486,8 +486,9 @@ public class GeneratedFixtureCatalogTests
         Assert.All(run.Results, result =>
         {
             Assert.Equal(GeneratedFixtureReturnToSenderStatus.Pass, result.Status);
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
         });
+        Assert.Equal(8, run.Results.Count(result => result.ActualStatus == FidelityCheck.CompileBackStatus.Exact));
+        Assert.Equal(4, run.Results.Count(result => result.ActualStatus == FidelityCheck.CompileBackStatus.OperandDiff));
         Assert.Contains(run.Results, result =>
             result.FixtureId == "record.equality-operators" &&
             result.Method == "op_Equality");
@@ -561,7 +562,7 @@ public class GeneratedFixtureCatalogTests
                 new(
                     "ShellOnlyFragmentRecord",
                     "GetHashCode",
-                    FidelityCheck.CompileBackStatus.Exact,
+                    FidelityCheck.CompileBackStatus.OperandDiff,
                     ExpectedTargetBodyFragments:
                     [
                         "public string Name;",
@@ -575,13 +576,13 @@ public class GeneratedFixtureCatalogTests
 
         Assert.False(run.Passed, report);
         Assert.Equal(GeneratedFixtureReturnToSenderStatus.Fail, result.Status);
-        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.ActualStatus);
+        Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, result.ActualStatus);
         Assert.Equal("target-body-fragment-missing", result.Reason);
         Assert.Contains("missing expected target body fragment: public string Name;", result.Detail);
     }
 
     [Fact]
-    public void ReturnToSenderCatalog_NonExactRowsKeepFailureReasonBeforeBodyFragments()
+    public void ReturnToSenderCatalog_StatusMismatchesKeepFailureReasonBeforeBodyFragments()
     {
         var opcodeDiffWithBodyFragment = new GeneratedFixtureDefinition(
             "test.non-exact-body-fragment",
@@ -606,7 +607,7 @@ public class GeneratedFixtureCatalogTests
                 new(
                     "NonExactBodyFragment",
                     "Method1",
-                    FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    FidelityCheck.CompileBackStatus.OperandDiff,
                     IsFrontier: true,
                     ExpectedTargetBodyFragments:
                     [
@@ -639,6 +640,8 @@ public class GeneratedFixtureCatalogTests
         var summary = document.RootElement.GetProperty("ResearchSummary");
         Assert.Equal(1, summary.GetProperty("FailingMembers").GetInt32());
         Assert.Equal(1, summary.GetProperty("OpcodeDiffMembers").GetInt32());
+        Assert.Equal(0, summary.GetProperty("OperandDiffMembers").GetInt32());
+        Assert.Equal(0, summary.GetProperty("FidelityUnavailableMembers").GetInt32());
         var actionable = Assert.Single(summary.GetProperty("ActionableSubjects").EnumerateArray());
         Assert.StartsWith("Method1~", actionable.GetProperty("SubjectId").GetString(), StringComparison.Ordinal);
     }

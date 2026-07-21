@@ -1,5 +1,7 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Tests;
@@ -11,6 +13,8 @@ public class PrinterPrecedenceTests
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_uint = TypeRef.CoreLib("System", "UInt32");
+    static readonly TypeRef s_nuint = TypeRef.CoreLib("System", "UIntPtr");
+    static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
 
     static IrFunction Raised(string methodName)
@@ -75,6 +79,82 @@ public class PrinterPrecedenceTests
 
         Assert.Contains("(a ? b : c) ? d : e", output);
         Assert.DoesNotContain("a ? b : c ? d", output);
+    }
+
+    // Issue #2916: a ref-typed conditional whose arms are both genuine
+    // ref-producers renders as a ref ternary (`ref a : ref b`, see Deref's
+    // Conditional case). One arm is an `Unbox` — a managed pointer into a box.
+    // Deref previously had no case for it, so it fell through to the generic
+    // ByRef arm and emitted the node's own ref-producer spelling `ref (int)o`,
+    // which the enclosing ref ternary re-prefixed into `ref ref (int)o`
+    // (CS1525); the naive value-copy `(int)o` fixes the double keyword but is
+    // an unbox.any copy, not an assignable place, so `ref (int)o` is CS0445.
+    // Deref now spells the box place as `Unsafe.Unbox<T>(o)` (a `ref T`
+    // intrinsic), which is valid and faithful in every Deref position. Not
+    // reachable from C# source (BooleanFoldingPass.FoldSlotDiamond is the only
+    // producer of a ref-typed conditional with a non-place arm), so exercised
+    // on hand-built IR.
+    [Fact]
+    public void Deref_RefConditionalWithUnboxArm_SpellsUnsafeUnbox()
+    {
+        var conditional = new Conditional(
+            new LoadArgument(0, "flag", s_bool),
+            new Unbox(s_int, new LoadArgument(1, "o", s_object)),
+            new LoadArgumentAddress(2, "n", s_int));
+        var load = new LoadIndirect(s_int, conditional);
+
+        var output = PrintReturn(
+            load,
+            s_int,
+            [new Parameter("flag", s_bool), new Parameter("o", s_object), new Parameter("n", s_int)]);
+
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("ref ref", output);
+        Assert.DoesNotContain("ref (int)o", output);
+        AssertCompiles("public static int M(bool flag, object o, int n)", output);
+    }
+
+    // Issue #2916: a by-ref return of an `Unbox` is a ref-place return
+    // (`ReturnText` routes the value through `ArgumentLvalue`). An unbox is the
+    // managed pointer into the box, so the only valid spelling is the
+    // `Unsafe.Unbox<T>(o)` intrinsic; the bare cast `return ref (int)o;` is
+    // CS0445/CS1525. Hand-built IR (a ref-returning method whose body returns an
+    // unbox place).
+    [Fact]
+    public void ReturnRefUnbox_SpellsUnsafeUnbox()
+    {
+        var output = PrintReturn(
+            new Unbox(s_int, new LoadArgument(0, "o", s_object)),
+            TypeRef.ByRef(s_int),
+            [new Parameter("o", s_object)]);
+
+        Assert.Contains("return ref ", output);
+        Assert.Contains("Unsafe.Unbox<int>(o)", output);
+        Assert.DoesNotContain("(int)o", output);
+        AssertCompiles("public static ref int M(object o)", output);
+    }
+
+    // Review (#2925): a ref-place (here a by-ref return) of a *generic-parameter*
+    // unbox must keep the faithful `Unsafe.Unbox<T>(o)` intrinsic — the place
+    // substrates (`ArgumentLvalue`/`Deref`) stay ungated. `Unsafe.Unbox<T>`
+    // compiles for a `where T : struct` parameter, whereas the value-copy cast
+    // `ref (T)o` is CS0445; a ref-place has no valid cast form, so the intrinsic
+    // is the only faithful spelling. (The value-position member receiver falls
+    // back to the cast for a generic parameter instead — see
+    // CSharpPrinterReceiverTests.UnboxReceiver_GenericParameter_KeepsCastNotUnsafeUnbox.)
+    [Fact]
+    public void ReturnRefUnbox_GenericParameter_SpellsUnsafeUnbox()
+    {
+        var t = TypeRef.MethodGenericParameter(0, "T");
+        var output = PrintReturn(
+            new Unbox(t, new LoadArgument(0, "o", s_object)),
+            TypeRef.ByRef(t),
+            [new Parameter("o", s_object)]);
+
+        Assert.Contains("return ref ", output);
+        Assert.Contains("Unsafe.Unbox<T>(o)", output);
+        Assert.DoesNotContain("ref (T)o", output);
+        AssertCompiles("public static ref T M<T>(object o) where T : struct", output);
     }
 
     // Issue #2302: an arm whose signedness (or width) disagrees with the numeric
@@ -282,7 +362,165 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain("return flag ? a : b ?? c;", output);
     }
 
+    // Issue #2867 follow-up (Gemini review): CSharpPrecedence.Of did not
+    // classify TupleSwitchExpression alongside its SwitchExpression/
+    // UnionSwitchExpression siblings, so it fell through to the Primary
+    // default. RenderedExpression's three consumers (BinaryOperand,
+    // CoalesceLeftText, InterpolatedExpression) all trust that reported
+    // precedence to decide whether to wrap — with the bug, a tuple switch
+    // nested as a Binary/Coalesce operand rendered bare, inconsistent with how
+    // a plain Conditional or SwitchExpression renders in the exact same
+    // position (see CoalesceLeft_Conditional_StaysParenthesized above). This
+    // is an IR-contract defect (any Precedence.Of consumer, present or
+    // future, gets the wrong answer for this node type) rather than a hard
+    // C# syntax requirement — a tuple/relational switch expression is
+    // self-terminating at its closing `}`, so the *unwrapped* spelling below
+    // also compiles and evaluates identically; the assertions here pin the
+    // wrapped, sibling-consistent spelling the fixed Of() now produces.
+    static TupleSwitchExpression MakeTupleSwitch(TypeRef componentType, TypeRef resultType, object firstValue, object defaultValue)
+    {
+        var x = new LoadArgument(0, "x", componentType);
+        var y = new LoadArgument(1, "y", componentType);
+        var firstArm = new TupleSwitchExpressionArm(
+            subpatterns: [new PositionalPatternSubpattern(ComparisonKind.GreaterThan), new PositionalPatternSubpattern(ComparisonKind.GreaterThan)],
+            constants: [new Constant(0, componentType), new Constant(0, componentType)],
+            value: new Constant(firstValue, resultType));
+        var defaultArm = new TupleSwitchExpressionArm(subpatterns: [], constants: [], value: new Constant(defaultValue, resultType));
+        return new TupleSwitchExpression([x, y], [firstArm, defaultArm]);
+    }
+
+    [Fact]
+    public void BinaryOperand_TupleSwitchExpressionChild_StaysParenthesized()
+    {
+        var tupleSwitch = MakeTupleSwitch(s_int, s_int, firstValue: 1, defaultValue: 2);
+        var add = new Binary(BinaryKind.Add, false, false, new LoadArgument(2, "z", s_int), tupleSwitch);
+
+        var output = PrintReturn(
+            add,
+            s_int,
+            [new Parameter("x", s_int), new Parameter("y", s_int), new Parameter("z", s_int)]);
+
+        Assert.Contains("return z + ((x, y) switch { (> 0, > 0) => 1, _ => 2 });", output);
+        Assert.DoesNotContain("return z + (x, y) switch", output);
+        AssertCompiles("public static int M(int x, int y, int z)", output);
+    }
+
+    [Fact]
+    public void CoalesceLeft_TupleSwitchExpressionChild_StaysParenthesized()
+    {
+        var tupleSwitch = MakeTupleSwitch(s_int, s_string, firstValue: "one", defaultValue: "other");
+        var coalesce = new Coalesce(tupleSwitch, new LoadArgument(2, "fallback", s_string));
+
+        var output = PrintReturn(
+            coalesce,
+            s_string,
+            [new Parameter("x", s_int), new Parameter("y", s_int), new Parameter("fallback", s_string)]);
+
+        Assert.Contains("return ((x, y) switch { (> 0, > 0) => \"one\", _ => \"other\" }) ?? fallback;", output);
+        Assert.DoesNotContain("return (x, y) switch { (> 0, > 0) => \"one\", _ => \"other\" } ?? fallback;", output);
+        AssertCompiles("public static string M(int x, int y, string fallback)", output);
+    }
+
+    // Confirms the fix has no effect on the pass's actual current output
+    // shape: TupleSwitchExpressionPass only ever raises a tuple switch as a
+    // Return's direct value, which CoerceText special-cases (the switch is
+    // the whole right-hand side, never nested under another operator), so it
+    // never reaches RenderedExpression/CSharpPrecedence.Of at all.
+    [Fact]
+    public void DirectReturn_TupleSwitchExpression_RendersWithoutOuterParens()
+    {
+        var tupleSwitch = MakeTupleSwitch(s_int, s_int, firstValue: 1, defaultValue: 2);
+
+        var output = PrintReturn(tupleSwitch, s_int, [new Parameter("x", s_int), new Parameter("y", s_int)])
+            .ReplaceLineEndings("\n");
+
+        Assert.Contains("return (x, y) switch\n{\n    (> 0, > 0) => 1,\n    _ => 2,\n};", output);
+        Assert.DoesNotContain("return ((x, y) switch", output);
+        AssertCompiles("public static int M(int x, int y)", output);
+    }
+
+    // Issue #2929: unbox yields a managed reference into the box. Converting
+    // that reference to nuint must preserve the address, not read and convert
+    // the boxed value.
+    [Fact]
+    public void ConvertNativeUInt_Unbox_SpellsPointerIntoBox()
+    {
+        var result = PrintReturnResult(
+            new ILInspector.Decompiler.Pipeline.Convert(
+                s_nuint,
+                isChecked: false,
+                isUnsigned: false,
+                new Unbox(s_int, new LoadArgument(0, "o", s_object))),
+            s_nuint,
+            [new Parameter("o", s_object)]);
+        string output = result.Output!;
+
+        Assert.Contains(
+            "return (nuint)System.Runtime.CompilerServices.Unsafe.AsPointer(ref System.Runtime.CompilerServices.Unsafe.Unbox<int>(o));",
+            output);
+        Assert.DoesNotContain("(nuint)(ref (int)o)", output);
+        Assert.True(result.RequiresUnsafeBodyModifier);
+        AssertCompiles("public static unsafe nuint M(object o)", output);
+    }
+
+    [Fact]
+    public void ConvertNativeUInt_Value_RemainsOrdinarySafeCast()
+    {
+        var result = PrintReturnResult(
+            new ILInspector.Decompiler.Pipeline.Convert(
+                s_nuint,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(0, "value", s_uint)),
+            s_nuint,
+            [new Parameter("value", s_uint)]);
+        string output = result.Output!;
+
+        Assert.Contains("return (nuint)value;", output);
+        Assert.DoesNotContain("Unsafe.", output);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        AssertCompiles("public static nuint M(uint value)", output);
+    }
+
+    // AssertCompiles/Recompile shape already used by DataflowFactsTests,
+    // EnumCastPrinterTests, and MixedSignComparisonTests; reused here rather
+    // than reimplemented.
+    static void AssertCompiles(string methodHeader, string body)
+    {
+        var errors = Recompile(methodHeader, body)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+        Assert.True(errors.Length == 0, "Rendered method must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
+    }
+
+    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body)
+    {
+        string source = $$"""
+            static class __Gate
+            {
+                {{methodHeader}}
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "__gate",
+            [tree],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return compilation.GetDiagnostics();
+    }
+
     static string PrintReturn(IrExpression value, TypeRef returnType, ImmutableArray<Parameter> parameters)
+        => PrintReturnResult(value, returnType, parameters).Output!;
+
+    static DecompilerResult PrintReturnResult(
+        IrExpression value,
+        TypeRef returnType,
+        ImmutableArray<Parameter> parameters)
     {
         var block = new Block();
         block.Add(new Return(value));
@@ -294,6 +532,6 @@ public class PrinterPrecedenceTests
             new MethodSignature(returnType, parameters, HasThis: false, GenericParameterCount: 0),
             [],
             body);
-        return CSharpPrinter.Print(function).Output!;
+        return CSharpPrinter.Print(function);
     }
 }

@@ -5,23 +5,26 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Pins the expression-tree lambda frontier (issue #1142). A C# expression-tree
-/// lambda (<c>Expression&lt;Func&lt;…&gt;&gt; f = x =&gt; …;</c>) lowers to a run of
-/// <c>System.Linq.Expressions</c> factory calls (<c>Expression.Parameter</c>,
-/// <c>Expression.Add</c>, <c>Expression.Lambda</c>, …). The decompiler renders
-/// those factory calls faithfully — it does <em>not</em> recover the original
-/// lambda syntax, which would require re-deriving the lambda from the tree it
-/// builds (a separate, design-gated effort).
+/// Pins the expression-tree lambda frontier (issues #1142 / #2864). A C#
+/// expression-tree lambda (<c>Expression&lt;Func&lt;…&gt;&gt; f = x =&gt; …;</c>)
+/// lowers to a run of <c>System.Linq.Expressions</c> factory calls
+/// (<c>Expression.Parameter</c>, <c>Expression.Add</c>, <c>Expression.Lambda</c>,
+/// …). For the fully-owned homogeneous-<c>Int32</c> arithmetic slice,
+/// <see cref="ExpressionTreeLambdaRaisingPass"/> rewrites that factory graph back
+/// to the source <c>p =&gt; e</c> lambda: a semantics-preserving rewrite over the
+/// exact canonical shape (single-source parameter identity, arithmetic/constant
+/// body only). The recovered lambda stays <c>Full</c>.
 ///
-/// The factory-call form is faithful, valid C# whenever every node it builds has
-/// a C# spelling, so a simple arithmetic lambda stays <c>Full</c>. A lambda that
-/// reads a member is different: the compiler captures the member with
-/// <c>ldtoken &lt;field/method&gt;</c> (passed to <c>GetFieldFromHandle</c>), and a
-/// member token has no C# expression spelling (unlike a type token, which is
-/// <c>typeof(T)</c>). That node degrades honestly to <c>DEC0010</c>, so a
-/// member-bodied expression-tree lambda is <c>Partial</c>. These tests lock that
-/// behavior in so neither the factory-call rendering nor the honest degradation
-/// can silently regress.
+/// Everything outside that slice stays in the faithful factory-call form. A
+/// non-<c>Int32</c> body (promotion/literal-suffix subtleties are owed), a manual
+/// factory alias (two value sources for the parameter), and a member-reading body
+/// all remain as factory calls. A member body is different again: the compiler
+/// captures the member with <c>ldtoken &lt;field/method&gt;</c> (passed to
+/// <c>GetFieldFromHandle</c>), and a member token has no C# expression spelling
+/// (unlike a type token, which is <c>typeof(T)</c>). That node degrades honestly
+/// to <c>DEC0010</c>, so a member-bodied expression-tree lambda is <c>Partial</c>.
+/// These tests lock the recovery, the honest factory-call fallback, and the honest
+/// degradation so none can silently regress.
 /// </summary>
 public class ExpressionTreeFidelityTests
 {
@@ -36,7 +39,7 @@ public class ExpressionTreeFidelityTests
     }
 
     [Fact]
-    public void SimpleArithmeticLambda_RendersFactoryCalls_StaysFull()
+    public void SimpleArithmeticLambda_RecoversLambda_StaysFull()
     {
         var function = Raised(nameof(ExpressionTreeSamples.Simple));
 
@@ -45,9 +48,58 @@ public class ExpressionTreeFidelityTests
 
         var output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
-        // Faithful factory-call rendering, not recovered `x => x + 1` lambda syntax.
-        Assert.Contains("Expression.Lambda<Func<int, int>>", output);
-        Assert.Contains("Expression.Add(", output);
+        // Recovered source lambda, not the factory-call scaffolding. The
+        // overflow-prone add is spelled unchecked so a checked consuming project
+        // still rebuilds the unchecked Expression.Add node (blocker: checkedness
+        // identity).
+        Assert.Contains("return x => unchecked(x + 1);", output);
+        Assert.DoesNotContain("Expression.Lambda", output);
+        Assert.DoesNotContain("Expression.Add", output);
+        Assert.DoesNotContain("Expression.Parameter", output);
+    }
+
+    [Fact]
+    public void MultiParamArithmeticLambda_RecoversLambda_StaysFull()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.MultiParam));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("return (a, b) => unchecked(a * b - 1);", output);
+        Assert.DoesNotContain("Expression.Lambda", output);
+        Assert.DoesNotContain("Expression.Multiply", output);
+    }
+
+    [Fact]
+    public void NonIntArithmeticLambda_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.NonIntArithmetic));
+
+        // Outside the Int32-only slice: no recovered lambda, honest factory calls.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("Expression.Lambda<Func<double, double>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Fact]
+    public void CheckedArithmeticLambda_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.CheckedArithmetic));
+
+        // A checked body lowers to Expression.AddChecked, outside the unchecked
+        // arithmetic subset the pass matches: no recovered lambda, honest factory
+        // calls, and no plain `x + 1` that would rebuild as unchecked Add.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("Expression.AddChecked", output);
         Assert.DoesNotContain("=>", output);
     }
 
@@ -72,6 +124,21 @@ public class ExpressionTreeFidelityTests
 public static class ExpressionTreeSamples
 {
     public static Expression<Func<int, int>> Simple() => x => x + 1;
+
+    // Multi-parameter homogeneous-Int32 arithmetic: still fully owned, recovers
+    // to `(a, b) => a * b - 1`.
+    public static Expression<Func<int, int, int>> MultiParam() => (a, b) => a * b - 1;
+
+    // Near-miss: non-Int32 arithmetic. Slice 1 is Int32-only (sub-int/float
+    // promotion and literal-suffix subtleties are owed), so this stays in honest
+    // factory-call form rather than an unproven recovery.
+    public static Expression<Func<double, double>> NonIntArithmetic() => x => x + 1.0;
+
+    // Near-miss: a checked-context body lowers to the checked Expression.AddChecked
+    // factory, which the pass never matches (only the unchecked Add/Subtract/Multiply
+    // names). A checked tree must not be recovered as plain `x => x + 1` (that would
+    // rebuild as unchecked Add), so it stays in honest factory-call form.
+    public static Expression<Func<int, int>> CheckedArithmetic() => x => checked(x + 1);
 
     public static Expression<Func<ExpressionTreeNode, bool>> Member()
         => n => n.Name != null && n.Count > 0;

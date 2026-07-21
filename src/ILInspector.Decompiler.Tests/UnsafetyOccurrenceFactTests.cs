@@ -1,3 +1,4 @@
+using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Research;
@@ -6,7 +7,7 @@ namespace ILInspector.Decompiler.Tests;
 
 public class UnsafetyOccurrenceFactTests
 {
-    static IReadOnlyList<Annotation> Classify(string methodName)
+    static IReadOnlyList<IAnnotation> Classify(string methodName)
     {
         var source = MetadataSource.Open(typeof(UnsafeSampleClass).Assembly.Location);
         return ResearchViews.CollectFacts(source, typeof(UnsafeSampleClass).FullName!, methodName)
@@ -19,6 +20,23 @@ public class UnsafetyOccurrenceFactTests
     {
         var facts = Classify(nameof(UnsafeSampleClass.ReadPtr));
         Assert.Contains(facts, f => f.Descriptor.Id == "unsafe.deref" && f.Detail == "int");
+    }
+
+    [Fact]
+    public void PointerRead_CarriesItsTypedPayload_NotJustAFlattenedDetailString()
+    {
+        // Same contract as Annotation<AllocationOccurrence>: the producer must
+        // hand back the typed atom -- Method identity in particular, which the
+        // legacy Annotation(Descriptor, ILOffset, Detail) shape discarded
+        // entirely -- not just the pre-flattened string.
+        var facts = Classify(nameof(UnsafeSampleClass.ReadPtr));
+        var deref = Assert.Single(facts, f => f.Descriptor.Id == "unsafe.deref");
+
+        var typed = Assert.IsType<Annotation<UnsafetyOccurrence>>(deref);
+        Assert.Equal(UnsafetyKind.Deref, typed.Payload.Kind);
+        Assert.Equal(typed.SourceOffset, typed.Payload.ILOffset);
+        Assert.Equal(nameof(UnsafeSampleClass.ReadPtr), typed.Payload.Method.Name);
+        Assert.Equal(typed.Formatter!(typed.Payload), typed.Detail);
     }
 
     [Fact]

@@ -9,6 +9,17 @@ Every raise PR must keep Before, After, and Fully raised. Before and After must
 each show a concrete C# example. After records this PR's output; Fully raised
 records the intended endpoint.
 
+Under Before and After, record two independent verdicts on the shown C# so the
+assessment sits next to the code it judges:
+
+- Valid: does it compile and bind (True/False)?
+- Correct: does it preserve the original observable behavior (True/False)?
+
+Add optional prose only to explain a verdict. Keeping both Before and After
+makes this a before→after comparison, not a snapshot of only the raised output:
+a snapshot cannot reveal a regression that leaves the After invalid or
+behavior-changing.
+
 Look for the authoritative original source with `dotnet-inspect`, including
 through SourceLink:
 
@@ -49,15 +60,32 @@ only after checking with dotnet-inspect (relying on SourceLink).
 
 ### Before
 
+<!--
+Include the method signature line, matching Original source's shape, not just
+the body — a bare body is harder to line up against Original source.
+-->
+
 ```csharp
-// short failing or lower-quality output
+// short failing or lower-quality output, with its method signature
 ```
+
+- Valid: {True/False}
+- Correct: {True/False}
+
+{optional prose to elaborate on the verdict}
 
 ### After
 
+<!-- Include the method signature line here too, for the same reason. -->
+
 ```csharp
-// output produced by this PR, including an honest fallback when not fully raised
+// output produced by this PR, including an honest fallback when not fully raised, with its method signature
 ```
+
+- Valid: {True/False}
+- Correct: {True/False}
+
+{optional prose to elaborate on the verdict}
 
 ### Fully raised
 
@@ -83,14 +111,25 @@ Required for every raise PR. Choose one:
 
 ## Evidence
 
-| Check | Result |
-| --- | --- |
-| Product build | Pass |
-| Focused tests | `{test class}` passed |
-| Decompiler fast suite | Pass |
-| Reduced fixture validity | Pass / not applicable |
-| Reduced fixture fidelity | Pass / not currently checkable |
-| Real witness | `{Type::Method}` fixed / not applicable |
+<!--
+Report Baseline (base commit, unbuilt PR changes) alongside Head (this PR) for
+every check that has a pass/fail or count outcome. A Head-only "Pass" or
+"{n} passed" hides regressions: it cannot show whether failures are
+pre-existing (same on Baseline) or newly introduced by this PR, and total
+counts can rise even while some previously-passing test starts failing.
+-->
+
+| Check | Baseline | Head |
+| --- | --- | --- |
+| Product build | Pass | Pass |
+| Focused tests | `{test class}`: {n} passed | `{test class}`: {n} passed |
+| Decompiler fast suite | {total}, {failed} failed | {total}, {failed} failed |
+| Reduced fixture validity | Pass / not applicable | Pass / not applicable |
+| Reduced fixture fidelity | Pass / not currently checkable | Pass / not currently checkable |
+| Real witness | `{Type::Method}` broken / not applicable | `{Type::Method}` fixed / not applicable |
+
+If Baseline shows any failures, name them and confirm they are unchanged by
+this PR (same tests, same reason) rather than omitting them.
 
 ## Decompiler quality
 

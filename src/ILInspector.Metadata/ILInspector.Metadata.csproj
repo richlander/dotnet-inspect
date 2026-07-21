@@ -19,6 +19,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- CSharp owns this spelling policy. Metadata source-links the internal
+         classifier while its legacy API surface still produces C# strings. -->
+    <Compile Include="..\ILInspector.CSharp\CSharpKeywords.cs" Link="CSharpKeywords.cs" />
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />

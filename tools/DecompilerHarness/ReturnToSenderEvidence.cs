@@ -26,6 +26,8 @@ internal sealed record ReturnToSenderResearchSummary(
     int IlRows,
     int FailingMembers,
     int OpcodeDiffMembers,
+    int OperandDiffMembers,
+    int FidelityUnavailableMembers,
     int RecompileFailMembers,
     int ContextFailMembers,
     int MembersWithIlChanges,
@@ -95,6 +97,8 @@ internal static class ReturnToSenderEvidence
             changes.Count(item => item.Mechanism == ResearchChangeMechanism.IlBody),
             subjects.Count(subject => HasRtsStatus(subject, "rts.status.fail")),
             subjects.Count(subject => HasCompileBackStatus(subject, "OpcodeDiff")),
+            subjects.Count(subject => HasCompileBackStatus(subject, "OperandDiff")),
+            subjects.Count(subject => HasCompileBackStatus(subject, "FidelityUnavailable")),
             subjects.Count(subject => HasCompileBackStatus(subject, "RecompileFail")),
             subjects.Count(subject => HasCompileBackStatus(subject, "ContextFail")),
             subjects.Count(subject => subject.Changes.Any(item => item.Mechanism == ResearchChangeMechanism.IlBody)),
@@ -147,8 +151,10 @@ internal static class ReturnToSenderEvidence
         {
             "RecompileFail" => 0,
             "ContextFail" => 1,
-            "OpcodeDiff" => 2,
-            _ => 3,
+            "FidelityUnavailable" => 2,
+            "OpcodeDiff" => 3,
+            "OperandDiff" => 4,
+            _ => 5,
         };
 
     static ResearchSubjectKey SubjectKey(ReturnToSenderEvidenceRow row)

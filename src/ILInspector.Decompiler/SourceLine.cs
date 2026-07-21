@@ -50,7 +50,7 @@ public sealed record AnnotatedSourceLine(
     string Text,
     int Offset,
     SourceLineKind Kind,
-    IReadOnlyList<Annotation> Annotations)
+    IReadOnlyList<IAnnotation> Annotations)
 {
     /// <summary>A line with no annotations attached.</summary>
     public AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind)

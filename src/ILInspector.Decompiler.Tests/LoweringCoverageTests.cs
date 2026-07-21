@@ -127,7 +127,6 @@ public class LoweringCoverageTests
             .ToHashSet();
 
         Assert.Contains("Query", declined);
-        Assert.Contains("ExpressionTreeLambda", declined);
         foreach (var name in declined)
             Assert.DoesNotContain(name, owed);
     }

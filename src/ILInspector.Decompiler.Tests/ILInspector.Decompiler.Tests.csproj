@@ -39,9 +39,11 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainB\ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainC\ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.Ladder\ILInspector.Decompiler.Fixtures.Ladder.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
   </ItemGroup>
 
   <!--
@@ -55,6 +57,8 @@
     <Compile Include="..\..\tools\DecompilerHarness\InverseLedger.cs" Link="InverseArchitecture\InverseLedger.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\HarnessLog.cs"
              Link="HarnessLog.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\DecompilerHarnessReportViews.cs"
+             Link="DecompilerHarnessReportViews.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMetadata.cs"
              Link="CorpusMetadata.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodIdentity.cs"
@@ -101,6 +105,8 @@
              Link="ValidityCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ValidityPredicateScan.cs"
              Link="ValidityPredicateScan.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\LibraryReport.cs"
+             Link="LibraryReport.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AssertionEvaluator.cs"
              Link="AssertionEvaluator.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AssertionPrinter.cs"

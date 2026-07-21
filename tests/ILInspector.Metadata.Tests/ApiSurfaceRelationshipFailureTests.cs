@@ -70,8 +70,20 @@ public class ApiSurfaceRelationshipFailureTests
             oldSurface,
             newSurface,
             new FindingSubject("api", "API surface"));
-        Assert.IsType<
-            FindingComparison<ApiTypeHandle>.Failed>(findings.Types.Value);
+        // The Finding lane's surfaces already exclude the entities recorded in
+        // InspectionFailures, so a failure on one type must not collapse the whole-side
+        // comparison to Failed -- mirroring the legacy analyzer's per-type-skip granularity
+        // asserted above (Sibling added, Maybe not falsely reported as removed).
+        Assert.IsType<FindingComparison<ApiTypeHandle>.Complete>(findings.Types.Value);
+        Assert.Contains(
+            findings.ApiDiff.InspectionFailures,
+            failure => failure.Side == "new" && failure.Kind == "Cycle");
+        Assert.DoesNotContain(
+            findings.ApiDiff.TypeDiffs,
+            type => type.TypeFullName == "Maybe" && type.IsRemoved);
+        Assert.Contains(
+            findings.ApiDiff.TypeDiffs,
+            type => type.TypeFullName == "Sibling" && type.IsAdded);
         Assert.False(findings.IsExact);
     }
 

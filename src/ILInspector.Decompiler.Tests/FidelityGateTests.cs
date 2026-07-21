@@ -4,9 +4,9 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// The fidelity gate: decompile every method on <see cref="CfgSampleClass"/>,
-/// recompile it inside a reconstructed shape of its type, and compare the canonical
-/// opcode stream against the originally compiled fixture. A method that recompiles
-/// to a different stream changed the program — the worst decompiler failure class,
+/// recompile it inside a reconstructed shape of its type, and compare the body under
+/// compile-back fidelity contract V1. A method that recompiles to a different body
+/// changed the measured program shape — the worst decompiler failure class,
 /// invisible to parse/bind checks. This pins the green set so a regression that turns
 /// an exact method into a diff fails CI, while the documented baseline records the
 /// methods that still diverge (the open docket) so the gate stays green on main.
@@ -18,7 +18,7 @@ public class FidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods that still recompile to a different opcode stream — the open
+    /// Methods that still differ under compile-back fidelity contract V1 — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
@@ -135,16 +135,91 @@ public class FidelityGateTests
         // over-render frontier, not a new daily product regression.
         "ManualSimpleExpressionTreeFactory",
         "SimpleExpressionTreeLambda",
+        // The parameter-dependent manual factory graph recovers to a lambda, so it
+        // recompiles to the compiler's expression-tree lowering rather than the
+        // hand-written factory calls — the same recovery-induced diff as
+        // SimpleExpressionTreeLambda.
+        "ManualParameterPlusConstantFactory",
+        // The manual factory fixtures below DECLINE and decompile to honest
+        // Expression.* factory-call C# with clean locals: the malformed/shared-graph
+        // near misses (reused parameter identity, duplicate names, unspellable name),
+        // the canonical graphs returned through Expression/LambdaExpression/object
+        // sinks, and the constant-only arithmetic graphs Roslyn would fold. Like
+        // ManualSimpleExpressionTreeFactory, their emitted Expression.* calls
+        // recompile through SDK preview compile-back reshaping of stack-slot/local
+        // temporaries — a valid over-render, not opcode-exact. Verified by running
+        // the Speed=Slow fidelity gate locally.
+        "ManualCanonicalReturnedAsExpression",
+        "ManualCanonicalReturnedAsLambdaExpression",
+        "ManualCanonicalReturnedAsObject",
+        "ManualReusedParameterFactory",
+        "ManualDuplicateNameFactory",
+        "ManualUnspellableNameFactory",
+        "ManualConstantOnlyAddFactory",
+        "ManualConstantOnlySubtractFactory",
+        "ManualConstantOnlyMultiplyFactory",
+        "ManualNestedConstantSubtreeFactory",
+        "ManualConstantOnlyDivideByZeroFactory",
+        "ManualConstantOnlyRemainderOverflowFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "RefKindCallSites",
         "set_SlotMergedDateTimeFormat",
+        // Compile-back fidelity contract V1 reclassifies these previously
+        // opcode-exact rows because a value, symbolic target, or branch target
+        // differs after recompilation.
+        "BreakWithSideEffect",
+        "CachedDelegateArgument",
+        "CachedDelegateChain",
+        "CapturingLambda",
+        "CapturingLocalBodyLambda",
+        // #2945: outer-body reads of a hoisted capture field are substituted back
+        // to the captured source and the display class elides, so this fully
+        // raises; recompiling regenerates a fresh display class whose synthesized
+        // ordinals differ under contract V1.
+        "CapturedParamReadInOuterBody",
+        "ClosureCapture",
+        "CountPositive",
+        "DayNumber",
+        "DoubleViaLocalFunction",
+        "InvokeLocalCapture",
+        "JustBreak",
+        "LocalBodyLambda",
+        "NonCapturingLambda",
+        "RecursiveLocalFunction",
+        "StatementBodyLambda",
+        "StaticLocalFunctionCalledTwice",
+        "StaticLocalFunctionWithLocal",
+        // Tuple-switch fixture additions changed the reconstructed source ordinal
+        // of both local functions from |5_* to |31_*. The call opcodes remain
+        // identical, but contract V1 observes the changed symbolic targets.
+        "TwoLocalFunctionQuadrants",
+        // The iterator raises added by #2884 recover the source bodies and retain
+        // the same outer factory opcodes, but recompiling the reconstructed large
+        // fixture type assigns different synthesized state-machine ordinals
+        // (d__600/601 -> d__575/576). Those constructor and field targets remain
+        // observable symbolic identities under contract V1.
+        "SwitchYield",
+        "WhileTrueYieldBreak",
+        "TwoCaptureLambda",
+        "ValidNestedIf",
+        "YieldCollectionExpressionSpread",
+        "YieldEach",
+        "YieldEnumerator",
+        "YieldGrid",
+        "YieldIf",
+        "YieldPairs",
+        "YieldRange",
+        "YieldSquares",
+        "YieldStrings",
+        "YieldThree",
+        "YieldTwo",
     };
 
     /// <summary>
-    /// Methods a prior fidelity check fix turned opcode-exact. Pinning them guards the
+    /// Methods a prior fidelity check fix turned exact under contract V1. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
@@ -206,6 +281,13 @@ public class FidelityGateTests
     /// ParseOrZero must keep treating the verified `out` argument as a definite
     /// local assignment so the printer does not emit a dead `= default` store the
     /// original IL never carried.
+    /// SharedCaptureLambdas is below Full and now reports `NotFull` because its
+    /// opcode names match but its V1 body comparison differs. CapturingLocalFunction
+    /// is also below Full; fixture additions changed its compiler-generated display
+    /// class and local-function ordinals, which remain observable in V1.
+    /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
+    /// Full with changed anonymous-type ordinals. DayNumber and
+    /// DoubleViaLocalFunction moved to the V1 difference docket above.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -224,9 +306,6 @@ public class FidelityGateTests
         "AwaitValueTask",
         "AwaitVoid",
         "NestedAwaitUsingResources",
-        "SharedCaptureLambdas",
-        "DoubleViaLocalFunction",
-        "CapturingLocalFunction",
         // MixedOrAndArms (#1175): the mixed ||/&& fold raises and recompiles
         // opcode-exact; pinned so a regression to flat/RecompileFail is caught
         // on every fidelity-gate run, not left to the sampled corpus.
@@ -257,17 +336,12 @@ public class FidelityGateTests
         "IsPatternProperty",
         "IsPatternPropertyGreater",
         "IsPatternPropertyAtMost",
-        "DayNumber",
         "SmallStringSwitch",
         "StringSwitchWithJoin",
         "StringSwitchNoDefault",
         "ClassifyMode",
         "ClassifyWide",
         "AnonShorthand",
-        "AnonNamed",
-        "AnonSingle",
-        "AnonNested",
-        "AnonDeepNested",
         "TupleRest",
         "TupleLiteralEquals4",
         "TupleNestedLiteralEquals",
@@ -321,37 +395,79 @@ public class FidelityGateTests
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateFixtures() => Results.Value;
 
     [Fact]
-    public void NoNewOpcodeDiffsBeyondKnownDocket()
+    public void NoNewFidelityDiffsBeyondKnownDocket()
     {
-        var diffs = EvaluateFixtures()
-            .Where(r => r.Status == FidelityCheck.CompileBackStatus.OpcodeDiff)
-            .Select(r => r.Method)
-            .OrderBy(m => m, StringComparer.Ordinal)
+        var diffResults = EvaluateFixtures()
+            .Where(r => r.Status is
+                FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff)
+            .OrderBy(r => r.Method, StringComparer.Ordinal)
             .ToList();
 
-        var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
+        var unexpected = diffResults.Where(result => !KnownDiffs.Contains(result.Method)).ToList();
+        var details = unexpected.Select(result =>
+        {
+            string fidelityRows = result.FidelityDiff is { Rows.Length: > 0 } diff
+                ? "\n  fidelity:\n" + string.Join('\n', diff.Rows.Take(6).Select(row => $"    {row.Message}"))
+                : "";
+            return $"{result.Method} [{result.Status}]\n"
+                + $"  original : {result.OriginalOpcodes}\n"
+                + $"  recompiled: {result.RecompiledOpcodes}\n"
+                + $"  detail: {result.Detail}{fidelityRows}";
+        });
 
         Assert.True(unexpected.Count == 0,
-            $"New fidelity check opcode diffs (decompiled C# recompiles to different IL): " +
-            $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
+            "New fidelity check contract V1 diffs (decompiled C# recompiles to different IL):\n"
+            + string.Join("\n\n", details)
+            + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(result => result.Method))}");
     }
 
     [Fact]
-    public void PinnedFixesStayOpcodeExact()
+    public void BodyComparisonRemainsAvailable()
+    {
+        var unavailable = EvaluateFixtures()
+            .Where(result => result.Status == FidelityCheck.CompileBackStatus.FidelityUnavailable)
+            .Select(result => $"{result.Method}: {result.Detail}")
+            .ToArray();
+
+        Assert.True(
+            unavailable.Length == 0,
+            "Compile-back fidelity contract V1 was unavailable for: "
+            + string.Join(", ", unavailable));
+    }
+
+    [Fact]
+    public void PinnedFixesStayExact()
     {
         var results = EvaluateFixtures();
+        var failures = new List<string>();
 
         foreach (var method in PinnedExact)
         {
             var matches = results.Where(r => r.Method == method).ToList();
-            Assert.True(matches.Count > 0,
-                $"Expected fidelity check to evaluate {method}, but it was not rendered.");
+            if (matches.Count == 0)
+            {
+                failures.Add($"Expected fidelity check to evaluate {method}, but it was not rendered.");
+                continue;
+            }
+
             foreach (var result in matches)
-                Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+            {
+                if (result.Status == FidelityCheck.CompileBackStatus.Exact)
+                    continue;
+
+                string fidelityRows = result.FidelityDiff is { Rows.Length: > 0 } diff
+                    ? "\n  fidelity:\n"
+                        + string.Join('\n', diff.Rows.Take(6).Select(row => $"    {row.Message}"))
+                    : "";
+                failures.Add(
                     $"{method} regressed to {result.Status}: a prior fidelity check fix no longer holds.\n" +
                     $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n" +
-                    $"  detail: {result.Detail}");
+                    $"  detail: {result.Detail}{fidelityRows}");
+            }
         }
+
+        Assert.True(failures.Count == 0, string.Join("\n\n", failures));
     }
 
     /// <summary>
@@ -359,9 +475,9 @@ public class FidelityGateTests
     /// intentional opcode-diff (the nested ternary re-lowers differently), so it
     /// cannot be pinned exact. But its danger mode is a <em>silent</em> regression
     /// that produces uncompilable output: that would drop it out of the opcode-diff
-    /// set, so <see cref="NoNewOpcodeDiffsBeyondKnownDocket"/> would not catch it.
+    /// set, so <see cref="NoNewFidelityDiffsBeyondKnownDocket"/> would not catch it.
     /// Pin that the fold's fixture stays compile-back-<em>checkable</em> — rendered
-    /// and recompilable (<c>Exact</c> or <c>OpcodeDiff</c>), never
+    /// and recompilable (<c>Exact</c>, <c>OpcodeDiff</c>, or <c>OperandDiff</c>), never
     /// <c>RecompileFail</c>/<c>ContextFail</c> — so a regression that breaks
     /// recompilation fails the always-run fidelity gate rather than only the
     /// sampled corpus.
@@ -375,7 +491,9 @@ public class FidelityGateTests
             "Expected the fidelity check to render SwitchStoreThenUse, but it was not evaluated.");
         foreach (var result in matches)
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"SwitchStoreThenUse regressed to {result.Status}: the switch-store fold (#1710) no longer "
                     + "recompiles. Its decompiled C# must stay recompilable.\n"
                     + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n"
@@ -391,7 +509,9 @@ public class FidelityGateTests
             "Expected the fidelity check to render PointerStoreUsesOriginalAddress, but it was not evaluated.");
         foreach (var result in matches)
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"PointerStoreUsesOriginalAddress regressed to {result.Status}: the pointer-store residual (#2644) "
                     + "no longer recompiles. Its decompiled C# must stay recompilable so the known-diff docket "
                     + "continues to check the address-preservation shape.\n"

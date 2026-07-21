@@ -1,4 +1,4 @@
-# IL Diff Canonicalization Boundary
+# IL diff canonicalization boundary
 
 `IlBodyDiff` is a low-level body-diff substrate in
 `ILInspector.Instructions`. It compares decoded IL operations after a small
@@ -20,6 +20,23 @@ resolved exact `MethodDefinitionHandle` values. It returns old/new
 `IlMemberDiffSubject` identity labels plus the underlying `IlBodyDiffResult`,
 so RTS, Research, and diagnostics can attach IL diff evidence to their own
 member identity without running an assembly-wide card.
+
+`IlBodyDiffNormalization` exposes independent, domain-neutral normalization
+mechanics without defining a consumer's equality policy:
+
+- `NormalizeVariableLayout` folds `ldarg*`, `ldarga*`, `starg*`, `ldloc*`,
+  `ldloca*`, and `stloc*` encoding macros into their operation families and
+  omits their raw slot numbers.
+- `NormalizeCurrentAssemblyScope` gives types and members defined by either
+  compared assembly a shared `<current>` scope.
+- `NormalizePlatformAssemblyScope` gives known platform references
+  (`System.*`, `mscorlib`, `netstandard`, `Microsoft.CSharp`, and
+  `Microsoft.VisualBasic*`) a shared `<platform>` scope while preserving the
+  current assembly and non-platform references.
+
+Values, symbolic targets, and branch topology remain observable under every
+normalization. Consumers own any named or versioned policy that composes these
+mechanics. Comparisons use no optional normalization by default.
 
 The boundary is intentionally narrow: the diff answers "which decoded IL
 operations changed?" It does not claim source equivalence, semantic equivalence,
@@ -93,6 +110,28 @@ single `Failure` string for compatibility.
 layers should preserve or wrap these typed rows rather than reformatting
 lower-layer wording.
 
+## Comparison outcomes
+
+Every body comparison produces one total outcome:
+
+| Outcome | Meaning |
+| ------- | ------- |
+| `Unavailable` | No comparison verdict exists because a body was absent or decoding or resolution failed. |
+| `Exact` | Both bodies are equal after applying the requested normalization. |
+| `OperandDiff` | Normalized opcode-family sequences match, but one or more operands differ. |
+| `OpcodeDiff` | Normalized opcode-family sequences differ; operand differences may also exist. |
+
+`Exact` is relational: it describes equality between both bodies, not the
+quality or provenance of either side. `Unavailable` is not the opposite of
+`Exact`; it means that no equality verdict could be produced. Typed failure
+rows retain the reason.
+
+Assembly comparison aggregates exact, operand-diff, opcode-diff, and
+unavailable counts. `ChangedBodyCount` is the sum of operand and opcode
+differences; it excludes unavailable comparisons. `FailureCount` also includes
+independent self-diff and identity-resolution failures, so it need not equal
+the unavailable count.
+
 ## Current non-guarantees
 
 ### Raw slot policy
@@ -103,8 +142,13 @@ rewrites, Debug/Release differences, or equivalent local reordering can produce
 slot noise.
 
 Some local macros currently surface as opcode-family changes (`ldloc.0`,
-`stloc.1`) rather than as `Slot` operands. That is part of the current boundary,
-not a stronger local identity contract.
+`stloc.1`) rather than as `Slot` operands. That is part of the default boundary,
+not a stronger local identity contract. The opt-in
+`IlBodyDiffNormalization.NormalizeVariableLayout` normalizes these families
+and ignores their slot operands when a consumer does not treat variable layout
+as observable. It erases slot identity rather than proving a one-to-one slot
+renaming, so callers that need to distinguish variable permutations must not
+request it.
 
 ### Exception-region shape
 
@@ -112,7 +156,8 @@ The body decoder is EH-aware, and malformed EH regions fail closed through
 `MethodInstructions`. `IlBodyDiff` does not currently emit producer-owned EH
 region rows. Catch/finally availability or protected-range changes surface only
 through operation-level rows unless a future substrate layer adds explicit EH
-row kinds.
+row kinds. No `IlBodyDiffNormalization` value adds EH comparison, so consumers
+must not present an exact body result as a semantic-equivalence claim.
 
 ### Offset identity
 
@@ -128,6 +173,23 @@ The canonical operation sequence is not a verifier, optimizer, or source-level
 normalizer. It does not prove that two bodies have the same stack behavior,
 exception behavior, locals, source shape, or runtime semantics. It is an
 operation-diff substrate for evidence and display.
+
+## Harness-owned fidelity policy
+
+The decompiler harness composes product normalizations into its current
+fidelity contract:
+
+```csharp
+IlBodyDiffNormalization.NormalizeVariableLayout
+    | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+    | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+```
+
+Fidelity V1 combines this operand-aware product result with its harness-owned
+opcode canonicalization. The product outcome supplies comparison evidence; it
+does not replace the versioned harness verdict. This keeps future fidelity
+contracts free to change policy without adding test-policy names to the product
+API.
 
 ## When to extend the boundary
 

@@ -149,6 +149,15 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("public class Class1", result.Source);
             Assert.Contains("public string Method1", result.Source);
             Assert.Contains("return \"Hello World\";", result.Source);
+            Assert.NotNull(result.FidelityDiff);
+            Assert.True(result.FidelityDiff.IsExact);
+
+            var compileBack = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                row => row.Type == "Class1" && row.Method == "get_Method1");
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, compileBack.Status);
+            Assert.NotNull(compileBack.FidelityDiff);
+            Assert.True(compileBack.FidelityDiff.IsExact);
         }
         finally
         {
@@ -319,6 +328,75 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("add", result.Source, StringComparison.Ordinal);
             Assert.Contains("remove", result.Source, StringComparison.Ordinal);
             Assert.Contains("Console.WriteLine(value);", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("IBaseEvents.add_Changed", "Console.WriteLine(\"adding\");", "Console.WriteLine(\"removing\");")]
+    [InlineData("IBaseEvents.remove_Changed", "Console.WriteLine(\"removing\");", "Console.WriteLine(\"adding\");")]
+    public void CompileBackEventAccessor_RaisesSiblingAccessorBodyInsteadOfThrowStub(
+        string accessorName,
+        string expectedTargetBody,
+        string expectedSiblingBody)
+    {
+        // Issue #2913: both explicit-interface event accessors have real IL
+        // bodies here (distinguishable add/remove literals). Targeting either
+        // one must raise BOTH bodies in a single reconstruction rather than
+        // rendering the non-targeted accessor as an honest `throw null;` stub,
+        // and each accessor's compile-back verdict must be tracked
+        // independently via Result.SiblingAccessor.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class ExplicitEventFixture : IDerivedEvents
+            {
+                event Action IBaseEvents.Changed
+                {
+                    add
+                    {
+                        Console.WriteLine("adding");
+                    }
+                    remove
+                    {
+                        Console.WriteLine("removing");
+                    }
+                }
+            }
+
+            public interface IDerivedEvents : IBaseEvents
+            {
+            }
+
+            public interface IBaseEvents
+            {
+                event Action Changed;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitEventFixture",
+                    accessorName,
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(expectedTargetBody, result.Source, StringComparison.Ordinal);
+            Assert.Contains(expectedSiblingBody, result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("throw null;", result.Source, StringComparison.Ordinal);
+
+            Assert.NotNull(result.SiblingAccessor);
+            Assert.True(
+                result.SiblingAccessor!.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.SiblingAccessor.Status}: {result.SiblingAccessor.MethodName}");
         }
         finally
         {
@@ -608,7 +686,8 @@ public class ReturnToSenderPrototypeTests
             Assert.NotNull(result.CompileBackFloor);
             Assert.True(
                 result.Status is FidelityCheck.CompileBackStatus.Exact
-                    or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 result.Detail);
             Assert.Equal(result.CompileBackFloor.Status, result.Status);
             Assert.Contains("compile-back-floor", result.Detail);
@@ -1585,7 +1664,9 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Class1", ".ctor", 0)]));
 
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, result.Status);
+            Assert.NotNull(result.FidelityDiff);
+            Assert.False(result.FidelityDiff.IsExact);
             Assert.DoesNotContain("already contains a definition", result.Detail ?? "", StringComparison.Ordinal);
             Assert.Equal(1, Assert.Single(result.Plan.Types).Members.Count(member => member.Name == "Value"));
             Assert.Contains("public int Value", result.Source);
@@ -1848,7 +1929,9 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("Class1", "FromOther", 0)]));
 
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             var type = Assert.Single(result.Plan.Types);
             Assert.Contains(type.SourceFacts, fact =>
@@ -2015,7 +2098,9 @@ public class ReturnToSenderPrototypeTests
                 .Single(item => item.Plan.TargetMethod.Method == "get_Sum");
 
             Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff,
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains(result.Plan.Types, type =>
                 type.Name == "Pair"
@@ -4203,7 +4288,7 @@ public class ReturnToSenderPrototypeTests
                 getHashCode =>
                 {
                     Assert.True(
-                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
                     Assert.Contains("public string Name;", getHashCode.Source);
                     Assert.Contains("public string Value;", getHashCode.Source);
@@ -4220,7 +4305,7 @@ public class ReturnToSenderPrototypeTests
                 typedEquals =>
                 {
                     Assert.True(
-                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
                     Assert.Contains("public virtual bool Equals(Row other)", typedEquals.Source);
                     Assert.Contains("public string Name;", typedEquals.Source);
@@ -4261,7 +4346,9 @@ public class ReturnToSenderPrototypeTests
 
         static void AssertRecordEqualityContractRequirement(ReturnToSender.Result result)
         {
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, result.Status);
+            Assert.NotNull(result.FidelityDiff);
+            Assert.False(result.FidelityDiff.IsExact);
             var type = Assert.Single(result.Plan.Types);
             Assert.DoesNotContain(type.SourceFacts, fact => fact.Producer == "roslyn" && fact.Id == "closure-member");
             Assert.Contains(type.Members, member =>
@@ -4378,7 +4465,7 @@ public class ReturnToSenderPrototypeTests
                 getHashCode =>
                 {
                     Assert.True(
-                        getHashCode.Status == FidelityCheck.CompileBackStatus.Exact,
+                        getHashCode.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{getHashCode.Status}: {getHashCode.Detail}{Environment.NewLine}{getHashCode.Source}");
                     Assert.Contains("public string Name;", getHashCode.Source);
                     Assert.Contains("public string Value;", getHashCode.Source);
@@ -4387,7 +4474,7 @@ public class ReturnToSenderPrototypeTests
                 typedEquals =>
                 {
                     Assert.True(
-                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.OperandDiff,
                         $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
                     Assert.Contains("public bool Equals(Row other)", typedEquals.Source);
                     Assert.Contains("public string Name;", typedEquals.Source);

@@ -5,7 +5,7 @@
     "ExactPairCount": 0,
     "ChangedPairCount": 1,
     "ChangedMemberCount": 47,
-    "RowCount": 174,
+    "RowCount": 175,
     "FailureCount": 1
   },
   "Pairs": [
@@ -14,7 +14,7 @@
       "New": "artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll",
       "IsExact": false,
       "ChangedMemberCount": 47,
-      "RowCount": 174,
+      "RowCount": 175,
       "FailureCount": 1
     }
   ],
@@ -27,7 +27,7 @@
   "ChangeIdBuckets": [
     {
       "Name": "csharp.line.added",
-      "Count": 76
+      "Count": 77
     },
     {
       "Name": "csharp.line.removed",
@@ -65,7 +65,7 @@
   "OperationKindBuckets": [
     {
       "Name": "Line",
-      "Count": 129
+      "Count": 130
     },
     {
       "Name": "ReturnExpression",

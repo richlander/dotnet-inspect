@@ -58,12 +58,14 @@ internal static class AuditSignalBuilder
     public static async Task PopulatePackageAuditAsync(
         InspectionResult result,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions = null)
     {
         List<AuditSignal> signals = [];
 
         var directDependencies = GetDirectDependenciesForLatestTfm(result);
-        var dependencySignals = await GetDependencySignalsAsync(directDependencies.Dependencies, httpClient, logger);
+        var dependencySignals = await GetDependencySignalsAsync(
+            directDependencies.Dependencies, httpClient, logger, sourceOptions);
         var context = new PackageSignalContext(result, directDependencies, dependencySignals);
         AddPackageSignals(signals, in context);
 
@@ -80,7 +82,8 @@ internal static class AuditSignalBuilder
     private static async Task<DependencySignalSummary> GetDependencySignalsAsync(
         List<PackageDependency> directDependencies,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
     {
         List<int> ages = [];
         int checkedDependencies = 0;
@@ -93,7 +96,7 @@ internal static class AuditSignalBuilder
                 continue;
 
             var metadata = await PackageMetadataService.FetchAllMetadataAsync(
-                httpClient, dep.Id, version, logger.Log).ConfigureAwait(false);
+                httpClient, dep.Id, version, logger.Log, sourceOptions: sourceOptions).ConfigureAwait(false);
             checkedDependencies++;
 
             if (metadata.Vulnerabilities is { Count: > 0 })

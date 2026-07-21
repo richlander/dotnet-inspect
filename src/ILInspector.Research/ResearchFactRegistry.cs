@@ -42,6 +42,35 @@ public sealed record ResearchAssemblyContext(
     }
 }
 
+/// <summary>
+/// Memoizes <see cref="ResearchAssemblyContext.Create"/> per <see cref="LibraryBodyIndex"/> instance.
+/// <c>Create</c> groups every call site and unsafe-evidence record in the assembly and computes
+/// method signals for the whole body index, so it must be built once per assembly (per the shared,
+/// parsed-once design in docs/design/assembly-inspection-query.md) rather than once per queried
+/// member — callers that resolve a context per method (e.g. a corpus sweep over every method in an
+/// assembly) would otherwise redo this whole-assembly work on every call.
+/// </summary>
+static class ResearchAssemblyContextCache
+{
+    const int MaxCachedContexts = 8;
+    static readonly object s_lock = new();
+    static readonly Dictionary<LibraryBodyIndex, ResearchAssemblyContext> s_contexts = new();
+
+    public static ResearchAssemblyContext ForIndex(LibraryBodyIndex index)
+    {
+        lock (s_lock)
+        {
+            if (s_contexts.TryGetValue(index, out var context))
+                return context;
+            if (s_contexts.Count >= MaxCachedContexts)
+                s_contexts.Clear();
+            context = ResearchAssemblyContext.Create(index);
+            s_contexts[index] = context;
+            return context;
+        }
+    }
+}
+
 public sealed record ResearchFactContext(
     MetadataSource Source,
     IrFunction Imported,
@@ -62,7 +91,7 @@ public interface IResearchFactProducer
     string Name { get; }
     IReadOnlyList<string> Produces { get; }
     IReadOnlyList<string> DependsOn { get; }
-    IReadOnlyList<Annotation> Produce(ResearchFactContext context);
+    IReadOnlyList<IAnnotation> Produce(ResearchFactContext context);
     IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context) => [];
 }
 
@@ -87,7 +116,7 @@ public sealed class ResearchFactRegistry
         new MethodHeaderLeverageFactProducer(),
         new DecompilerLifetimeFactProducer());
 
-    public IReadOnlyList<Annotation> Collect(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Collect(ResearchFactContext context)
         => [.. _producers.SelectMany(producer => producer.Produce(context)).OrderBy(fact => fact.SourceOffset).ThenBy(fact => fact.Descriptor.Id, StringComparer.Ordinal)];
 
     public IReadOnlyList<ResearchHeaderFact> CollectHeaderFacts(ResearchFactContext context)
@@ -126,6 +155,6 @@ sealed class DecompilerLifetimeFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["lifetime.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
         => new Decompiler.Annotations.LifetimeClassifier().Classify(context.Imported);
 }

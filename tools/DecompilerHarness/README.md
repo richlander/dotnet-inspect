@@ -6,6 +6,35 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **stdout = data, stderr = diagnostics.** A sensor's data — reports, cards, and `--json`/`--jsonl`/`--tsv` payloads — goes to stdout; status, progress, gate, and emit-confirmation messages (e.g. "Wrote …: `<path>`") go to stderr. This keeps structured stdout parseable (a `--jsonl` stream stays valid; a teed quality card stays free of stray status lines). Route status through `HarnessLog.Status(...)` rather than `Console.WriteLine` so new sensors follow the convention by default.
 
+Report-producing modes use `DecompilerHarnessReport<T>` from
+`HarnessReportProtocol` as their shared execution envelope. The envelope records
+the report identity, schema version, execution disposition, blockers, artifacts,
+and a goal-aware comparison projection. The typed payload retains each mode's
+native vocabulary: census divergence is not renamed as an RTS failure, and an
+opcode difference is not reduced to a generic failed test. A `Completed`
+disposition means the measurement completed; its payload may still contain
+regressions or failed fixtures. Markout view models project the typed payload
+and do not leak presentation annotations into the envelope or domain model.
+
+Use [Harness report diff](../HarnessReportDiff/README.md) to compare two stored
+reports or existing decompiler corpus snapshots. `--emit-harness-report <file>`
+writes the shared stored-report shape for `--return-address`, `--not-my-type`,
+`--return-to-sender-catalog`, and `--source-correspondence-census`. The diff
+tool produces the goal-aware before/after evidence card; DecompilerHarness
+remains responsible for measuring one revision at a time.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-correspondence-census \
+  --return-to-sender-fixtures rts.candidates \
+  --emit-harness-report /tmp/source.before.json \
+  --cap 100
+
+dotnet run --project tools/HarnessReportDiff -c Release -- \
+  /tmp/source.before.json /tmp/source.after.json \
+  --fail-on-regression
+```
+
 ## Modes
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.
@@ -180,13 +209,13 @@ frontier and compile-back status, for example
 `valid_different.compiler_lowering.dynamic_callsite.opcode_diff`,
 `valid_different.known_compiler_option.checked_context`, or
 `valid_different.semantic_opcode_diff.unsafe_residual`.
-For rows whose compile-back status is `OpcodeDiff`, text examples and JSON rows
-also include the original/recompiled opcode streams plus unified IL diff lines,
-so semantic-difference buckets can be triaged without rerunning a member-specific
-probe.
+For rows whose compile-back status is `OpcodeDiff` or `OperandDiff`, text
+examples and JSON rows also include the original/recompiled opcode streams plus
+unified IL diff lines, so semantic-difference buckets can be triaged without
+rerunning a member-specific probe.
 Rows may carry two independent expectations: a Roslyn `SyntaxKind` shape verdict
-for the intended C# idiom, and a compile-back opcode verdict for semantic
-fidelity. A row can therefore be opcode-exact while still exposing a shape
+for the intended C# idiom, and a compile-back contract V1 verdict for semantic
+fidelity. A row can therefore be contract-exact while still exposing a shape
 frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
@@ -197,8 +226,9 @@ payload includes `source_correspondence_findings`: stable Finding-style rows
 keyed by member stable selector when available. Each row carries a descriptor ID
 such as `source.correspondence.valid_different.known_taste`, a coarse category
 (`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
-`semantic-opcode-diff`, `invalid`, or `unclassified`), the source file name, and
-whether opcode-diff evidence is attached. The finding projection intentionally
+`semantic-opcode-diff`, `semantic-operand-diff`, `invalid`, or `unclassified`),
+the source file name, and whether fidelity-diff evidence is attached. The
+finding projection intentionally
 uses source file names rather than absolute source paths so the census can be
 shared without leaking local checkout paths.
 
@@ -210,6 +240,161 @@ reports deterministic-build and portable-PDB option/reference context
 separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
 or integrity failure.
 
+### Authored-source correspondence corpus (offline benchmark)
+
+`--authored-rebuild-fidelity` and `--source-correspondence-census` resolve
+authored source live through SourceLink, so they need network access and report
+`SourceUnavailable` whenever a library has no SourceLink. The authored-source
+correspondence corpus removes that variability: a vendored JSONL where each row
+is a real method identity plus a checksum-verified authored member body captured
+at harvest time. Benchmark runs over it are fully offline and, because every row
+carries a body, `SourceUnavailable` becomes a drift signal rather than an
+expected outcome.
+
+`--harvest-authored-corpus <out.jsonl> [--harvest-target N]` (default 12000)
+builds the corpus. It enumerates real-method targets across the input
+assemblies, orders candidates smallest-library-first with per-type
+diversification so a few large libraries do not drown out the small ones, then
+resolves each target's authoritative authored source through SourceLink and
+snapshots the member-only body with its `sourceUrl`, checksum algorithm, and
+checksum. A target whose source does not resolve is skipped, so every emitted
+row has real, verified source. The CIVIL corpus (Curated Index of Varied IL) is
+harvested from the same 14 pinned assemblies as the fixed real-world corpus
+(`eng/prepare-decompiler-corpus.sh`), keeping the two in lock step:
+
+```bash
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --harvest-authored-corpus /tmp/authored-corpus.jsonl --harvest-target 12000 \
+  $(cat /tmp/corpus-assemblies.txt)
+```
+
+`--benchmark-authored-corpus <corpus.jsonl> <assembly...>` runs the benchmark. It
+groups corpus rows by assembly, matches them to the supplied pinned assemblies by
+assembly name, feeds the vendored authored bodies into the same
+source-correspondence oracle the on-demand census uses (through an in-memory
+`ReturnToSenderSourceIndex`), and emits a taste card (`--json` for structured
+output). Each target is `Correct` (valid, matches authored), one of four
+valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
+diagnostic buckets below:
+
+- **lowering (inherent)** — authored used sugar the compiler erases (iterator,
+  async, dynamic call site); unrecoverable from IL.
+- **known taste** — a documented product decision already explains the delta
+  (`known_taste` or a `known_compiler_option` such as a checked context).
+- **frontier, IL-exact (cosmetic)** — same semantics and identical IL; a pure
+  surface-shape difference at the raise frontier.
+- **frontier, IL-diff (semantic)** — differs with an opcode/operand diff; worth
+  scrutiny.
+- **Not-Full (uncheckable at Full)** — the decompiler body could not be graded at
+  Full fidelity (`fidelity-unavailable`/`NotFull`), so correspondence is not
+  decidable. This is a decompiler limitation, not corpus drift, so it does not
+  fail the run on its own.
+- **Drift (corpus source unresolved)** — the corpus identity no longer resolves to
+  a source slice in the pinned assembly (`source-slice-unavailable`/
+  `fixture-source-unavailable`); the corpus has drifted from the assembly.
+- **Unsupported (rts-target)** — the target is not an RTS-compilable member.
+
+The run exits nonzero when any target is `Invalid`, `Drift`, or `Unsupported`
+(round-trip failure or corpus/assembly drift). It also exits nonzero — with a
+named blocker — when the run is not *honest*: any corpus row whose assembly was
+not supplied (`unmatchedRows > 0`) or a run that evaluated no targets at all.
+Every corpus row must be checked, so an empty or partially-unmatched run is never
+a success. `Not-Full` alone does not fail.
+
+The corpus is vendored on the `vendor/authored-source-corpus` orphan branch so
+the harvested third-party source snapshots never enter main's history (as
+`civil/corpus.jsonl`). Restore it with `bash eng/restore-authored-source-corpus.sh`,
+which adds a git worktree at `external/authored-source-corpus`.
+
+#### EVIL difficulty ranking (`--enumerate-real-methods`)
+
+The CIVIL corpus tracks the 14 pinned assemblies for affinity. The companion
+*EVIL* corpus (Edge-case Verification of IL Legibility) is instead an adversarial
+stress set — the "diabolical" real methods drawn from a much broader assembly
+pool and ranked by how hard their IL is to raise. `--enumerate-real-methods
+[--max-examples N] <assembly...>` is the inspection command behind that ranking:
+it enumerates the
+real-method targets in each assembly, scores every body, and prints the top
+`N` by difficulty (highest first) with the full component breakdown, e.g.:
+
+```text
+  score=   85.6  DiffFixture.Graded::NestedEh
+    params=1 il=36 blocks=27 branches=5 switch=0 eh=4 ehDepth=4 rare=0 locals=1 maxStack=2 [`0(int)]
+```
+
+Every component is a structural fact read off the shared
+`ILInspector.Instructions` substrate (IL decode + EH-aware block graph); there is
+no inspected-assembly loading and no abstract interpretation, so the scorer stays
+SRM-only and NativeAOT-friendly. A body that fails to decode records only its
+size/local/stack scalars and zero control-flow, so a decode failure never
+inflates a rank.
+
+| Component | Meaning |
+| --- | --- |
+| `il` | IL body size in bytes. |
+| `blocks` | Basic-block count from the substrate's block graph. |
+| `branches` | Instructions that branch (includes `switch`). |
+| `switch` | `switch` (jump-table) instruction count. |
+| `eh` | Exception-handling region count (catch/filter/finally/fault). |
+| `ehDepth` | Deepest exception-region nesting chain (see below). |
+| `rare` | Rare/hard-to-raise opcodes: `calli`, `cpblk`, `initblk`, `localloc`, `sizeof`, `mkrefany`, `refanyval`, `refanytype`, `arglist`, `ckfinite`, `jmp`, `cpobj`, `endfilter`, `unaligned`, `tail`. |
+| `locals` | Local-variable count. |
+| `maxStack` | Declared maximum evaluation-stack depth. |
+
+The composite `score` is ranking-only — its absolute magnitude is meaningless.
+The size-like axes (`il`, `blocks`, `branches`, `locals`) are square-root damped
+so a large dispatcher ranks high without its sheer size swamping a small but
+genuinely nasty body, while the per-feature signals the raise most often fails on
+stay linear and can dominate: exception-nesting depth carries the highest weight,
+followed by rare opcodes, switch tables, and the raw EH-region count. Because the
+components are all printed, a later selection pass can re-weight or filter on any
+single axis.
+
+`ehDepth` is the longest chain of exception regions where each region's protected
+`try` lies strictly inside another region's `try` or handler span. Sibling
+handlers on one `try` share an identical `try` span and are not counted as
+nesting each other; a `finally` that protects its sibling `catch` does deepen the
+chain, so `try/catch/finally` nested inside another `try/catch/finally` reports
+`ehDepth=4`.
+
+#### EVIL corpus harvest (`--harvest-evil-corpus`)
+
+`--harvest-evil-corpus <out.jsonl> [--harvest-target N]` (default 12000) builds
+the EVIL corpus. It shares the whole authored-source harvest pipeline with
+`--harvest-authored-corpus` — the same SourceLink resolution, member-only body
+snapshot, checksum, and smallest-library-first fairness — but changes the
+*selection order*: within each library, candidates are ranked hardest-first by the
+difficulty score above (score, then IL size, as a tiebreak) before the per-type
+round-robin, so each declaring type contributes its most diabolical methods first.
+Every emitted row also carries the full `difficulty` object (the same components
+`--enumerate-real-methods` prints), so a later selection pass can re-rank or filter
+on any single axis without re-scoring. The CIVIL (identity) corpus omits that
+field entirely, keeping its rows schema-identical to the vendored real-world
+corpus; only EVIL rows populate it.
+
+The EVIL corpus draws from a much broader assembly pool than the 14 pinned
+real-world libraries. `eng/prepare-evil-corpus.sh` composes that pool: it runs
+the package sweep (`eng/prepare-decompiler-package-sweep.cs`, ranks 1..N from
+`docs/data/nuget-top-packages.json`, `EVIL_PACKAGE_COUNT` default 100) and
+unions it with the 14 pinned real-world assemblies
+(`eng/prepare-decompiler-corpus.sh`) into a single deduped `assemblies.txt`,
+preserving the sweep `manifest.json` as `sweep-manifest.json`:
+
+```bash
+bash eng/prepare-evil-corpus.sh /tmp/evil-pool
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --harvest-evil-corpus /tmp/evil-corpus.jsonl --harvest-target 12000 \
+  $(cat /tmp/evil-pool/assemblies.txt)
+```
+
+The result is vendored as `evil/corpus.jsonl` on the same
+`vendor/authored-source-corpus` orphan branch, a sibling of the CIVIL
+`civil/corpus.jsonl`, and `bash eng/restore-authored-source-corpus.sh`
+restores both. Because it reuses `CorpusRecord`, the EVIL corpus is consumable
+by `--benchmark-authored-corpus` exactly like the CIVIL corpus; the
+difficulty profile is selection/analysis metadata the oracle ignores.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |
@@ -218,7 +403,7 @@ The generated fixture ladder is intentionally staged:
 | Materialization | Build the selected source snippets into one temporary class library; `--keep-generated-fixtures` preserves it. |
 | Projection | Decompile each target through the shipped raised product path and record the decompiler fidelity grade. |
 | Shape verdict | Parse the rendered body with Roslyn and compare the optional expected `SyntaxKind`. |
-| Compile-back verdict | Recompile the rendered body and compare canonical opcode streams with `FidelityCheck`. |
+| Compile-back verdict | Recompile the rendered body and apply compile-back fidelity contract V1 through a harness-owned normalization bundle over the product-owned `IlBodyDiff` comparison. The product reports `Exact`, `OperandDiff`, `OpcodeDiff`, or `Unavailable`; the harness combines that evidence with its own opcode canonicalization. `Exact` requires opcode and body identity; `OpcodeDiff`, `OperandDiff`, and `FidelityUnavailable` preserve the reason it is not exact. |
 | Frontier ledger | Keep non-exact compiler-lowering observations opt-in; keep source-shape frontiers explicit even when they are compile-back exact. |
 
 **Library report** (`--library-report`): a portfolio view. It combines the IR
@@ -228,6 +413,17 @@ library. Use this for the direct "which patterns are unsupported in which
 library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
+`--corpus-method-cap N` applies the existing deterministic hash-ranked sampler
+independently to each library. The report keeps ordinary fidelity residuals in
+the discovery pattern list while separately projecting correctness defect
+classes and package-promotion candidates.
+
+The weekly Deep Inspect `package-sweep` lane prepares ranks 1-10 from
+`docs/data/nuget-top-packages.json` with product-owned package acquisition and
+TFM selection, then runs this report with bounded method and semantic-validity
+caps. Its manifest records the resolved package version, TFM, selected assembly,
+cache status, and failures. This is current-package discovery evidence, not a
+checked-in baseline or PR gate.
 
 **Real-world corpus sensor** (`--diff-corpus-baseline`): the Deep Inspect
 baseline for #1166. It measures the fixed #1150 corpus — pinned NuGet assemblies
@@ -241,7 +437,7 @@ The validity and fidelity caps are per assembly so the sensor samples every
 corpus member at bounded cost without adding that cost to every PR. When you
 want to compare a baseline cap with a larger exploratory cap, repeat
 `--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
-fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`/`OpcodeDiff`) while surfacing recompile- and context-failure buckets for triage. Each Deep Inspect census run
+fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable comparisons and recompile- and context-failure buckets for triage. Each Deep Inspect census run
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
@@ -255,7 +451,7 @@ diffing snapshots from different modes is rejected rather than presenting
 incomparable fidelity movement.
 
 The RTS cap is therefore a parity population: methods the default oracle checked
-as `Exact` or `OpcodeDiff`, re-evaluated through RTS. The report classifies each
+as `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated through RTS. The report classifies each
 target as rescued, same, or worse and records the compile-back reference status
 beside the native RTS result. Corpus parity deliberately disables RTS's
 compile-back floor so compile-back evidence cannot rewrite the RTS verdict.
@@ -289,8 +485,9 @@ longer failing is reported as `resolved` so the manifest can be trimmed on the
 next regeneration.
 
 Standalone `--fidelity-check` reports also print bounded examples for every
-non-success bucket: opcode diffs include canonical opcode streams, while
-recompile and context failures include the method and diagnostic detail. Use
+non-success bucket: opcode and operand diffs include canonical opcode streams,
+unavailable comparisons include their failure detail, and recompile and context
+failures include the method and diagnostic detail. Use
 `--max-examples` to widen the triage sample when exploring a new assembly set;
 example headings say whether they show every row or only the first N of the
 bucket.
@@ -362,6 +559,12 @@ The producer's separate inventory-bucket label preserves those legacy residual
 strings; it is display-only and is neither persisted nor classified.
 An empty complete cause census has no primary bucket; the old synthetic
 `(typed)` fallback is no longer emitted.
+
+Snapshot schema v5 records compile-back fidelity contract version 1 and its
+single outcome per method. Schema version describes the serialized JSON shape;
+fidelity contract version independently defines what `Exact` and the other
+outcomes mean. Snapshot comparison rejects different contract versions instead
+of presenting incomparable movement.
 
 Policy v1 rolls multiple causes up per method in this order:
 
@@ -562,7 +765,7 @@ failures first; simply raising `--corpus-fidelity-cap` grows an easier general
 sample, not necessarily the risky shape.
 
 If a changed-method run plateaus — compiler diagnostics trade buckets while the
-`Exact` + `OpcodeDiff` population stays flat — stop treating each new diagnostic
+`Exact` + `OpcodeDiff` + `OperandDiff` population stays flat — stop treating each new diagnostic
 as another incremental skeleton task. Report the checkable population separately
 from named uncheckable buckets, and measure whether failures are in the target's
 reconstruction closure before redesigning compile-back context. The #1412
@@ -819,13 +1022,14 @@ while PR quality cards keep capped validity for cost.
 
 *Defect tracking — prove a fix regressed nothing.* A raw count (e.g. "CS0266: 263") tells you a bucket shrank but not *which* methods changed, so it cannot distinguish a real fix from a fix that also broke something else. `--emit-validity-defects <file>` writes the per-method defect map (one `Type::Method<TAB>CODE,CODE` row per method) before your change; after the change, `--diff-validity-defects <file>` re-runs the check and prints the differential against that baseline — **REGRESSED** (methods that gained a code) and **IMPROVED** (methods that lost one), per code. A clean fix shows entries only under IMPROVED with an empty REGRESSED; any REGRESSED row is a method your change broke. Only methods checked in *both* runs are compared (cap-boundary methods are excluded), so keep `--compile-cap` identical across the baseline and diff runs. This is the regression-proof loop behind a "N→M occurrences, 0 regressions" claim.
 
-**Fidelity check** (`--fidelity-check`): the *semantic-fidelity* check — `--gaps` is *completeness*, the validity check is *validity*, and this is *does it still mean the same thing*. It closes the round trip named in [docs/decompiler.md](../../docs/decompiler.md): decompile → recompile → compare IL. A body that parses, binds, and reads plausibly but recompiles to a **different opcode stream changed the program** — the worst failure class ([docs/decompiler-taste.md](../../docs/decompiler-taste.md)), invisible to every other check because they never run the output back through a compiler. Each member is recompiled inside a reconstructed **whole-module skeleton** — every top-level type stubbed (fields present, sibling and nested members as throwing stubs) with the one target carrying its real decompiled body, the C# analog of the IL round-trip suite's `IlasmScaffold`. With fields and sibling types in scope, a dropped or mis-bound field access surfaces as a true opcode diff rather than a bind error. The recompiled method is disassembled and its canonical opcode stream (short forms folded, `ldarg`/`ldloc`/`ldc.i4` families normalized) compared against the original; `Full`-fidelity diffs are the docket. References are the running runtime plus the target's sibling DLLs, minus the target itself (it is reconstructed, not referenced). Recompile failures here overlap `--validity-check` (an un-bindable body cannot be opcode-compared) and are reported separately, not as diffs. Compiler/source-generated implementation details — generated-code attributes, compiler-synthesized names, and `JsonSerializerContext` helper types — are skipped because their emitted members are not actionable source-shape fixes; source-spellable auto-property accessors still remain in scope. `CB_TYPE=<substr>` filters to a type; `CB_DUMP=1` prints the first failing compilation units. `--compile-cap N` bounds the slow recompile pass before collecting and compiling a type, so cap-boundary types do not compile more target bodies than the remaining budget. Add `--fidelity-timings` to print phase timings for collect/render, skeleton emit, parse, compilation creation, emit, and opcode comparison. Add `--fidelity-zero-signal-guard N` for large exploratory runs: it probes the first `N` methods and stops early when the probe has no `Exact`/`OpcodeDiff` rows and one failure bucket dominates, reporting the population as zero-signal/uncheckable instead of scaling the same failure to the full cap.
+**Fidelity check** (`--fidelity-check`): the *semantic-fidelity* check — `--gaps` is *completeness*, the validity check is *validity*, and this is *does it still mean the same thing*. It closes the round trip named in [docs/decompiler.md](../../docs/decompiler.md): decompile → recompile → compare IL. A body that parses, binds, and reads plausibly but recompiles to a different contract V1 body changed the measured program shape, invisible to every other check because they never run the output back through a compiler. Each member is recompiled inside a reconstructed **whole-module skeleton** — every top-level type stubbed (fields present, sibling and nested members as throwing stubs) with the one target carrying its real decompiled body, the C# analog of the IL round-trip suite's `IlasmScaffold.BuildCompilationUnit`. With fields and sibling types in scope, a dropped or mis-bound field access surfaces as a body diff rather than a bind error. The recompiled method is disassembled and compared with the original using a harness-owned contract V1 bundle of product-owned `IlBodyDiffNormalization`: `Exact` requires matching normalized opcode families, values, symbolic targets, and branch topology; `OpcodeDiff` identifies an opcode-name change; `OperandDiff` identifies a value, target, or topology change with matching opcode names; and `FidelityUnavailable` keeps comparison failures visible. The contract tolerates local/argument macro and slot-layout changes, normalizes current and platform assembly scopes, and remains EH-blind. `Full`-fidelity diffs are the docket. References are the running runtime plus the target's sibling DLLs, minus the target itself (it is reconstructed, not referenced). Recompile failures here overlap `--validity-check` (an un-bindable body cannot be compared) and are reported separately, not as diffs. Compiler/source-generated implementation details — generated-code attributes, compiler-synthesized names, and `JsonSerializerContext` helper types — are skipped because their emitted members are not actionable source-shape fixes; source-spellable auto-property accessors still remain in scope. `CB_TYPE=<substr>` filters to a type; `CB_DUMP=1` prints the first failing compilation units. `--compile-cap N` bounds the slow recompile pass before collecting and compiling a type, so cap-boundary types do not compile more target bodies than the remaining budget. Add `--fidelity-timings` to print phase timings for collect/render, skeleton emit, parse, compilation creation, emit, and body comparison. Add `--fidelity-zero-signal-guard N` for large exploratory runs: it probes the first `N` methods and stops early when the probe has no `Exact`/`OpcodeDiff`/`OperandDiff` rows and one failure bucket dominates, reporting the population as zero-signal/uncheckable instead of scaling the same failure to the full cap.
 
 Add `--fidelity-method-delta <delta.json>` when the question is "did the
 methods this PR changed still compile back faithfully?" The input is the
 per-method artifact from `--emit-corpus-delta`; removed methods are skipped and
 current changed methods are attempted exactly, with `Exact`, `OpcodeDiff`,
-`RecompileFail`, `ContextFail`, and `NotFull` buckets. Changed methods on
+`OperandDiff`, `FidelityUnavailable`, `RecompileFail`, `ContextFail`, and
+`NotFull` buckets. Changed methods on
 **nested types** are matched through their declaring type (`Outer.Inner`), so a
 risky PR's nested-type changes are measured rather than silently dropped.
 Compiler-synthesized rows the skeleton can never recompile — regex
@@ -899,13 +1103,13 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --fidelity-method-delta /tmp/pr-corpus-delta.json
 ```
 
-*When to use it.* Reach for fidelity check when the question is **"is this decompilation faithful,"** not "does it compile." Run it after any change to the importer, a raising pass, or the printer that could alter emitted semantics — branch sense, checked/unchecked, conversions, field/local ordering, shift masking — and read the `Full` opcode-diff bucket as a regression docket. It is the tool that catches a fix in one method silently degrading another. Prefer the small, fast, purpose-built fixture corpus (`CfgSampleClass` in `ILInspector.Decompiler.Tests`) for a tight loop; sweep a real assembly (BCL) for breadth once the fixtures are clean. Use `--validity-check` first when you only need to know the output is valid C#, and `--gaps` to track the structuring completeness.
+*When to use it.* Reach for fidelity check when the question is **"is this decompilation faithful,"** not "does it compile." Run it after any change to the importer, a raising pass, or the printer that could alter emitted semantics — branch sense, checked/unchecked, conversions, field/local ordering, shift masking — and read the `Full` contract V1 difference buckets as a regression docket. It is the tool that catches a fix in one method silently degrading another. Prefer the small, fast, purpose-built fixture corpus (`CfgSampleClass` in `ILInspector.Decompiler.Tests`) for a tight loop; sweep a real assembly (BCL) for breadth once the fixtures are clean. Use `--validity-check` first when you only need to know the output is valid C#, and `--gaps` to track the structuring completeness.
 
-*The CI gate.* The console mode above is for exploration; the durable regression guard is `FidelityGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `FidelityCheck.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly recompiles to a different opcode stream (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix. `LoweredFidelityGateTests` is the twin gate for the lowered view (`--lowered`), with its own docket — the lowered C# is recompiled and opcode-compared the same way, so both official C# views earn a per-view E2E roundtrip.
+*The CI gate.* The console mode above is for exploration; the durable regression guard is `FidelityGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `FidelityCheck.Evaluate` (the non-printing, structured-result entry point) over `CfgSampleClass`. It fails CI when a method newly differs under compile-back fidelity contract V1 (a regression beyond the documented `KnownDiffs` docket) and when a previously-fixed method (`PinnedExact`) regresses. Shrink `KnownDiffs` as you fix docket entries; add the fixed method to `PinnedExact` to pin the fix. `LoweredFidelityGateTests` is the twin gate for the lowered view (`--lowered`), with its own docket, so both official C# views earn a per-view E2E roundtrip.
 
 **Stage dump** (`--dump 'Type::Method'`): JitDump for the decompiler — runs one method through the pipeline and prints the IR tree at every stage boundary (the importer output, then after each raising pass), ending in the shipped product C# (`PrintRaised`). So the output is exactly what each pass left behind. When a name resolves to several overloads, `--dump` selects index `0` but prints the overload menu (index, signature, body/no-body) to stderr so you can see what was chosen and pick another with `--index N` (stdout stays pipe-clean); `--list-overloads` prints that menu and stops. Add a sub-mode to narrow what `--dump` shows: `--steps`/`--step-limit` (per-pass fine-grained rewrites), `--facts` (the printer's definite-assignment `gen`/`in`/`out` sets that decide which locals keep `= default`), `--cfg` (per-block predecessor/successor edges; add `--mermaid` for a GitHub-renderable flowchart), `--diff` (each pass's effect as a unified `+`/`-` hunk over the previous stage), or `--remarks` (every IR site that caps the method below `Full` fidelity, with its `DEC####` code, block offset, and reason). `--cfg` shows the raised-IR containers by default; add `--cfg-stage il` for the single flat, EH-aware rung-1 `BlockGraph` produced directly from decoded IL. The IL graph can legitimately contain more blocks and exception-flow edges than the raised graph. `--il` remains a plain stage-dump reading dial that prepends the annotated-IL import views (raw/typed/structured); it is not a CFG-stage selector. `--skip-pdb` ignores any portable PDB so locals render as `V_index` — deterministic, symbol-independent output regardless of nearby symbols (cosmetic only; it never changes emitted IL, so it cannot affect a fidelity result).
 
-**Lowered view** (`--lowered`): a render selector, orthogonal to the dump sub-modes above, that lowers the *altitude* of the emitted C# rather than projecting a different analysis. It runs `IrPasses.Lowered` — the shipped pipeline minus the cosmetic statement-sugar passes (`for`/`foreach`, `lock`, `++`/`--`) — so the output is the decompiler's SharpLab "lowered C#": valid, recompilable C# at a lower level (`while` loops, explicit temps, explicit `Monitor.Enter`/`Exit`). It applies to `--dump` (with facts comments), `--validity-check --lowered` (its compile rate), and `--fidelity-check --lowered` (its opcode roundtrip).
+**Lowered view** (`--lowered`): a render selector, orthogonal to the dump sub-modes above, that lowers the *altitude* of the emitted C# rather than projecting a different analysis. It runs `IrPasses.Lowered` — the shipped pipeline minus the cosmetic statement-sugar passes (`for`/`foreach`, `lock`, `++`/`--`) — so the output is the decompiler's SharpLab "lowered C#": valid, recompilable C# at a lower level (`while` loops, explicit temps, explicit `Monitor.Enter`/`Exit`). It applies to `--dump` (with facts comments), `--validity-check --lowered` (its compile rate), and `--fidelity-check --lowered` (its contract V1 body roundtrip).
 
 **Simulate new rules** (`--simulate-new-rules`, with `--dump`): the optimistic memory-safety render selector — another render dial orthogonal to the dump sub-modes, but it changes *which unsafe contexts are emitted* rather than the C# altitude. By default the printer is conservative: it emits explicit `unsafe { }` blocks only for a module that opted into the `updated-memory-safety-rules` feature (a module-level `MemorySafetyRulesAttribute`), so legacy output is byte-identical. With this flag it forces new-rules rendering on for *any* input, wrapping the operations the new rules would require even in a legacy module. It only recovers contexts the binary still records — IL-visible ops (`*p`, `calli`, `stackalloc`+`SkipLocalsInit`), pointer-in-signature calls, and a cross-assembly `[RequiresUnsafe]` callee (the attribute lives in the opted-in callee's assembly, read through the shared `MetadataContext`). A legacy same-assembly pointerless `unsafe` method leaves no trace, so simulate honestly emits no block for it. The conservative vs. optimistic contract and its recoverability limits are [docs/design/memory-safety-modes.md](../../docs/design/memory-safety-modes.md).
 
@@ -933,13 +1137,13 @@ no `LoadStackSlot`/`StoreStackSlot` reaches the printer.
 
 **Structuring stops** (`--structuring-stops`): the *why-not* companion to `--gaps`. Where `--gaps` reports *that* a method's tree stayed flat (the residual-kind docket), this tallies *why* `StructuringPass` left a container flat — a per-reason histogram of its stop diagnostics across the corpus, each with an example method, plus the `containers structured` vs `left flat across N methods` totals. The dominant reason is the next structuring slice to attack (e.g. the common-exit merge work behind the `conditional-branch` gap). Honors `--cap N` to bound a full-CoreLib sweep, and exits nonzero on any pass bug (a structuring crash). Pair it with `--dump --cfg` on one of its example methods to see the concrete block graph that defeated the pass.
 
-**Annotation check** (`--annotation-check`): the hidden-fact annotation check — the analyzer analog of `--fidelity-check`. Where fidelity check grades the decompiler's *C#* against a recompiled opcode stream, this grades each *annotation* (the allocation/unsafety/lifetime facts from [docs/design/hidden-fact-annotations.md](../../docs/design/hidden-fact-annotations.md)) against the raw IL opcode it claims to describe. The witness is read with the runtime-ported `ILReader` directly over the method's IL bytes — **not** via the IR importer that produced the annotations — so the two paths share only that externally byte-match-validated reader, never the semantic classification logic under test. It measures two directions: **precision** (every annotation's offset carries a consistent opcode — an `alloc.box` sits on a `box`; a violation is an importer-typing or classifier bug) and **recall** (every *unambiguous* witness opcode produced its annotation — a `box`/`newarr`/`localloc`/`calli`, plus every confirmed reference-type `newobj`, always yields its fact). A `newobj`'s constructed type is resolved from metadata (operand token → constructor → declaring-type base chain, or a TypeSpec signature) independently of the importer; the ambiguous remainder stays precision-only and out of the recall gate: a value-type `newobj` (a struct constructor) allocates nothing, a bare cross-assembly `TypeRef` can't be resolved from a single-assembly walk (the documented value-type gap), and a `ldind`/`stind` may be a safe managed-`ref` access. A confirmed value-type `newobj` is additionally held to the *opposite* precision rule — it must **not** carry an allocation fact — catching a false-allocation claim the opcode-precision check is blind to. Recall also excludes partial-import methods, where a stop legitimately leaves later opcodes with no IR node. Exits nonzero on any precision violation (a wrong fact) or import crash.
+**Annotation check** (`--annotation-check`): the hidden-fact annotation check — the analyzer analog of `--fidelity-check`. Where fidelity check grades the decompiler's *C#* against a recompiled contract V1 body, this grades each *annotation* (the allocation/unsafety/lifetime facts from [docs/design/hidden-fact-annotations.md](../../docs/design/hidden-fact-annotations.md)) against the raw IL opcode it claims to describe. The witness is read with the runtime-ported `ILReader` directly over the method's IL bytes — **not** via the IR importer that produced the annotations — so the two paths share only that externally byte-match-validated reader, never the semantic classification logic under test. It measures two directions: **precision** (every annotation's offset carries a consistent opcode — an `alloc.box` sits on a `box`; a violation is an importer-typing or classifier bug) and **recall** (every *unambiguous* witness opcode produced its annotation — a `box`/`newarr`/`localloc`/`calli`, plus every confirmed reference-type `newobj`, always yields its fact). A `newobj`'s constructed type is resolved from metadata (operand token → constructor → declaring-type base chain, or a TypeSpec signature) independently of the importer; the ambiguous remainder stays precision-only and out of the recall gate: a value-type `newobj` (a struct constructor) allocates nothing, a bare cross-assembly `TypeRef` can't be resolved from a single-assembly walk (the documented value-type gap), and a `ldind`/`stind` may be a safe managed-`ref` access. A confirmed value-type `newobj` is additionally held to the *opposite* precision rule — it must **not** carry an allocation fact — catching a false-allocation claim the opcode-precision check is blind to. Recall also excludes partial-import methods, where a stop legitimately leaves later opcodes with no IR node. Exits nonzero on any precision violation (a wrong fact) or import crash.
 
 *When to use it.* Run after any change to allocation/unsafety occurrence production, lifetime classification, or to the importer's typing/metadata layer those producers read (value-type hints, signature decoding). A precision drop on a category points straight at the bug. Over .NET 11 preview CoreLib it currently reads **100% precision** (all descriptors plus the value-type-newobj no-allocation checks) and **100% recall** (the gated witnesses, including ~9k confirmed reference-type newobjs).
 
 *The CI gate.* The console mode above is for exploration; the durable regression guard is `AnnotationGateTests` in `ILInspector.Decompiler.Tests`, which calls the same machinery through `AnnotationCheck.Evaluate` (the non-printing, structured-result entry point) over the running runtime's CoreLib. It is the breadth gate (analog of `FidelityGateTests`, the fixture depth gate): it fails CI on any precision violation (a wrong fact, always a bug — never runtime drift, so gated absolutely) or import crash, holds recall above a floor, and asserts a large checked population so a refactor that silently stops producing annotations cannot pass vacuously.
 
-**Type-source check** (`--type-check`): the *whole-type source* oracle ([issue #1112](https://github.com/richlander/dotnet-inspect/issues/1112)) — where `--fidelity-check` closes the loop on one method body's opcodes, this validates the file- and type-level artifacts the product `MemberBodyProducer` emits: the namespace, the type kind and modifiers, and the complete member surface. The metadata inventory (`ApiSurfaceExtractor`) is ground truth; the composed whole-type listing is the output under test. Roslyn parses the listing with **member bodies stubbed** — a resilient lexer pass blanks every block and expression body before parsing — so a method body the decompiler cannot render (a synthesized `<Clone>$d__2` name, an unbindable cast) can neither derail recovery of a *sibling* declaration nor be reported as a phantom artifact defect. The comparison is purely syntactic and never binds, so it is orthogonal to (and not masked by) method-body codegen. Member matching folds the projections the composer applies: operators render under their raw `op_*` name, an indexer renders as `this[...]`, an explicit interface property implementation renders by its short name, and an enum's synthetic `value__` is not source. The product path stays SRM-only, NativeAOT-friendly, and Roslyn-free; Roslyn lives only here in the oracle.
+**Type-source check** (`--type-check`): the *whole-type source* oracle ([issue #1112](https://github.com/richlander/dotnet-inspect/issues/1112)) — where `--fidelity-check` closes the loop on one method body, this validates the file- and type-level artifacts the product `MemberBodyProducer` emits: the namespace, the type kind and modifiers, and the complete member surface. The metadata inventory (`ApiSurfaceExtractor`) is ground truth; the composed whole-type listing is the output under test. Roslyn parses the listing with **member bodies stubbed** — a resilient lexer pass blanks every block and expression body before parsing — so a method body the decompiler cannot render (a synthesized `<Clone>$d__2` name, an unbindable cast) can neither derail recovery of a *sibling* declaration nor be reported as a phantom artifact defect. The comparison is purely syntactic and never binds, so it is orthogonal to (and not masked by) method-body codegen. Member matching folds the projections the composer applies: operators render under their raw `op_*` name, an indexer renders as `this[...]`, an explicit interface property implementation renders by its short name, and an enum's synthetic `value__` is not source. The product path stays SRM-only, NativeAOT-friendly, and Roslyn-free; Roslyn lives only here in the oracle.
 
 *When to use it.* Reach for type-check when the question is **"is the whole-type file right,"** not "does a body mean the same thing" — after any change to `MemberBodyProducer`, the type-declaration rendering, or `ApiSurfaceExtractor`. Deltas are bucketed by kind (`namespace`, `type-kind`, `modifier-dropped`/`-extra`, `member-missing`, `type-decl-missing`) with examples. Over the current .NET 11 preview CoreLib sample, `--type-check --cap 2000` is clean (0 type-level artifact deltas over 1,098 composed types); a new bucket is therefore a concrete type-artifact regression to route to the composer, signature display, or surface extractor rather than to method-body fidelity. The pure comparison (`TypeSourceCheck.CompareType`) and the assembly driver (`TypeSourceCheck.Evaluate`) are covered by `TypeSourceCheckTests` in `ILInspector.Decompiler.Tests`, including a fixture proving an unparseable method body does not mask a sibling artifact.
 

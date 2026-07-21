@@ -93,6 +93,29 @@ public enum AnnotationStage
 public sealed record AnnotationDescriptor(string Id, AnnotationCategory Category, string Title);
 
 /// <summary>
+/// The non-generic observation contract, mirroring <c>IFinding</c>
+/// (<see cref="ILInspector.Findings"/>). A heterogeneous fact stream can carry
+/// <see cref="Annotation{T}"/> values with different payload types — and the
+/// legacy string-<see cref="Detail"/>-only <see cref="Annotation"/> atom —
+/// while every consumer (renderer, JSON/TSV projection, anchor) reads the same
+/// four members.
+/// </summary>
+public interface IAnnotation
+{
+    /// <summary>The fact family this occurrence belongs to.</summary>
+    AnnotationDescriptor Descriptor { get; }
+
+    /// <summary>IL offset of the originating instruction, or -1 when unknown (a synthetic node with no provenance).</summary>
+    int SourceOffset { get; }
+
+    /// <summary>How often the fact materialises at run time.</summary>
+    AnnotationConditionality Conditionality { get; }
+
+    /// <summary>Rendered specifics for this occurrence. Computed, never producer-flattened, for <see cref="Annotation{T}"/>.</summary>
+    string? Detail { get; }
+}
+
+/// <summary>
 /// One occurrence of a hidden fact. Positive-only and descriptive: it marks the
 /// presence of a fact, never the absence of others. Keyed to
 /// <see cref="SourceOffset"/> (an IL offset) so it projects onto both the IL
@@ -110,7 +133,34 @@ public sealed record Annotation(
     int SourceOffset,
     string? Detail = null,
     AnnotationConditionality Conditionality = AnnotationConditionality.Always,
-    IrNode? Node = null);
+    IrNode? Node = null) : IAnnotation;
+
+/// <summary>
+/// The typed atom: an occurrence that carries its producer's domain payload
+/// (e.g. <c>AllocationOccurrence</c>) instead of a pre-flattened
+/// <see cref="Detail"/> string, mirroring <c>Finding&lt;T&gt;</c>
+/// (<see cref="ILInspector.Findings"/>). <see cref="Detail"/> is a render-time
+/// projection of <see cref="Payload"/> through <see cref="Formatter"/>, so the
+/// structure survives for typed consumers (e.g. identity-diffing) and the
+/// rendered text is computed exactly once, in one place, rather than
+/// hand-joined by every producer. <see cref="Formatter"/> keeps this type
+/// domain-agnostic: the Decompiler layer never needs to know what a <c>T</c> is.
+/// </summary>
+/// <param name="Descriptor">The fact family this occurrence belongs to.</param>
+/// <param name="SourceOffset">IL offset of the originating instruction, or -1 when unknown.</param>
+/// <param name="Payload">The producer's typed domain evidence for this occurrence.</param>
+/// <param name="Conditionality">How often the fact materialises at run time. Defaults to <see cref="AnnotationConditionality.Always"/>.</param>
+/// <param name="Formatter">Renders <see cref="Payload"/> into the same detail text a hand-formatted <see cref="Annotation"/> would carry. Null yields no detail.</param>
+public sealed record Annotation<T>(
+    AnnotationDescriptor Descriptor,
+    int SourceOffset,
+    T Payload,
+    AnnotationConditionality Conditionality = AnnotationConditionality.Always,
+    Func<T, string?>? Formatter = null) : IAnnotation
+    where T : notnull
+{
+    public string? Detail => Formatter?.Invoke(Payload);
+}
 
 /// <summary>
 /// Produces hidden-fact annotations from the IR. The read-only dual of an

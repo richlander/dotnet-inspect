@@ -15,9 +15,29 @@ public class CSharpPrecedenceTests
     static IrExpression B => new LoadArgument(1, "b", Int32);
     static IrExpression C => new LoadArgument(2, "c", Bool);
 
+    // A minimal two-component tuple switch, matching how TupleSwitchExpressionPass
+    // shapes it: one relational arm plus a trailing default.
+    static IrExpression TupleSwitch
+    {
+        get
+        {
+            var arm = new TupleSwitchExpressionArm(
+                subpatterns: [new PositionalPatternSubpattern(ComparisonKind.GreaterThan), new PositionalPatternSubpattern(ComparisonKind.GreaterThan)],
+                constants: [new Constant(0, Int32), new Constant(0, Int32)],
+                value: new Constant(1, Int32));
+            var defaultArm = new TupleSwitchExpressionArm(subpatterns: [], constants: [], value: new Constant(2, Int32));
+            return new TupleSwitchExpression([A, B], [arm, defaultArm]);
+        }
+    }
+
     public static TheoryData<IrExpression, Precedence> Rows => new()
     {
         { new Conditional(C, A, B), Precedence.Conditional },
+        // Issue #2867 follow-up: TupleSwitchExpression must report the same
+        // precedence as its SwitchExpression/UnionSwitchExpression siblings —
+        // Of() previously fell through to the Primary default for this node
+        // type, so every RenderedExpression consumer under-parenthesized it.
+        { TupleSwitch, Precedence.Conditional },
         { new Coalesce(A, B), Precedence.NullCoalescing },
         { new LogicalBinary(LogicalKind.Or, C, C), Precedence.ConditionalOr },
         { new LogicalBinary(LogicalKind.And, C, C), Precedence.ConditionalAnd },

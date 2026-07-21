@@ -9,6 +9,8 @@ public sealed class CSharpPrinterReceiverTests
 {
     static readonly TypeRef Int32Type = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef StringType = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef VoidType = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef IndexType = TypeRef.CoreLib("System", "Index");
     static readonly TypeRef RangeType = TypeRef.CoreLib("System", "Range");
     static readonly TypeRef RecordType = TypeRef.Definition("synthetic", "", "R");
@@ -260,6 +262,118 @@ public sealed class CSharpPrinterReceiverTests
             "public enum Color { Red = 1 }");
     }
 
+    [Fact]
+    public void UnboxReceiver_InstanceCall_SpellsUnsafeUnbox()
+    {
+        // #2916: an instance call on an unboxed value must reach the in-box
+        // place, so the receiver spells as the Unsafe.Unbox<T>(o) intrinsic
+        // (a `ref T`). The bare cast `((S)o).Read()` calls on a copy — it reads
+        // the same value but silently drops any mutation.
+        var s = TypeRef.Definition("synthetic", "", "S");
+        var call = new Call(
+            new MethodRef(s, "Read", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(s, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(call, Int32Type, [new Parameter("o", ObjectType)]);
+
+        Assert.Contains("Unsafe.Unbox<S>(o).Read()", body);
+        Assert.DoesNotContain("((S)o)", body);
+        AssertCompiles(
+            "public static int M(object o)",
+            body,
+            "public struct S { public int Read() => 0; }");
+    }
+
+    [Fact]
+    public void UnboxReceiver_FieldAssignment_SpellsUnsafeUnbox()
+    {
+        // #2916: assigning through an unboxed value's field must target the
+        // in-box place. The bare cast `((S)o).X = 5` is CS0445 (cannot modify an
+        // unboxing result); `Unsafe.Unbox<S>(o).X = 5` is a valid, faithful
+        // `unbox; stfld`.
+        var s = TypeRef.Definition("synthetic", "", "S");
+        var store = new StoreField(
+            new FieldRef(s, "X", Int32Type),
+            new Unbox(s, new LoadArgument(0, "o", ObjectType)),
+            new Constant(5, Int32Type));
+
+        string body = RenderStatements([new Parameter("o", ObjectType)], store);
+
+        Assert.Contains("Unsafe.Unbox<S>(o).X = 5;", body);
+        Assert.DoesNotContain("((S)o).X = 5", body);
+        AssertCompiles(
+            "public static void M(object o)",
+            body,
+            "public struct S { public int X; }");
+    }
+
+    [Fact]
+    public void UnboxReceiver_Nullable_KeepsCastNotUnsafeUnbox()
+    {
+        // Regression: Unsafe.Unbox<T> constrains T to a non-nullable value type
+        // (`where T : struct`), so a Nullable<T> receiver must NOT route through
+        // the intrinsic (CS0453). Nullable<T> is immutable, so the value-copy
+        // cast `((int?)o).GetValueOrDefault()` is exact and compiles.
+        var nullableInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), [Int32Type]);
+        var call = new Call(
+            new MethodRef(nullableInt, "GetValueOrDefault", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(nullableInt, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(call, Int32Type, [new Parameter("o", ObjectType)]);
+
+        Assert.Contains(").GetValueOrDefault()", body);
+        Assert.DoesNotContain("Unsafe.Unbox", body);
+        AssertCompiles("public static int M(object o)", body);
+    }
+
+    [Fact]
+    public void UnboxReceiver_GenericParameter_KeepsCastNotUnsafeUnbox()
+    {
+        // Regression: Unsafe.Unbox<T> requires `where T : struct`, which an
+        // (unconstrained) open generic parameter does not satisfy (CS0453). A
+        // generic-parameter unbox receiver keeps the value-copy cast `((T)o)`.
+        var t = TypeRef.MethodGenericParameter(0, "T");
+        var call = new Call(
+            new MethodRef(ObjectType, "GetHashCode", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(t, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(call, Int32Type, [new Parameter("o", ObjectType)]);
+
+        Assert.Contains("((T)o).GetHashCode()", body);
+        Assert.DoesNotContain("Unsafe.Unbox", body);
+        AssertCompiles("public static int M<T>(object o)", body);
+    }
+
+    [Fact]
+    public void UnboxReceiver_KnownReferenceType_KeepsCast()
+    {
+        // Defensive: `unbox` of a reference type is malformed IL, but if one
+        // reaches the printer the receiver must not spell `Unsafe.Unbox<C>` — C is
+        // not a struct (CS0453). When the resolver knows the target is a reference
+        // type, the value-position receiver keeps the compiling cast `((C)o)`.
+        var c = TypeRef.Definition("synthetic", "", "C");
+        var call = new Call(
+            new MethodRef(c, "M", Int32Type, [], HasThis: true),
+            isVirtual: false,
+            [new Unbox(c, new LoadArgument(0, "o", ObjectType))]);
+
+        string body = RenderReturn(
+            call,
+            Int32Type,
+            [new Parameter("o", ObjectType)],
+            typeShapes: new Dictionary<TypeRef, TypeShape> { [c] = TypeShape.Reference });
+
+        Assert.Contains("((C)o).M()", body);
+        Assert.DoesNotContain("Unsafe.Unbox", body);
+        AssertCompiles(
+            "public static int M(object o)",
+            body,
+            "public class C { public int M() => 0; }");
+    }
+
     static MethodRef Extension(string name, TypeRef receiverType)
         => new(
             TypeRef.Definition("synthetic", "", "Extensions"),
@@ -271,11 +385,24 @@ public sealed class CSharpPrinterReceiverTests
             IsExtension = MetadataFactState.Yes,
         };
 
+    static string RenderStatements(IReadOnlyList<Parameter> parameters, params IrNode[] statements)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(VoidType, [.. parameters], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container);
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
     static string RenderReturn(
         IrExpression value,
         TypeRef returnType,
         IReadOnlyList<Parameter>? parameters = null,
-        IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>>? enumMembers = null)
+        IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>>? enumMembers = null,
+        IReadOnlyDictionary<TypeRef, TypeShape>? typeShapes = null)
     {
         var block = new Block(0);
         block.Add(new Return(value));
@@ -286,6 +413,7 @@ public sealed class CSharpPrinterReceiverTests
         var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container)
         {
             EnumMembers = enumMembers ?? ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty,
+            TypeShapes = typeShapes ?? ImmutableDictionary<TypeRef, TypeShape>.Empty,
         };
         return CSharpPrinter.Print(function).Output!.Trim();
     }

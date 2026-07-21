@@ -24,6 +24,10 @@ public unsafe struct FixedBufferResiduals
 
     public void WriteFirst(int value) => Data[0] = value;
 
+    public void WriteAtNestedIndex() => Data[Data[1]] = 1;
+
+    public void WriteAtNestedZeroIndex() => Data[Data[0]] = 1;
+
     public int ReadAtThroughFixedAddress(int index)
     {
         fixed (int* p = &Data[index])
@@ -172,6 +176,31 @@ public static class StackallocInitializerResiduals
     {
         Span<int> values = stackalloc[] { 1, 2, 3 };
         return values[0] + values[2];
+    }
+}
+
+public static class StackallocInitializerNegatives
+{
+    public static unsafe int CoalescedSpanLocal()
+    {
+        int* a = stackalloc int[] { 1, 2, 3 };
+        int* b = stackalloc int[] { 4, 5, 6 };
+        return a[0] + b[0];
+    }
+
+    public static unsafe void SourceAuthoredCopyBlock(byte* dest, byte* src)
+    {
+        System.Runtime.CompilerServices.Unsafe.CopyBlock(dest, src, 10);
+    }
+
+    // Boolean/floating-point RVA elements are not covered by RvaSpanPass's shared
+    // primitive decoder in a bit-preserving way (Boolean canonicalizes to true/false,
+    // NaN payloads collapse), so StackAllocInitializerPass declines these element
+    // types until that decoder round-trips exactly.
+    public static unsafe bool StackallocBooleanInitializer()
+    {
+        bool* values = stackalloc bool[] { true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false };
+        return values[0] || values[2];
     }
 }
 

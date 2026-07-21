@@ -9,7 +9,7 @@ public class AnnotationAnchorTests
 {
     // Classify the imported tree, then raise it in place and anchor the
     // annotations onto the raised statements — the real pipeline order.
-    static (IrFunction Raised, IReadOnlyDictionary<IrNode, IReadOnlyList<Annotation>> Map) AnchorFor(string methodName)
+    static (IrFunction Raised, IReadOnlyDictionary<IrNode, IReadOnlyList<IAnnotation>> Map) AnchorFor(string methodName)
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);

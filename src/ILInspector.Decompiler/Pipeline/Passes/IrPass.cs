@@ -204,6 +204,12 @@ public static class IrPasses
         // local function: import the body, emit a nested declaration, and rewrite
         // call sites to the unqualified name. Also needs the import seam.
         new LocalFunctionRaisingPass(),
+        // Raise the canonical expression-tree lambda construction (Expression.Parameter
+        // + arithmetic factory calls + Expression.Lambda<Func<int,…,int>>) back into
+        // the source lambda `p => e`. A semantics-preserving rewrite over the exact,
+        // fully-owned int-arithmetic subset; captured/member/method-call/non-int
+        // graphs stay in their honest factory-call form (#2864, first slice).
+        new ExpressionTreeLambdaRaisingPass(),
         // Raise the csc type-pattern lowering (a `value as T` store gating a
         // null test that scopes the narrowed local) into `value is T t`. Runs
         // after structuring and boolean folding so the `if` guard and the
@@ -246,6 +252,11 @@ public static class IrPasses
         // printer lifts it to a signature initializer rather than an invalid
         // base(temp); body call (CS0175).
         new ConstructorChainArgumentPass(),
+        // Fold a compiler-emitted array construction-then-fill sequence (an
+        // allocation plus a later contiguous run of index stores — the
+        // ubiquitous params-array-argument spill) into a single ArrayLiteral
+        // store.
+        new ArrayLiteralFromStoresPass(),
         // Any direct .ctor call still standing after the constructor-chain and
         // struct-constructor raises has no faithful C# statement spelling. Mark
         // it as an explicit residual before the printer can leak invalid
@@ -292,6 +303,7 @@ public static class IrPasses
         // compiler-internal field name and never compiles. Kept in Lowered
         // (the CreateSpan call has no valid C# spelling).
         new RvaSpanPass(),
+        new StackAllocInitializerPass(),
         // Raise the csc lowering of `Span<T> s = stackalloc T[n]` (a localloc fed
         // to the Span<T>(void*, int) ctor) back into `stackalloc T[n]`. Left flat
         // it renders `new Span<T>(stackalloc byte[...], n)`, which never compiles
@@ -369,6 +381,17 @@ public static class IrPasses
         // their sinks like any local (slice 5b-2; the assertion diff caught
         // the reverse ordering leaving them bare).
         new SlotMaterializationPass(),
+        // A value read of an unboxed managed pointer (unbox T; ldobj T) is the
+        // same operation as unbox.any T; normalize it to the universal value
+        // cast so the printer spells (T)o and reserves the ref-only
+        // Unsafe.Unbox<T> intrinsic for genuine ref/out/write places. This runs
+        // AFTER the final slot-collapsing passes (ExpressionInliningPass /
+        // StackSlotCopyPropagationPass): a spilled `ref T S = unbox o` slot only
+        // collapses to LoadIndirect(Unbox) once those inline it, so an earlier
+        // run would leave that re-formed value read spelled as the CS0453
+        // intrinsic. It stays BEFORE CoercionInsertionPass so the minted
+        // UnboxAny value is coerced at its sink like any other.
+        new UnboxValueReadPass(),
         new CoercionInsertionPass(),
     ];
 

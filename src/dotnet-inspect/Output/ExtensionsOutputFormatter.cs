@@ -1,4 +1,4 @@
-using DotnetInspector.Commands;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Views;
 

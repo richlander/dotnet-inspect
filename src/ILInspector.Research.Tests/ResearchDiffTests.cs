@@ -448,7 +448,7 @@ public class ResearchDiffTests
             OpcodeFamily: "ldc.i4",
             Operand: new IlOperandIdentity(IlOperandIdentityKind.Immediate, "2"));
         var ilRow = new IlDiffRow(3, IlDiffKind.Add, operation, "Added IL operation 'ldc.i4 2'");
-        var il = new IlBodyDiffResult(IsExact: false, Failure: null, [ilRow]);
+        var il = new IlBodyDiffResult(IlBodyDiffOutcome.OpcodeDiff, Failure: null, [ilRow]);
 
         var diff = ResearchDiff.FromIlBodyDiff(il);
 
@@ -456,6 +456,8 @@ public class ResearchDiffTests
         Assert.Equal("il.operation.added", row.Descriptor.Id);
         Assert.Equal(ilRow.Message, row.Detail);
         Assert.Same(ilRow, row.IlRow);
+        Assert.Same(il, row.IlBodyDiff);
+        Assert.Equal(IlBodyDiffOutcome.OpcodeDiff, row.IlBodyDiff!.Outcome);
         var displayRow = Assert.Single(row.IlDisplayRows);
         Assert.Equal(3, displayRow.HunkId);
         Assert.Equal("+", displayRow.Marker);
@@ -673,7 +675,10 @@ public class ResearchDiffTests
         var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
         var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
         var apiResult = ResearchDiff.FromApiDiff(api);
-        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
+        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(
+            IlBodyDiffOutcome.Exact,
+            Failure: null,
+            []));
 
         var combined = ResearchDiff.Combine(apiResult, ilResult);
 
@@ -688,7 +693,10 @@ public class ResearchDiffTests
         var oldSurface = Surface("Widget", Member("Existing"));
         var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
         var apiResult = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
-        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(IsExact: true, Failure: null, []));
+        var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(
+            IlBodyDiffOutcome.Exact,
+            Failure: null,
+            []));
 
         var combined = ResearchDiff.Combine(apiResult, ilResult);
 
@@ -1716,7 +1724,7 @@ public class ResearchDiffTests
             new IlMemberDiffSubject("old-id", "old-label"),
             new IlMemberDiffSubject("new-id", "new-label"),
             new IlBodyDiffResult(
-                IsExact: false,
+                IlBodyDiffOutcome.OperandDiff,
                 Failure: null,
                 Rows:
                 [
@@ -1745,12 +1753,14 @@ public class ResearchDiffTests
             && item.OldValue == "ldc.i4 1"
             && item.OldIlOffset == 1
             && item.IlMemberDiff == typedDiff
+            && item.IlBodyDiff == typedDiff.Diff
             && item.IlDisplayRows.Single().UnifiedLine == "h1 - IL_0001 ldc.i4 1");
         Assert.Contains(changes, item =>
             item.Descriptor.Id == "il.operation.added"
             && item.NewValue == "ldc.i4 2"
             && item.NewIlOffset == 1
             && item.IlMemberDiff == typedDiff
+            && item.IlBodyDiff == typedDiff.Diff
             && item.IlDisplayRows.Single().UnifiedLine == "h1 + IL_0001 ldc.i4 2");
     }
 
@@ -1761,7 +1771,7 @@ public class ResearchDiffTests
             new IlMemberDiffSubject("old-id", "old-label"),
             new IlMemberDiffSubject("new-id", "new-label"),
             new IlBodyDiffResult(
-                IsExact: true,
+                IlBodyDiffOutcome.Exact,
                 Failure: null,
                 Rows: []));
         var failure = new IlDiffDisplayFailureRow(
@@ -1783,7 +1793,9 @@ public class ResearchDiffTests
         Assert.Equal(ResearchChangeKind.Removed, row.Kind);
         Assert.Equal("method has no body", row.Detail);
         Assert.Same(failure, row.IlDisplayFailureRow);
-        Assert.Null(row.IlMemberDiff);
+        Assert.Same(typedDiff, row.IlMemberDiff);
+        Assert.Same(typedDiff.Diff, row.IlBodyDiff);
+        Assert.Equal(IlBodyDiffOutcome.Exact, row.IlBodyDiff!.Outcome);
     }
 
     static MethodIdentity Method(string assemblyName, Guid moduleVersionId, int metadataToken)

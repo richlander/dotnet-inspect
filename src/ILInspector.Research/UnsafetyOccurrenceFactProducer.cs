@@ -14,13 +14,12 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<string> Produces { get; } = ["unsafe.*"];
     public IReadOnlyList<string> DependsOn => [];
 
-    public IReadOnlyList<Annotation> Produce(ResearchFactContext context)
+    public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
-        if (function.AssemblyPath is not { Length: > 0 } path || function.MetadataToken == 0)
+        if (context.Assembly is not { } assembly || function.MetadataToken == 0)
             return [];
-        var index = context.Assembly?.Index ?? AnalysisIndexCache.ForPath(path);
-        if (!index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences)
+        if (!assembly.Index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences)
             || occurrences.IsEmpty)
             return [];
         var subject = ResearchMemberIdentity.SubjectFromMethod(occurrences[0].Method);
@@ -33,7 +32,7 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
         ];
     }
 
-    static Annotation ToAnnotation(UnsafetyOccurrence occurrence)
+    static Annotation<UnsafetyOccurrence> ToAnnotation(UnsafetyOccurrence occurrence)
     {
         var descriptor = occurrence.Kind switch
         {
@@ -41,6 +40,6 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
             UnsafetyKind.CallIndirect => Calli,
             _ => Deref,
         };
-        return new Annotation(descriptor, occurrence.ILOffset, occurrence.Detail);
+        return new Annotation<UnsafetyOccurrence>(descriptor, occurrence.ILOffset, occurrence, Formatter: static o => o.Detail);
     }
 }

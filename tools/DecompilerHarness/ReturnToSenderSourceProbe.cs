@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.HarnessReports;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -56,15 +57,23 @@ sealed record SourceCorrespondenceFinding(
     string Reason,
     string? Detail,
     string? SourceFile,
-    bool HasOpcodeDiffEvidence);
+    bool HasFidelityDiffEvidence);
 
 static partial class ReturnToSenderSourceProbe
 {
+    internal static readonly HarnessReportDescriptor Descriptor = new("return-to-sender.source-correspondence", 1);
+
     internal sealed record ProbeTarget(ReturnToSender.RequestedTarget Target, IReadOnlyList<string> ExpectedFragments);
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples, bool json)
+    public static int Run(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        int maxExamples,
+        bool json,
+        string? emitHarnessReport = null)
     {
         var results = Evaluate(assemblies, cap);
+        var report = BuildReport(results);
         int passed = results.Count(result => result.Passed);
         int different = results.Count(result => result.Different);
         int failed = results.Count(result => result.Failed);
@@ -75,6 +84,12 @@ static partial class ReturnToSenderSourceProbe
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .ToArray();
         var findings = BuildFindings(results);
+
+        if (emitHarnessReport is not null)
+        {
+            HarnessReportStorage.Write(emitHarnessReport, report);
+            HarnessLog.Status($"Wrote harness report: {emitHarnessReport}");
+        }
 
         if (json)
         {
@@ -128,7 +143,9 @@ static partial class ReturnToSenderSourceProbe
                     Console.WriteLine($"      detail: {example.Detail}");
                 if (!string.IsNullOrWhiteSpace(example.SourcePath))
                     Console.WriteLine($"      source: {example.SourcePath}");
-                if (example.CompileBackStatus == FidelityCheck.CompileBackStatus.OpcodeDiff)
+                if (example.CompileBackStatus is
+                    FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff)
                 {
                     if (example.IlDiffLines is { Count: > 0 } diffLines)
                     {
@@ -146,6 +163,30 @@ static partial class ReturnToSenderSourceProbe
         }
 
         return failed == 0 ? 0 : 1;
+    }
+
+    internal static DecompilerHarnessReport<IReadOnlyList<ReturnToSenderSourceProbeResult>> BuildReport(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results)
+    {
+        string population = HarnessPopulationKey.Create(
+            "return-to-sender.source-correspondence",
+            results.Select(result =>
+                $"{result.Target.Type}|{result.Target.Method}|{result.Target.Overload}|{result.Target.Signature}"));
+        int total = results.Count;
+
+        return new DecompilerHarnessReport<IReadOnlyList<ReturnToSenderSourceProbeResult>>(
+            Descriptor,
+            results,
+            new HarnessComparisonProjection(
+                "RTS compile-back and authored-source correspondence remain independent outcome lanes.",
+                population,
+                [
+                    new("valid-match", "Valid match", MetricGoal.Higher, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch), total), population),
+                    new("valid-different", "Valid different", MetricGoal.Context, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent), total), population),
+                    new("invalid", "Invalid / RTS compile-back failed", MetricGoal.Lower, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.Invalid), total), population),
+                    new("source-unavailable", "Source unavailable", MetricGoal.Context, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.SourceUnavailable), total), population),
+                    new("unsupported-target", "Unsupported target", MetricGoal.Lower, new MetricValue(results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.UnsupportedTarget), total), population),
+                ]));
     }
 
     public static IReadOnlyList<ReturnToSenderSourceProbeResult> Evaluate(IReadOnlyList<string> assemblies, int cap)
@@ -183,6 +224,16 @@ static partial class ReturnToSenderSourceProbe
             targets,
             ReturnToSenderSourceIndex.TryCreate(sourcePaths),
             "source index could not be built from the supplied source paths");
+
+    public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateWithIndex(
+        string assemblyPath,
+        IReadOnlyList<ReturnToSender.RequestedTarget> targets,
+        ReturnToSenderSourceIndex sourceIndex)
+        => EvaluateTargets(
+            assemblyPath,
+            targets,
+            sourceIndex,
+            "authored-source corpus row missing for target");
 
     static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
         string assemblyPath,
@@ -236,7 +287,10 @@ static partial class ReturnToSenderSourceProbe
                 continue;
             }
 
-            if (result.Status is not (FidelityCheck.CompileBackStatus.Exact or FidelityCheck.CompileBackStatus.OpcodeDiff))
+            if (result.Status is not (
+                FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff))
             {
                 results.Add(new ReturnToSenderSourceProbeResult(
                     target,
@@ -316,7 +370,7 @@ static partial class ReturnToSenderSourceProbe
                 result.Status,
                 result.Decisions ?? [],
                 out var classificationDetail);
-            var opcodeEvidence = OpcodeEvidence(result);
+            var fidelityEvidence = FidelityEvidence(result);
             results.Add(new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
@@ -326,9 +380,9 @@ static partial class ReturnToSenderSourceProbe
                 sourceMember.SourcePath,
                 expected,
                 actual,
-                OriginalOpcodes: opcodeEvidence?.OriginalOpcodes,
-                RecompiledOpcodes: opcodeEvidence?.RecompiledOpcodes,
-                IlDiffLines: opcodeEvidence?.IlDiffLines,
+                OriginalOpcodes: fidelityEvidence?.OriginalOpcodes,
+                RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
+                IlDiffLines: fidelityEvidence?.IlDiffLines,
                 MemberAnchor: result.MemberAnchor));
         }
 
@@ -400,15 +454,22 @@ static partial class ReturnToSenderSourceProbe
     static string TargetDisplay(ReturnToSender.RequestedTarget target)
         => $"{target.Type}.{target.Method}#{target.Overload}";
 
-    static OpcodeDiffEvidence? OpcodeEvidence(ReturnToSender.Result result)
+    static FidelityDiffEvidence? FidelityEvidence(ReturnToSender.Result result)
     {
-        if (result.Status != FidelityCheck.CompileBackStatus.OpcodeDiff)
+        if (result.Status is not (
+            FidelityCheck.CompileBackStatus.OpcodeDiff
+            or FidelityCheck.CompileBackStatus.OperandDiff))
+        {
             return null;
+        }
 
-        IReadOnlyList<string> diffLines = result.IlDiffDiagnostic is null
-            ? Array.Empty<string>()
-            : IlDiffPrinter.ToUnifiedLines(result.IlDiffDiagnostic);
-        return new OpcodeDiffEvidence(
+        IReadOnlyList<string> diffLines = result.Status == FidelityCheck.CompileBackStatus.OperandDiff
+            && result.FidelityDiff is not null
+                ? IlDiffPrinter.ToUnifiedLines(result.FidelityDiff)
+                : result.IlDiffDiagnostic is null
+                    ? Array.Empty<string>()
+                    : IlDiffPrinter.ToUnifiedLines(result.IlDiffDiagnostic);
+        return new FidelityDiffEvidence(
             NullIfWhiteSpace(result.OriginalOpcodes),
             NullIfWhiteSpace(result.RecompiledOpcodes),
             diffLines);
@@ -417,7 +478,7 @@ static partial class ReturnToSenderSourceProbe
     static string? NullIfWhiteSpace(string value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
 
-    sealed record OpcodeDiffEvidence(
+    sealed record FidelityDiffEvidence(
         string? OriginalOpcodes,
         string? RecompiledOpcodes,
         IReadOnlyList<string> IlDiffLines);
@@ -476,7 +537,7 @@ static partial class ReturnToSenderSourceProbe
                 reason = finding.Reason,
                 detail = finding.Detail,
                 source_file = finding.SourceFile,
-                has_opcode_diff_evidence = finding.HasOpcodeDiffEvidence,
+                has_fidelity_diff_evidence = finding.HasFidelityDiffEvidence,
             }),
             results = results.Select(result => new
             {
@@ -587,6 +648,42 @@ internal sealed class ReturnToSenderSourceIndex
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Builds an index directly from pre-snapshotted authored members (the vendored
+    /// authored-source corpus). Keys are derived exactly as <see cref="AddSourceFile"/>
+    /// does, so lookups from a <see cref="ReturnToSender.RequestedTarget"/> resolve
+    /// by signature when unambiguous and otherwise by (type, method, overload).
+    /// Members with no signature are indexed by overload key only.
+    /// </summary>
+    public static ReturnToSenderSourceIndex FromMembers(IEnumerable<ReturnToSenderSourceMember> sourceMembers)
+    {
+        var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
+        var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var member in sourceMembers)
+        {
+            members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+
+            if (string.IsNullOrEmpty(member.Signature))
+                continue;
+
+            var signatureKey = SigKey(member.Type, member.Method, member.Signature);
+            if (ambiguousSignatures.Contains(signatureKey))
+                continue;
+            if (!membersBySignature.TryAdd(signatureKey, member))
+            {
+                membersBySignature.Remove(signatureKey);
+                ambiguousSignatures.Add(signatureKey);
+            }
+        }
+
+        return new ReturnToSenderSourceIndex(
+            members,
+            membersBySignature,
+            ambiguousSignatures,
+            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal));
     }
 
     static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)
@@ -1028,11 +1125,13 @@ static partial class ReturnToSenderSourceProbe
             return knownReason;
         }
 
-        string statusId = status == FidelityCheck.CompileBackStatus.OpcodeDiff
-            ? "opcode_diff"
-            : status == FidelityCheck.CompileBackStatus.Exact
-                ? "exact"
-                : status.ToString().ToLowerInvariant();
+        string statusId = status switch
+        {
+            FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode_diff",
+            FidelityCheck.CompileBackStatus.OperandDiff => "operand_diff",
+            FidelityCheck.CompileBackStatus.Exact => "exact",
+            _ => status.ToString().ToLowerInvariant(),
+        };
         if (status == FidelityCheck.CompileBackStatus.OpcodeDiff
             && AllowsDynamicCallSiteClassification(shape)
             && IsDynamicCallSiteLowering(actual))
@@ -1045,7 +1144,9 @@ static partial class ReturnToSenderSourceProbe
             ? $"valid_different.{shape}.{statusId}"
             : status == FidelityCheck.CompileBackStatus.OpcodeDiff
                 ? $"valid_different.semantic_opcode_diff.{ShapeLeaf(shape)}"
-                : $"valid_different.{shape}.{statusId}";
+                : status == FidelityCheck.CompileBackStatus.OperandDiff
+                    ? $"valid_different.semantic_operand_diff.{ShapeLeaf(shape)}"
+                    : $"valid_different.{shape}.{statusId}";
         detail = $"decompiled body is Roslyn-valid but differs from the fixture source slice; classification={shape}; compile-back={status}";
         return reason;
     }
@@ -1291,6 +1392,8 @@ static partial class ReturnToSenderSourceProbe
             FidelityCheck.CompileBackStatus.RecompileFail => DiagnosticCode(result.Detail),
             FidelityCheck.CompileBackStatus.ContextFail => string.IsNullOrWhiteSpace(result.Detail) ? "context-fail" : result.Detail,
             FidelityCheck.CompileBackStatus.OpcodeDiff => "opcode-diff",
+            FidelityCheck.CompileBackStatus.OperandDiff => "operand-diff",
+            FidelityCheck.CompileBackStatus.FidelityUnavailable => "fidelity-unavailable",
             _ => result.Status.ToString(),
         };
 }
