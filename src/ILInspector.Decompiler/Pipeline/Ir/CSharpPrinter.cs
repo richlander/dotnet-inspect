@@ -2200,6 +2200,7 @@ public sealed partial class CSharpPrinter
             Conditions.Inverse(c.Kind),
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
+        LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
         LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
@@ -2370,6 +2371,7 @@ public sealed partial class CSharpPrinter
             Conditions.Inverse(c.Kind),
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
+        LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
         LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: Call { Callee.Name: "op_True", Arguments: [var value] } } => InvertedUserTruthiness(value),
         LogicalNot { Operand: Call { Callee.Name: "op_False", Arguments: [var value] } } => OperatorOperand(value),
@@ -3405,6 +3407,44 @@ public sealed partial class CSharpPrinter
             && (call.Callee.IsOperator != MetadataFactState.No && call.Callee.IsSpecialName
                 || MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
             && OperatorSpelling(call) is not null;
+
+    /// <summary>
+    /// The direct idiom for a negated operator-spelled equality/inequality
+    /// CALL (`!(Type.op_Equality(a, b))` -> `a != b`, and the reverse), the
+    /// call-shaped counterpart of the native <c>ceq</c>-opcode fold above
+    /// (#2955). Restricted to <see cref="MemberIdentity.IsKnownCoreLibraryOperator"/>
+    /// (currently <see cref="string"/>/<see cref="Type"/>), where the BCL
+    /// guarantees op_Equality and op_Inequality are each other's exact logical
+    /// inverse for every input — including IEEE-754 float/double, where
+    /// <c>NaN == NaN</c> is false and <c>NaN != NaN</c> is true, so the two
+    /// remain consistent negations with no unordered-NaN special case to
+    /// guard, unlike <c>&lt;</c>/<c>&lt;=</c>/<c>&gt;</c>/<c>&gt;=</c>. C#
+    /// requires `==`/`!=` to be declared as a pair but does NOT require their
+    /// implementations to be logical inverses of each other, so an arbitrary
+    /// user-defined operator pair (recognized by the broader
+    /// <see cref="IsOperatorCall"/> spelling guard) is deliberately excluded
+    /// here: folding would substitute a call to one method with a call to a
+    /// different method, which can observably change behavior for a
+    /// maliciously or buggily inconsistent pair. Unlike the relational
+    /// operator-call family (`op_LessThan` and friends, also NOT folded
+    /// here), a relational operator call CAN implement partial-order
+    /// (NaN-like) semantics the native float-comparison guard already
+    /// special-cases, so that family is deliberately left unfolded pending
+    /// its own analysis. Returns null when the call does not actually spell
+    /// as `==`/`!=` (an unrelated method that happens to be named
+    /// op_Equality/op_Inequality without the metadata operator flag renders
+    /// as a plain call, and `!` negating its result is already correct
+    /// as-is).
+    /// </summary>
+    string? InvertedEqualityOperatorCallText(Call call)
+        => call is { Arguments: [var left, var right] } && MemberIdentity.IsKnownCoreLibraryOperator(call.Callee)
+            ? call.Callee.Name switch
+            {
+                "op_Equality" => $"{OperatorOperand(left)} != {OperatorOperand(right)}",
+                "op_Inequality" => $"{OperatorOperand(left)} == {OperatorOperand(right)}",
+                _ => null,
+            }
+            : null;
 
     /// <summary>
     /// True when an expression is legal as a C# expression statement: an
