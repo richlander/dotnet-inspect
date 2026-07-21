@@ -1,12 +1,10 @@
-using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
+
 using ILInspector.CSharp;
 using ILInspector.DecompilerHarness;
-
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -14,13 +12,14 @@ namespace ILInspector.Decompiler.Tests;
 // the identifier the product seam actually emits, so a missing type Roslyn reports —
 // which reflects the seam's emitted spelling — matches the index key by construction
 // (issue #2778). Each case pins index-key == CSharpIdentifier.Sanitize(<arity-stripped
-// metadata name>) against a real compiled assembly.
+// metadata name>) against the real compiled type-identity fixture assembly
+// (FixtureIds.DecompilerTypeIdentity), whose source retains the exact type shapes.
 public class CompileBackTypeIdentityTests
 {
     [Fact]
     public void FromDefinition_KeywordType_KeysOnKeywordEscapedSpelling()
     {
-        using var compiled = Compile("namespace Sample { public class @class {} }");
+        using var compiled = OpenFixture();
         var identity = IdentityOf(compiled.Reader, "class");
 
         Assert.Equal("@class", identity.DisplayName);
@@ -31,7 +30,7 @@ public class CompileBackTypeIdentityTests
     [Fact]
     public void FromDefinition_GenericType_KeysOnArityStrippedSpelling()
     {
-        using var compiled = Compile("namespace Sample { public class Container<T> {} }");
+        using var compiled = OpenFixture();
         var identity = IdentityOf(compiled.Reader, "Container`1");
 
         Assert.Equal("Container", identity.DisplayName);
@@ -42,8 +41,7 @@ public class CompileBackTypeIdentityTests
     [Fact]
     public void FromDefinition_NestedType_QualifiesWithDotSeparators()
     {
-        using var compiled = Compile(
-            "namespace Sample { public class Outer { public class Inner {} } }");
+        using var compiled = OpenFixture();
         var inner = IdentityOf(compiled.Reader, "Inner");
 
         Assert.Equal("Inner", inner.DisplayName);
@@ -54,7 +52,7 @@ public class CompileBackTypeIdentityTests
     [Fact]
     public void FromDefinition_KeywordNamespace_EscapesEachSegment()
     {
-        using var compiled = Compile("namespace @for.@class { public class Widget {} }");
+        using var compiled = OpenFixture();
         var identity = IdentityOf(compiled.Reader, "Widget");
 
         Assert.Equal("@for.@class.Widget", identity.FullName);
@@ -63,7 +61,7 @@ public class CompileBackTypeIdentityTests
     [Fact]
     public void FromDefinition_FileLocalType_KeysOnSanitizedSpellableIdentifier()
     {
-        using var compiled = Compile("namespace Sample { file class Widget {} }");
+        using var compiled = OpenFixture();
         var metadataName = FindMetadataName(compiled.Reader, name => name.StartsWith('<'));
         var identity = IdentityOf(compiled.Reader, metadataName);
 
@@ -108,40 +106,21 @@ public class CompileBackTypeIdentityTests
         throw new Xunit.Sdk.XunitException("No matching type definition.");
     }
 
-    static Compiled Compile(string source)
+    static FixtureImage OpenFixture()
+        => new(FixtureCatalog.AssemblyPath(FixtureIds.DecompilerTypeIdentity));
+
+    sealed class FixtureImage : IDisposable
     {
-        var compilation = CSharpCompilation.Create(
-            "CompileBackTypeIdentityTests",
-            [CSharpSyntaxTree.ParseText(
-                source,
-                new CSharpParseOptions(LanguageVersion.Latest),
-                cancellationToken: TestContext.Current.CancellationToken)],
-            RuntimeReferences(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-        var stream = new MemoryStream();
-        var emit = compilation.Emit(stream, cancellationToken: TestContext.Current.CancellationToken);
-        var errors = emit.Diagnostics
-            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
-            .ToImmutableArray();
-        Assert.True(emit.Success, string.Join(Environment.NewLine, errors));
-        stream.Position = 0;
-        return new Compiled(stream, new PEReader(stream, PEStreamOptions.LeaveOpen));
-    }
+        readonly PEReader _pe;
 
-    static ImmutableArray<MetadataReference> RuntimeReferences()
-        => ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
-            .Split(Path.PathSeparator)
-            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
-            .ToImmutableArray();
-
-    sealed class Compiled(MemoryStream stream, PEReader pe) : IDisposable
-    {
-        public MetadataReader Reader { get; } = pe.GetMetadataReader();
-
-        public void Dispose()
+        public FixtureImage(string assemblyPath)
         {
-            pe.Dispose();
-            stream.Dispose();
+            _pe = new PEReader(File.OpenRead(assemblyPath));
+            Reader = _pe.GetMetadataReader();
         }
+
+        public MetadataReader Reader { get; }
+
+        public void Dispose() => _pe.Dispose();
     }
 }

@@ -39,6 +39,7 @@
     <Project Path="src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.OptInNet11/ILInspector.Decompiler.Fixtures.OptInNet11.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.TypeIdentity/ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainB/ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainC/ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
