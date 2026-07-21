@@ -61,6 +61,55 @@ public class TypeRefDecoderRecursionTests
     }
 
     [Fact]
+    public void NestedTypeDefinition_EnclosingTypeIsImmediateParentOnly()
+    {
+        // A three-level nesting Root -> Mid -> Leaf. The decoded leaf carries its
+        // immediately-enclosing type (Mid) as provenance, and that enclosing
+        // TypeRef must not itself chain further: only one level is materialized,
+        // so deep nesting on untrusted metadata cannot amplify allocation.
+        TypeDefinitionHandle leafHandle = default;
+        var reader = BuildMetadata(metadata =>
+        {
+            var root = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Root"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            var mid = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Mid"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            leafHandle = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Leaf"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(mid, root);
+            metadata.AddNestedType(leafHandle, mid);
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, leafHandle, 0);
+
+        Assert.Equal(TypeRefKind.Definition, result.Kind);
+        Assert.Equal("Root+Mid+Leaf", result.Name);
+
+        var enclosing = result.EnclosingType;
+        Assert.NotNull(enclosing);
+        Assert.Equal("Root+Mid", enclosing!.Name);
+        Assert.Equal("N", enclosing.Namespace);
+        // Immediate-only: the enclosing provenance does not recurse further.
+        Assert.Null(enclosing.EnclosingType);
+    }
+
+    [Fact]
     public void OverBudgetResolutionScope_PreservesNodeBudgetFailure()
     {
         var reader = BuildMetadata(metadata =>

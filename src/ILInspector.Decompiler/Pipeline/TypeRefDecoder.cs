@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -156,16 +157,17 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         MetadataReader reader,
         ReadOnlySpan<TypeDefinitionHandle> handles)
     {
-        string name = reader.GetString(
-            reader.GetTypeDefinition(handles[0]).Name);
+        // Accumulate into a StringBuilder so a deep nested chain costs a single
+        // linear pass; the earlier Concat-per-level reallocated the growing
+        // prefix and grew quadratically in nesting depth on untrusted metadata.
+        var name = new StringBuilder(
+            reader.GetString(reader.GetTypeDefinition(handles[0]).Name));
         for (int i = 1; i < handles.Length; i++)
         {
-            name = string.Concat(
-                name,
-                "+",
-                reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
+            name.Append('+');
+            name.Append(reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
         }
-        return name;
+        return name.ToString();
     }
 
     /// <summary>
@@ -176,6 +178,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// never by parsing the leaf's <c>+</c>-joined <see cref="TypeRef.Name"/>.
     /// Null when the leaf is not nested (a chain of length 1).
     /// </summary>
+    /// <remarks>
+    /// Only this single level is materialized. It is the sole level any consumer
+    /// reads (<c>DynamicCallSitePass.IsProvenBinderContext</c>), and
+    /// <see cref="TypeRef"/> equality excludes <see cref="TypeRef.EnclosingType"/>,
+    /// so no deeper ancestor is ever observed. Recursively rebuilding every
+    /// ancestor's joined name grew allocation cubically in nesting depth on
+    /// untrusted metadata.
+    /// </remarks>
     static TypeRef? EnclosingTypeFrom(
         MetadataReader reader,
         ReadOnlySpan<TypeDefinitionHandle> chain,
@@ -185,10 +195,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (chain.Length <= 1)
             return null;
 
-        var ancestors = chain[..^1];
-        string name = TypeDefinitionName(reader, ancestors);
-        var enclosing = EnclosingTypeFrom(reader, ancestors, assembly, ns);
-        return TypeRef.Definition(assembly, ns, name, enclosingType: enclosing);
+        string name = TypeDefinitionName(reader, chain[..^1]);
+        return TypeRef.Definition(assembly, ns, name);
     }
 
     static string TypeReferenceName(
