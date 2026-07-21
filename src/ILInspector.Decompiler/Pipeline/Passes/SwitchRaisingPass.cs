@@ -1201,7 +1201,29 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var owned = new HashSet<int>();
         int? join = null;
-        bool Unify(int j) => (join ??= j) == j;
+
+        // See the matching comment on Unify in Raise: two exits also unify when
+        // one flows into the other through a chain of plain, unclaimed,
+        // single-successor blocks (a case-local miss arm chaining into a shared
+        // miss-handler that falls into the same terminating join).
+        bool Unify(int j)
+        {
+            if (join is not { } existing)
+            {
+                join = j;
+                return true;
+            }
+            if (existing == j)
+                return true;
+            if (ChasesTo(blocks, existing, j, caseTargets, offsetToIndex, owned))
+                return true;   // existing join already flows into j — keep it
+            if (ChasesTo(blocks, j, existing, caseTargets, offsetToIndex, owned))
+            {
+                join = j;   // j is upstream of the existing join — adopt it
+                return true;
+            }
+            return false;
+        }
         var regions = new Dictionary<int, List<int>>();
 
         foreach (int target in caseTargets.Distinct())
