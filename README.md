@@ -19,7 +19,7 @@ which adds a git worktree at `external/authored-source-corpus`.
 | Path | Contents |
 | --- | --- |
 | `civil/corpus.jsonl` | CIVIL corpus (Curated Index of Varied IL), harvested from the same pinned assemblies as the fixed real-world decompiler corpus (`eng/prepare-decompiler-corpus.sh`). |
-| `evil/corpus.jsonl` | EVIL corpus (Edge-case Verification of IL Legibility): diabolic IL sourced from a broader set. Not yet populated. |
+| `evil/corpus.jsonl` | EVIL corpus (Edge-case Verification of IL Legibility): the most diabolical real methods, difficulty-ranked, drawn from a much broader pool (top-100 NuGet packages plus the 14 real-world pins). |
 
 Each line is one JSON record with this schema (camelCase):
 
@@ -30,6 +30,7 @@ Each line is one JSON record with this schema (camelCase):
 | `metadataToken`, `parameterCount`, `ilSize` | Method metadata. |
 | `sourceUrl`, `checksumAlgorithm`, `checksum` | SourceLink provenance for the authored file at the pinned commit. |
 | `authoredBody` | The checksum-verified authored member body (member-only slice). |
+| `difficulty` | EVIL only: IL-difficulty breakdown (`ilSize`, `blockCount`, `branchCount`, `switchCount`, `exceptionRegionCount`, `exceptionNestingDepth`, `rareOpcodeCount`, `localCount`, `maxStack`, `score`) used to rank candidates. Absent on CIVIL rows. |
 
 ## Provenance
 
@@ -46,18 +47,35 @@ The CIVIL corpus was harvested from the 14 pinned assemblies in
 their pinned packages did not resolve authored source through SourceLink; they
 are skipped, not failed.
 
+The EVIL corpus was harvested from a broader pool assembled by
+`eng/prepare-evil-corpus.sh`: the top-ranked NuGet packages
+(`docs/data/nuget-top-packages.json`, currently 100 ranks) unioned with the 14
+real-world pins, deduped by assembly name. Candidates are ranked by IL
+difficulty so the corpus concentrates the hardest real methods; only libraries
+whose authored source resolves and checksum-verifies through SourceLink
+contribute rows.
+
 This corpus lives on an orphan branch precisely so these snapshots stay out of
 the main project history.
 
 ## Regenerating
 
-The corpus is reproducible from the pinned assemblies:
+The CIVIL corpus is reproducible from the pinned assemblies:
 
 ```bash
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --harvest-authored-corpus civil/corpus.jsonl --harvest-target 12000 \
   $(cat /tmp/corpus-assemblies.txt)
+```
+
+The EVIL corpus is reproducible from the broad-source pool:
+
+```bash
+bash eng/prepare-evil-corpus.sh /tmp/evil-pool
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --harvest-evil-corpus evil/corpus.jsonl --harvest-target 12000 \
+  $(cat /tmp/evil-pool/assemblies.txt)
 ```
 
 Bump the pinned assembly set (and re-harvest) to grow the corpus and the
