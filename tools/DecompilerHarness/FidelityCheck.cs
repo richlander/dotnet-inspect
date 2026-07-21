@@ -2706,14 +2706,23 @@ static class FidelityCheck
         // readonly receiver can introduce a defensive copy and change opcodes, but
         // an auto-property preserves the field-backed accessor shape.
         var stubPropertyAccessors = new HashSet<MethodDefinitionHandle>();
+        var orderedTargetProperties = new Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle>();
         if (kind is TypeKind.Class or TypeKind.Struct)
-            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors, sb, pad + "    ",
+            EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors,
+                orderedTargetProperties, sb, pad + "    ",
                 requireAutoProperty: kind == TypeKind.Struct);
 
         foreach (var mh in typeDef.GetMethods())
         {
             if (stubPropertyAccessors.Contains(mh))
                 continue; // emitted as a property accessor above
+            if (orderedTargetProperties.TryGetValue(mh, out var targetProperty))
+            {
+                var accessors = reader.GetPropertyDefinition(targetProperty).GetAccessors();
+                if (mh == (!accessors.Getter.IsNil ? accessors.Getter : accessors.Setter))
+                    EmitTargetProperty(reader, typeDef, targetProperty, targets, accessibility, sb, pad + "    ");
+                continue; // emitted once, at its first accessor's metadata position
+            }
             if (mh == primaryConstructorTarget.Key)
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
@@ -2896,7 +2905,9 @@ static class FidelityCheck
     static void EmitStubProperties(MetadataReader reader, TypeDefinition typeDef,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         SignatureSpellability accessibility, IReadOnlyList<(string Field, string Value)> fieldInits,
-        HashSet<MethodDefinitionHandle> skipAccessors, StringBuilder sb, string pad,
+        HashSet<MethodDefinitionHandle> skipAccessors,
+        Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle> orderedTargetProperties,
+        StringBuilder sb, string pad,
         bool requireAutoProperty = false)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
@@ -2938,27 +2949,21 @@ static class FidelityCheck
                 bool isAutoProperty = hasGet
                     && AccessorsAreCompilerGenerated(reader, pa)
                     && HasAutoPropertyBackingField(reader, typeDef, pname, ret, isStatic);
-                if (requireAutoProperty && !isAutoProperty)
-                    continue;
                 bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
                     || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
                 {
-                    // Keep target accessors in property syntax. Emitting an iterator
-                    // getter as a method named get_X changes Roslyn's synthesized
-                    // state-machine ordinal, which creates an operand-only diff in
-                    // every later iterator in the containing type.
-                    string getterBody = !pa.Getter.IsNil && targets.TryGetValue(pa.Getter, out var getterTarget)
-                        ? $" get {{\n{getterTarget.Body}\n{pad}}}"
-                        : (hasGet ? " get => throw null;" : "");
-                    string setterBody = !pa.Setter.IsNil && targets.TryGetValue(pa.Setter, out var setterTarget)
-                        ? $" set {{\n{setterTarget.Body}\n{pad}}}"
-                        : (hasSet ? " set => throw null;" : "");
-                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{getterBody}{setterBody} }}");
-                    if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
-                    if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
+                    bool requiresMethodFallback = requireAutoProperty
+                        || (!pa.Getter.IsNil && targets.TryGetValue(pa.Getter, out var getter) && getter.RequiresAsync)
+                        || (!pa.Setter.IsNil && targets.TryGetValue(pa.Setter, out var setter) && setter.RequiresAsync);
+                    if (requiresMethodFallback)
+                        continue;
+                    if (!pa.Getter.IsNil) orderedTargetProperties[pa.Getter] = ph;
+                    if (!pa.Setter.IsNil) orderedTargetProperties[pa.Setter] = ph;
                     continue;
                 }
+                if (requireAutoProperty && !isAutoProperty)
+                    continue;
                 if (isAutoProperty)
                 {
                     string initializer = fieldInits.FirstOrDefault(init => init.Field == pname).Value is { } value
@@ -2977,6 +2982,32 @@ static class FidelityCheck
             }
             catch { }
         }
+    }
+
+    static void EmitTargetProperty(MetadataReader reader, TypeDefinition typeDef, PropertyDefinitionHandle ph,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        SignatureSpellability accessibility, StringBuilder sb, string pad)
+    {
+        var prop = reader.GetPropertyDefinition(ph);
+        var pa = prop.GetAccessors();
+        var context = GenericContext.ForType(reader, typeDef);
+        var sig = prop.DecodeSignature(SignatureDecoder.Instance, context);
+        string ret = Clean(sig.ReturnType);
+        var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
+        bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
+        bool emitVirtual = accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
+            && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
+        string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
+        string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
+        bool hasGet = !pa.Getter.IsNil && CanEmitAccessor(reader, typeDef, pa.Getter, accessibility);
+        bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
+        string getterBody = !pa.Getter.IsNil && targets.TryGetValue(pa.Getter, out var getterTarget)
+            ? $" get {{\n{getterTarget.Body}\n{pad}}}"
+            : (hasGet ? " get => throw null;" : "");
+        string setterBody = !pa.Setter.IsNil && targets.TryGetValue(pa.Setter, out var setterTarget)
+            ? $" set {{\n{setterTarget.Body}\n{pad}}}"
+            : (hasSet ? " set => throw null;" : "");
+        sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(reader.GetString(prop.Name))} {{{getterBody}{setterBody} }}");
     }
 
     static bool HasAutoPropertyBackingField(
