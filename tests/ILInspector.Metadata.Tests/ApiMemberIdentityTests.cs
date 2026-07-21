@@ -283,6 +283,37 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void FallbackCanonicalSignature_AttributedIndexerMatchesLiveAfterJsonRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var liveType = surface.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var liveIndexer = liveType.Members.Single(
+            member => member.Kind == "property" && member.Name == "Item");
+        Assert.NotNull(liveIndexer.SignatureModel);
+        Assert.Contains("DateTimeConstant", liveIndexer.Signature, StringComparison.Ordinal);
+
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var persistedType = roundTripped.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var persistedIndexer = persistedType.Members.Single(
+            member => member.Kind == "property" && member.Name == "Item");
+        Assert.Null(persistedIndexer.SignatureModel);
+
+        var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveIndexer);
+        var persistedCanonical = ApiMemberIdentity.GetCanonicalSignature(persistedType, persistedIndexer);
+
+        Assert.Equal(liveCanonical, persistedCanonical);
+        Assert.EndsWith(".Item(System.DateTime)", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("Optional", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("DateTimeConstant", persistedCanonical, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FallbackCanonicalSignature_StripsMultipleLeadingAttributeLists()
     {
         var type = new ApiType { Namespace = "N", Name = "C" };
@@ -367,5 +398,10 @@ public class ApiMemberIdentityTests
             int count)
         {
         }
+
+        public int this[
+            [System.Runtime.InteropServices.Optional]
+            [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
+            DateTime when] => when.Year;
     }
 }
