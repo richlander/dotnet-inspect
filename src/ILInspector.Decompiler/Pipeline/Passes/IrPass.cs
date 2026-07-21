@@ -203,6 +203,12 @@ public static class IrPasses
         // local function: import the body, emit a nested declaration, and rewrite
         // call sites to the unqualified name. Also needs the import seam.
         new LocalFunctionRaisingPass(),
+        // Raise the canonical expression-tree lambda construction (Expression.Parameter
+        // + arithmetic factory calls + Expression.Lambda<Func<int,…,int>>) back into
+        // the source lambda `p => e`. A semantics-preserving rewrite over the exact,
+        // fully-owned int-arithmetic subset; captured/member/method-call/non-int
+        // graphs stay in their honest factory-call form (#2864, first slice).
+        new ExpressionTreeLambdaRaisingPass(),
         // Raise the csc type-pattern lowering (a `value as T` store gating a
         // null test that scopes the narrowed local) into `value is T t`. Runs
         // after structuring and boolean folding so the `if` guard and the
@@ -291,6 +297,7 @@ public static class IrPasses
         // compiler-internal field name and never compiles. Kept in Lowered
         // (the CreateSpan call has no valid C# spelling).
         new RvaSpanPass(),
+        new StackAllocInitializerPass(),
         // Raise the csc lowering of `Span<T> s = stackalloc T[n]` (a localloc fed
         // to the Span<T>(void*, int) ctor) back into `stackalloc T[n]`. Left flat
         // it renders `new Span<T>(stackalloc byte[...], n)`, which never compiles

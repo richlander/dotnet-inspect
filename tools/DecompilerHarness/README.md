@@ -6,6 +6,35 @@ The diagnostic harness from [docs/decompiler.md](../../docs/decompiler.md) — t
 
 **stdout = data, stderr = diagnostics.** A sensor's data — reports, cards, and `--json`/`--jsonl`/`--tsv` payloads — goes to stdout; status, progress, gate, and emit-confirmation messages (e.g. "Wrote …: `<path>`") go to stderr. This keeps structured stdout parseable (a `--jsonl` stream stays valid; a teed quality card stays free of stray status lines). Route status through `HarnessLog.Status(...)` rather than `Console.WriteLine` so new sensors follow the convention by default.
 
+Report-producing modes use `DecompilerHarnessReport<T>` from
+`HarnessReportProtocol` as their shared execution envelope. The envelope records
+the report identity, schema version, execution disposition, blockers, artifacts,
+and a goal-aware comparison projection. The typed payload retains each mode's
+native vocabulary: census divergence is not renamed as an RTS failure, and an
+opcode difference is not reduced to a generic failed test. A `Completed`
+disposition means the measurement completed; its payload may still contain
+regressions or failed fixtures. Markout view models project the typed payload
+and do not leak presentation annotations into the envelope or domain model.
+
+Use [Harness report diff](../HarnessReportDiff/README.md) to compare two stored
+reports or existing decompiler corpus snapshots. `--emit-harness-report <file>`
+writes the shared stored-report shape for `--return-address`, `--not-my-type`,
+`--return-to-sender-catalog`, and `--source-correspondence-census`. The diff
+tool produces the goal-aware before/after evidence card; DecompilerHarness
+remains responsible for measuring one revision at a time.
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-correspondence-census \
+  --return-to-sender-fixtures rts.candidates \
+  --emit-harness-report /tmp/source.before.json \
+  --cap 100
+
+dotnet run --project tools/HarnessReportDiff -c Release -- \
+  /tmp/source.before.json /tmp/source.after.json \
+  --fail-on-regression
+```
+
 ## Modes
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.
@@ -211,6 +240,161 @@ reports deterministic-build and portable-PDB option/reference context
 separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
 or integrity failure.
 
+### Authored-source correspondence corpus (offline benchmark)
+
+`--authored-rebuild-fidelity` and `--source-correspondence-census` resolve
+authored source live through SourceLink, so they need network access and report
+`SourceUnavailable` whenever a library has no SourceLink. The authored-source
+correspondence corpus removes that variability: a vendored JSONL where each row
+is a real method identity plus a checksum-verified authored member body captured
+at harvest time. Benchmark runs over it are fully offline and, because every row
+carries a body, `SourceUnavailable` becomes a drift signal rather than an
+expected outcome.
+
+`--harvest-authored-corpus <out.jsonl> [--harvest-target N]` (default 12000)
+builds the corpus. It enumerates real-method targets across the input
+assemblies, orders candidates smallest-library-first with per-type
+diversification so a few large libraries do not drown out the small ones, then
+resolves each target's authoritative authored source through SourceLink and
+snapshots the member-only body with its `sourceUrl`, checksum algorithm, and
+checksum. A target whose source does not resolve is skipped, so every emitted
+row has real, verified source. The CIVIL corpus (Curated Index of Varied IL) is
+harvested from the same 14 pinned assemblies as the fixed real-world corpus
+(`eng/prepare-decompiler-corpus.sh`), keeping the two in lock step:
+
+```bash
+bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --harvest-authored-corpus /tmp/authored-corpus.jsonl --harvest-target 12000 \
+  $(cat /tmp/corpus-assemblies.txt)
+```
+
+`--benchmark-authored-corpus <corpus.jsonl> <assembly...>` runs the benchmark. It
+groups corpus rows by assembly, matches them to the supplied pinned assemblies by
+assembly name, feeds the vendored authored bodies into the same
+source-correspondence oracle the on-demand census uses (through an in-memory
+`ReturnToSenderSourceIndex`), and emits a taste card (`--json` for structured
+output). Each target is `Correct` (valid, matches authored), one of four
+valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
+diagnostic buckets below:
+
+- **lowering (inherent)** — authored used sugar the compiler erases (iterator,
+  async, dynamic call site); unrecoverable from IL.
+- **known taste** — a documented product decision already explains the delta
+  (`known_taste` or a `known_compiler_option` such as a checked context).
+- **frontier, IL-exact (cosmetic)** — same semantics and identical IL; a pure
+  surface-shape difference at the raise frontier.
+- **frontier, IL-diff (semantic)** — differs with an opcode/operand diff; worth
+  scrutiny.
+- **Not-Full (uncheckable at Full)** — the decompiler body could not be graded at
+  Full fidelity (`fidelity-unavailable`/`NotFull`), so correspondence is not
+  decidable. This is a decompiler limitation, not corpus drift, so it does not
+  fail the run on its own.
+- **Drift (corpus source unresolved)** — the corpus identity no longer resolves to
+  a source slice in the pinned assembly (`source-slice-unavailable`/
+  `fixture-source-unavailable`); the corpus has drifted from the assembly.
+- **Unsupported (rts-target)** — the target is not an RTS-compilable member.
+
+The run exits nonzero when any target is `Invalid`, `Drift`, or `Unsupported`
+(round-trip failure or corpus/assembly drift). It also exits nonzero — with a
+named blocker — when the run is not *honest*: any corpus row whose assembly was
+not supplied (`unmatchedRows > 0`) or a run that evaluated no targets at all.
+Every corpus row must be checked, so an empty or partially-unmatched run is never
+a success. `Not-Full` alone does not fail.
+
+The corpus is vendored on the `vendor/authored-source-corpus` orphan branch so
+the harvested third-party source snapshots never enter main's history (as
+`civil/corpus.jsonl`). Restore it with `bash eng/restore-authored-source-corpus.sh`,
+which adds a git worktree at `external/authored-source-corpus`.
+
+#### EVIL difficulty ranking (`--enumerate-real-methods`)
+
+The CIVIL corpus tracks the 14 pinned assemblies for affinity. The companion
+*EVIL* corpus (Edge-case Verification of IL Legibility) is instead an adversarial
+stress set — the "diabolical" real methods drawn from a much broader assembly
+pool and ranked by how hard their IL is to raise. `--enumerate-real-methods
+[--max-examples N] <assembly...>` is the inspection command behind that ranking:
+it enumerates the
+real-method targets in each assembly, scores every body, and prints the top
+`N` by difficulty (highest first) with the full component breakdown, e.g.:
+
+```text
+  score=   85.6  DiffFixture.Graded::NestedEh
+    params=1 il=36 blocks=27 branches=5 switch=0 eh=4 ehDepth=4 rare=0 locals=1 maxStack=2 [`0(int)]
+```
+
+Every component is a structural fact read off the shared
+`ILInspector.Instructions` substrate (IL decode + EH-aware block graph); there is
+no inspected-assembly loading and no abstract interpretation, so the scorer stays
+SRM-only and NativeAOT-friendly. A body that fails to decode records only its
+size/local/stack scalars and zero control-flow, so a decode failure never
+inflates a rank.
+
+| Component | Meaning |
+| --- | --- |
+| `il` | IL body size in bytes. |
+| `blocks` | Basic-block count from the substrate's block graph. |
+| `branches` | Instructions that branch (includes `switch`). |
+| `switch` | `switch` (jump-table) instruction count. |
+| `eh` | Exception-handling region count (catch/filter/finally/fault). |
+| `ehDepth` | Deepest exception-region nesting chain (see below). |
+| `rare` | Rare/hard-to-raise opcodes: `calli`, `cpblk`, `initblk`, `localloc`, `sizeof`, `mkrefany`, `refanyval`, `refanytype`, `arglist`, `ckfinite`, `jmp`, `cpobj`, `endfilter`, `unaligned`, `tail`. |
+| `locals` | Local-variable count. |
+| `maxStack` | Declared maximum evaluation-stack depth. |
+
+The composite `score` is ranking-only — its absolute magnitude is meaningless.
+The size-like axes (`il`, `blocks`, `branches`, `locals`) are square-root damped
+so a large dispatcher ranks high without its sheer size swamping a small but
+genuinely nasty body, while the per-feature signals the raise most often fails on
+stay linear and can dominate: exception-nesting depth carries the highest weight,
+followed by rare opcodes, switch tables, and the raw EH-region count. Because the
+components are all printed, a later selection pass can re-weight or filter on any
+single axis.
+
+`ehDepth` is the longest chain of exception regions where each region's protected
+`try` lies strictly inside another region's `try` or handler span. Sibling
+handlers on one `try` share an identical `try` span and are not counted as
+nesting each other; a `finally` that protects its sibling `catch` does deepen the
+chain, so `try/catch/finally` nested inside another `try/catch/finally` reports
+`ehDepth=4`.
+
+#### EVIL corpus harvest (`--harvest-evil-corpus`)
+
+`--harvest-evil-corpus <out.jsonl> [--harvest-target N]` (default 12000) builds
+the EVIL corpus. It shares the whole authored-source harvest pipeline with
+`--harvest-authored-corpus` — the same SourceLink resolution, member-only body
+snapshot, checksum, and smallest-library-first fairness — but changes the
+*selection order*: within each library, candidates are ranked hardest-first by the
+difficulty score above (score, then IL size, as a tiebreak) before the per-type
+round-robin, so each declaring type contributes its most diabolical methods first.
+Every emitted row also carries the full `difficulty` object (the same components
+`--enumerate-real-methods` prints), so a later selection pass can re-rank or filter
+on any single axis without re-scoring. The CIVIL (identity) corpus omits that
+field entirely, keeping its rows schema-identical to the vendored real-world
+corpus; only EVIL rows populate it.
+
+The EVIL corpus draws from a much broader assembly pool than the 14 pinned
+real-world libraries. `eng/prepare-evil-corpus.sh` composes that pool: it runs
+the package sweep (`eng/prepare-decompiler-package-sweep.cs`, ranks 1..N from
+`docs/data/nuget-top-packages.json`, `EVIL_PACKAGE_COUNT` default 100) and
+unions it with the 14 pinned real-world assemblies
+(`eng/prepare-decompiler-corpus.sh`) into a single deduped `assemblies.txt`,
+preserving the sweep `manifest.json` as `sweep-manifest.json`:
+
+```bash
+bash eng/prepare-evil-corpus.sh /tmp/evil-pool
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --harvest-evil-corpus /tmp/evil-corpus.jsonl --harvest-target 12000 \
+  $(cat /tmp/evil-pool/assemblies.txt)
+```
+
+The result is vendored as `evil/corpus.jsonl` on the same
+`vendor/authored-source-corpus` orphan branch, a sibling of the CIVIL
+`civil/corpus.jsonl`, and `bash eng/restore-authored-source-corpus.sh`
+restores both. Because it reuses `CorpusRecord`, the EVIL corpus is consumable
+by `--benchmark-authored-corpus` exactly like the CIVIL corpus; the
+difficulty profile is selection/analysis metadata the oracle ignores.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |
@@ -229,6 +413,17 @@ library. Use this for the direct "which patterns are unsupported in which
 library?" loop. `--top-patterns N` limits the global/per-library pattern lists,
 `--top-libraries N` limits the detailed library sections to the noisiest
 libraries, and `--json` emits the same data as structured JSON.
+`--corpus-method-cap N` applies the existing deterministic hash-ranked sampler
+independently to each library. The report keeps ordinary fidelity residuals in
+the discovery pattern list while separately projecting correctness defect
+classes and package-promotion candidates.
+
+The weekly Deep Inspect `package-sweep` lane prepares ranks 1-10 from
+`docs/data/nuget-top-packages.json` with product-owned package acquisition and
+TFM selection, then runs this report with bounded method and semantic-validity
+caps. Its manifest records the resolved package version, TFM, selected assembly,
+cache status, and failures. This is current-package discovery evidence, not a
+checked-in baseline or PR gate.
 
 **Real-world corpus sensor** (`--diff-corpus-baseline`): the Deep Inspect
 baseline for #1166. It measures the fixed #1150 corpus — pinned NuGet assemblies

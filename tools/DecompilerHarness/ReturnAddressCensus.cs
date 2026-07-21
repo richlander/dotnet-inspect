@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.HarnessReports;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
@@ -56,20 +57,33 @@ internal sealed record RaCensusTolerances(int AgreeRateDropBasisPoints)
 
 internal static class ReturnAddressCensus
 {
+    internal static readonly HarnessReportDescriptor Descriptor = new("census.return-address-equivalence", 1);
+
     public static int Run(
         IReadOnlyList<string> assemblies,
         int maxExamples,
         RaCensusFormat format,
         string? emitSnapshot = null,
-        string? diffBaseline = null)
+        string? diffBaseline = null,
+        string? emitHarnessReport = null)
     {
-        var report = Measure(assemblies, maxExamples);
+        var payload = Measure(assemblies, maxExamples);
+        var report = new DecompilerHarnessReport<RaCensusReport>(
+            Descriptor,
+            payload,
+            BuildComparison(payload));
         Console.Write(Format(report, maxExamples, format));
+
+        if (emitHarnessReport is not null)
+        {
+            HarnessReportStorage.Write(emitHarnessReport, report);
+            HarnessLog.Status($"Wrote harness report: {emitHarnessReport}");
+        }
 
         if (emitSnapshot is null && diffBaseline is null)
             return 0;
 
-        var snapshot = BuildSnapshot(report);
+        var snapshot = BuildSnapshot(report.Payload);
 
         if (emitSnapshot is not null)
         {
@@ -176,7 +190,7 @@ internal static class ReturnAddressCensus
         }
     }
 
-    static string Format(RaCensusReport report, int maxExamples, RaCensusFormat format)
+    static string Format(DecompilerHarnessReport<RaCensusReport> report, int maxExamples, RaCensusFormat format)
     {
         var output = new StringWriter();
         if (format == RaCensusFormat.Markdown)
@@ -277,30 +291,54 @@ internal static class ReturnAddressCensus
         };
     }
 
-    static RaCensusMarkdownView BuildMarkdownView(RaCensusReport report, int maxExamples)
+    static HarnessComparisonProjection BuildComparison(RaCensusReport report)
+    {
+        int matched = TotalMatched(report);
+        int agree = TotalAgree(report);
+        int unmatched = TotalUnmatched(report);
+        string aggregatePopulation = HarnessPopulationKey.Create(
+            "return-address",
+            report.Assemblies.Select(row => $"{row.Name}|{row.Opened}|{row.Matched}|{row.Unmatched}"));
+        string matchedPopulation = HarnessPopulationKey.Create(
+            "return-address.matched",
+            report.Assemblies.Where(row => row.Opened).Select(row => $"{row.Name}|{row.Matched}"));
+
+        return new HarnessComparisonProjection(
+            "#2440 Return Address member-identity equivalence census.",
+            aggregatePopulation,
+            [
+                new("agree", "Agree", MetricGoal.Higher, new MetricValue(agree, matched), matchedPopulation),
+                new("diverge", "Diverge", MetricGoal.Lower, new MetricValue(matched - agree, matched), matchedPopulation),
+                new("unmatched", "Unmatched (not in surface)", MetricGoal.Context, new MetricValue(unmatched), aggregatePopulation),
+            ]);
+    }
+
+    static RaCensusMarkdownView BuildMarkdownView(DecompilerHarnessReport<RaCensusReport> envelope, int maxExamples)
         => new()
         {
-            Summary = SummaryRows(report).Select(r => new RaCensusMetricRow(r.Metric, r.Value)).ToList(),
-            PerAssembly = report.Assemblies
+            Report = [.. DecompilerHarnessReportViews.Metadata(envelope).Select(row => new RaCensusReportMetadataRow(row.Metric, row.Value))],
+            Summary = SummaryRows(envelope.Payload).Select(r => new RaCensusMetricRow(r.Metric, r.Value)).ToList(),
+            PerAssembly = envelope.Payload.Assemblies
                 .Where(a => a.Opened)
                 .Select(a => new RaCensusAssemblyRow(a.Name, a.Matched, a.Agree, a.Matched - a.Agree, a.Unmatched, Pct(a.Agree, a.Matched)))
                 .ToList(),
-            Divergences = report.Assemblies
+            Divergences = envelope.Payload.Assemblies
                 .SelectMany(a => a.Examples)
                 .Take(maxExamples)
                 .Select(e => new RaCensusDivergenceRow(e.Member, e.A, e.B))
                 .ToList(),
         };
 
-    static RaCensusTableView BuildTableView(RaCensusReport report, int maxExamples)
+    static RaCensusTableView BuildTableView(DecompilerHarnessReport<RaCensusReport> envelope, int maxExamples)
         => new()
         {
-            Summary = SummaryRows(report).Select(r => new RaCensusSectionMetricRow("Summary", r.Metric, r.Value)).ToList(),
-            PerAssembly = report.Assemblies
+            Report = [.. DecompilerHarnessReportViews.Metadata(envelope).Select(row => new RaCensusSectionReportMetadataRow("Report", row.Metric, row.Value))],
+            Summary = SummaryRows(envelope.Payload).Select(r => new RaCensusSectionMetricRow("Summary", r.Metric, r.Value)).ToList(),
+            PerAssembly = envelope.Payload.Assemblies
                 .Where(a => a.Opened)
                 .Select(a => new RaCensusSectionAssemblyRow("Per assembly", a.Name, a.Matched, a.Agree, a.Matched - a.Agree, a.Unmatched, Pct(a.Agree, a.Matched)))
                 .ToList(),
-            Divergences = report.Assemblies
+            Divergences = envelope.Payload.Assemblies
                 .SelectMany(a => a.Examples)
                 .Take(maxExamples)
                 .Select(e => new RaCensusSectionDivergenceRow("Divergences", e.Member, e.A, e.B))
@@ -313,6 +351,9 @@ internal sealed class RaCensusMarkdownView
 {
     [MarkoutIgnore]
     public string Title => "Return Address equivalence census";
+
+    [MarkoutSection(Name = "Report")]
+    public List<RaCensusReportMetadataRow>? Report { get; init; }
 
     [MarkoutSection(Name = "Summary")]
     public List<RaCensusMetricRow>? Summary { get; init; }
@@ -330,6 +371,9 @@ internal sealed class RaCensusTableView
     [MarkoutIgnore]
     public string Title => "Return Address equivalence census";
 
+    [MarkoutSection(Name = "Report")]
+    public List<RaCensusSectionReportMetadataRow>? Report { get; init; }
+
     [MarkoutSection(Name = "Summary")]
     public List<RaCensusSectionMetricRow>? Summary { get; init; }
 
@@ -342,6 +386,12 @@ internal sealed class RaCensusTableView
 
 [MarkoutSerializable]
 internal sealed record RaCensusMetricRow(string Metric, string Value);
+
+[MarkoutSerializable]
+internal sealed record RaCensusReportMetadataRow(string Metric, string Value);
+
+[MarkoutSerializable]
+internal sealed record RaCensusSectionReportMetadataRow(string Section, string Metric, string Value);
 
 [MarkoutSerializable]
 internal sealed record RaCensusSectionMetricRow(string Section, string Metric, string Value);
@@ -361,6 +411,8 @@ internal sealed record RaCensusSectionDivergenceRow(string Section, string Membe
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(RaCensusMarkdownView))]
 [MarkoutContext(typeof(RaCensusTableView))]
+[MarkoutContext(typeof(RaCensusReportMetadataRow))]
+[MarkoutContext(typeof(RaCensusSectionReportMetadataRow))]
 [MarkoutContext(typeof(RaCensusMetricRow))]
 [MarkoutContext(typeof(RaCensusSectionMetricRow))]
 [MarkoutContext(typeof(RaCensusAssemblyRow))]

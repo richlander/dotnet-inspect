@@ -35,6 +35,21 @@ static class ReturnToSender
         string SourcePath,
         string? Detail);
 
+    /// <summary>
+    /// Independent compile-back evidence for an event accessor's sibling
+    /// (the <c>add</c>/<c>remove</c> not directly requested), captured when
+    /// both accessors have real bodies raised into a single reconstruction
+    /// (see <see cref="CompileBackEventAccessor"/>). This mirrors
+    /// <see cref="Result.Status"/>/<c>OriginalOpcodes</c>/<c>RecompiledOpcodes</c>
+    /// but for the sibling method, so each accessor keeps its own exact
+    /// compile-back verdict rather than one accessor borrowing the other's.
+    /// </summary>
+    public sealed record SiblingAccessorEvidence(
+        string MethodName,
+        FidelityCheck.CompileBackStatus Status,
+        string OriginalOpcodes,
+        string RecompiledOpcodes);
+
     public sealed record Result(
         CompileBackReconstructionPlan Plan,
         string Source,
@@ -49,6 +64,7 @@ static class ReturnToSender
         IReadOnlyList<DecompilerDecision>? Decisions = null,
         FidelityCheck.CompileBackResult? CompileBackFloor = null,
         FaultIsolationResult? FaultIsolation = null,
+        SiblingAccessorEvidence? SiblingAccessor = null,
         IlBodyDiffResult? FidelityDiff = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
@@ -1066,6 +1082,34 @@ static class ReturnToSender
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
         var originalOps = original.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
 
+        // Raise the sibling accessor's real body too (not an honest throw
+        // stub) whenever it has one, so a single reconstruction produces the
+        // fully raised event shape. Each accessor still gets its own
+        // independent compile-back verdict below rather than one borrowing
+        // the other's -- see SiblingAccessorEvidence.
+        var eventDefinition = reader.GetEventDefinition(eventHandle);
+        var eventAccessors = eventDefinition.GetAccessors();
+        var siblingHandle = accessorHandle == eventAccessors.Adder ? eventAccessors.Remover : eventAccessors.Adder;
+        ProductTargetBody? siblingBody = null;
+        string? siblingMethodName = null;
+        string[]? siblingOriginalOps = null;
+        if (!siblingHandle.IsNil)
+        {
+            var siblingMethod = reader.GetMethodDefinition(siblingHandle);
+            if (siblingMethod.RelativeVirtualAddress != 0)
+            {
+                siblingMethodName = reader.GetString(siblingMethod.Name);
+                int siblingOverload = OverloadIndex(reader, typeDef, siblingHandle, siblingMethodName);
+                var siblingFunction = IrImporter.Import(source, fullType, siblingMethodName, siblingOverload);
+                var siblingOriginal = MetadataInstructionProducer.Disassemble(pe, reader, siblingMethod);
+                if (siblingFunction is not null && siblingOriginal is not null)
+                {
+                    siblingBody = CompileBackSourceComposer.CreateTargetBody(source, siblingFunction, fullType, siblingMethodName);
+                    siblingOriginalOps = siblingOriginal.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
+                }
+            }
+        }
+
         return CompileBackTarget(
             assemblyPath,
             pe,
@@ -1093,7 +1137,11 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts,
+                SiblingAccessorBody: siblingBody),
+            siblingMethodName is not null && siblingOriginalOps is not null
+                ? (siblingMethodName, siblingOriginalOps)
+                : null);
     }
 
     static Result CompileBackPropertySetter(
@@ -1165,7 +1213,8 @@ static class ReturnToSender
         string[] originalOps,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest)
+        Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
+        (string MethodName, string[] OriginalOpcodes)? sibling = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -1255,6 +1304,10 @@ static class ReturnToSender
                     };
                 }
 
+                var siblingAccessor = sibling is { } siblingRequest
+                    ? ComputeSiblingAccessorEvidence(recompiled, fullType, siblingRequest.MethodName, siblingRequest.OriginalOpcodes)
+                    : null;
+
                 var status = FidelityCheck.ClassifyStatus(
                     isFull: true,
                     opcodesExact: originalOps.SequenceEqual(recompiledOps),
@@ -1275,6 +1328,7 @@ static class ReturnToSender
                     IlDiff: ilDiff,
                     MemberAnchor: memberAnchor,
                     Decisions: targetBody.Decisions,
+                    SiblingAccessor: siblingAccessor,
                     FidelityDiff: fidelityDiff)
                 {
                     FinalRequest = sourceResult.Request,
@@ -1337,6 +1391,35 @@ static class ReturnToSender
                 FinalRequest = sourceResult.Request,
             };
         }
+    }
+
+    /// <summary>
+    /// Independently verifies the sibling event accessor raised alongside the
+    /// requested target (see <see cref="CompileBackEventAccessor"/>): finds
+    /// its own method in the already-recompiled module and compares its
+    /// opcodes against its own original disassembly, so the sibling gets its
+    /// own exact/opcode-diff verdict rather than inheriting the target's.
+    /// </summary>
+    static SiblingAccessorEvidence? ComputeSiblingAccessorEvidence(
+        PEReader recompiled,
+        string fullType,
+        string siblingMethodName,
+        string[] siblingOriginalOps)
+    {
+        var recompiledOps = FindAndDisassemble(recompiled, fullType, siblingMethodName, overload: 0)
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        string originalOpcodes = string.Join(" ", siblingOriginalOps);
+        if (recompiledOps is null)
+            return new SiblingAccessorEvidence(siblingMethodName, FidelityCheck.CompileBackStatus.ContextFail, originalOpcodes, "");
+
+        return new SiblingAccessorEvidence(
+            siblingMethodName,
+            siblingOriginalOps.SequenceEqual(recompiledOps)
+                ? FidelityCheck.CompileBackStatus.Exact
+                : FidelityCheck.CompileBackStatus.OpcodeDiff,
+            originalOpcodes,
+            string.Join(" ", recompiledOps));
     }
 
     static Result ContextFailResult(

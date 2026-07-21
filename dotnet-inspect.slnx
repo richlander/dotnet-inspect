@@ -33,6 +33,7 @@
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicStateMachines/ILInspector.Decompiler.Fixtures.ClassicStateMachines.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.Ladder/ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
@@ -62,6 +63,7 @@
     <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
+    <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
   </Folder>
   <Folder Name="/tools/">
@@ -70,6 +72,8 @@
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />
     <Project Path="tools/IlDiffHarness/IlDiffHarness.csproj" />
+    <Project Path="tools/HarnessReportDiff/HarnessReportDiff.csproj" />
+    <Project Path="tools/HarnessReportProtocol/HarnessReportProtocol.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
   </Folder>
 </Solution>

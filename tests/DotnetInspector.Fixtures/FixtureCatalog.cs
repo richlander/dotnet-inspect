@@ -72,6 +72,7 @@ public static class FixtureIds
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerClassicAsync = "decompiler.classic-async";
+    public const string DecompilerExpressionTreeSpoof = "decompiler.expression-tree-spoof";
     public const string DecompilerClassicStateMachines = "decompiler.classic-state-machines";
     public const string DecompilerLadderIterator = "decompiler.ladder.iterator";
     public const string DecompilerLadderRung1 = "decompiler.ladder.rung1";
@@ -250,6 +251,13 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "async", "classic-async", "compiler-axis", "rts-candidate");
 
+    public static readonly FixtureDefinition DecompilerExpressionTreeSpoof = Fixture(
+        FixtureIds.DecompilerExpressionTreeSpoof,
+        "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
+        "System.Linq.Expressions.dll",
+        Boundaries(FixtureBoundary.AssemblyName),
+        "decompiler", "expression-tree", "spoof", "assembly-name-axis", "system-linq-expressions");
+
     public static readonly FixtureDefinition DecompilerClassicStateMachines = Fixture(
         FixtureIds.DecompilerClassicStateMachines,
         "ILInspector.Decompiler.Fixtures.ClassicStateMachines",
@@ -367,6 +375,7 @@ public static class FixtureCatalog
         DecompilerCheckedArithmetic,
         DecompilerTypeIdentity,
         DecompilerClassicAsync,
+        DecompilerExpressionTreeSpoof,
         DecompilerClassicStateMachines,
         DecompilerLadderIterator,
         DecompilerLadderRung1,

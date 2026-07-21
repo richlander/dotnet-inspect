@@ -38,6 +38,8 @@ internal static class FactPrimitiveCatalog
         "ir",
         "deconstruction",
         "ownership",
+        "assembly-identity",
+        "checkedness",
         "type-shape");
 
     /// <summary>

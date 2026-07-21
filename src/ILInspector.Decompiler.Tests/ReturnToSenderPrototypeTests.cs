@@ -335,6 +335,75 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Theory]
+    [InlineData("IBaseEvents.add_Changed", "Console.WriteLine(\"adding\");", "Console.WriteLine(\"removing\");")]
+    [InlineData("IBaseEvents.remove_Changed", "Console.WriteLine(\"removing\");", "Console.WriteLine(\"adding\");")]
+    public void CompileBackEventAccessor_RaisesSiblingAccessorBodyInsteadOfThrowStub(
+        string accessorName,
+        string expectedTargetBody,
+        string expectedSiblingBody)
+    {
+        // Issue #2913: both explicit-interface event accessors have real IL
+        // bodies here (distinguishable add/remove literals). Targeting either
+        // one must raise BOTH bodies in a single reconstruction rather than
+        // rendering the non-targeted accessor as an honest `throw null;` stub,
+        // and each accessor's compile-back verdict must be tracked
+        // independently via Result.SiblingAccessor.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class ExplicitEventFixture : IDerivedEvents
+            {
+                event Action IBaseEvents.Changed
+                {
+                    add
+                    {
+                        Console.WriteLine("adding");
+                    }
+                    remove
+                    {
+                        Console.WriteLine("removing");
+                    }
+                }
+            }
+
+            public interface IDerivedEvents : IBaseEvents
+            {
+            }
+
+            public interface IBaseEvents
+            {
+                event Action Changed;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitEventFixture",
+                    accessorName,
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(expectedTargetBody, result.Source, StringComparison.Ordinal);
+            Assert.Contains(expectedSiblingBody, result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("throw null;", result.Source, StringComparison.Ordinal);
+
+            Assert.NotNull(result.SiblingAccessor);
+            Assert.True(
+                result.SiblingAccessor!.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.SiblingAccessor.Status}: {result.SiblingAccessor.MethodName}");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void CompileBackEventAccessor_KeepsStaticOnExplicitInterfaceEvent()
     {
