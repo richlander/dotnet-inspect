@@ -165,6 +165,25 @@ a class that belongs to an area (especially a new slow gate), tag it with the
 matching `[Trait("Area", "…")]` so the area's group filter keeps finding it; add
 a new area value only when an expensive slice has no existing home.
 
+Which area to run while iterating on a change:
+
+| Change surface | Iterate against |
+| --- | --- |
+| `MemberBodyProducer`, changed-method emit, skeleton, type binding, the compile-back oracle | `Area=RoundTrip` (add `Area=Fidelity` — skeleton/compile-back overlap both) |
+| The changed-method fidelity path, cluster capture, nested-target lookup, a printer/typing change that can alter recompiled output | `Area=Fidelity` |
+| Validity ladder or iterator-reconstruction behavior | `Area=Validity` |
+| A single raising / structuring / lowering / printer pass | `Area=Pass` for the pass's own `*PassTests`, then the fidelity/validity/corpus gates below |
+| Corpus-sweep or sensor tooling | `Area=Corpus` |
+
+`Area` narrows the *iteration* loop, not the pre-review gate. A raising,
+structuring, typing, or printer change can shift any corpus row, so it is not
+covered by its `Area=Pass` unit tests alone: before requesting review still run
+the full slow suite locally (unfiltered `ILInspector.Decompiler.Tests`, which
+Deep Inspect and release also run). `Area` does not change what CI runs — PR CI
+keys on `Speed` (`-trait- "Speed=Slow"`) and Deep Inspect/release run the whole
+slow set — so every area's slow gates already run before merge without any
+per-area CI wiring.
+
 ## Vocabulary
 
 Use these names in issues and PRs when selecting evidence:
