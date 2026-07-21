@@ -265,6 +265,29 @@ public class ArrayLiteralFromStoresPassTests
         function.CheckInvariant();
     }
 
+    // A catch clause that (re)binds a pre-existing local index to the caught
+    // exception is another structured write hazard: if the array's local
+    // index is reused as the exception variable between the allocation and
+    // the fill run, folding onto it would discard the caught exception
+    // (adversarial review finding, second pass).
+    [Fact]
+    public void CatchClauseRebindsPlaceBeforeFillRun_DoesNotFold()
+    {
+        var call = new ExpressionStatement(new Call(Sink(1), isVirtual: false, [new LoadLocal(0, ObjectArray)]));
+        var catchClause = new CatchClause(Object, new BlockContainer()) { VariableIndex = 0 };
+        var tryCatch = new TryCatch(new BlockContainer(), [catchClause]);
+        var function = Build(
+            new StoreLocal(0, ObjectArray, new NewArray(Object, new Constant(1, TypeRef.CoreLib("System", "Int32")))),
+            tryCatch,
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), new Constant(0, TypeRef.CoreLib("System", "Int32")), new Constant("A", StringType)),
+            call);
+
+        RunPass(function);
+
+        Assert.Equal(0, ArrayLiteralCount(function));
+        function.CheckInvariant();
+    }
+
     // A deconstruction assignment re-targeting a pre-existing local (not a
     // StoreLocal) between the allocation and the fill run overwrites the
     // place through a structured node the pass must also recognize as a

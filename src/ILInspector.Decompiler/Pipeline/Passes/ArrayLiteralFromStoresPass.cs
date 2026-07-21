@@ -213,8 +213,10 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
             // Structured nodes past this point in the pipeline (after
             // structuring/pattern-raising) can also (re)bind a local index
             // without going through StoreLocal — e.g. a deconstruction target,
-            // ??=, a bound is-pattern/recursive-property-pattern local, or a
-            // foreach/using iteration/resource variable. Any of these binding
+            // ??=, a bound is-pattern/recursive-property-pattern local, a
+            // foreach/using iteration/resource variable, a catch-clause
+            // exception variable, a union-switch-arm pattern local, or a
+            // fixed-pointer variable. Any of these binding
             // the place's index between the allocation and the fill run (or
             // after it, before the one expected read) is as much a hazard as
             // an ordinary StoreLocal (adversarial review finding).
@@ -224,6 +226,9 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
             (false, RecursivePropertyDeclarationPattern pattern) => pattern.LocalIndex == place.Index,
             (false, ForeachStatement foreachStatement) => foreachStatement.LocalIndex == place.Index,
             (false, UsingStatement usingStatement) => usingStatement.LocalIndex == place.Index,
+            (false, CatchClause catchClause) => catchClause.VariableIndex == place.Index,
+            (false, UnionSwitchExpressionArm arm) => arm.LocalIndex == place.Index,
+            (_, Fixed fixedStatement) => fixedStatement.LocalIsStackSlot == place.IsSlot && fixedStatement.LocalIndex == place.Index,
             _ => false,
         };
 
