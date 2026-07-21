@@ -39,7 +39,11 @@ internal static class ApiAnalysisInspection
     }
 
     /// <summary>
-    /// Opens the command-scoped Analysis index used by type and library sections.
+    /// Opens the command-scoped Analysis index used by type and library sections. The resolver is
+    /// built from <paramref name="options"/> so this type-scoped index honors <c>--project</c>
+    /// (project-assets) and <c>--tfm</c> reference resolution, consistent with the member-analysis
+    /// path (<see cref="ApiMemberAnalysisInspection"/>); passing <see langword="null"/> falls back to
+    /// bare-assembly resolution.
     /// </summary>
     internal static Analysis.LibraryBodyIndex OpenTypeAnalysisIndex(
         string assemblyPath,

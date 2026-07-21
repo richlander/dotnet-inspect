@@ -56,6 +56,12 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
     public AssemblyDependencyResolver(AssemblyDependencyResolutionOptions options)
         => _options = options;
 
+    /// <summary>
+    /// The resolution options this resolver was constructed with. Exposed for tests that pin how
+    /// callers forward inputs (e.g. project-assets/TFM) into the resolver.
+    /// </summary>
+    internal AssemblyDependencyResolutionOptions Options => _options;
+
     public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
     {
         if (_resolved is not null)
