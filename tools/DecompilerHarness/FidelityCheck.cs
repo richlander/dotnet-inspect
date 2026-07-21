@@ -2943,7 +2943,22 @@ static class FidelityCheck
                 bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
                     || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
                 if (accessorIsTarget && !isAutoProperty)
+                {
+                    // Keep target accessors in property syntax. Emitting an iterator
+                    // getter as a method named get_X changes Roslyn's synthesized
+                    // state-machine ordinal, which creates an operand-only diff in
+                    // every later iterator in the containing type.
+                    string getterBody = !pa.Getter.IsNil && targets.TryGetValue(pa.Getter, out var getterTarget)
+                        ? $" get {{\n{getterTarget.Body}\n{pad}}}"
+                        : (hasGet ? " get => throw null;" : "");
+                    string setterBody = !pa.Setter.IsNil && targets.TryGetValue(pa.Setter, out var setterTarget)
+                        ? $" set {{\n{setterTarget.Body}\n{pad}}}"
+                        : (hasSet ? " set => throw null;" : "");
+                    sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{getterBody}{setterBody} }}");
+                    if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
+                    if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
                     continue;
+                }
                 if (isAutoProperty)
                 {
                     string initializer = fieldInits.FirstOrDefault(init => init.Field == pname).Value is { } value
