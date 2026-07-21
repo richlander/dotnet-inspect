@@ -41,6 +41,14 @@ public class ValidityCoverageReportingTests
             .Order(StringComparer.Ordinal)
             .ToArray();
 
+        // Release census refreshed against the merged head (verified by dumping
+        // the live CS0161 population). Three entries were added relative to the
+        // prior pin: TupleSwitchExpressionPass::TryNumericValue and
+        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition
+        // were pre-existing drift (present on base, unrelated to fluent chains;
+        // see #2959), and FluentChainRecompositionPass::SinkStatement is this
+        // change's new pattern-matching helper that the decompiler renders with
+        // a missing-return path (same idiom as the other census members).
         string[] expected =
 #if DEBUG
         [
@@ -54,6 +62,7 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
             "ILInspector.Decompiler.Pipeline.DynamicCallSitePass::TryGuardCacheLoad",
             "ILInspector.Decompiler.Pipeline.FixedArrayRaising::SameLoadPlace",
+            "ILInspector.Decompiler.Pipeline.FluentChainRecompositionPass::SinkStatement",
             "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
             "ILInspector.Decompiler.Pipeline.InlineArrayCollectionPass::PlaceFromAddress",
             "ILInspector.Decompiler.Pipeline.IsPatternPass::IsPatternLocalNull",

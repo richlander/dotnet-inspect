@@ -547,6 +547,8 @@ public class TypeSourceCheckTests
         var source = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(source);
 
+        Assert.DoesNotContain('\r', source);
+        Assert.Contains("using System.Runtime.InteropServices;\n\nnamespace", source);
         Assert.Contains("[StructLayout(LayoutKind.Explicit, Size = 4)]", source);
         Assert.Contains("[FieldOffset(0)]\n    public byte B;", source);
         Assert.Contains("[FieldOffset(1)]\n    public byte G;", source);

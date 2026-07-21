@@ -1311,7 +1311,8 @@ public static class MemberBodyProducer
             var segments = line.Split('"');
             for (int i = 0; i < segments.Length; i += 2)
                 segments[i] = ShortenSegment(segments[i], prefixes, nsToNames, shortNameOwners, usings);
-            output.AppendLine(string.Join('"', segments));
+            // Generated source uses one deterministic newline on every host.
+            output.Append(string.Join('"', segments)).Append('\n');
         }
 
         // Implicit usings (and the type's own namespace) need no directive.
