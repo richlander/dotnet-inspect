@@ -155,6 +155,25 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void DirectPointerWithDynamicPureSize_Raises()
+    {
+        // A dynamic-but-pure size (a local read, or arithmetic over one -- the
+        // common `stackalloc byte[n]` shape, e.g. n * sizeof(T) after
+        // StackAllocInitializerPass/import) must still raise: requiring a
+        // literal Constant here would reject this very common real-world
+        // pattern and reintroduce the original invalid-Full CS8346 shape this
+        // pass exists to fix.
+        var size = new Binary(BinaryKind.Multiply, isChecked: false, isUnsigned: false, new LoadLocal(0, Int32), new SizeOf(Int32));
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void DirectPointerWithInitializerCountMismatch_DoesNotRaise()
     {
         // Same defect as the slot-indirection case's
@@ -462,6 +481,65 @@ public class StackAllocSpanPassTests
         // byte-typed initializer.
         var elements = new IrExpression[] { new Constant(300, Int32) };
         var stackAllocArray = new StackAllocArray(Int32, new Constant(1, Int32), TypeRef.Pointer(Int32), elements);
+        var store = new StoreStackSlot(0, stackAllocArray);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1, elementType: Byte);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal("int", unraised.ElementType.ToDisplayString()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithLoadInsideLoopCondition_DoesNotRaise()
+    {
+        // GetStatement's walk-up-to-the-enclosing-Block-child logic returns
+        // the WhileLoop itself as "the statement" when the load sits inside
+        // its condition -- but a loop condition is evaluated on every
+        // iteration (and possibly zero times), not exactly once like an
+        // ordinary adjacent statement. Raising here would move a one-time
+        // allocation into code that runs a different number of times.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var condition = new IsInstance(Holder, newObject); // load embedded in a loop condition expression
+        var loop = new WhileLoop(condition, new Block(0));
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(loop);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithUninitializedArrayElementTypeMismatch_DoesNotRaise()
+    {
+        // An uninitialized StackAllocArray (no recovered elements, but still
+        // carrying its own ElementType and Count) must have its element type
+        // checked too -- not just the HasInitializer case -- or adversarial IR
+        // could silently reinterpret e.g. a 100-element int allocation as a
+        // 1-element byte allocation.
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(100, Int32), TypeRef.Pointer(Int32));
         var store = new StoreStackSlot(0, stackAllocArray);
         var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1, elementType: Byte);
 

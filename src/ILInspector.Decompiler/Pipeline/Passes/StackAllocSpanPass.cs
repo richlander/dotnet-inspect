@@ -73,25 +73,32 @@ public sealed class StackAllocSpanPass : IIrPass
                 continue;
             }
 
-            // A recovered initializer's element count and element type must
-            // agree with this constructor's own length argument and Span<T>
-            // type argument. Once the pointer is resolved (whether directly or
-            // through a slot), the source's elements and the constructor's
-            // count/element-type are independent expressions in the tree --
-            // nothing else proves they describe the same span, so a mismatch
-            // here would silently change the observable Span.Length or
-            // reinterpret the initializer under the wrong element type.
+            // A StackAllocArray source's own element type and (if it has an
+            // initializer) recovered element count must agree with this
+            // constructor's own length argument and Span<T> type argument.
+            // Once the pointer is resolved (whether directly or through a
+            // slot), the source and the constructor's count/element-type are
+            // independent expressions in the tree -- nothing else proves they
+            // describe the same span, so a mismatch here would silently
+            // reinterpret the allocation under the wrong element type, or
+            // (with an initializer) change the observable Span.Length.
             IEnumerable<IrExpression>? elements;
-            if (source is StackAllocArray { HasInitializer: true } sourceArray)
+            if (source is StackAllocArray sourceArray)
             {
-                if (!sourceArray.ElementType.Equals(element)
-                    || count is not Constant { Value: int expectedCount }
-                    || expectedCount != sourceArray.Elements.Length)
-                {
+                if (!sourceArray.ElementType.Equals(element))
                     continue;
-                }
 
-                elements = GetInitializerElements(sourceArray);
+                if (sourceArray.HasInitializer)
+                {
+                    if (count is not Constant { Value: int expectedCount } || expectedCount != sourceArray.Elements.Length)
+                        continue;
+
+                    elements = GetInitializerElements(sourceArray);
+                }
+                else
+                {
+                    elements = null;
+                }
             }
             else
             {
@@ -145,6 +152,8 @@ public sealed class StackAllocSpanPass : IIrPass
         var loadStatement = GetStatement(load);
         if (loadStatement == null || loadStatement.Parent != parentBlock || loadStatement.ChildIndex != store.ChildIndex + 1)
             return false; // Escaped, reordered, or not adjacent to the store: some other statement could sit between them and observe or alter state before the load.
+        if (loadStatement is not (ExpressionStatement or Return or Throw or StoreLocal))
+            return false; // A loop or branch header (While/For/DoWhile/IfElse/Switch) evaluates its held expression repeatedly or conditionally; moving the allocation into it would change how many times (or whether) it executes.
 
         source = normalized;
         ownedStore = store;
@@ -170,15 +179,18 @@ public sealed class StackAllocSpanPass : IIrPass
     /// direct or <c>Convert</c>-wrapped, unwrapping the wrapper to return the
     /// underlying <see cref="StackAllocate"/> or <see cref="StackAllocArray"/>
     /// node itself, and requires its byte size (<see cref="StackAllocate.Size"/>)
-    /// or element count (<see cref="StackAllocArray.Count"/>) to be a
-    /// <see cref="Constant"/>. This pass always discards that size/count
+    /// or element count (<see cref="StackAllocArray.Count"/>) to be provably
+    /// <see cref="IsSideEffectFree"/>. This pass always discards that size/count
     /// expression (the constructor's own <c>length</c> argument is used
-    /// instead) — detaching and dropping a non-constant size/count would
-    /// silently erase any side effect it carries. Returning the unwrapped node
-    /// (rather than a possibly-<c>Convert</c>-wrapped <paramref name="pointer"/>)
-    /// is required so later checks that pattern-match on
-    /// <see cref="StackAllocArray"/> (element type, initializer count) see
-    /// through the wrapper instead of silently skipping validation.
+    /// instead) — detaching and dropping an expression with an unproven side
+    /// effect would silently erase it. A plain dynamic size (a local/argument
+    /// read, or arithmetic over one, e.g. <c>stackalloc byte[n]</c>) is common
+    /// and provably pure, so this does not require a literal constant.
+    /// Returning the unwrapped node (rather than a possibly-<c>Convert</c>-
+    /// wrapped <paramref name="pointer"/>) is required so later checks that
+    /// pattern-match on <see cref="StackAllocArray"/> (element type,
+    /// initializer count) see through the wrapper instead of silently skipping
+    /// validation.
     /// </summary>
     static bool TryNormalizeConstantStackAlloc(IrExpression pointer, out IrExpression normalized)
     {
@@ -188,8 +200,8 @@ public sealed class StackAllocSpanPass : IIrPass
 
         switch (candidate)
         {
-            case StackAllocate { Size: Constant }:
-            case StackAllocArray { Count: Constant }:
+            case StackAllocate { Size: { } size } when IsSideEffectFree(size):
+            case StackAllocArray { Count: { } count } when IsSideEffectFree(count):
                 normalized = candidate;
                 return true;
             default:
@@ -197,6 +209,27 @@ public sealed class StackAllocSpanPass : IIrPass
                 return false;
         }
     }
+
+    /// <summary>
+    /// Whether evaluating the expression is non-observable, so discarding it
+    /// (rather than reusing the constructor's own length argument) is sound.
+    /// This is an allow-list, mirroring the same-named helpers in
+    /// <see cref="RedundantBranchEliminationPass"/> and
+    /// <see cref="IsPatternPass"/>: anything outside the proven-safe set is
+    /// treated as possibly effectful.
+    /// </summary>
+    static bool IsSideEffectFree(IrExpression expression) => expression switch
+    {
+        Constant or LoadLocal or LoadArgument or LoadStackSlot
+            or LoadLocalAddress or LoadArgumentAddress or SizeOf => true,
+        Unary unary => IsSideEffectFree(unary.Operand),
+        Binary { Kind: BinaryKind.Divide or BinaryKind.Remainder } => false,
+        Binary { IsChecked: true } => false,
+        Binary binary => IsSideEffectFree(binary.Left) && IsSideEffectFree(binary.Right),
+        Convert { IsChecked: true } => false,
+        Convert convert => IsSideEffectFree(convert.Operand),
+        _ => false,
+    };
 
     static bool IsPointerLikeTarget(TypeRef target)
         => target.Kind == TypeRefKind.Pointer
