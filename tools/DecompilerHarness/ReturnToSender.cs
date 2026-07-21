@@ -69,6 +69,10 @@ static class ReturnToSender
         IlBodyDiffResult? FidelityDiff = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
+        public RoundTripScope Scope { get; init; } = RoundTripScope.Cluster;
+        public IReadOnlyList<string> UnsupportedDeclarations { get; init; } = [];
+        public bool DeclarationComplete
+            => Scope != RoundTripScope.All || UnsupportedDeclarations.Count == 0;
         internal ArtifactRequest? FinalRequest { get; init; }
     }
 
@@ -476,7 +480,19 @@ static class ReturnToSender
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
-            applyCompileBackFloor: true);
+            applyCompileBackFloor: true,
+            RoundTripScope.Cluster);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        RoundTripScope scope)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor: true,
+            scope);
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -486,7 +502,8 @@ static class ReturnToSender
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(sourcePaths),
-            applyCompileBackFloor: true);
+            applyCompileBackFloor: true,
+            RoundTripScope.Cluster);
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -496,13 +513,15 @@ static class ReturnToSender
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
-            applyCompileBackFloor);
+            applyCompileBackFloor,
+            RoundTripScope.Cluster);
 
     static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         ReturnToSenderSourceIndex? sourceIndex,
-        bool applyCompileBackFloor)
+        bool applyCompileBackFloor,
+        RoundTripScope scope)
     {
         if (targets.Count == 0)
             return [];
@@ -547,7 +566,8 @@ static class ReturnToSender
                     propertyTarget.Property,
                     propertyTarget.Getter,
                     MemberAnchorFor(memberAnchors, propertyTarget.Getter),
-                    sourceIndex));
+                    sourceIndex,
+                    scope));
                 continue;
             }
 
@@ -562,7 +582,8 @@ static class ReturnToSender
                     setterTarget.Property,
                     setterTarget.Setter,
                     MemberAnchorFor(memberAnchors, setterTarget.Setter),
-                    sourceIndex));
+                    sourceIndex,
+                    scope));
                 continue;
             }
 
@@ -577,7 +598,8 @@ static class ReturnToSender
                     eventTarget.Event,
                     eventTarget.Accessor,
                     MemberAnchorFor(memberAnchors, eventTarget.Accessor),
-                    sourceIndex));
+                    sourceIndex,
+                    scope));
                 continue;
             }
 
@@ -591,11 +613,28 @@ static class ReturnToSender
                     typeHandle,
                     methodHandle,
                     MemberAnchorFor(memberAnchors, methodHandle),
-                    sourceIndex));
+                    sourceIndex,
+                    scope));
             }
         }
 
-        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
+        var unsupportedDeclarations = scope == RoundTripScope.All
+            ? reader.TypeDefinitions
+                .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType().IsNil)
+                .Where(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) != "<Module>")
+                .Where(handle => !IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)))
+                .Select(handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)))
+                .Order(StringComparer.Ordinal)
+                .ToArray()
+            : [];
+        var scopedResults = results
+            .Select(result => result with
+            {
+                Scope = scope,
+                UnsupportedDeclarations = unsupportedDeclarations,
+            })
+            .ToArray();
+        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, scopedResults) : scopedResults;
     }
 
     static IReadOnlyList<Result> ApplyCompileBackFloor(
@@ -861,11 +900,12 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster)
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex);
+            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -881,11 +921,12 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster)
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex);
+            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -902,7 +943,8 @@ static class ReturnToSender
         EventDefinitionHandle eventHandle,
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster)
     {
         try
         {
@@ -915,7 +957,8 @@ static class ReturnToSender
                 eventHandle,
                 accessorHandle,
                 memberAnchor,
-                sourceIndex);
+                sourceIndex,
+                scope);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -938,11 +981,12 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster)
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex);
+            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -959,7 +1003,8 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var getter = reader.GetMethodDefinition(getterHandle);
@@ -1000,7 +1045,8 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts),
+            scope: scope);
     }
 
     static Result CompileBackMethod(
@@ -1011,7 +1057,8 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
@@ -1051,7 +1098,8 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts),
+            scope: scope);
     }
 
     static Result CompileBackEventAccessor(
@@ -1063,7 +1111,8 @@ static class ReturnToSender
         EventDefinitionHandle eventHandle,
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var accessor = reader.GetMethodDefinition(accessorHandle);
@@ -1139,7 +1188,8 @@ static class ReturnToSender
                 SiblingAccessorBody: siblingBody),
             siblingMethodName is not null && siblingOriginalOps is not null
                 ? (siblingMethodName, siblingOriginalOps)
-                : null);
+                : null,
+            scope);
     }
 
     static Result CompileBackPropertySetter(
@@ -1151,7 +1201,8 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var setter = reader.GetMethodDefinition(setterHandle);
@@ -1192,7 +1243,8 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts),
+            scope: scope);
     }
 
     static Result CompileBackTarget(
@@ -1210,7 +1262,8 @@ static class ReturnToSender
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
         Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
-        (string MethodName, string[] OriginalOpcodes)? sibling = null)
+        (string MethodName, string[] OriginalOpcodes)? sibling = null,
+        RoundTripScope scope = RoundTripScope.Cluster)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -1222,10 +1275,13 @@ static class ReturnToSender
         var references = CompilationReferences(assemblyPath).ToArray();
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
-        var closureRoots = new HashSet<TypeDefinitionHandle>
-        {
-            targetRoot,
-        };
+        var closureRoots = scope == RoundTripScope.All
+            ? reader.TypeDefinitions
+                .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType().IsNil)
+                .Where(handle => IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)))
+                .ToHashSet()
+            : [targetRoot];
+        closureRoots.Add(targetRoot);
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         const int maxRoots = 200;
         string originalOpcodes = string.Join(" ", originalOps);

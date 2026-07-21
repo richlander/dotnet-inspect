@@ -3,6 +3,7 @@ using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using DotnetInspector.RoundTripCompilation;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -16,6 +17,53 @@ namespace ILInspector.Decompiler.Tests;
 [Collection(ConsoleMutatorCollection.Name)]
 public class ReturnToSenderPrototypeTests
 {
+    [Fact]
+    public void CompileBackTargets_AllSeedsEverySupportedTopLevelRoot()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class Target
+            {
+                public static int Run() => 1;
+            }
+
+            public static class Unrelated
+            {
+                public static int Value() => 2;
+            }
+
+            public delegate void UnsupportedDelegate();
+            """);
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("Target", "Run", 0);
+            var cluster = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target],
+                RoundTripScope.Cluster));
+            var all = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [target],
+                RoundTripScope.All));
+
+            Assert.DoesNotContain("class Unrelated", cluster.Source);
+            Assert.Contains("class Unrelated", all.Source);
+            Assert.True(all.Plan.Types.Count > cluster.Plan.Types.Count);
+            Assert.Equal(RoundTripScope.Cluster, cluster.Scope);
+            Assert.Equal(RoundTripScope.All, all.Scope);
+            Assert.True(cluster.DeclarationComplete);
+            Assert.False(all.DeclarationComplete);
+            Assert.Contains("UnsupportedDelegate", all.UnsupportedDeclarations);
+            Assert.False(cluster.UsedCompileBackFloor, cluster.Detail);
+            Assert.False(all.UsedCompileBackFloor, all.Detail);
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.ContextFail, all.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_SynthesizesParameterlessConstructorForNestedDerivedType()
     {
