@@ -71,11 +71,11 @@ public sealed class StackAllocSpanPass : IIrPass
             StoreStackSlot? ownedStore = null;
             IrExpression source;
 
-            if (TryNormalizeConstantStackAlloc(pointer, out var directSource))
+            if (TryNormalizeConstantStackAlloc(pointer, count, element, out var directSource))
             {
                 source = directSource;
             }
-            else if (TryResolveOwnedSlotSource(newObject, pointer, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
+            else if (TryResolveOwnedSlotSource(newObject, pointer, count, element, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
             {
                 source = slotSource;
             }
@@ -162,6 +162,8 @@ public sealed class StackAllocSpanPass : IIrPass
     static bool TryResolveOwnedSlotSource(
         NewObject newObject,
         IrExpression pointer,
+        IrExpression count,
+        TypeRef element,
         Dictionary<int, List<StoreStackSlot>> storesBySlot,
         Dictionary<int, List<LoadStackSlot>> loadsBySlot,
         out IrExpression source,
@@ -182,14 +184,15 @@ public sealed class StackAllocSpanPass : IIrPass
             return false;
 
         var store = stores[0];
-        if (!TryNormalizeConstantStackAlloc(store.Value, out var normalized) || store.Parent is not Block parentBlock)
+        if (!TryNormalizeConstantStackAlloc(store.Value, count, element, out var normalized) || store.Parent is not Block parentBlock)
             return false;
 
         var loadStatement = GetStatement(load);
         if (loadStatement == null || loadStatement.Parent != parentBlock || loadStatement.ChildIndex != store.ChildIndex + 1)
             return false; // Escaped, reordered, or not adjacent to the store: some other statement could sit between them and observe or alter state before the load.
-        if (GetHeldExpression(loadStatement) != newObject)
-            return false; // The constructor call must be the statement's entire expression, not merely reachable somewhere inside it -- otherwise some other subexpression of the same statement (an earlier call argument, a ternary/coalesce/switch-expression branch, a short-circuited && / || operand, ...) could be evaluated unconditionally-but-not-first, or only conditionally, relative to the moved allocation.
+        var held = GetHeldExpression(loadStatement);
+        if (held == null || !ReachesAsOnlyPrecedingEffect(held, newObject))
+            return false; // The constructor call must be the statement's held expression itself, or an argument of a Call it sits in with every earlier-evaluated operand (receiver, earlier arguments) provably pure -- otherwise some other operand of the same statement (a ternary/coalesce/switch-expression branch, a short-circuited && / || operand, an earlier *effectful* call argument, ...) could be evaluated unconditionally-but-not-first, or only conditionally, relative to the moved allocation.
 
         source = normalized;
         ownedStore = store;
@@ -221,6 +224,43 @@ public sealed class StackAllocSpanPass : IIrPass
     };
 
     /// <summary>
+    /// Whether <paramref name="newObject"/> is <paramref name="expression"/>
+    /// itself, or sits as one of a <see cref="Call"/>'s arguments (which,
+    /// per <see cref="Call.Arguments"/>, includes the receiver first for an
+    /// instance call) with every argument evaluated *before* it in that
+    /// call's left-to-right evaluation order proven <see cref="IsSideEffectFree"/>
+    /// -- recursively, so a nested call's own preceding arguments are proven
+    /// too. This is the common, safe shape for the constructor call being
+    /// passed directly as a call argument (e.g. <c>Consume(new Span&lt;int&gt;(ptr,
+    /// n))</c>) -- moving the allocation to sit in the constructor's own
+    /// position changes nothing observable, since nothing effectful was
+    /// evaluated ahead of it either before or after the raise. Any other
+    /// shape (a ternary/coalesce/switch-expression branch, a short-circuited
+    /// operand, an argument evaluated strictly after an unproven earlier
+    /// one) is rejected: the raise could reorder an effectful operand across
+    /// the moved allocation, or move the allocation into a conditionally-
+    /// evaluated branch.
+    /// </summary>
+    static bool ReachesAsOnlyPrecedingEffect(IrExpression expression, NewObject newObject)
+    {
+        if (ReferenceEquals(expression, newObject))
+            return true;
+
+        if (expression is Call call)
+        {
+            foreach (var argument in call.Arguments)
+            {
+                if (ReachesAsOnlyPrecedingEffect(argument, newObject))
+                    return true;
+                if (!IsSideEffectFree(argument))
+                    return false; // An earlier operand with an unproven effect: reordering it past the moved allocation is not safe.
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Deep structural equality over the same expression shapes
     /// <see cref="IsSideEffectFree"/> permits -- used to prove a dynamic
     /// (non-constant) <see cref="StackAllocArray.Count"/> and the
@@ -249,35 +289,71 @@ public sealed class StackAllocSpanPass : IIrPass
     /// same allocation as the constructor's <paramref name="count"/> element
     /// argument under <paramref name="element"/>'s size, so raising doesn't
     /// silently reserve a different number of bytes than the constructor's
-    /// count implies. Requires both to be literal, nonnegative constants and
-    /// a known fixed primitive byte size for <paramref name="element"/>, with
-    /// an exact arithmetic match.
+    /// count implies.
     ///
-    /// <para>This only recognizes the literal-constant case
-    /// (<c>stackalloc byte[4]</c>) -- not a dynamic size, even a provably
-    /// pure one (<c>stackalloc int[n]</c>). The real compiler shape for a
-    /// dynamic count is a <c>checked unsigned</c> multiply over an
-    /// <c>int</c>-to-<c>nuint</c> convert chain that isn't an implicit C#
-    /// conversion (so isn't safe to strip generically) and, for primitive
-    /// element types, an already-folded <see cref="Constant"/> element size
-    /// rather than a symbolic <see cref="SizeOf"/> node -- recognizing that
-    /// shape soundly needs real compiled-fixture validation this pass does
-    /// not yet have, so it declines rather than risk a silent size mismatch.
-    /// A dynamic count reaching this pass through a <see cref="StackAllocArray"/>
-    /// source (the initializer/slot path) is unaffected: that count is
-    /// already an element count, not a byte size, so no arithmetic proof is
-    /// needed there.</para>
+    /// <para>Accepts two shapes. The real compiler shape for a dynamic
+    /// <c>stackalloc T[n]</c> (confirmed against this repo's own compiled
+    /// fixtures, not just a synthetic one) is a <b>checked, unsigned</b>
+    /// multiply -- <c>Binary { Multiply, IsChecked: true, IsUnsigned: true }</c>
+    /// -- of the count converted <c>int</c>-to-<c>nuint</c> (an explicit,
+    /// not implicit, C# conversion, so peeled here rather than via the
+    /// general-purpose <see cref="Unconvert"/>) and the element's byte size,
+    /// which for primitive element types the compiler folds to a literal
+    /// <see cref="Constant"/> rather than emitting a symbolic
+    /// <see cref="SizeOf"/> node (struct/generic element types still emit
+    /// <see cref="SizeOf"/>). Either operand order is accepted. Separately,
+    /// when both the size and count are literal constants (e.g.
+    /// <c>stackalloc byte[4]</c>, which the compiler folds to a bare
+    /// <see cref="Constant"/> with no multiply at all), a known fixed
+    /// primitive byte size for <paramref name="element"/> and an exact
+    /// arithmetic match is required.</para>
+    ///
+    /// <para>A dynamic count reaching this pass through a <see cref="StackAllocArray"/>
+    /// source (the initializer/slot path) is unaffected by any of this: that
+    /// count is already an element count, not a byte size, so no arithmetic
+    /// proof is needed there.</para>
     /// </summary>
     static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
     {
         var unwrappedSize = Unconvert(size);
         var unwrappedCount = Unconvert(count);
 
+        if (unwrappedSize is Binary { Kind: BinaryKind.Multiply, IsChecked: true, IsUnsigned: true } multiply
+            && (IsCheckedByteSizeProduct(multiply.Left, multiply.Right, unwrappedCount, element)
+                || IsCheckedByteSizeProduct(multiply.Right, multiply.Left, unwrappedCount, element)))
+            return true;
+
         return unwrappedSize is Constant { Value: int sizeValue } && sizeValue >= 0
             && unwrappedCount is Constant { Value: int countValue } && countValue >= 0
             && GetSizeOf(element) is { } elementSize
             && (long)sizeValue == (long)countValue * elementSize; // checked-width product: an int-width product can wrap around and falsely match a truncated size
     }
+
+    /// <summary>
+    /// One operand order of the checked-multiply byte-size proof: <paramref
+    /// name="countOperand"/> (after peeling an <c>int</c>-to-<c>nuint</c>
+    /// convert) must structurally equal <paramref name="count"/>, and
+    /// <paramref name="elementSizeOperand"/> must be a known byte size for
+    /// <paramref name="element"/> -- either a symbolic <see cref="SizeOf"/>
+    /// node or, for primitives, a folded literal <see cref="Constant"/>.
+    /// </summary>
+    static bool IsCheckedByteSizeProduct(IrExpression countOperand, IrExpression elementSizeOperand, IrExpression count, TypeRef element)
+    {
+        bool isElementSize = (elementSizeOperand is SizeOf sizeOf && sizeOf.Type.Equals(element))
+            || (elementSizeOperand is Constant { Value: int sizeValue } && GetSizeOf(element) == sizeValue);
+        return isElementSize && StructurallyEqual(PeelNuintConvert(countOperand), count);
+    }
+
+    /// <summary>
+    /// Peels a single <c>int</c>-to-<c>nuint</c> convert -- the conversion
+    /// the compiler emits to widen a dynamic stackalloc count before the
+    /// checked byte-size multiply. This is not an implicit C# conversion (so
+    /// <see cref="Unconvert"/> never strips it), but it is exactly the
+    /// conversion the compiler always inserts here, so it is safe to peel in
+    /// this one, specific structural position only.
+    /// </summary>
+    static IrExpression PeelNuintConvert(IrExpression expression)
+        => expression is Convert { Target: { Name: "UIntPtr" }, IsChecked: false } convert ? convert.Operand : expression;
 
     /// <summary>
     /// Strips only <see cref="Convert"/> wrappers proven value-preserving --
@@ -332,25 +408,25 @@ public sealed class StackAllocSpanPass : IIrPass
     /// Resolves a Span constructor's pointer argument to a stackalloc, whether
     /// direct or <c>Convert</c>-wrapped, unwrapping the wrapper to return the
     /// underlying <see cref="StackAllocate"/> or <see cref="StackAllocArray"/>
-    /// node itself, and requires its byte size (<see cref="StackAllocate.Size"/>)
+    /// node itself. Requires the discarded byte size (<see cref="StackAllocate.Size"/>)
     /// or element count (<see cref="StackAllocArray.Count"/>) to be provably
-    /// <see cref="IsSideEffectFree"/>. This pass always discards that size/count
-    /// expression (the constructor's own <c>length</c> argument is used
-    /// instead) — detaching and dropping an expression with an unproven side
-    /// effect would silently erase it. This gate only proves purity, not
-    /// that the discarded expression agrees with the constructor's
-    /// <c>length</c>: for <see cref="StackAllocArray"/> that agreement is
-    /// checked separately below (by count or by <see cref="StructurallyEqual"/>),
-    /// and for <see cref="StackAllocate"/> it is checked by
-    /// <see cref="IsProvenByteSize"/>, which declines a dynamic (non-literal)
-    /// size even though it would pass this purity gate -- see its own doc
-    /// comment for why. Returning the unwrapped node (rather than a possibly-<c>Convert</c>-
+    /// safe to drop: either generically <see cref="IsSideEffectFree"/>, or --
+    /// for a <see cref="StackAllocate"/> size only -- the real compiler's
+    /// checked byte-size product proven equal to <paramref name="count"/> *
+    /// <paramref name="element"/>'s size by <see cref="IsProvenByteSize"/>.
+    /// That proof, not mere purity, is what makes discarding this specific
+    /// shape sound: the checked multiply's only possible effect is the same
+    /// overflow throw the raised <c>stackalloc T[n]</c> form's own byte-size
+    /// computation reproduces, so nothing observable is silently erased.
+    /// For <see cref="StackAllocArray"/> that agreement is instead checked
+    /// separately below (by count or by <see cref="StructurallyEqual"/>).
+    /// Returning the unwrapped node (rather than a possibly-<c>Convert</c>-
     /// wrapped <paramref name="pointer"/>) is required so later checks that
     /// pattern-match on <see cref="StackAllocArray"/> (element type,
     /// initializer count) see through the wrapper instead of silently skipping
     /// validation.
     /// </summary>
-    static bool TryNormalizeConstantStackAlloc(IrExpression pointer, out IrExpression normalized)
+    static bool TryNormalizeConstantStackAlloc(IrExpression pointer, IrExpression count, TypeRef element, out IrExpression normalized)
     {
         var candidate = pointer;
         if (candidate is Convert { IsChecked: false, Operand: StackAllocate or StackAllocArray, Target: { } target } converted && IsPointerLikeTarget(target))
@@ -358,8 +434,8 @@ public sealed class StackAllocSpanPass : IIrPass
 
         switch (candidate)
         {
-            case StackAllocate { Size: { } size } when IsSideEffectFree(size):
-            case StackAllocArray { Count: { } count } when IsSideEffectFree(count):
+            case StackAllocate { Size: { } size } when IsSideEffectFree(size) || IsProvenByteSize(size, count, element):
+            case StackAllocArray { Count: { } arrayCount } when IsSideEffectFree(arrayCount):
                 normalized = candidate;
                 return true;
             default:

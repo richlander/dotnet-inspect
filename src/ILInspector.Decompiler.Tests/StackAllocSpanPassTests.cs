@@ -155,23 +155,19 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
-    public void DirectPointerWithDynamicPureSize_DoesNotRaise()
+    public void DirectPointerWithUncheckedDynamicSize_DoesNotRaise()
     {
-        // A dynamic-but-pure size (a local read, or arithmetic over one -- the
-        // `stackalloc byte[n]` shape) is deliberately declined on this direct
-        // (non-initializer) StackAllocate path: IsProvenByteSize only accepts
-        // a literal-constant size/count pair. This is a scoped limitation,
-        // not an oversight -- a real compiled `stackalloc int[n]` (no
-        // initializer) emits a `checked unsigned` multiply over an
-        // int-to-nuint convert chain that isn't a safe-to-strip implicit C#
-        // conversion, and for primitive element types a folded literal
-        // Constant element size rather than a symbolic SizeOf node; recognizing
-        // that real shape soundly needs compiled-fixture validation this pass
-        // does not yet have, so it declines conservatively instead of raising
-        // on an unproven synthetic shape (see issue tracking this follow-up).
+        // An unchecked, signed dynamic size (n * sizeof(T) with no checked
+        // arithmetic) is declined: it is not the shape the real compiler
+        // emits (see DirectPointerWithCheckedNuintByteSize_Raises below for
+        // that), and accepting an arbitrary unchecked multiply here would
+        // require re-deriving -- not just proving equal to -- the
+        // constructor's own count, since IsSideEffectFree alone doesn't
+        // establish the two expressions describe the same allocation.
         // The size's own `n` and the constructor's count argument are the
         // same LoadLocal(0), which would have matched a canonical
-        // `count * sizeof(element)` byte-size shape if one were recognized.
+        // `count * sizeof(element)` byte-size shape if one were recognized
+        // for this (unchecked) arithmetic kind.
         var size = new Binary(BinaryKind.Multiply, isChecked: false, isUnsigned: false, new LoadLocal(0, Int32), new SizeOf(Int32));
         var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size), new LoadLocal(0, Int32)));
 
@@ -179,6 +175,33 @@ public class StackAllocSpanPassTests
 
         Assert.Single(function.Descendants.OfType<NewObject>());
         Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedNuintByteSize_Raises()
+    {
+        // The real compiler shape for a dynamic `stackalloc T[n]` (confirmed
+        // against this repo's own compiled fixtures): a checked, unsigned
+        // multiply of the count widened int-to-nuint and the element's byte
+        // size (folded to a literal Constant for primitive element types).
+        // IsProvenByteSize proves this checked multiply computes exactly
+        // count * sizeof(element), which is what makes it sound to discard
+        // even though a checked multiply is not generically IsSideEffectFree
+        // (its only possible effect -- an OverflowException -- is the same
+        // one the raised stackalloc T[n] form's own byte-size computation
+        // reproduces).
+        var count = new LoadLocal(0, Int32);
+        var nuintConvert = new IrConvert(TypeRef.CoreLib("System", "UIntPtr"), isChecked: false, isUnsigned: false, count);
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, nuintConvert, new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size), new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocate>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.False(raised.HasInitializer);
         function.CheckInvariant();
     }
 
@@ -711,6 +734,79 @@ public class StackAllocSpanPassTests
         var construction = Assert.Single(function.Descendants.OfType<NewObject>());
         Assert.Same(newObject, construction);
         Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithLoadAsSoleCallArgument_Raises()
+    {
+        // The common real-world shape: the constructor call is passed
+        // directly as a call's only argument -- Consume(new Span<int>(ptr,
+        // n)) -- rather than being the statement's entire expression. Nothing
+        // evaluates before it (no receiver, no earlier argument), so moving
+        // the allocation to sit at the constructor's own position changes
+        // nothing observable. This must raise even though the statement's
+        // held expression is the enclosing Consume(...) call, not the
+        // constructor call itself.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var consume = new Call(new MethodRef(Holder, "Consume", Void, [newObject.ResultType!], HasThis: false), isVirtual: false, [newObject]);
+        var expressionStatement = new ExpressionStatement(consume);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(expressionStatement);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocate>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Same(consume, raised.Parent);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithLoadNestedAsEarlierSideEffectFreeCallArgument_Raises()
+    {
+        // An earlier argument of the same enclosing Call is allowed when it
+        // is provably side-effect-free (here, a bare local load): nothing
+        // effectful can be reordered past the moved allocation.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var earlier = new LoadLocal(0, Int32);
+        var consume = new Call(new MethodRef(Holder, "Consume", Void, [Int32, newObject.ResultType!], HasThis: false), isVirtual: false, [earlier, newObject]);
+        var expressionStatement = new ExpressionStatement(consume);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(expressionStatement);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Same(consume, raised.Parent);
         function.CheckInvariant();
     }
 
