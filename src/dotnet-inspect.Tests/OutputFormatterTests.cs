@@ -200,7 +200,7 @@ public class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiOutputFormatter.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
@@ -229,7 +229,7 @@ public class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiOutputFormatter.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage },
             new PerformanceTriageOptions { Shapes = ["allocation-fanout"] });
 

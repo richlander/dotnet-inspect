@@ -1,5 +1,4 @@
 using DotnetInspector.Inspectors;
-using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.CSharp;
 using ILInspector.Findings;
@@ -30,53 +29,6 @@ public static class ApiOutputFormatter
         new CSharpFormatOptions { AbbreviateSignature = true });
     static readonly CSharpFormatter CSharpFormatterWithoutObsolete = new(
         new CSharpFormatOptions { IncludeObsoleteAttribute = false });
-
-    static IAssemblyReferenceResolver AnalysisReferenceResolver(string dllPath, ApiOptions? options = null)
-        => ApiCommand.PlatformAssemblyResolver(dllPath, options?.ProjectAssetsPath, options?.Tfm);
-
-    /// <summary>
-    /// Which expensive whole-assembly analysis phases the requested sections actually consume.
-    /// Escape-classified allocation occurrences feed Allocation Facts (and, transitively,
-    /// optimization opportunities); optimization opportunities feed Performance Triage. Every other
-    /// analysis section (Calls / Callers / Call Graph / Top Leverage / Cost / Safety / Unsafe /
-    /// Called Types) needs neither, so the index build can skip both. A null/unknown set is treated
-    /// as "needs everything" (safe default).
-    /// </summary>
-    internal static (bool IncludeAllocations, bool IncludeOpportunities) AnalysisScopeFor(IReadOnlyCollection<string>? requestedSections)
-    {
-        if (requestedSections is null)
-            return (true, true);
-        bool opportunities = requestedSections.Contains(SectionNames.PerformanceTriage);
-        bool allocations = opportunities || requestedSections.Contains(SectionNames.AllocationFacts);
-        return (allocations, opportunities);
-    }
-
-    /// <summary>
-    /// Opens a type-scope analysis index for the type/library sections. Callers memoize this per
-    /// type so the five type-analysis populators share one index build instead of opening five. The
-    /// build is narrowed to the phases <paramref name="requestedSections"/> consumes, and — when
-    /// <paramref name="type"/> is supplied and no requested section needs the whole-assembly reverse
-    /// graph (Top Leverage / Performance Triage) — to only that type's method bodies.
-    /// </summary>
-    internal static Analysis.LibraryBodyIndex OpenTypeAnalysisIndex(string dllPath, IReadOnlyCollection<string>? requestedSections = null, ApiType? type = null)
-    {
-        var (allocations, opportunities) = AnalysisScopeFor(requestedSections);
-        // Unsafe Members, Called Types, and the Allocation/Safety/Cost facts read only the type's
-        // own method bodies; Top Leverage (whole-assembly fanin) and Performance Triage (leverage
-        // join) need every method, so their presence forces a full build.
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null;
-        if (type is not null && requestedSections is not null
-            && !requestedSections.Contains(SectionNames.TopLeverage)
-            && !requestedSections.Contains(SectionNames.PerformanceTriage))
-            bodyTypeScope = typeRef => SameType(typeRef, type);
-        return MethodBodyInspectionSession.Open(
-            dllPath,
-            AnalysisReferenceResolver(dllPath),
-            allocations,
-            opportunities,
-            bodyScope: null,
-            bodyTypeScope: bodyTypeScope).BodyIndex;
-    }
 
     // ===== Full API View Model Factory =====
 
@@ -1188,7 +1140,17 @@ public static class ApiOutputFormatter
         return parenStart < 0 ? "()" : declaration[parenStart..];
     }
 
-    internal static void PopulateIndexSections(TypeView view, ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex, IReadOnlySet<string> requestedSections, string? pdbPath = null, IReadOnlySet<string>? explicitSections = null, IReadOnlyList<string>? callerScopeAssemblies = null, ApiOptions? options = null)
+    internal static void PopulateIndexSections(
+        TypeView view,
+        ApiType type,
+        List<ApiMember> methods,
+        string dllPath,
+        int? overloadIndex,
+        IReadOnlySet<string> requestedSections,
+        ApiMemberAnalysisInspection analysisInspection,
+        string? pdbPath = null,
+        IReadOnlySet<string>? explicitSections = null,
+        ApiOptions? options = null)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
@@ -1215,44 +1177,6 @@ public static class ApiOutputFormatter
 
         var memberCode = new MemberCodeView();
         bool hasCode = false;
-        var assemblyResolver = AnalysisReferenceResolver(dllPath, options);
-
-        // Build the analysis body index at most once per command, and only when an
-        // index-backed section is actually requested (sections like decompiled source / IL
-        // go through MemberCodeProvider and never touch it). Every index-backed block below
-        // shares this one session instead of re-opening and re-analyzing every method body.
-        // The build is narrowed to the phases the requested sections actually consume.
-        var (indexInclAllocations, indexInclOpportunities) = AnalysisScopeFor(requestedSections);
-        // Call Graph / Caller Graph allocation and IL-evidence annotations (opt-in via
-        // --fields/--columns) read allocation-derived method signals, so the escape-classified
-        // allocation phase must run when those graphs are rendered with explicit fields.
-        if ((requestedSections.Contains(SectionNames.CallGraph) || requestedSections.Contains(SectionNames.CallerGraph))
-            && (options?.Fields is { Length: > 0 } || options?.Columns is { Length: > 0 }))
-            indexInclAllocations = true;
-
-        // Targeted (single-member) build: when no requested index-backed section needs the
-        // whole-assembly reverse graph (Callers / Call Graph / Caller Graph), the shared index only
-        // decodes the selected member(s) instead of every method body. The remaining index-backed
-        // member sections — Calls, Unsafe Operations, and the Allocation/Safety/Cost facts — read
-        // only the selected member's own body, so their output is identical to a full build (verified
-        // across the DirectCalls / UnsafeEvidence / UnsafetyOccurrences / AllocationOccurrences facts).
-        IReadOnlySet<int>? bodyScope = null;
-        bool needsWholeAssemblyBody = requestedSections.Contains(SectionNames.Callers)
-            || requestedSections.Contains(SectionNames.CallGraph)
-            || requestedSections.Contains(SectionNames.CallerGraph);
-        if (!needsWholeAssemblyBody)
-        {
-            var memberTokens = methods.Where(m => m.MetadataToken.HasValue).Select(m => m.MetadataToken!.Value).ToHashSet();
-            // Only target when every selected member carries a token (a missing token would mean a
-            // rendered member is absent from the scope); otherwise fall back to a full build.
-            if (memberTokens.Count > 0 && memberTokens.Count == methods.Count)
-                bodyScope = memberTokens;
-        }
-
-        MethodBodyInspectionSession? indexSession = null;
-        MethodBodyInspectionSession IndexSession() =>
-            indexSession ??= MethodBodyInspectionSession.Open(dllPath, assemblyResolver, indexInclAllocations, indexInclOpportunities, bodyScope);
-
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
         var singleMethod = overloadIndex.HasValue
@@ -1267,7 +1191,7 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
-            var callsByCaller = IndexSession().BodyIndex.GetDirectCallsByCaller();
+            var callsByCaller = analysisInspection.BodyIndex.GetDirectCallsByCaller();
             var calls = callsByCaller.TryGetValue(token, out var directCalls)
                 ? directCalls
                 : ImmutableArray<Analysis.DirectCall>.Empty;
@@ -1293,8 +1217,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Contains(SectionNames.ExceptionRegions) && singleMethodList is [{ MetadataToken: { } exceptionToken } exceptionMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.exception-regions", exceptionMethod.Name);
-            using var pdbContext = PdbContext.Open(dllPath);
-            var regions = pdbContext.ResolveExceptionRegions(exceptionToken, out var error)
+            var regions = analysisInspection.ResolveExceptionRegions(exceptionToken, out var error)
                 .Select(region => new ExceptionRegionRow(
                     region.Region,
                     region.Clause,
@@ -1315,32 +1238,13 @@ public static class ApiOutputFormatter
         if (request.Callers && methods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
-            var callerSession = IndexSession();
             var rows = new List<CallerSiteRow>();
-
-            // Open each caller-scope assembly once as its own session (skipping any that fail to
-            // load); the edge facet attributes cross-assembly hits to each scope's SourceName.
-            var scopeSessions = new List<MethodBodyInspectionSession>();
-            if (callerScopeAssemblies is { Count: > 0 })
-            {
-                foreach (var scopePath in callerScopeAssemblies)
-                {
-                    try
-                    {
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: false, includeOpportunities: false));
-                    }
-                    catch
-                    {
-                        // Unreadable scope assembly: skip, matching the prior per-method open behavior.
-                    }
-                }
-            }
 
             // Collect callers for each method (all overloads if multiple methods selected)
             foreach (var method in methods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
-                rows.AddRange(callerSession.CallerEdges(targetToken, scopeSessions)
+                rows.AddRange(analysisInspection.CallerEdges(targetToken)
                     .Select(edge => CreateCallerRow(edge.Source, edge.Call)));
             }
 
@@ -1364,7 +1268,7 @@ public static class ApiOutputFormatter
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
             var root = ToCallGraphNode(
-                IndexSession().BodyIndex.BuildCallTree(graphToken),
+                analysisInspection.BuildCallTree(graphToken),
                 GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 })
             {
@@ -1382,29 +1286,7 @@ public static class ApiOutputFormatter
         if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
-            var callerSession = IndexSession();
-            // Extend the reverse graph across the caller scope (--bin/--project/--caller-package)
-            // so a dependency member surfaces the product entry points and callers that reach it.
-            var scopeSessions = new List<MethodBodyInspectionSession>();
-            if (callerScopeAssemblies is { Count: > 0 })
-            {
-                foreach (var scopePath in callerScopeAssemblies)
-                {
-                    try
-                    {
-                        // External caller nodes carry their scope assembly's method signals, so the
-                        // scope build needs allocations whenever this graph renders allocation/IL
-                        // fields (indexInclAllocations already captures that). Opportunities are never
-                        // read from the reverse graph.
-                        scopeSessions.Add(MethodBodyInspectionSession.Open(scopePath, AnalysisReferenceResolver(scopePath, options), includeAllocations: indexInclAllocations, includeOpportunities: false));
-                    }
-                    catch
-                    {
-                        // Best-effort: an unreadable scope assembly just doesn't contribute callers.
-                    }
-                }
-            }
-            var callerTree = callerSession.CallerTree(callerGraphToken, scopeSessions);
+            var callerTree = analysisInspection.BuildCallerTree(callerGraphToken);
             var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
             if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
             {
@@ -1416,7 +1298,7 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var evidence = InspectSafetyFindings(IndexSession().BodyIndex, unsafeToken)
+            var evidence = InspectSafetyFindings(analysisInspection.BodyIndex, unsafeToken)
                 .Evidence
                 .Select(static finding => finding.Payload)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
@@ -1458,12 +1340,10 @@ public static class ApiOutputFormatter
         if (requestedSections.Overlaps(SemanticFactSections) && singleMethodList is [{ MetadataToken: { } semanticToken } semanticMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.semantic-facts", semanticMethod.Name);
-            var bodySession = IndexSession();
-
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
                 var rows = Analysis.SemanticFactProjection.AllocationFacts(
-                        bodySession.BodyIndex.GetAllocationOccurrences(),
+                        analysisInspection.BodyIndex.GetAllocationOccurrences(),
                         semanticToken)
                     .Select(fact => ToAllocationFactRow(fact, includeMember: false))
                     .ToList();
@@ -1476,7 +1356,7 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
-                var safety = InspectSafetyFindings(bodySession.BodyIndex, semanticToken);
+                var safety = InspectSafetyFindings(analysisInspection.BodyIndex, semanticToken);
                 var rows = Analysis.SemanticFactProjection.SafetyFacts(
                         safety.Evidence,
                         safety.Operations)
@@ -1492,7 +1372,7 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
                 var rows = Analysis.SemanticFactProjection.CostFacts(
-                        bodySession.BodyIndex.GetDirectCallsByCaller(),
+                        analysisInspection.BodyIndex.GetDirectCallsByCaller(),
                         semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
@@ -1905,7 +1785,7 @@ public static class ApiOutputFormatter
     {
         var rows = index
             .UnsafeEvidence
-            .Where(evidence => SameType(evidence.Member.DeclaringType, type))
+            .Where(evidence => ApiAnalysisInspection.SameType(evidence.Member.DeclaringType, type))
             .GroupBy(evidence => evidence.Member.MetadataToken)
             .SelectMany(group =>
             {
@@ -1928,26 +1808,23 @@ public static class ApiOutputFormatter
     internal static void PopulateTypeExceptionRegions(
         TypeView view,
         ApiType type,
-        string dllPath,
+        IReadOnlyList<ApiAnalysisInspection.MemberExceptionRegion> exceptionRegions,
         IReadOnlySet<string>? explicitSections = null)
     {
-        using var pdbContext = PdbContext.Open(dllPath);
-        var rows = type.Members
-            .Where(member => member.MetadataToken is not null && ApiMemberSectionDescriptors.IsMethodLike(member))
-            .OrderBy(member => GetMemberSortOrder(member.Kind))
-            .ThenBy(member => member.Name, StringComparer.Ordinal)
-            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-            .SelectMany(member => pdbContext.ResolveExceptionRegions(member.MetadataToken!.Value, out _)
-                .Select(region => new TypeExceptionRegionRow(
-                    MarkoutInline.Code(GetMemberDisplaySignature(type, member)),
-                    region.Region,
-                    region.Clause,
-                    FormatILRange(region.TryStart, region.TryEnd),
-                    FormatILRange(region.HandlerStart, region.HandlerEnd),
-                    region.FilterStart is { } filterStart && region.FilterEnd is { } filterEnd
+        var rows = exceptionRegions
+                .OrderBy(item => GetMemberSortOrder(item.Member.Kind))
+                .ThenBy(item => item.Member.Name, StringComparer.Ordinal)
+                .ThenBy(item => GetMemberSignatureSortKey(item.Member), StringComparer.Ordinal)
+                .Select(item => new TypeExceptionRegionRow(
+                    MarkoutInline.Code(GetMemberDisplaySignature(type, item.Member)),
+                    item.Region.Region,
+                    item.Region.Clause,
+                    FormatILRange(item.Region.TryStart, item.Region.TryEnd),
+                    FormatILRange(item.Region.HandlerStart, item.Region.HandlerEnd),
+                    item.Region.FilterStart is { } filterStart && item.Region.FilterEnd is { } filterEnd
                         ? FormatILRange(filterStart, filterEnd)
                         : null,
-                    region.CaughtType)))
+                    item.Region.CaughtType))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.ExceptionRegions))
@@ -1961,7 +1838,7 @@ public static class ApiOutputFormatter
         IReadOnlySet<string>? explicitSections = null)
     {
         var rows = index
-            .CalledTypes(method => SameType(method.DeclaringType, type))
+            .CalledTypes(method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
                 string.IsNullOrEmpty(summary.Assembly) ? null : summary.Assembly,
@@ -2038,7 +1915,7 @@ public static class ApiOutputFormatter
             : null;
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
                 LibraryMetadataService.TriageOpportunities(index, options)
-                    .Where(opportunity => SameType(opportunity.Method.DeclaringType, type))
+                    .Where(opportunity => ApiAnalysisInspection.SameType(opportunity.Method.DeclaringType, type))
                     .Where(opportunity => !LibraryMetadataService.IsGeneratedMethod(opportunity.Method, index.GeneratedFrameworkTypeNames))
                     .Where(opportunity => memberTokens is null || memberTokens.Contains(opportunity.Method.MetadataToken)),
                 options)
@@ -2148,7 +2025,7 @@ public static class ApiOutputFormatter
         // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
-        var rows = index.TopLeverage(count: int.MaxValue, scope: method => SameType(method.DeclaringType, type))
+        var rows = index.TopLeverage(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
@@ -2241,22 +2118,6 @@ public static class ApiOutputFormatter
             name += $"<{string.Join(", ", typeArgs.Select(t => t.ToQualifiedDisplayString()))}>";
         string signature = $"{name}({string.Join(", ", parameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
         return declaringType is null ? signature : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
-    }
-
-    internal static bool SameType(Analysis.TypeRef typeRef, ApiType type)
-    {
-        if (typeRef.Kind != Analysis.TypeRefKind.Definition)
-            return false;
-        if (!string.Equals(typeRef.Namespace, type.Namespace ?? "", StringComparison.Ordinal))
-            return false;
-
-        if (type.MetadataName != null)
-            return string.Equals(typeRef.Name, type.MetadataName, StringComparison.Ordinal);
-
-        // Fallback for older serialized JSON where MetadataName is absent.
-        // Nested types use the metadata '+' separator in the analysis TypeRef
-        // (Outer+Inner) but the '.' separator in the API surface (Outer.Inner).
-        return string.Equals(typeRef.Name.Replace('+', '.'), type.Name, StringComparison.Ordinal);
     }
 
     /// <summary>
