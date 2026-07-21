@@ -1,24 +1,36 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
-// A cross-assembly enum (System.DayOfWeek, System.AttributeTargets — CoreLib, not
-// this test assembly) resolves to TypeShape.Unknown on decompile: EnsureTypeMaps
-// only walks the target assembly's own type defs, so no referenced enum's shape is
-// registered. A sibling int therefore never retypes, leaving `enum == int` /
-// `enum & int` (CS0019). The printer recognizes the enum structurally and casts the
-// integer operand to the enum type. The same-assembly enums (CfgPriority, CfgStyles)
-// resolve to TypeShape.Enum and are unaffected — covered by RefEnumBitwiseTests.
+// Cross-assembly enums (System.DayOfWeek, System.AttributeTargets — CoreLib, not
+// this test assembly) must flow through the resolver-backed classifier into the
+// importer's TypeShapes. The same-assembly enums (CfgPriority, CfgStyles) are
+// covered by RefEnumBitwiseTests.
 public class CrossAssemblyEnumIntegerTests
 {
     static string Render(string methodName)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
         return CSharpPrinter.Print(function).Output!;
+    }
+
+    static IrFunction Import(string methodName, IAssemblyReferenceResolver resolver)
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location,
+            null,
+            resolver);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        return function!;
     }
 
     [Fact]
@@ -64,5 +76,36 @@ public class CrossAssemblyEnumIntegerTests
         Assert.Contains("case (DayOfWeek)2:", output);
         Assert.DoesNotContain("case 1:", output);
         Assert.DoesNotContain("case 2:", output);
+    }
+
+    [Fact]
+    public void ResolvedCrossAssemblyEnum_PopulatesImporterEnumShape()
+    {
+        var function = Import(
+            nameof(CfgSampleClass.CrossAssemblyEnumConditional),
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        var commandBehavior = Assert.Single(
+            function.TypeShapes!,
+            pair => pair.Key.Namespace == "System.Data" && pair.Key.Name == "CommandBehavior");
+        Assert.Equal(TypeShape.Enum, commandBehavior.Value);
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("(CommandBehavior)", output);
+    }
+
+    [Fact]
+    public void UnresolvedCrossAssemblyStruct_DoesNotPopulateEnumShape()
+    {
+        var function = Import(
+            nameof(CfgSampleClass.CrossAssemblyStructConditional),
+            TestAssemblyReferenceResolvers.None);
+
+        var dateTime = Assert.Single(
+            function.TypeShapes!,
+            pair => pair.Key.Namespace == "System" && pair.Key.Name == "DateTime");
+        Assert.Equal(TypeShape.ValueType, dateTime.Value);
     }
 }

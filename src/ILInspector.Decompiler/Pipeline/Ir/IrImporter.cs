@@ -642,7 +642,13 @@ public static class IrImporter
                 type = type.ElementType;
             if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
                 return;
-            var shape = source.ResolveShape(type);
+            var shape = source.ClassifyType(type) switch
+            {
+                TypeShapeKind.Enum => TypeShape.Enum,
+                TypeShapeKind.Struct => TypeShape.ValueType,
+                TypeShapeKind.Class or TypeShapeKind.Interface or TypeShapeKind.Delegate => TypeShape.Reference,
+                _ => TypeShape.Unknown,
+            };
             shapes[type] = shape;
             if (source.IsUnionType(type))
                 unionTypes.Add(type);

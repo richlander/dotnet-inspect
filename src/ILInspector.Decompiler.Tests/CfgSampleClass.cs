@@ -1317,11 +1317,8 @@ public class CfgSampleClass
 
     // --- Cross-assembly enum vs integer (CS0019) ---
     // System.DayOfWeek / System.AttributeTargets live in CoreLib, not this test
-    // assembly, so on decompile ResolveShape returns Unknown — the enum loses its
-    // shape and a sibling int constant or value never retypes. The printer must
-    // recognize the enum structurally (a named definition with no stack family,
-    // opposite an integer) and cast the integer operand to the enum type, or the
-    // comparison/bitwise op is CS0019 (`enum == int` / `enum & int`).
+    // assembly. Resolver-backed classification must preserve their enum shape so
+    // integer operands are cast to the enum type rather than producing CS0019.
 
     // `(int)day` is a no-op on the stack (an enum is already its underlying int),
     // so the IL is a bare `ceq` of the enum arg against the int arg. Decompiled
@@ -1340,6 +1337,23 @@ public class CfgSampleClass
     // which then can't be called on an instance (CS0176). The fix casts the
     // argument to the enum: `s.Equals("x", (StringComparison)5)`.
     public static bool CrossAssemblyEnumCallArgument(string s) => s.Equals("x", System.StringComparison.OrdinalIgnoreCase);
+
+    static void TakesCommandBehavior(System.Data.CommandBehavior behavior) => _ = behavior;
+
+    // Keep a non-constant conditional value in a cross-assembly enum target. The
+    // importer must preserve the resolved enum shape so any materialized join
+    // slot is typed as CommandBehavior rather than int.
+    public static void CrossAssemblyEnumConditional(bool single) =>
+        TakesCommandBehavior(single
+            ? System.Data.CommandBehavior.SequentialAccess | System.Data.CommandBehavior.SingleResult
+            : System.Data.CommandBehavior.SequentialAccess | System.Data.CommandBehavior.SingleResult | System.Data.CommandBehavior.SingleRow);
+
+    // Close negative for the same classification projection: an unresolved
+    // external value type retains its signature hint as a struct, never an enum.
+    public static System.DateTime CrossAssemblyStructConditional(
+        bool first,
+        System.DateTime left,
+        System.DateTime right) => first ? left : right;
 
     // A `switch` over a cross-assembly enum (DayOfWeek, CoreLib): the IL jump
     // table switches on the enum's underlying int, so the raised case labels are
